@@ -573,7 +573,7 @@ static inline int gc_setmark_big(void *o, int mark_mode)
 #endif
     }
     _gc_setmark(o, mark_mode);
-    verify_val(o);
+    verify_val(jl_valueof(o));
     return mark_mode;
 }
 
@@ -601,7 +601,7 @@ static inline int gc_setmark_pool(void *o, int mark_mode)
     }
     _gc_setmark(o, mark_mode);
     page->gc_bits |= mark_mode;
-    verify_val(o);
+    verify_val(jl_valueof(o));
     return mark_mode;
 }
 
@@ -1460,7 +1460,7 @@ static inline int gc_push_root(void *v, int d) // v isa jl_value_t*
 #endif
     assert(v != NULL);
     jl_taggedvalue_t* o = jl_astaggedvalue(v);
-    verify_val(o);
+    verify_val(v);
     int bits = gc_bits(o);
     if (!gc_marked(o)) {
         return push_root((jl_value_t*)v, d, bits);
@@ -1930,12 +1930,14 @@ static void clear_mark(int bits)
     for(int i = 0; i < 4; i++)
         bits_save[i].len = 0;
     }
-
-    bigval_t *bigs[] = { big_objects, big_objects_marked };
+    void *current_heap = NULL;
+    bigval_t *bigs[2];
+    bigs[0] = big_objects;
+    bigs[1] = big_objects_marked;
     for (int i = 0; i < 2; i++) {
         bigval_t *v = bigs[i];
         while (v != NULL) {
-            void* gcv = &v->_data;
+            void* gcv = &v->data;
             if (!verifying) arraylist_push(&bits_save[gc_bits(gcv)], gcv);
             gc_bits(gcv) = bits;
             v = v->next;
@@ -1992,7 +1994,8 @@ static void gc_verify_track(void)
             lostval_parent = (jl_value_t*)lostval_parents.items[i];
             int clean_len = bits_save[GC_CLEAN].len;
             for(int j = 0; j < clean_len + bits_save[GC_QUEUED].len; j++) {
-                if (bits_save[j >= clean_len ? GC_QUEUED : GC_CLEAN].items[j >= clean_len ? j - clean_len : j] == lostval_parent) {
+                void* p = bits_save[j >= clean_len ? GC_QUEUED : GC_CLEAN].items[j >= clean_len ? j - clean_len : j];
+                if (jl_valueof(p) == lostval_parent) {
                     lostval = lostval_parent;
                     lostval_parent = NULL;
                     break;
@@ -2029,9 +2032,9 @@ static void gc_verify(void)
         gcval_t* v = (gcval_t*)bits_save[i >= clean_len ? GC_QUEUED : GC_CLEAN].items[i >= clean_len ? i - clean_len : i];
         if (gc_marked(v)) {
             jl_printf(JL_STDERR, "Error. Early free of 0x%lx type :", (uptrint_t)v);
-            jl_(jl_typeof(v));
+            jl_(jl_typeof(jl_valueof(v)));
             jl_printf(JL_STDERR, "val : ");
-            jl_(v);
+            jl_(jl_valueof(v));
             jl_printf(JL_STDERR, "Let's try to backtrack the missing write barrier :\n");
             lostval = v;
             break;
