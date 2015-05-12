@@ -15,11 +15,7 @@ ifeq ($(JULIA_BINARYDIST_TARNAME),)
 	JULIA_BINARYDIST_TARNAME = julia-$(JULIA_COMMIT)-$(OS)-$(ARCH)
 endif
 
-ifeq ($(JULIA_DEBUG), 1)
-default: debug
-else
-default: release
-endif
+default: $(JULIA_BUILD_MODE) # contains either "debug" or "release"
 all: debug release
 
 # sort is used to remove potential duplicates
@@ -42,17 +38,10 @@ $(build_docdir):
 	@cp -R examples/*.jl $@/examples/
 	@cp -R examples/clustermanager $@/examples/
 
-julia-symlink-debug: julia-ui-debug
+julia-symlink: julia-ui-$(JULIA_BUILD_MODE)
 ifneq ($(OS),WINNT)
 ifndef JULIA_VAGRANT_BUILD
-	@ln -sf "$(build_bindir)/julia-debug" julia
-endif
-endif
-
-julia-symlink-release: julia-ui-release
-ifneq ($(OS),WINNT)
-ifndef JULIA_VAGRANT_BUILD
-	@ln -sf "$(build_bindir)/julia" julia
+	@ln -sf "$(JULIA_EXECUTABLE)" julia
 endif
 endif
 
@@ -65,16 +54,16 @@ julia-base: julia-deps
 julia-libccalltest:
 	@$(MAKE) $(QUIET_MAKE) -C test libccalltest
 
-julia-src-%: julia-deps
+julia-src-release julia-src-debug : julia-src-% : julia-deps
 	@$(MAKE) $(QUIET_MAKE) -C src libjulia-$*
 
-julia-ui-%: julia-src-%
+julia-ui-release julia-ui-debug : julia-ui-% : julia-src-%
 	@$(MAKE) $(QUIET_MAKE) -C ui julia-$*
 
-julia-sysimg-% : julia-ui-% julia-base
-	@$(MAKE) $(QUIET_MAKE) LD_LIBRARY_PATH=$(build_libdir):$(LD_LIBRARY_PATH) JULIA_EXECUTABLE="$(JULIA_EXECUTABLE_$*)" $(build_private_libdir)/sys.$(SHLIB_EXT)
+julia-sysimg : julia-base julia-ui-$(JULIA_BUILD_MODE)
+	@$(MAKE) $(QUIET_MAKE) $(build_private_libdir)/sys.$(SHLIB_EXT) JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)
 
-julia-debug julia-release : julia-% : julia-symlink-% julia-sysimg-% julia-libccalltest
+julia-debug julia-release : julia-% : julia-ui-% julia-symlink julia-sysimg julia-libccalltest
 
 debug release : % : julia-%
 
@@ -247,8 +236,7 @@ $(eval $(call std_dll,ssp-0))
 endif
 
 install: $(build_bindir)/stringreplace doc/_build/html
-	@$(MAKE) $(QUIET_MAKE) release
-	@$(MAKE) $(QUIET_MAKE) debug
+	@$(MAKE) $(QUIET_MAKE) all
 	@for subdir in $(bindir) $(libexecdir) $(datarootdir)/julia/site/$(VERSDIR) $(docdir) $(man1dir) $(includedir)/julia $(libdir) $(private_libdir) $(sysconfdir); do \
 		mkdir -p $(DESTDIR)$$subdir; \
 	done
@@ -474,31 +462,32 @@ distcleanall: cleanall
 	rm -fr $(build_prefix)
 
 .PHONY: default debug release check-whitespace release-candidate \
-	julia-debug julia-release \
-	julia-deps julia-ui-* julia-src-* julia-symlink-* julia-base julia-sysimg-* \
-	test testall testall1 test-* clean distcleanall cleanall \
+	julia-debug julia-release julia-deps \
+	julia-ui-release julia-ui-debug julia-src-release julia-src-debug \
+	julia-symlink julia-base julia-sysimg \
+	test testall testall1 test clean distcleanall cleanall \
 	run-julia run-julia-debug run-julia-release run \
 	install binary-dist light-source-dist.tmp light-source-dist \
 	dist full-source-dist source-dist
 
-test: check-whitespace release
-	@$(MAKE) $(QUIET_MAKE) -C test default
+test: check-whitespace $(JULIA_BUILD_MODE)
+	@$(MAKE) $(QUIET_MAKE) -C test default JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)
 
-testall: check-whitespace release
+testall: check-whitespace $(JULIA_BUILD_MODE)
 	cp $(build_prefix)/lib/julia/sys.ji local.ji && $(JULIA_EXECUTABLE) -J local.ji -e 'true' && rm local.ji
-	@$(MAKE) $(QUIET_MAKE) -C test all
+	@$(MAKE) $(QUIET_MAKE) -C test all JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)
 
-testall1: check-whitespace release
-	@env JULIA_CPU_CORES=1 $(MAKE) $(QUIET_MAKE) -C test all
+testall1: check-whitespace $(JULIA_BUILD_MODE)
+	@env JULIA_CPU_CORES=1 $(MAKE) $(QUIET_MAKE) -C test all JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)
 
-test-%: check-whitespace release
-	@$(MAKE) $(QUIET_MAKE) -C test $*
+test-%: check-whitespace $(JULIA_BUILD_MODE)
+	@$(MAKE) $(QUIET_MAKE) -C test $* JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)
 
 perf: release
-	@$(MAKE) $(QUIET_MAKE) -C test/perf
+	@$(MAKE) $(QUIET_MAKE) -C test/perf JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)
 
 perf-%: release
-	@$(MAKE) $(QUIET_MAKE) -C test/perf $*
+	@$(MAKE) $(QUIET_MAKE) -C test/perf $* JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)
 
 # download target for some hardcoded windows dependencies
 .PHONY: win-extras wine_path
