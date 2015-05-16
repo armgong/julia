@@ -65,7 +65,8 @@ function qrfact!{T}(A::AbstractMatrix{T}, pivot::Union(Type{Val{false}}, Type{Va
     end
     QR(A, τ)
 end
-qrfact!{T<:BlasFloat}(A::StridedMatrix{T}, pivot::Union(Type{Val{false}}, Type{Val{true}})=Val{false}) = pivot==Val{true} ? QRPivoted(LAPACK.geqp3!(A)...) : QRCompactWY(LAPACK.geqrt!(A, min(minimum(size(A)), 36))...)
+qrfact!{T<:BlasFloat}(A::StridedMatrix{T}, pivot::Type{Val{false}} = Val{false}) = QRCompactWY(LAPACK.geqrt!(A, min(minimum(size(A)), 36))...)
+qrfact!{T<:BlasFloat}(A::StridedMatrix{T}, pivot::Type{Val{true}}) = QRPivoted(LAPACK.geqp3!(A)...)
 qrfact{T<:BlasFloat}(A::StridedMatrix{T}, pivot::Union(Type{Val{false}}, Type{Val{true}})=Val{false}) = qrfact!(copy(A), pivot)
 copy_oftype{T}(A::StridedMatrix{T}, ::Type{T}) = copy(A)
 copy_oftype{T,S}(A::StridedMatrix{T}, ::Type{S}) = convert(AbstractMatrix{S}, A)
@@ -76,11 +77,11 @@ qr(A::Union(Number, AbstractMatrix), pivot::Union(Type{Val{false}}, Type{Val{tru
     _qr(A, pivot, thin=thin)
 function _qr(A::Union(Number, AbstractMatrix), ::Type{Val{false}}; thin::Bool=true)
     F = qrfact(A, Val{false})
-    full(F[:Q], thin=thin), F[:R]
+    full(getq(F), thin=thin), F[:R]::Matrix{eltype(F)}
 end
 function _qr(A::Union(Number, AbstractMatrix), ::Type{Val{true}}; thin::Bool=true)
     F = qrfact(A, Val{true})
-    full(F[:Q], thin=thin), F[:R], F[:p]
+    full(getq(F), thin=thin), F[:R]::Matrix{eltype(F)}, F[:p]::Vector{BlasInt}
 end
 
 convert{T}(::Type{QR{T}},A::QR) = QR(convert(AbstractMatrix{T}, A.factors), convert(Vector{T}, A.τ))
@@ -93,19 +94,19 @@ convert{T}(::Type{Factorization{T}}, A::QRPivoted) = convert(QRPivoted{T}, A)
 function getindex(A::QR, d::Symbol)
     m, n = size(A)
     d == :R && return triu!(A.factors[1:min(m,n), 1:n])
-    d == :Q && return QRPackedQ(A.factors,A.τ)
+    d == :Q && return getq(A)
     throw(KeyError(d))
 end
 function getindex(A::QRCompactWY, d::Symbol)
     m, n = size(A)
     d == :R && return triu!(A.factors[1:min(m,n), 1:n])
-    d == :Q && return QRCompactWYQ(A.factors,A.T)
+    d == :Q && return getq(A)
     throw(KeyError(d))
 end
 function getindex{T}(A::QRPivoted{T}, d::Symbol)
     m, n = size(A)
     d == :R && return triu!(A.factors[1:min(m,n), 1:n])
-    d == :Q && return QRPackedQ(A.factors,A.τ)
+    d == :Q && return getq(A)
     d == :p && return A.jpvt
     if d == :P
         p = A[:p]
@@ -118,9 +119,10 @@ function getindex{T}(A::QRPivoted{T}, d::Symbol)
     end
     throw(KeyError(d))
 end
+
 # Type-stable interface to get Q
 getq(A::QRCompactWY) = QRCompactWYQ(A.factors,A.T)
-getq(A::QRPivoted) = QRPackedQ(A.factors,A.τ)
+getq(A::Union(QR, QRPivoted)) = QRPackedQ(A.factors,A.τ)
 
 immutable QRPackedQ{T,S<:AbstractMatrix} <: AbstractMatrix{T}
     factors::S

@@ -237,6 +237,8 @@ Library improvements
 
     * Rational arithmetic throws errors on overflow ([#8672]).
 
+    * Optional `log` and `log1p` functions implemented in pure Julia (experimental) ([#10008]).
+
   * Random numbers
 
     * Streamlined random number generation APIs [#8246].
@@ -257,6 +259,8 @@ Library improvements
     * Added function `readlink` which returns the value of a symbolic link "path" ([#10714]).
 
     * The `cp` function now accepts keyword arguments `remove_destination` and `follow_symlinks` ([#10888]).
+
+    * The `mv` function now accepts keyword argument `remove_destination` ([#11145]).
 
   * Other improvements
 
@@ -291,6 +295,9 @@ Library improvements
 
     * New function `relpath` returns a relative filepath to path either from the current
       directory or from an optional start directory ([#10893]).
+
+    * `mktemp` and `mktempdir` now take an optional argument to set which
+      directory the temporary file or directory is created in.
 
 Deprecated or removed
 ---------------------
@@ -350,9 +357,11 @@ Deprecated or removed
   * Low-level functions from the C library and dynamic linker have been moved to
     modules `Libc` and `Libdl`, respectively ([#10328]).
 
-  * The functions `parseint`, `parsefloat`, `float32_isvalid`, and `float64_isvalid`
-    have been replaced by `parse` and `tryparse` with a type argument
-    ([#3631], [#5704], [#9487], [#10543]).
+  * The functions `parseint`, `parsefloat`, `float32_isvalid`,
+  `float64_isvalid`, and the string-argument `BigInt` and `BigFloat` have
+  been replaced by `parse` and `tryparse` with a type argument. The string
+  macro `big"xx"` can be used to construct `BigInt` and `BigFloat` literals.
+  ([#3631], [#5704], [#9487], [#10543], [#10955]).
 
   * the `--int-literals` compiler option is no longer accepted ([#9597]).
 
@@ -1398,3 +1407,4 @@ Too numerous to mention.
 [#10893]: https://github.com/JuliaLang/julia/issues/10893
 [#10914]: https://github.com/JuliaLang/julia/issues/10914
 [#10994]: https://github.com/JuliaLang/julia/issues/10994
+[#11145]: https://github.com/JuliaLang/julia/issues/11145
