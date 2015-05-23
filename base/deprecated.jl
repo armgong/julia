@@ -38,10 +38,13 @@ macro deprecate(old,new)
 end
 
 function depwarn(msg, funcsym)
-    if JLOptions().depwarn!=0
+    if JLOptions().depwarn != 0
+        ln = unsafe_load(cglobal(:jl_lineno, Int))
+        fn = bytestring(unsafe_load(cglobal(:jl_filename, Ptr{Cchar})))
         bt = backtrace()
         caller = firstcaller(bt, funcsym)
-        warn(msg, once=(caller!=C_NULL), key=caller, bt=bt)
+        warn(msg, once=(caller != C_NULL), key=caller, bt=bt,
+             filename=fn, lineno=ln)
     end
 end
 
@@ -440,3 +443,21 @@ export float32_isvalid, float64_isvalid
 @deprecate (&)(x::Char, y::Char)  Char(UInt32(x) & UInt32(y))
 @deprecate (|)(x::Char, y::Char)  Char(UInt32(x) | UInt32(y))
 @deprecate ($)(x::Char, y::Char)  Char(UInt32(x) $ UInt32(y))
+
+# 11241
+
+@deprecate is_valid_char(ch::Char)          isvalid(ch)
+@deprecate is_valid_ascii(str::ASCIIString) isvalid(str)
+@deprecate is_valid_utf8(str::UTF8String)   isvalid(str)
+@deprecate is_valid_utf16(str::UTF16String) isvalid(str)
+@deprecate is_valid_utf32(str::UTF32String) isvalid(str)
+
+@deprecate is_valid_char(ch)   isvalid(Char, ch)
+@deprecate is_valid_ascii(str) isvalid(ASCIIString, str)
+@deprecate is_valid_utf8(str)  isvalid(UTF8String, str)
+@deprecate is_valid_utf16(str) isvalid(UTF16String, str)
+@deprecate is_valid_utf32(str) isvalid(UTF32String, str)
+
+# 11379
+
+@deprecate utf32(c::Integer...)   UTF32String(UInt32[c...,0])
