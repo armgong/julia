@@ -477,6 +477,28 @@ begin
     @test_throws TypeError isdefined(2)
 end
 
+begin
+    local a
+    a = cell(2)
+    @test !isassigned(a,1) && !isassigned(a,2)
+    a[1] = 1
+    @test isassigned(a,1) && !isassigned(a,2)
+    a = Array(Float64,1)
+    @test isassigned(a,1)
+    @test isassigned(a)
+    @test !isassigned(a,2)
+end
+
+# isassigned, issue #11167
+type Type11167{T,N} end
+Type11167{Int,2}
+@test !isassigned(Type11167.name.cache, 0)
+@test isassigned(Type11167.name.cache, 1)
+@test !isassigned(Type11167.name.cache, 2)
+Type11167{Float32,5}
+@test isassigned(Type11167.name.cache, 2)
+@test !isassigned(Type11167.name.cache, 3)
+
 # dispatch
 begin
     local foo, bar, baz
@@ -2860,4 +2882,20 @@ end
 abstract Foo11367
 let T1 = TypeVar(:T1, true), T2 = TypeVar(:T2, Foo11367, true)
     testintersect(Tuple{T1, T1}, Tuple{Type{BigInt}, T2}, Bottom)
+end
+
+# issue #11355
+function f11355{T<:Tuple}(sig::Type{T})
+    f11355(sig.parameters[1])
+end
+function f11355(arg::DataType)
+    if arg <: Tuple
+        return 200
+    end
+    return 100
+end
+let t = Tuple{Type{Vector{Int}}}
+    @test f11355(t) == 100
+    t = Tuple{Type{Dict{TypeVar(:K, true)}}}
+    @test f11355(t) == 100
 end
