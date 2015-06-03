@@ -59,7 +59,7 @@ create_serialization_stream() do s
     serialize(s, tpl)
 
     len = 257
-    lt = ntuple(len, i->0x1)
+    lt = ntuple(i->0x1, len)
     serialize(s, lt)
 
     serialize(s, Tuple{})
@@ -277,4 +277,18 @@ create_serialization_stream() do s
     n = deserialize(s)
     @test isa(n, Nullable)
     @test !isdefined(n, :value)
+end
+
+# cycles
+create_serialization_stream() do s
+    A = Any[1,2,3,4,5]
+    A[3] = A
+    serialize(s, A)
+    seekstart(s)
+    b = deserialize(s)
+    @test b[3] === b
+    @test b[1] == 1
+    @test b[5] == 5
+    @test length(b) == 5
+    @test isa(b,Vector{Any})
 end

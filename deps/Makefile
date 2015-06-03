@@ -736,44 +736,44 @@ install-libuv: $(UV_OBJ_TARGET)
 
 ## PCRE ##
 
-PCRE_SRC_TARGET = pcre-$(PCRE_VER)/.libs/libpcre.$(SHLIB_EXT)
-PCRE_OBJ_TARGET = $(build_shlibdir)/libpcre.$(SHLIB_EXT)
+PCRE_SRC_TARGET = pcre2-$(PCRE_VER)/.libs/libpcre2-8.$(SHLIB_EXT)
+PCRE_OBJ_TARGET = $(build_shlibdir)/libpcre2-8.$(SHLIB_EXT)
 
-pcre-$(PCRE_VER).tar.bz2:
-	$(JLDOWNLOAD) $@ http://sourceforge.net/projects/pcre/files/pcre/$(PCRE_VER)/$@/download
-pcre-$(PCRE_VER)/configure: pcre-$(PCRE_VER).tar.bz2
+pcre2-$(PCRE_VER).tar.bz2:
+	$(JLDOWNLOAD) $@ https://ftp.csx.cam.ac.uk/pub/software/programming/pcre/pcre2-$(PCRE_VER).tar.bz2
+pcre2-$(PCRE_VER)/configure: pcre2-$(PCRE_VER).tar.bz2
 	$(JLCHECKSUM) $<
 	$(TAR) jxf $<
 	touch -c $@
-pcre-$(PCRE_VER)/config.status: pcre-$(PCRE_VER)/configure
-	cd pcre-$(PCRE_VER) && \
-	./configure $(CONFIGURE_COMMON) --enable-utf --enable-unicode-properties --enable-jit --includedir=$(build_includedir)
+pcre2-$(PCRE_VER)/config.status: pcre2-$(PCRE_VER)/configure
+	cd pcre2-$(PCRE_VER) && \
+	./configure $(CONFIGURE_COMMON) --enable-jit --includedir=$(build_includedir)
 	touch -c $@
-$(PCRE_SRC_TARGET): pcre-$(PCRE_VER)/config.status
-	$(MAKE) -C pcre-$(PCRE_VER) $(LIBTOOL_CCLD)
+$(PCRE_SRC_TARGET): pcre2-$(PCRE_VER)/config.status
+	$(MAKE) -C pcre2-$(PCRE_VER) $(LIBTOOL_CCLD)
 	touch -c $@
-pcre-$(PCRE_VER)/checked: $(PCRE_SRC_TARGET)
+pcre2-$(PCRE_VER)/checked: $(PCRE_SRC_TARGET)
 ifeq ($(OS),$(BUILD_OS))
 ifneq ($(OS),WINNT)
-	$(MAKE) -C pcre-$(PCRE_VER) check -j1
+	$(MAKE) -C pcre2-$(PCRE_VER) check -j1
 endif
 endif
 	echo 1 > $@
-$(PCRE_OBJ_TARGET): $(PCRE_SRC_TARGET) pcre-$(PCRE_VER)/checked
-	$(call make-install,pcre-$(PCRE_VER),$(LIBTOOL_CCLD))
-	$(INSTALL_NAME_CMD)libpcre.$(SHLIB_EXT) $@
+$(PCRE_OBJ_TARGET): $(PCRE_SRC_TARGET) pcre2-$(PCRE_VER)/checked
+	$(call make-install,pcre2-$(PCRE_VER),$(LIBTOOL_CCLD))
+	$(INSTALL_NAME_CMD)libpcre2-8.$(SHLIB_EXT) $@
 	touch -c $@
 
 clean-pcre:
-	-$(MAKE) -C pcre-$(PCRE_VER) clean
+	-$(MAKE) -C pcre2-$(PCRE_VER) clean
 	-rm -f $(build_shlibdir)/libpcre*
 distclean-pcre: clean-pcre
-	-rm -rf pcre-$(PCRE_VER).tar.bz2 pcre-$(PCRE_VER)
+	-rm -rf pcre2-$(PCRE_VER).tar.bz2 pcre2-$(PCRE_VER)
 
-get-pcre: pcre-$(PCRE_VER).tar.bz2
-configure-pcre: pcre-$(PCRE_VER)/config.status
+get-pcre: pcre2-$(PCRE_VER).tar.bz2
+configure-pcre: pcre2-$(PCRE_VER)/config.status
 compile-pcre: $(PCRE_SRC_TARGET)
-check-pcre: pcre-$(PCRE_VER)/checked
+check-pcre: pcre2-$(PCRE_VER)/checked
 install-pcre: $(PCRE_OBJ_TARGET)
 
 
@@ -1436,7 +1436,7 @@ UTF8PROC_OBJ_HEADER = $(build_includedir)/utf8proc.h
 UTF8PROC_OBJ_TARGET = $(UTF8PROC_OBJ_LIB) $(UTF8PROC_OBJ_HEADER)
 
 $(UTF8PROC_SRC_TARGET): $(UTF8PROC_SRC_DIR)/Makefile
-	$(MAKE) -C $(UTF8PROC_SRC_DIR) cc="$(CC) -O2 -std=c99 $(fPIC) -DUTF8PROC_EXPORTS $(DEPS_CFLAGS)" AR="$(AR)" libutf8proc.a
+	$(MAKE) -C $(UTF8PROC_SRC_DIR) CC="$(CC)" CFLAGS="-O2 -std=c99 $(fPIC) -DUTF8PROC_EXPORTS $(DEPS_CFLAGS)" AR="$(AR)" libutf8proc.a
 	touch -c $@
 $(UTF8PROC_SRC_DIR)/checked: $(UTF8PROC_SRC_TARGET)
 ifeq ($(OS),$(BUILD_OS))
