@@ -257,7 +257,7 @@ function get_bind_addr(w::Worker)
             w.config.bind_addr = remotecall_fetch(w.id, get_bind_addr, w.id)
         end
     end
-    w.config.bind_addr
+    get(w.config.bind_addr)
 end
 
 myid() = LPROC.id
@@ -811,7 +811,6 @@ end
 function process_messages(r_stream::TCPSocket, w_stream::TCPSocket; kwargs...)
     @schedule begin
         disable_nagle(r_stream)
-        Base.start_reading(r_stream)
         wait_connected(r_stream)
         if r_stream != w_stream
             disable_nagle(w_stream)

@@ -1,5 +1,5 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
-#
+
 # Deprecated functions and objects
 #
 # Please add new deprecations at the bottom of the file.
@@ -497,4 +497,20 @@ _ensure_vectors(A, As...) = (_ensure_vector(A), _ensure_vectors(As...)...)
 function _unsafe_setindex!(l::LinearIndexing, A::AbstractArray, x, J::Union(Real,AbstractArray,Colon)...)
     depwarn("multidimensional indexed assignment with multidimensional arrays is deprecated, use vec to convert indices to vectors", :_unsafe_setindex!)
     _unsafe_setindex!(l, A, x, _ensure_vectors(J...)...)
+end
+
+# 11554
+
+read!(from::AbstractIOBuffer, p::Ptr, nb::Integer) = read!(from, p, Int(nb))
+function read!(from::AbstractIOBuffer, p::Ptr, nb::Int)
+    depwarn("read!(::IOBuffer, ::Ptr) is unsafe and therefore deprecated", :read!)
+    from.readable || throw(ArgumentError("read failed, IOBuffer is not readable"))
+    avail = nb_available(from)
+    adv = min(avail, nb)
+    ccall(:memcpy, Ptr{Void}, (Ptr{Void}, Ptr{Void}, UInt), p, pointer(from.data, from.ptr), adv)
+    from.ptr += adv
+    if nb > avail
+        throw(EOFError())
+    end
+    p
 end
