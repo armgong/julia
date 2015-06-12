@@ -269,6 +269,10 @@ static GlobalVariable *jldll_var;
 extern JITMemoryManager* createJITMemoryManagerWin();
 #endif
 #endif //_OS_WINDOWS_
+#if defined(_OS_DARWIN_) && defined(LLVM37) && defined(LLVM_SHLIB)
+#define CUSTOM_MEMORY_MANAGER 1
+extern RTDyldMemoryManager* createRTDyldMemoryManagerOSX();
+#endif
 
 // important functions
 static Function *jlnew_func;
@@ -1395,8 +1399,7 @@ static std::set<jl_sym_t*> assigned_in_try(jl_array_t *stmts, int s, long l, int
                 if (jl_is_symbolnode(ar)) {
                     ar = (jl_value_t*)jl_symbolnode_sym(ar);
                 }
-                if (!jl_is_gensym(ar)) {
-                    assert(jl_is_symbol(ar));
+                if (jl_is_symbol(ar)) {
                     av.insert((jl_sym_t*)ar);
                 }
             }
@@ -2139,13 +2142,7 @@ static Value *emit_known_call(jl_value_t *ff, jl_value_t **args, size_t nargs,
     else if (f->fptr == &jl_f_throw && nargs==1) {
         Value *arg1 = boxed(emit_expr(args[1], ctx), ctx);
         JL_GC_POP();
-#ifdef LLVM37
-        builder.CreateCall(prepare_call(jlthrow_line_func), {arg1,
-                            ConstantInt::get(T_int32, ctx->lineno)});
-#else
-        builder.CreateCall2(prepare_call(jlthrow_line_func), arg1,
-                            ConstantInt::get(T_int32, ctx->lineno));
-#endif
+        raise_exception_unless(ConstantInt::get(T_int1,0), arg1, ctx);
         return V_null;
     }
     else if (f->fptr == &jl_f_arraylen && nargs==1) {
@@ -5623,6 +5620,8 @@ extern "C" void jl_init_codegen(void)
     eb  .setEngineKind(EngineKind::JIT)
 #if defined(_OS_WINDOWS_) && defined(_CPU_X86_64_) && !defined(USE_MCJIT)
         .setJITMemoryManager(createJITMemoryManagerWin())
+#elif defined(CUSTOM_MEMORY_MANAGER)
+        .setMCJITMemoryManager(std::move(std::unique_ptr<RTDyldMemoryManager>{createRTDyldMemoryManagerOSX()}))
 #endif
         .setTargetOptions(options)
         .setRelocationModel(Reloc::PIC_)

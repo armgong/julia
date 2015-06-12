@@ -114,6 +114,11 @@ Language changes
     macro. Instead, the string is first unindented and then `x_str` is invoked,
     as if the string had been single-quoted ([#10228]).
 
+  * Colons (`:`) within indexing expressions are no longer lowered to the range
+    `1:end`. Instead, the `:` identifier is passed directly. Custom array types
+    that implement `getindex` or `setindex!` methods must also extend those
+    methods to support arguments of type `Colon` ([#10331]).
+
 Command line option changes
 ---------------------------
 
@@ -289,7 +294,7 @@ Library improvements
 
     * You can now tab-complete Emoji characters via their [short names](http://www.emoji-cheat-sheet.com/), using `\:name:<tab>` ([#10709]).
 
-    * The `gc_enable` and `gc_disable` functions now return the previous GC state.
+    * `gc_enable` subsumes `gc_disable`, and also returns the previous GC state.
 
     * `assert`, `@assert` now throws an `AssertionError` exception type ([#9734]).
 
@@ -398,6 +403,8 @@ Deprecated or removed
     of type `Vector{UInt8}`, `Vector{UInt16}`, `Vector{UInt32}`, and `Vector{Char}` ([#11241]).
 
   * Instead of `utf32(64,123,...)` use `utf32(UInt32[64,123,...])` ([#11379]).
+
+  * `start_timer` and `stop_timer` are replaced by `Timer` and `close`.
 
 Julia v0.3.0 Release Notes
 ==========================
@@ -1422,6 +1429,7 @@ Too numerous to mention.
 [#10180]: https://github.com/JuliaLang/julia/issues/10180
 [#10228]: https://github.com/JuliaLang/julia/issues/10228
 [#10328]: https://github.com/JuliaLang/julia/issues/10328
+[#10331]: https://github.com/JuliaLang/julia/issues/10331
 [#10332]: https://github.com/JuliaLang/julia/issues/10332
 [#10333]: https://github.com/JuliaLang/julia/issues/10333
 [#10380]: https://github.com/JuliaLang/julia/issues/10380
