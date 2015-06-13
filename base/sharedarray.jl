@@ -189,19 +189,20 @@ end
 
 # Don't serialize s (it is the complete array) and
 # pidx, which is relevant to the current process only
-function serialize(s, S::SharedArray)
+function serialize(s::SerializationState, S::SharedArray)
+    Serializer.serialize_cycle(s, S) && return
     Serializer.serialize_type(s, typeof(S))
     for n in SharedArray.name.names
         if n in [:s, :pidx, :loc_subarr_1d]
-            Serializer.writetag(s, Serializer.UndefRefTag)
+            Serializer.writetag(s.io, Serializer.UNDEFREF_TAG)
         else
             serialize(s, getfield(S, n))
         end
     end
 end
 
-function deserialize{T,N}(s, t::Type{SharedArray{T,N}})
-    S = invoke(deserialize, Tuple{Any, DataType}, s, t)
+function deserialize{T,N}(s::SerializationState, t::Type{SharedArray{T,N}})
+    S = invoke(deserialize, Tuple{SerializationState, DataType}, s, t)
     init_loc_flds(S)
     S
 end
@@ -212,7 +213,8 @@ convert(::Type{Array}, S::SharedArray) = S.s
 getindex(S::SharedArray) = getindex(S.s)
 getindex(S::SharedArray, I::Real) = getindex(S.s, I)
 getindex(S::SharedArray, I::AbstractArray) = getindex(S.s, I)
-@generated function getindex(S::SharedArray, I::Union(Real,AbstractVector)...)
+getindex(S::SharedArray, I::Colon) = getindex(S.s, I)
+@generated function getindex(S::SharedArray, I::Union(Real,AbstractVector,Colon)...)
     N = length(I)
     Isplat = Expr[:(I[$d]) for d = 1:N]
     quote
@@ -223,7 +225,8 @@ end
 setindex!(S::SharedArray, x) = setindex!(S.s, x)
 setindex!(S::SharedArray, x, I::Real) = setindex!(S.s, x, I)
 setindex!(S::SharedArray, x, I::AbstractArray) = setindex!(S.s, x, I)
-@generated function setindex!(S::SharedArray, x, I::Union(Real,AbstractVector)...)
+setindex!(S::SharedArray, x, I::Colon) = setindex!(S.s, x, I)
+@generated function setindex!(S::SharedArray, x, I::Union(Real,AbstractVector,Colon)...)
     N = length(I)
     Isplat = Expr[:(I[$d]) for d = 1:N]
     quote

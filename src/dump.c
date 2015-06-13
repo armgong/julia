@@ -1428,8 +1428,7 @@ void jl_save_system_image_to_stream(ios_t *f)
 {
     jl_gc_collect(1);
     jl_gc_collect(0);
-    int en = jl_gc_is_enabled();
-    jl_gc_disable();
+    int en = jl_gc_enable(0);
     htable_reset(&backref_table, 250000);
     arraylist_new(&reinit_list, 0);
 
@@ -1474,7 +1473,7 @@ void jl_save_system_image_to_stream(ios_t *f)
     htable_reset(&backref_table, 0);
     arraylist_free(&reinit_list);
 
-    if (en) jl_gc_enable();
+    jl_gc_enable(en);
 }
 
 DLLEXPORT void jl_save_system_image(const char *fname)
@@ -1533,8 +1532,7 @@ DLLEXPORT void jl_preload_sysimg_so(const char *fname)
 void jl_restore_system_image_from_stream(ios_t *f)
 {
 #ifdef JL_GC_MARKSWEEP
-    int en = jl_gc_is_enabled();
-    jl_gc_disable();
+    int en = jl_gc_enable(0);
 #endif
     DUMP_MODES last_mode = mode;
     mode = MODE_SYSTEM_IMAGE;
@@ -1603,7 +1601,7 @@ void jl_restore_system_image_from_stream(ios_t *f)
     arraylist_free(&backref_list);
 
 #ifdef JL_GC_MARKSWEEP
-    if (en) jl_gc_enable();
+    jl_gc_enable(en);
 #endif
     mode = last_mode;
     jl_update_all_fptrs();
@@ -1611,7 +1609,7 @@ void jl_restore_system_image_from_stream(ios_t *f)
 
 DLLEXPORT void jl_restore_system_image(const char *fname)
 {
-    char *dot = strrchr(fname, '.');
+    char *dot = (char*) strrchr(fname, '.');
     int is_ji = (dot && !strcmp(dot, ".ji"));
 
     jl_load_sysimg_so();
@@ -1667,11 +1665,9 @@ jl_value_t *jl_ast_rettype(jl_lambda_info_t *li, jl_value_t *ast)
     ios_mem(&src, 0);
     ios_setbuf(&src, (char*)bytes->data, jl_array_len(bytes), 0);
     src.size = jl_array_len(bytes);
-    int en = jl_gc_is_enabled();
-    jl_gc_disable();
+    int en = jl_gc_enable(0);
     jl_value_t *rt = jl_deserialize_value(&src, NULL);
-    if (en)
-        jl_gc_enable();
+    jl_gc_enable(en);
     tree_literal_values = NULL;
     mode = last_mode;
     return rt;
@@ -1685,8 +1681,7 @@ jl_value_t *jl_compress_ast(jl_lambda_info_t *li, jl_value_t *ast)
     ios_t dest;
     ios_mem(&dest, 0);
     jl_array_t *last_tlv = tree_literal_values;
-    int en = jl_gc_is_enabled();
-    jl_gc_disable();
+    int en = jl_gc_enable(0);
 
     if (li->module->constant_table == NULL) {
         li->module->constant_table = jl_alloc_cell_1d(0);
@@ -1707,8 +1702,7 @@ jl_value_t *jl_compress_ast(jl_lambda_info_t *li, jl_value_t *ast)
         li->module->constant_table = NULL;
     }
     tree_literal_values = last_tlv;
-    if (en)
-        jl_gc_enable();
+    jl_gc_enable(en);
     mode = last_mode;
     return v;
 }
@@ -1724,12 +1718,10 @@ jl_value_t *jl_uncompress_ast(jl_lambda_info_t *li, jl_value_t *data)
     ios_mem(&src, 0);
     ios_setbuf(&src, (char*)bytes->data, jl_array_len(bytes), 0);
     src.size = jl_array_len(bytes);
-    int en = jl_gc_is_enabled();
-    jl_gc_disable();
+    int en = jl_gc_enable(0);
     (void)jl_deserialize_value(&src, NULL); // skip ret type
     jl_value_t *v = jl_deserialize_value(&src, NULL);
-    if (en)
-        jl_gc_enable();
+    jl_gc_enable(en);
     tree_literal_values = NULL;
     mode = last_mode;
     return v;
@@ -1749,8 +1741,7 @@ int jl_save_new_module(const char *fname, jl_module_t *mod)
     htable_new(&backref_table, 5000);
     ptrhash_put(&backref_table, jl_main_module, (void*)(uintptr_t)0);
 
-    int en = jl_gc_is_enabled();
-    jl_gc_disable();
+    int en = jl_gc_enable(0);
     DUMP_MODES last_mode = mode;
     mode = MODE_MODULE;
     jl_serialize_value(&f, mod->parent);
@@ -1773,7 +1764,7 @@ int jl_save_new_module(const char *fname, jl_module_t *mod)
 
     jl_current_module = lastmod;
     mode = last_mode;
-    if (en) jl_gc_enable();
+    jl_gc_enable(en);
 
     htable_reset(&backref_table, 0);
     ios_close(&f);
@@ -1805,8 +1796,7 @@ jl_module_t *jl_restore_new_module(const char *fname)
     arraylist_new(&flagref_list, 0);
     arraylist_new(&methtable_list, 0);
 
-    int en = jl_gc_is_enabled();
-    jl_gc_disable();
+    int en = jl_gc_enable(0);
     DUMP_MODES last_mode = mode;
     mode = MODE_MODULE;
     jl_module_t *parent = (jl_module_t*)jl_deserialize_value(&f, NULL);
@@ -1886,8 +1876,8 @@ jl_module_t *jl_restore_new_module(const char *fname)
         jl_methtable_t *mt = (jl_methtable_t*)methtable_list.items[i];
         jl_array_t *cache_targ = mt->cache_targ;
         jl_array_t *cache_arg1 = mt->cache_arg1;
-        mt->cache_targ = (void*)jl_nothing;
-        mt->cache_arg1 = (void*)jl_nothing;
+        mt->cache_targ = (jl_array_t*)jl_nothing;
+        mt->cache_arg1 = (jl_array_t*)jl_nothing;
         if (cache_targ != (void*)jl_nothing) {
             size_t j, l = jl_array_len(cache_targ);
             for (j = 0; j < l; j++) {
@@ -1913,7 +1903,7 @@ jl_module_t *jl_restore_new_module(const char *fname)
     }
 
     mode = last_mode;
-    if (en) jl_gc_enable();
+    jl_gc_enable(en);
     arraylist_free(&flagref_list);
     arraylist_free(&methtable_list);
     arraylist_free(&backref_list);
@@ -2000,7 +1990,6 @@ void jl_init_serializer(void)
                      jl_box_int32(42), jl_box_int32(43), jl_box_int32(44),
                      jl_box_int32(45), jl_box_int32(46), jl_box_int32(47),
                      jl_box_int32(48), jl_box_int32(49), jl_box_int32(50),
-                     jl_box_int32(51), jl_box_int32(52),
 #endif
                      jl_box_int64(0), jl_box_int64(1), jl_box_int64(2),
                      jl_box_int64(3), jl_box_int64(4), jl_box_int64(5),
@@ -2020,7 +2009,6 @@ void jl_init_serializer(void)
                      jl_box_int64(42), jl_box_int64(43), jl_box_int64(44),
                      jl_box_int64(45), jl_box_int64(46), jl_box_int64(47),
                      jl_box_int64(48), jl_box_int64(49), jl_box_int64(50),
-                     jl_box_int64(51), jl_box_int64(52),
 #endif
                      jl_labelnode_type, jl_linenumbernode_type,
                      jl_gotonode_type, jl_quotenode_type, jl_topnode_type,
@@ -2032,6 +2020,7 @@ void jl_init_serializer(void)
                      jl_ANY_flag, jl_array_any_type, jl_intrinsic_type, jl_method_type,
                      jl_methtable_type, jl_voidpointer_type, jl_newvarnode_type,
                      jl_array_symbol_type, jl_anytuple_type, jl_tparam0(jl_anytuple_type),
+                     jl_globalref_type,
 
                      jl_symbol_type->name, jl_gensym_type->name, jl_tuple_typename,
                      jl_ref_type->name, jl_pointer_type->name, jl_simplevector_type->name,
@@ -2044,6 +2033,7 @@ void jl_init_serializer(void)
                      jl_typector_type->name, jl_intrinsic_type->name, jl_task_type->name,
                      jl_labelnode_type->name, jl_linenumbernode_type->name,
                      jl_gotonode_type->name, jl_quotenode_type->name, jl_topnode_type->name,
+                     jl_globalref_type->name,
 
                      jl_root_task, jl_bottom_func,
 

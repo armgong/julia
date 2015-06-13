@@ -205,6 +205,7 @@ function call{T<:CdoubleMax}(::Type{T}, n::BigInt, ::RoundingMode{:Up})
     x = T(n,RoundToZero)
     x < n ? nextfloat(x) : x
 end
+
 function call{T<:CdoubleMax}(::Type{T}, n::BigInt, ::RoundingMode{:Nearest})
     x = T(n,RoundToZero)
     if maxintfloat(T) <= abs(x) < T(Inf)
@@ -333,7 +334,7 @@ for (fJ, fC) in ((:-, :neg), (:~, :com))
     end
 end
 
-function <<(x::BigInt, c::Int32)
+function <<(x::BigInt, c::Int)
     c < 0 && throw(DomainError())
     c == 0 && return x
     z = BigInt()
@@ -341,7 +342,7 @@ function <<(x::BigInt, c::Int32)
     return z
 end
 
-function >>(x::BigInt, c::Int32)
+function >>(x::BigInt, c::Int)
     c < 0 && throw(DomainError())
     c == 0 && return x
     z = BigInt()
@@ -349,7 +350,7 @@ function >>(x::BigInt, c::Int32)
     return z
 end
 
->>>(x::BigInt, c::Int32) = x >> c
+>>>(x::BigInt, c::Int) = x >> c
 
 trailing_zeros(x::BigInt) = Int(ccall((:__gmpz_scan1, :libgmp), Culong, (Ptr{BigInt}, Culong), &x, 0))
 trailing_ones(x::BigInt) = Int(ccall((:__gmpz_scan0, :libgmp), Culong, (Ptr{BigInt}, Culong), &x, 0))

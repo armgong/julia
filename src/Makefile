@@ -28,6 +28,7 @@ endif
 LLVMLINK = $(call exec,$(LLVM_CONFIG) --ldflags) $(call exec,$(LLVM_CONFIG) --libs) $(call exec,$(LLVM_CONFIG) --ldflags) $(call exec,$(LLVM_CONFIG) --system-libs 2> /dev/null)
 ifeq ($(USE_LLVM_SHLIB),1)
 LLVMLINK = $(call exec,$(LLVM_CONFIG) --ldflags) -lLLVM-$(call exec,$(LLVM_CONFIG) --version)
+FLAGS += -DLLVM_SHLIB
 endif
 
 COMMON_LIBS = -L$(build_shlibdir) -L$(build_libdir) $(LIBUV) $(LIBUTF8PROC) $(NO_WHOLE_ARCHIVE) $(LLVMLINK) $(OSLIBS)
@@ -64,7 +65,7 @@ $(BUILDDIR):
 	mkdir $(BUILDDIR)
 
 $(BUILDDIR)/%.o: %.c $(HEADERS) | $(BUILDDIR)
-	@$(call PRINT_CC, $(CC) $(CPPFLAGS) $(CFLAGS) $(SHIPFLAGS) -DNDEBUG -c $< -o $@)
+	@$(call PRINT_CC, $(CC) $(CPPFLAGS) $(CFLAGS) $(SHIPFLAGS) $(DISABLE_ASSERTIONS) -c $< -o $@)
 $(BUILDDIR)/%.dbg.obj: %.c $(HEADERS) | $(BUILDDIR)
 	@$(call PRINT_CC, $(CC) $(CPPFLAGS) $(CFLAGS) $(DEBUGFLAGS) -c $< -o $@)
 $(BUILDDIR)/%.o: %.cpp $(HEADERS) $(shell which $(LLVM_CONFIG)) | $(BUILDDIR)
@@ -113,6 +114,9 @@ julia_version.h: ../VERSION
 
 ifneq ($(USEMSVC), 1)
 CXXLD = $(CXX) -shared
+ifeq ($(OS),WINNT)
+CXXLD += -Wl,--out-implib,$(build_libdir)/$(notdir $@).a
+endif
 else
 CXXLD = $(LD) -dll -export:jl_setjmp -export:jl_longjmp
 endif

@@ -262,6 +262,8 @@ u8str = "∀ ε > 0, ∃ δ > 0: |x-y| < δ ⇒ |f(x)-f(y)| < ε"
 
 # ascii search
 for str in [astr, Base.GenericString(astr)]
+    @test_throws BoundsError search(str, 'z', 0)
+    @test_throws BoundsError search(str, '∀', 0)
     @test search(str, 'x') == 0
     @test search(str, '\0') == 0
     @test search(str, '\u80') == 0
@@ -275,6 +277,8 @@ for str in [astr, Base.GenericString(astr)]
     @test search(str, ',', 7) == 0
     @test search(str, '\n') == 14
     @test search(str, '\n', 15) == 0
+    @test_throws BoundsError search(str, 'ε', nextind(str,endof(str))+1)
+    @test_throws BoundsError search(str, 'a', nextind(str,endof(str))+1)
 end
 
 # ascii rsearch
@@ -297,23 +301,32 @@ end
 
 # utf-8 search
 for str in (u8str, Base.GenericString(u8str))
+    @test_throws BoundsError search(str, 'z', 0)
+    @test_throws BoundsError search(str, '∀', 0)
     @test search(str, 'z') == 0
     @test search(str, '\0') == 0
     @test search(str, '\u80') == 0
     @test search(str, '∄') == 0
     @test search(str, '∀') == 1
-    @test search(str, '∀', 2) == 0
+    @test_throws UnicodeError search(str, '∀', 2)
+    @test search(str, '∀', 4) == 0
     @test search(str, '∃') == 13
-    @test search(str, '∃', 14) == 0
+    @test_throws UnicodeError search(str, '∃', 15)
+    @test search(str, '∃', 16) == 0
     @test search(str, 'x') == 26
     @test search(str, 'x', 27) == 43
     @test search(str, 'x', 44) == 0
     @test search(str, 'δ') == 17
-    @test search(str, 'δ', 18) == 33
-    @test search(str, 'δ', 34) == 0
+    @test_throws UnicodeError search(str, 'δ', 18)
+    @test search(str, 'δ', nextind(str,17)) == 33
+    @test search(str, 'δ', nextind(str,33)) == 0
     @test search(str, 'ε') == 5
-    @test search(str, 'ε', 6) == 54
-    @test search(str, 'ε', 55) == 0
+    @test search(str, 'ε', nextind(str,5)) == 54
+    @test search(str, 'ε', nextind(str,54)) == 0
+    @test search(str, 'ε', nextind(str,endof(str))) == 0
+    @test search(str, 'a', nextind(str,endof(str))) == 0
+    @test_throws BoundsError search(str, 'ε', nextind(str,endof(str))+1)
+    @test_throws BoundsError search(str, 'a', nextind(str,endof(str))+1)
 end
 
 # utf-8 rsearch
@@ -469,6 +482,47 @@ end
 @test search("foo,bar,baz", "az") == 10:11
 @test search("foo,bar,baz", "az", 12) == 0:-1
 
+# issue #9365
+# string search with a two-char UTF-8 (2 byte) string literal
+@test search("ééé", "éé") == 1:3
+@test search("ééé", "éé", 1) == 1:3
+# string search with a two-char UTF-8 (3 byte) string literal
+@test search("€€€", "€€") == 1:4
+@test search("€€€", "€€", 1) == 1:4
+# string search with a two-char UTF-8 (4 byte) string literal
+@test search("\U1f596\U1f596\U1f596", "\U1f596\U1f596") == 1:5
+@test search("\U1f596\U1f596\U1f596", "\U1f596\U1f596", 1) == 1:5
+
+# string search with a two-char UTF-8 (2 byte) string literal
+@test search("éé", "éé") == 1:3
+@test search("éé", "éé", 1) == 1:3
+# string search with a two-char UTF-8 (3 byte) string literal
+@test search("€€", "€€") == 1:4
+@test search("€€", "€€", 1) == 1:4
+# string search with a two-char UTF-8 (4 byte) string literal
+@test search("\U1f596\U1f596", "\U1f596\U1f596") == 1:5
+@test search("\U1f596\U1f596", "\U1f596\U1f596", 1) == 1:5
+
+# string rsearch with a two-char UTF-8 (2 byte) string literal
+@test rsearch("ééé", "éé") == 3:5
+@test rsearch("ééé", "éé", endof("ééé")) == 3:5
+# string rsearch with a two-char UTF-8 (3 byte) string literal
+@test rsearch("€€€", "€€") == 4:7
+@test rsearch("€€€", "€€", endof("€€€")) == 4:7
+# string rsearch with a two-char UTF-8 (4 byte) string literal
+@test rsearch("\U1f596\U1f596\U1f596", "\U1f596\U1f596") == 5:9
+@test rsearch("\U1f596\U1f596\U1f596", "\U1f596\U1f596", endof("\U1f596\U1f596\U1f596")) == 5:9
+
+# string rsearch with a two-char UTF-8 (2 byte) string literal
+@test rsearch("éé", "éé") == 1:3        # should really be 1:4!
+@test rsearch("éé", "éé", endof("ééé")) == 1:3
+# string search with a two-char UTF-8 (3 byte) string literal
+@test rsearch("€€", "€€") == 1:4        # should really be 1:6!
+@test rsearch("€€", "€€", endof("€€€")) == 1:4
+# string search with a two-char UTF-8 (4 byte) string literal
+@test rsearch("\U1f596\U1f596", "\U1f596\U1f596") == 1:5        # should really be 1:8!
+@test rsearch("\U1f596\U1f596", "\U1f596\U1f596", endof("\U1f596\U1f596\U1f596")) == 1:5
+
 # string rsearch with a two-char string literal
 @test rsearch("foo,bar,baz", "xx") == 0:-1
 @test rsearch("foo,bar,baz", "fo") == 1:2
@@ -500,6 +554,46 @@ end
 @test search("foo,bar,baz", r",b", 10) == 0:-1
 @test search("foo,bar,baz", r"az") == 10:11
 @test search("foo,bar,baz", r"az", 12) == 0:-1
+
+# string searchindex with a two-char UTF-8 (2 byte) string literal
+@test searchindex("ééé", "éé") == 1
+@test searchindex("ééé", "éé", 1) == 1
+# string searchindex with a two-char UTF-8 (3 byte) string literal
+@test searchindex("€€€", "€€") == 1
+@test searchindex("€€€", "€€", 1) == 1
+# string searchindex with a two-char UTF-8 (4 byte) string literal
+@test searchindex("\U1f596\U1f596\U1f596", "\U1f596\U1f596") == 1
+@test searchindex("\U1f596\U1f596\U1f596", "\U1f596\U1f596", 1) == 1
+
+# string searchindex with a two-char UTF-8 (2 byte) string literal
+@test searchindex("éé", "éé") == 1
+@test searchindex("éé", "éé", 1) == 1
+# string searchindex with a two-char UTF-8 (3 byte) string literal
+@test searchindex("€€", "€€") == 1
+@test searchindex("€€", "€€", 1) == 1
+# string searchindex with a two-char UTF-8 (4 byte) string literal
+@test searchindex("\U1f596\U1f596", "\U1f596\U1f596") == 1
+@test searchindex("\U1f596\U1f596", "\U1f596\U1f596", 1) == 1
+
+# string rsearchindex with a two-char UTF-8 (2 byte) string literal
+@test rsearchindex("ééé", "éé") == 3
+@test rsearchindex("ééé", "éé", endof("ééé")) == 3
+# string rsearchindex with a two-char UTF-8 (3 byte) string literal
+@test rsearchindex("€€€", "€€") == 4
+@test rsearchindex("€€€", "€€", endof("€€€")) == 4
+# string rsearchindex with a two-char UTF-8 (4 byte) string literal
+@test rsearchindex("\U1f596\U1f596\U1f596", "\U1f596\U1f596") == 5
+@test rsearchindex("\U1f596\U1f596\U1f596", "\U1f596\U1f596", endof("\U1f596\U1f596\U1f596")) == 5
+
+# string rsearchindex with a two-char UTF-8 (2 byte) string literal
+@test rsearchindex("éé", "éé") == 1
+@test rsearchindex("éé", "éé", endof("ééé")) == 1
+# string searchindex with a two-char UTF-8 (3 byte) string literal
+@test rsearchindex("€€", "€€") == 1
+@test rsearchindex("€€", "€€", endof("€€€")) == 1
+# string searchindex with a two-char UTF-8 (4 byte) string literal
+@test rsearchindex("\U1f596\U1f596", "\U1f596\U1f596") == 1
+@test rsearchindex("\U1f596\U1f596", "\U1f596\U1f596", endof("\U1f596\U1f596\U1f596")) == 1
 
 # split
 @test isequal(split("foo,bar,baz", 'x'), ["foo,bar,baz"])
@@ -673,6 +767,10 @@ end
 @test lowercase("AbC") == "abc"
 @test lowercase('A') == 'a'
 @test lowercase('a') == 'a'
+@test uppercase('α') == '\u0391'
+@test lowercase('Δ') == 'δ'
+@test lowercase('\U118bf') == '\U118df'
+@test uppercase('\U1044d') == '\U10425'
 @test ucfirst("Abc") == "Abc"
 @test ucfirst("abc") == "Abc"
 @test lcfirst("ABC") == "aBC"
@@ -1432,6 +1530,24 @@ for byt = 0xfc:0xfd
 end
 # Check seven-byte sequences, should be invalid
 @test isvalid(UTF8String, UInt8[0xfe, 0x80, 0x80, 0x80, 0x80, 0x80]) == false
+
+# 11482
+
+# isvalid
+let s = "abcdef", u8 = "abcdef\uff", u16 = utf16(u8), u32 = utf32(u8),
+    bad32 = utf32(UInt32[65,0x110000]), badch = Char[0x110000][1]
+
+    @test !isvalid(bad32)
+    @test !isvalid(badch)
+    @test isvalid(s)
+    @test isvalid(u8)
+    @test isvalid(u16)
+    @test isvalid(u32)
+    @test isvalid(ASCIIString, s)
+    @test isvalid(UTF8String,  u8)
+    @test isvalid(UTF16String, u16)
+    @test isvalid(UTF32String, u32)
+end
 
 # This caused JuliaLang/JSON.jl#82
 @test first('\x00':'\x7f') === '\x00'

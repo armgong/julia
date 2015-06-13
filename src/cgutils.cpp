@@ -70,11 +70,49 @@ static inline void add_named_global(GlobalValue *gv, void *addr)
 #endif
 {
 #ifdef USE_MCJIT
-    addComdat(gv);
-    sys::DynamicLibrary::AddSymbol(gv->getName(),addr);
-#else
-    jl_ExecutionEngine->addGlobalMapping(gv,addr);
+
+    StringRef name = gv->getName();
+#ifdef _OS_WINDOWS_
+    std::string imp_name;
+    // setting DLLEXPORT correctly only matters when building a binary
+    if (jl_options.build_path != NULL) {
+        // add the __declspec(dllimport) attribute
+        gv->setDLLStorageClass(GlobalValue::DLLImportStorageClass);
+        // this will cause llvm to rename it, so we do the same
+        imp_name = Twine("__imp_", name).str();
+        name = StringRef(imp_name);
+#ifdef _P64
+        // __imp_ functions are jmp stubs (no additional work needed)
+        // __imp_ variables are indirection pointers, so use malloc to simulate that too
+        if (isa<GlobalVariable>(gv)) {
+            void** imp_addr = (void**)malloc(sizeof(void**));
+            *imp_addr = addr;
+            addr = (void*)imp_addr;
+        }
 #endif
+    }
+#endif
+    addComdat(gv);
+    sys::DynamicLibrary::AddSymbol(name, addr);
+
+#else // USE_MCJIT
+
+#ifdef _OS_WINDOWS_
+    // setting DLLEXPORT correctly only matters when building a binary
+    if (jl_options.build_path != NULL) {
+        if (gv->getLinkage() == GlobalValue::ExternalLinkage)
+            gv->setLinkage(GlobalValue::DLLImportLinkage);
+#ifdef _P64
+        // the following is correct by observation,
+        // as long as everything stays within a 32-bit offset :/
+        void** imp_addr = (void**)malloc(sizeof(void**));
+        *imp_addr = addr;
+        addr = (void*)imp_addr;
+#endif
+    }
+#endif // _OS_WINDOWS_
+    jl_ExecutionEngine->addGlobalMapping(gv, addr);
+#endif // USE_MCJIT
 }
 
 // --- string constants ---
@@ -507,6 +545,13 @@ static Value *literal_pointer_val(jl_binding_t *p)
     return julia_gv("jl_bnd#", p->name, p->owner, p);
 }
 
+static Value *julia_binding_gv(Value *bv)
+{
+    return builder.
+        CreateGEP(bv,ConstantInt::get(T_size,
+                                      offsetof(jl_binding_t,value)/sizeof(size_t)));
+}
+
 static Value *julia_binding_gv(jl_binding_t *b)
 {
     // emit a literal_pointer_val to the value field of a jl_binding_t
@@ -514,8 +559,7 @@ static Value *julia_binding_gv(jl_binding_t *b)
     Value *bv = imaging_mode ?
         builder.CreateBitCast(julia_gv("*", b->name, b->owner, b), jl_ppvalue_llvmt) :
         literal_static_pointer_val(b,jl_ppvalue_llvmt);
-    return builder.CreateGEP(bv,ConstantInt::get(T_size,
-                offsetof(jl_binding_t,value)/sizeof(size_t)));
+    return julia_binding_gv(bv);
 }
 
 // --- mapping between julia and llvm types ---
@@ -1287,6 +1331,10 @@ static Value *emit_getfield_knownidx(Value *strct, unsigned idx, jl_datatype_t *
     jl_value_t *jfty = jl_field_type(jt,idx);
     Type *elty = julia_type_to_llvm(jfty);
     assert(elty != NULL);
+    if (jfty == jl_bottom_type) {
+        raise_exception_unless(ConstantInt::get(T_int1,0), prepare_global(jlundeferr_var), ctx);
+        return UndefValue::get(jl_pvalue_llvmt);
+    }
     if (elty == T_void)
         return ghostValue(jfty);
     Value *fldv = NULL;
@@ -1876,7 +1924,7 @@ static Value *emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **args, j
             return mark_julia_type(strct,ty);
         }
         Value *f1 = NULL;
-        int fieldStart = ctx->argDepth;
+        int fieldStart = ctx->gc.argDepth;
         bool needroots = false;
         for (size_t i = 1;i < nargs;i++) {
             if (might_need_root(args[i])) {
@@ -1903,7 +1951,7 @@ static Value *emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **args, j
             if (!jl_subtype(expr_type(args[1],ctx), jl_field_type(sty,0), 0))
                 emit_typecheck(f1, jl_field_type(sty,0), "new", ctx);
             emit_setfield(sty, strct, 0, f1, ctx, false, false);
-            ctx->argDepth = fieldStart;
+            ctx->gc.argDepth = fieldStart;
             if (nf > 1 && needroots)
                 make_gcroot(strct, ctx);
         }
@@ -1935,7 +1983,7 @@ static Value *emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **args, j
                 need_wb = true;
             emit_setfield(sty, strct, i-1, rhs, ctx, false, need_wb);
         }
-        ctx->argDepth = fieldStart;
+        ctx->gc.argDepth = fieldStart;
         return strct;
     }
     else {

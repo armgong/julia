@@ -95,7 +95,6 @@ done
 for i in share/julia/base/pcre_h.jl; do
   $SEVENZIP e -y julia-installer.exe "\$_OUTDIR/$i" -obase >> get-deps.log
 done
-sed -i 's/int32/Int32/g' base/pcre_h.jl
 # suppress "bash.exe: warning: could not find /tmp, please create!"
 mkdir -p usr/Git/tmp
 # Remove libjulia.dll if it was copied from downloaded binary
@@ -187,9 +186,9 @@ echo 'override LIBLAPACKNAME = $(LIBBLASNAME)' >> Make.user
 echo 'override STAGE1_DEPS = libuv' >> Make.user
 echo 'override STAGE2_DEPS = utf8proc' >> Make.user
 echo 'override STAGE3_DEPS = ' >> Make.user
-make -C deps get-libuv
 
 if [ -n "$USEMSVC" ]; then
+  make -C deps get-libuv
   # Create a modified version of compile for wrapping link
   sed -e 's/-link//' -e 's/cl/link/g' -e 's/ -Fe/ -OUT:/' \
     -e 's|$dir/$lib|$dir/lib$lib|g' deps/libuv/compile > linkld
@@ -207,6 +206,8 @@ if [ -n "$USEMSVC" ]; then
   echo 'override STAGE1_DEPS += dsfmt' >> Make.user
 else
   echo 'override STAGE1_DEPS += openlibm' >> Make.user
+  make VERBOSE=1 -C base version_git.jl.phony
+  echo 'NO_GIT = 1' >> Make.user
 fi
 
 make check-whitespace

@@ -93,6 +93,7 @@ jl_value_t *jl_eval_module_expr(jl_expr_t *ex)
 {
     static arraylist_t module_stack;
     static int initialized=0;
+    static jl_module_t *outermost = NULL;
     if (!initialized) {
         arraylist_new(&module_stack, 0);
         initialized = 1;
@@ -145,6 +146,10 @@ jl_value_t *jl_eval_module_expr(jl_expr_t *ex)
     JL_GC_PUSH1(&last_module);
     jl_module_t *task_last_m = jl_current_task->current_module;
     jl_current_task->current_module = jl_current_module = newm;
+    jl_module_t *prev_outermost = outermost;
+    size_t stackidx = module_stack.len;
+    if (outermost == NULL)
+        outermost = newm;
 
     jl_array_t *exprs = ((jl_expr_t*)jl_exprarg(ex, 2))->args;
     JL_TRY {
@@ -157,11 +162,14 @@ jl_value_t *jl_eval_module_expr(jl_expr_t *ex)
     JL_CATCH {
         jl_current_module = last_module;
         jl_current_task->current_module = task_last_m;
+        outermost = prev_outermost;
+        module_stack.len = stackidx;
         jl_rethrow();
     }
     JL_GC_POP();
     jl_current_module = last_module;
     jl_current_task->current_module = task_last_m;
+    outermost = prev_outermost;
 
 #if 0
     // some optional post-processing steps
@@ -185,10 +193,13 @@ jl_value_t *jl_eval_module_expr(jl_expr_t *ex)
 
     arraylist_push(&module_stack, newm);
 
-    if (jl_current_module == jl_main_module) {
-        while (module_stack.len > 0) {
-            jl_module_load_time_initialize((jl_module_t *) arraylist_pop(&module_stack));
+    if (outermost == NULL || jl_current_module == jl_main_module) {
+        size_t i, l=module_stack.len;
+        for(i = stackidx; i < l; i++) {
+            jl_module_load_time_initialize((jl_module_t*)module_stack.items[i]);
         }
+        assert(module_stack.len == l);
+        module_stack.len = stackidx;
     }
 
     return jl_nothing;
@@ -222,7 +233,8 @@ int jl_has_intrinsics(jl_expr_t *e, jl_module_t *m)
     jl_value_t *e0 = jl_exprarg(e,0);
     if (e->head == call_sym &&
         ((jl_is_symbol(e0) && is_intrinsic(m,(jl_sym_t*)e0)) ||
-         (jl_is_topnode(e0) && is_intrinsic(jl_base_relative_to(m),(jl_sym_t*)jl_fieldref(e0,0)))))
+         (jl_is_topnode(e0) && is_intrinsic(jl_base_relative_to(m),(jl_sym_t*)jl_fieldref(e0,0))) ||
+         (jl_is_globalref(e0) && is_intrinsic(jl_globalref_mod(e0), jl_globalref_name(e0)))))
         return 1;
     int i;
     for(i=0; i < jl_array_len(e->args); i++) {

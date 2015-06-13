@@ -76,9 +76,9 @@ endif
 
 release-candidate: release test
 	@#Check documentation
-	@./julia doc/NEWS-update.jl #Add missing cross-references to NEWS.md
+	@$(JULIA_EXECUTABLE) doc/NEWS-update.jl #Add missing cross-references to NEWS.md
 	@$(MAKE) -C doc unicode #Rebuild Unicode table if necessary
-	@./julia doc/DocCheck.jl > doc/UNDOCUMENTED.rst 2>&1 #Check for undocumented items
+	@$(JULIA_EXECUTABLE) doc/DocCheck.jl > doc/UNDOCUMENTED.rst 2>&1 #Check for undocumented items
 	@if [ -z "$(cat doc/UNDOCUMENTED.rst)" ]; then \
 		rm doc/UNDOCUMENTED.rst; \
 	else \
@@ -149,7 +149,6 @@ CORE_SRCS := base/boot.jl base/coreimg.jl \
 		base/abstractarray.jl \
 		base/array.jl \
 		base/bool.jl \
-		base/build_h.jl \
 		base/dict.jl \
 		base/error.jl \
 		base/essentials.jl \
@@ -169,8 +168,6 @@ CORE_SRCS := base/boot.jl base/coreimg.jl \
 		base/range.jl \
 		base/reduce.jl \
 		base/reflection.jl \
-		base/subarray.jl \
-		base/subarray2.jl \
 		base/tuple.jl
 
 BASE_SRCS := $(wildcard base/*.jl base/*/*.jl base/*/*/*.jl)
@@ -496,7 +493,7 @@ endif
 distcleanall: cleanall
 	@$(MAKE) -C deps distcleanall
 	@$(MAKE) -C doc cleanall
-	rm -fr $(build_prefix)
+	rm -fr $(build_prefix) $(build_staging)
 
 .PHONY: default debug release check-whitespace release-candidate \
 	julia-debug julia-release julia-deps \

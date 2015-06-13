@@ -620,7 +620,7 @@ JL_CALLABLE(jl_f_tuple)
     if (nargs == 0) return (jl_value_t*)jl_emptytuple;
     jl_datatype_t *tt;
     if (nargs < jl_page_size/sizeof(jl_value_t*)) {
-        jl_value_t **types = alloca(nargs*sizeof(jl_value_t*));
+        jl_value_t **types = (jl_value_t**)alloca(nargs*sizeof(jl_value_t*));
         for(i=0; i < nargs; i++)
             types[i] = jl_typeof(args[i]);
         tt = jl_inst_concrete_tupletype_v(types, nargs);
@@ -1238,6 +1238,7 @@ void jl_init_primitives(void)
     add_builtin("QuoteNode", (jl_value_t*)jl_quotenode_type);
     add_builtin("TopNode", (jl_value_t*)jl_topnode_type);
     add_builtin("NewvarNode", (jl_value_t*)jl_newvarnode_type);
+    add_builtin("GlobalRef", (jl_value_t*)jl_globalref_type);
 
 #ifdef _P64
     add_builtin("Int", (jl_value_t*)jl_int64_type);

@@ -59,10 +59,6 @@ type AssertionError <: Exception
     AssertionError(msg) = new(msg)
 end
 
-# For passing constants through type inference
-immutable Val{T}
-end
-
 ccall(:jl_get_system_hooks, Void, ())
 
 
@@ -80,8 +76,7 @@ end
 finalize(o::ANY) = ccall(:jl_finalize, Void, (Any,), o)
 
 gc(full::Bool=true) = ccall(:jl_gc_collect, Void, (Cint,), full)
-gc_enable() = ccall(:jl_gc_enable, Cint, ())!=0
-gc_disable() = ccall(:jl_gc_disable, Cint, ())!=0
+gc_enable(on::Bool) = ccall(:jl_gc_enable, Cint, (Cint,), on)!=0
 
 bytestring(str::ByteString) = str
 
@@ -110,5 +105,5 @@ immutable Nullable{T}
     value::T
 
     Nullable() = new(true)
-    Nullable(value::T) = new(false, value)
+    Nullable(value::T, isnull::Bool=false) = new(isnull, value)
 end

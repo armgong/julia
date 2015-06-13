@@ -406,6 +406,7 @@ extern DLLEXPORT jl_datatype_t *jl_methoderror_type;
 extern DLLEXPORT jl_datatype_t *jl_undefvarerror_type;
 extern DLLEXPORT jl_value_t *jl_stackovf_exception;
 extern DLLEXPORT jl_value_t *jl_memory_exception;
+extern DLLEXPORT jl_value_t *jl_readonlymemory_exception;
 extern DLLEXPORT jl_value_t *jl_diverror_exception;
 extern DLLEXPORT jl_value_t *jl_domain_exception;
 extern DLLEXPORT jl_value_t *jl_overflow_exception;
@@ -542,8 +543,7 @@ extern DLLEXPORT JL_THREAD jl_gcframe_t *jl_pgcstack;
 
 void jl_gc_init(void);
 void jl_gc_setmark(jl_value_t *v);
-DLLEXPORT int jl_gc_enable(void);
-DLLEXPORT int jl_gc_disable(void);
+DLLEXPORT int jl_gc_enable(int on);
 DLLEXPORT int jl_gc_is_enabled(void);
 DLLEXPORT int64_t jl_gc_total_bytes(void);
 DLLEXPORT uint64_t jl_gc_total_hrtime(void);
@@ -634,8 +634,7 @@ DLLEXPORT void jl_gc_add_finalizer(jl_value_t *v, jl_function_t *f);
 int64_t diff_gc_total_bytes(void);
 #define sync_gc_total_bytes()
 #define jl_gc_collect(arg);
-#define jl_gc_enable() (0)
-#define jl_gc_disable() (0)
+#define jl_gc_enable(on) (0)
 #define jl_gc_is_enabled() (0)
 #define jl_gc_track_malloced_array(a)
 #define jl_gc_count_allocd(sz)
@@ -1077,9 +1076,10 @@ extern DLLEXPORT jl_module_t *jl_current_module;
 DLLEXPORT jl_module_t *jl_new_module(jl_sym_t *name);
 // get binding for reading
 DLLEXPORT jl_binding_t *jl_get_binding(jl_module_t *m, jl_sym_t *var);
+DLLEXPORT jl_binding_t *jl_get_binding_or_error(jl_module_t *m, jl_sym_t *var);
 // get binding for assignment
-jl_binding_t *jl_get_binding_wr(jl_module_t *m, jl_sym_t *var);
-jl_binding_t *jl_get_binding_for_method_def(jl_module_t *m, jl_sym_t *var);
+DLLEXPORT jl_binding_t *jl_get_binding_wr(jl_module_t *m, jl_sym_t *var);
+DLLEXPORT jl_binding_t *jl_get_binding_for_method_def(jl_module_t *m, jl_sym_t *var);
 DLLEXPORT int jl_boundp(jl_module_t *m, jl_sym_t *var);
 DLLEXPORT int jl_defines_or_exports_p(jl_module_t *m, jl_sym_t *var);
 DLLEXPORT int jl_binding_resolved_p(jl_module_t *m, jl_sym_t *var);
@@ -1246,10 +1246,10 @@ jl_value_t *jl_gf_invoke(jl_function_t *gf, jl_tupletype_t *types,
 
 // AST access
 jl_array_t *jl_lam_args(jl_expr_t *l);
-jl_array_t *jl_lam_locals(jl_expr_t *l);
 jl_array_t *jl_lam_vinfo(jl_expr_t *l);
 jl_array_t *jl_lam_capt(jl_expr_t *l);
 jl_value_t *jl_lam_gensyms(jl_expr_t *l);
+jl_array_t *jl_lam_staticparams(jl_expr_t *l);
 jl_sym_t *jl_lam_argname(jl_lambda_info_t *li, int i);
 int jl_lam_vars_captured(jl_expr_t *ast);
 jl_expr_t *jl_lam_body(jl_expr_t *l);
@@ -1327,9 +1327,10 @@ DLLEXPORT extern volatile sig_atomic_t jl_defer_signal;
 
 DLLEXPORT void jl_sigint_action(void);
 DLLEXPORT void restore_signals(void);
-DLLEXPORT void jl_install_sigint_handler();
+DLLEXPORT void jl_install_sigint_handler(void);
 DLLEXPORT void jl_sigatomic_begin(void);
 DLLEXPORT void jl_sigatomic_end(void);
+void jl_install_default_signal_handlers(void);
 
 
 // tasks and exceptions -------------------------------------------------------
@@ -1555,6 +1556,7 @@ typedef struct {
     int8_t fast_math;
     int8_t worker;
     const char *bindto;
+    int8_t handle_signals;
 } jl_options_t;
 
 extern DLLEXPORT jl_options_t jl_options;
@@ -1589,6 +1591,9 @@ extern DLLEXPORT jl_options_t jl_options;
 #define JL_OPTIONS_FAST_MATH_ON 1
 #define JL_OPTIONS_FAST_MATH_OFF 2
 #define JL_OPTIONS_FAST_MATH_DEFAULT 0
+
+#define JL_OPTIONS_HANDLE_SIGNALS_ON 1
+#define JL_OPTIONS_HANDLE_SIGNALS_OFF 0
 
 // Version information
 #include "julia_version.h"

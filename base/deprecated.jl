@@ -1,5 +1,5 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
-#
+
 # Deprecated functions and objects
 #
 # Please add new deprecations at the bottom of the file.
@@ -330,12 +330,12 @@ for (f,t) in ((:int,    Int), (:int8,   Int8), (:int16,  Int16), (:int32,  Int32
               (:int64,  Int64), (:int128, Int128), (:uint,   UInt), (:uint8,  UInt8),
               (:uint16, UInt16), (:uint32, UInt32), (:uint64, UInt64), (:uint128,UInt128))
     @eval begin
-        @deprecate ($f){S<:AbstractString}(a::AbstractArray{S}) [parseint($t,s) for s in a]
+        @deprecate ($f){S<:AbstractString}(a::AbstractArray{S}) [parse($t,s) for s in a]
     end
 end
 for (f,t) in ((:float32, Float32), (:float64, Float64))
     @eval begin
-        @deprecate ($f){S<:AbstractString}(a::AbstractArray{S}) [parsefloat($t,s) for s in a]
+        @deprecate ($f){S<:AbstractString}(a::AbstractArray{S}) [parse($t,s) for s in a]
     end
 end
 
@@ -367,6 +367,8 @@ end
 @deprecate ldltfact(A::AbstractMatrix, β::Number) ldltfact(A, shift=β)
 
 @deprecate with_env(f::Function, key::AbstractString, val) withenv(f, key=>val)
+
+@deprecate ntuple(n::Integer, f::Function) ntuple(f, n)
 
 # 0.4 discontinued functions
 
@@ -479,3 +481,49 @@ export float32_isvalid, float64_isvalid
 # 11379
 
 @deprecate utf32(c::Integer...)   UTF32String(UInt32[c...,0])
+
+# 10862
+
+function chol(A::AbstractMatrix, uplo::Symbol)
+    depwarn(string("chol(a::AbstractMatrix, uplo::Symbol) is deprecated, ",
+        "use chol(a::AbstractMatrix, uplo::Union(Val{:L},Val{:U})) instead"), :chol)
+    chol(A, Val{uplo})
+end
+
+_ensure_vector(A::AbstractArray) = vec(A)
+_ensure_vector(A) = A
+_ensure_vectors() = ()
+_ensure_vectors(A, As...) = (_ensure_vector(A), _ensure_vectors(As...)...)
+function _unsafe_setindex!(l::LinearIndexing, A::AbstractArray, x, J::Union(Real,AbstractArray,Colon)...)
+    depwarn("multidimensional indexed assignment with multidimensional arrays is deprecated, use vec to convert indices to vectors", :_unsafe_setindex!)
+    _unsafe_setindex!(l, A, x, _ensure_vectors(J...)...)
+end
+
+# 11554
+
+read!(from::AbstractIOBuffer, p::Ptr, nb::Integer) = read!(from, p, Int(nb))
+function read!(from::AbstractIOBuffer, p::Ptr, nb::Int)
+    depwarn("read!(::IOBuffer, ::Ptr) is unsafe and therefore deprecated", :read!)
+    from.readable || throw(ArgumentError("read failed, IOBuffer is not readable"))
+    avail = nb_available(from)
+    adv = min(avail, nb)
+    ccall(:memcpy, Ptr{Void}, (Ptr{Void}, Ptr{Void}, UInt), p, pointer(from.data, from.ptr), adv)
+    from.ptr += adv
+    if nb > avail
+        throw(EOFError())
+    end
+    p
+end
+
+@deprecate gc_enable() gc_enable(true)
+@deprecate gc_disable() gc_enable(false)
+
+@deprecate stop_timer close
+
+function Timer(f::Function)
+    error("Timer(f) is deprecated. Use Timer(f, delay, repeat) instead.")
+end
+
+function start_timer(t, d, r)
+    error("start_timer is deprecated. Use Timer(callback, delay, repeat) instead.")
+end

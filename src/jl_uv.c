@@ -68,6 +68,7 @@ enum CALLBACK_TYPE { CB_PTR, CB_INT32, CB_UINT32, CB_INT64, CB_UINT64 };
     XX(connectcb) \
     XX(connectioncb) \
     XX(asynccb) \
+    XX(timercb) \
     XX(getaddrinfo) \
     XX(pollcb) \
     XX(fspollcb) \
@@ -193,7 +194,7 @@ DLLEXPORT void jl_uv_alloc_buf(uv_handle_t *handle, size_t suggested_size, uv_bu
         JL_GC_PUSH1(&ret);
         // TODO: jl_fieldref allocates boxes here. should avoid that.
         assert(jl_is_tuple(ret) && jl_nfields(ret)==2 && jl_is_pointer(jl_fieldref(ret,0)));
-        buf->base = jl_unbox_voidpointer(jl_fieldref(ret,0));
+        buf->base = (char*)jl_unbox_voidpointer(jl_fieldref(ret,0));
 #ifdef _P64
         assert(jl_is_uint64(jl_fieldref(ret,1)));
         buf->len = jl_unbox_uint64(jl_fieldref(ret,1));
@@ -228,6 +229,11 @@ DLLEXPORT void jl_uv_getaddrinfocb(uv_getaddrinfo_t *req,int status, struct addr
 DLLEXPORT void jl_uv_asynccb(uv_handle_t *handle)
 {
     JULIA_CB(asynccb,handle->data,0);
+}
+
+DLLEXPORT void jl_uv_timercb(uv_handle_t *handle)
+{
+    JULIA_CB(timercb,handle->data,0);
 }
 
 DLLEXPORT void jl_uv_pollcb(uv_poll_t *handle, int status, int events)

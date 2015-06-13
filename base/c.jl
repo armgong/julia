@@ -4,6 +4,8 @@
 
 import Core.Intrinsics: cglobal, box, unbox
 
+const OS_NAME = ccall(:jl_get_OS_NAME, Any, ())
+
 cfunction(f::Function, r, a) = ccall(:jl_function_ptr, Ptr{Void}, (Any, Any, Any), f, r, a)
 
 if ccall(:jl_is_char_signed, Any, ())
@@ -67,7 +69,7 @@ containsnul(p::Ptr, len) = C_NULL != ccall(:memchr, Ptr{Cchar}, (Ptr{Cchar}, Cin
 function unsafe_convert(::Type{Cstring}, s::ByteString)
     p = unsafe_convert(Ptr{Cchar}, s)
     if containsnul(p, sizeof(s))
-        throw(ArgumentError("embedded NUL chars are not allowed in C strings"))
+        throw(ArgumentError("embedded NUL chars are not allowed in C strings: $(repr(s))"))
     end
     return Cstring(p)
 end

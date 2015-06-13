@@ -97,6 +97,7 @@ export
     RoundNearestTiesUp,
     RoundToZero,
     RoundUp,
+    SerializationState,
     Set,
     SharedArray,
     SharedMatrix,
@@ -164,6 +165,7 @@ export
     SystemError,
     TypeError,
     AssertionError,
+    UnicodeError,
 
 # Global constants and variables
     ARGS,
@@ -686,6 +688,7 @@ export
     tril,
     triu!,
     triu,
+    vecdot,
     vecnorm,
     ⋅,
     ×,
@@ -1044,6 +1047,7 @@ export
     promote_rule,
     promote_type,
     subtypes,
+    instances,
     super,
     typeintersect,
     typejoin,
@@ -1094,7 +1098,6 @@ export
     finalizer,
     finalize,
     gc,
-    gc_disable,
     gc_enable,
     precompile,
 
@@ -1174,8 +1177,6 @@ export
     serialize,
     skip,
     skipchars,
-    start_timer,
-    stop_timer,
     takebuf_array,
     takebuf_string,
     truncate,

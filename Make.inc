@@ -218,6 +218,13 @@ endif
 JULIAGC = MARKSWEEP
 USE_COPY_STACKS = 1
 
+# flag for disabling assertions
+ifeq ($(FORCE_ASSERTIONS), 1)
+DISABLE_ASSERTIONS =
+else
+DISABLE_ASSERTIONS = -DNDEBUG
+endif
+
 # Compiler specific stuff
 
 ifeq ($(USEMSVC), 1)
@@ -505,8 +512,8 @@ ifneq (,$(findstring arm,$(ARCH)))
 JCFLAGS += -fsigned-char
 
 LLVM_ASSERTIONS=1
-LLVM_FLAGS+="--with-float=hard --with-abi=aapcs-vfp"
-LLVM_VER=3.6.0
+#LLVM_FLAGS+="--with-float=hard --with-abi=aapcs-vfp"
+LLVM_VER=3.6.1
 
 USE_BLAS64=0
 OPENBLAS_DYNAMIC_ARCH=0
@@ -557,9 +564,9 @@ LLVM_LLC=$(build_bindir)/llc$(EXE)
 endif
 
 ifeq ($(USE_SYSTEM_PCRE), 1)
-PCRE_CONFIG = pcre-config
+PCRE_CONFIG = pcre2-config
 else
-PCRE_CONFIG = $(build_bindir)/pcre-config
+PCRE_CONFIG = $(build_bindir)/pcre2-config
 endif
 
 # Use ILP64 BLAS interface when building openblas from source on 64-bit architectures

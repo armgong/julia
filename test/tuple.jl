@@ -56,7 +56,7 @@
 @test eltype((1.0,2.0,3.0)) <: FloatingPoint
 @test eltype((true, false)) === Bool
 @test eltype((1,2.0, false)) === Any
-@test eltype(()) === Any
+@test eltype(()) === Union()
 
 
 ## mapping ##
@@ -132,3 +132,6 @@ foo(x, y, z) = x + y + z
 @test any((true, true)) === true
 @test any((true, false)) === true
 @test any((false, false)) === false
+
+@test @inferred(ntuple(Base.Abs2Fun(), Val{2})) == (1, 4)
+@test @inferred(ntuple(Base.Abs2Fun(), Val{6})) == (1, 4, 9, 16, 25, 36)

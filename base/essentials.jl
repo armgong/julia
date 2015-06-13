@@ -6,6 +6,16 @@ typealias Callable Union(Function,DataType)
 
 const Bottom = Union()
 
+# The real @inline macro is not available until after array.jl, so this
+# internal macro splices the meta Expr directly into the function body.
+macro _inline_meta()
+    Expr(:meta, :inline)
+end
+macro _noinline_meta()
+    Expr(:meta, :noinline)
+end
+
+
 # constructors for Core types in boot.jl
 call(T::Type{BoundsError}) = Core.call(T)
 call(T::Type{BoundsError}, args...) = Core.call(T, args...)
@@ -14,7 +24,9 @@ call(T::Type{DomainError}) = Core.call(T)
 call(T::Type{OverflowError}) = Core.call(T)
 call(T::Type{InexactError}) = Core.call(T)
 call(T::Type{OutOfMemoryError}) = Core.call(T)
+call(T::Type{ReadOnlyMemoryError}) = Core.call(T)
 call(T::Type{StackOverflowError}) = Core.call(T)
+call(T::Type{SegmentationFault}) = Core.call(T)
 call(T::Type{UndefRefError}) = Core.call(T)
 call(T::Type{UndefVarError}, var::Symbol) = Core.call(T, var)
 call(T::Type{InterruptException}) = Core.call(T)
@@ -52,7 +64,7 @@ cnvt_all(T, x, rest...) = tuple(convert(T,x), cnvt_all(T, rest...)...)
 
 macro generated(f)
     isa(f, Expr) || error("invalid syntax; @generated must be used with a function definition")
-    if is(f.head, :function) || isdefined(:length) && is(f.head, :(=)) && length(f.args) == 2 && f.args[1].head == :call
+    if is(f.head, :function) || (isdefined(:length) && is(f.head, :(=)) && length(f.args) == 2 && f.args[1].head == :call)
         f.head = :stagedfunction
         return Expr(:escape, f)
     else
@@ -226,3 +238,7 @@ end
 type Colon
 end
 const (:) = Colon()
+
+# For passing constants through type inference
+immutable Val{T}
+end

@@ -28,6 +28,8 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
     if relty != BigFloat
         @test_approx_eq_eps D\v DM\v 2n^2*eps(relty)*(elty<:Complex ? 2:1)
         @test_approx_eq_eps D\U DM\U 2n^3*eps(relty)*(elty<:Complex ? 2:1)
+        @test_approx_eq_eps A_ldiv_B!(D,copy(v)) DM\v 2n^2*eps(relty)*(elty<:Complex ? 2:1)
+        @test_approx_eq_eps A_ldiv_B!(D,copy(U)) DM\U 2n^3*eps(relty)*(elty<:Complex ? 2:1)
     end
 
     debug && println("Simple unary functions")
@@ -114,3 +116,38 @@ end
 
 #isposdef
 @test !isposdef(Diagonal(-1.0 * rand(n)))
+
+# Indexing
+let d = randn(n), D = Diagonal(d)
+    for i=1:n
+        @test D[i,i] == d[i]
+    end
+    for i=1:n
+        for j=1:n
+            @test D[i,j] == (i==j ? d[i] : 0)
+        end
+    end
+    D2 = copy(D)
+    for i=1:n
+        D2[i,i] = i
+    end
+    for i=1:n
+        for j=1:n
+            if i == j
+                @test D2[i,j] == i
+            else
+                @test D2[i,j] == 0
+                D2[i,j] = 0
+                @test_throws ArgumentError (D2[i,j] = 1)
+            end
+        end
+    end
+    @test_throws BoundsError D[0, 0]
+    @test_throws BoundsError (D[0, 0] = 0)
+    @test_throws BoundsError D[-1,-2]
+    @test_throws BoundsError (D[-1,-2] = 0)
+    @test_throws BoundsError D[n+1,n+1]
+    @test_throws BoundsError (D[n+1,n+1] = 0)
+    @test_throws BoundsError D[n,n+1]
+    @test_throws BoundsError (D[n,n+1] = 0)
+end

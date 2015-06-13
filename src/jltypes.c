@@ -57,7 +57,7 @@ jl_datatype_t *jl_number_type;
 jl_datatype_t *jl_complex_type;
 jl_datatype_t *jl_signed_type;
 
-jl_value_t *jl_emptytuple=NULL;
+DLLEXPORT jl_value_t *jl_emptytuple=NULL;
 jl_svec_t *jl_emptysvec;
 jl_value_t *jl_nothing;
 
@@ -2659,7 +2659,8 @@ static int jl_type_morespecific_(jl_value_t *a, jl_value_t *b, int invariant)
                 return jl_type_morespecific_(ntp, jl_tparam0(jl_tparam0(b)), invariant);
             }
         }
-        return 0;
+        if (!jl_is_typevar(a))
+            return 0;
     }
 
     if (jl_is_datatype(a) && jl_is_datatype(b)) {
@@ -3326,6 +3327,11 @@ void jl_init_types(void)
         jl_new_datatype(jl_symbol("Module"), jl_any_type, jl_emptysvec,
                         jl_svec(2, jl_symbol("name"), jl_symbol("parent")),
                         jl_svec(2, jl_sym_type, jl_any_type), 0, 1, 2);
+
+    jl_globalref_type =
+        jl_new_datatype(jl_symbol("GlobalRef"), jl_any_type, jl_emptysvec,
+                        jl_svec(2, jl_symbol("mod"), jl_symbol("name")),
+                        jl_svec(2, jl_module_type, jl_sym_type), 0, 0, 2);
 
     jl_svecset(jl_typename_type->types, 1, jl_module_type);
 

@@ -146,7 +146,6 @@ copy(S::SparseMatrixCSC) =
     SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), copy(S.nzval))
 
 similar(S::SparseMatrixCSC, Tv::Type=eltype(S))   = SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), Array(Tv, length(S.nzval)))
-similar{Tv,Ti,TvNew}(S::SparseMatrixCSC{Tv,Ti}, ::Type{TvNew}, ::Type{Ti}) = similar(S, TvNew)
 similar{Tv,Ti,TvNew,TiNew}(S::SparseMatrixCSC{Tv,Ti}, ::Type{TvNew}, ::Type{TiNew}) = SparseMatrixCSC(S.m, S.n, convert(Array{TiNew},S.colptr), convert(Array{TiNew}, S.rowval), Array(TvNew, length(S.nzval)))
 similar{Tv}(S::SparseMatrixCSC, ::Type{Tv}, d::NTuple{Integer}) = spzeros(Tv, d...)
 
@@ -184,7 +183,9 @@ convert{T}(::Type{AbstractMatrix{T}}, A::SparseMatrixCSC) = convert(SparseMatrix
 convert(::Type{Matrix}, S::SparseMatrixCSC) = full(S)
 
 function full{Tv}(S::SparseMatrixCSC{Tv})
-    A = zeros(Tv, S.m, S.n)
+    # Handle cases where zero(Tv) is not defined but the array is dense.
+    # (Should we really worry about this?)
+    A = length(S) == nnz(S) ? Array(Tv, S.m, S.n) : zeros(Tv, S.m, S.n)
     for col = 1 : S.n, k = S.colptr[col] : (S.colptr[col+1]-1)
         A[S.rowval[k], col] = S.nzval[k]
     end
@@ -925,7 +926,42 @@ end
 .<{Tv1,Ti1,Tv2,Ti2}(A_1::SparseMatrixCSC{Tv1,Ti1}, A_2::SparseMatrixCSC{Tv2,Ti2}) = broadcast!(<, spzeros( Bool, promote_type(Ti1, Ti2), broadcast_shape(A_1, A_2)...), A_1, A_2)
 .!={Tv1,Ti1,Tv2,Ti2}(A_1::SparseMatrixCSC{Tv1,Ti1}, A_2::SparseMatrixCSC{Tv2,Ti2}) = broadcast!(!=, spzeros( Bool, promote_type(Ti1, Ti2), broadcast_shape(A_1, A_2)...), A_1, A_2)
 
-
+## full equality
+function ==(A1::SparseMatrixCSC, A2::SparseMatrixCSC)
+    size(A1)!=size(A2) && return false
+    vals1, vals2 = nonzeros(A1), nonzeros(A2)
+    rows1, rows2 = rowvals(A1), rowvals(A2)
+    m, n = size(A1)
+    @inbounds for i = 1:n
+        nz1,nz2 = nzrange(A1,i), nzrange(A2,i)
+        j1,j2 = first(nz1), first(nz2)
+        # step through the rows of both matrices at once:
+        while j1<=last(nz1) && j2<=last(nz2)
+            r1,r2 = rows1[j1], rows2[j2]
+            if r1==r2
+                vals1[j1]!=vals2[j2] && return false
+                j1+=1
+                j2+=1
+            else
+                if r1<r2
+                    vals1[j1]!=0 && return false
+                    j1+=1
+                else
+                    vals2[j2]!=0 && return false
+                    j2+=1
+                end
+            end
+        end
+        # finish off any left-overs:
+        for j = j1:last(nz1)
+            vals1[j]!=0 && return false
+        end
+        for j = j2:last(nz2)
+            vals2[j]!=0 && return false
+        end
+    end
+    return true
+end
 
 ## Reductions
 
@@ -1223,7 +1259,6 @@ function rangesearch(haystack::Range, needle)
     (rem==0 && 1<=i+1<=length(haystack)) ? i+1 : 0
 end
 
-getindex(A::SparseMatrixCSC, i::Integer) = getindex(A, ind2sub(size(A),i))
 getindex(A::SparseMatrixCSC, I::Tuple{Integer,Integer}) = getindex(A, I[1], I[2])
 
 function getindex{T}(A::SparseMatrixCSC{T}, i0::Integer, i1::Integer)
@@ -1237,6 +1272,12 @@ end
 
 getindex{T<:Integer}(A::SparseMatrixCSC, I::AbstractVector{T}, j::Integer) = getindex(A,I,[j])
 getindex{T<:Integer}(A::SparseMatrixCSC, i::Integer, J::AbstractVector{T}) = getindex(A,[i],J)
+
+# Colon translation (this could be done more efficiently)
+getindex(A::SparseMatrixCSC, ::Colon)          = getindex(A, 1:length(A))
+getindex(A::SparseMatrixCSC, ::Colon, ::Colon) = getindex(A, 1:size(A, 1), 1:size(A, 2))
+getindex(A::SparseMatrixCSC, ::Colon, j)       = getindex(A, 1:size(A, 1), j)
+getindex(A::SparseMatrixCSC, i, ::Colon)       = getindex(A, i, 1:size(A, 2))
 
 function getindex_cols{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, J::AbstractVector)
     # for indexing whole columns
@@ -1636,7 +1677,11 @@ function getindex{Tv}(A::SparseMatrixCSC{Tv}, I::AbstractArray{Bool})
 end
 
 function getindex{Tv}(A::SparseMatrixCSC{Tv}, I::AbstractArray)
-    szA = size(A); colptrA = A.colptr; rowvalA = A.rowval; nzvalA = A.nzval
+    szA = size(A)
+    nA = szA[1]*szA[2]
+    colptrA = A.colptr
+    rowvalA = A.rowval
+    nzvalA = A.nzval
 
     n = length(I)
     outm = size(I,1)
@@ -1652,6 +1697,7 @@ function getindex{Tv}(A::SparseMatrixCSC{Tv}, I::AbstractArray)
     idxB = 1
 
     for i in 1:n
+        ((I[i] < 1) | (I[i] > nA)) && throw(BoundsError())
         row,col = ind2sub(szA, I[i])
         for r in colptrA[col]:(colptrA[col+1]-1)
             @inbounds if rowvalA[r] == row
@@ -1674,8 +1720,6 @@ end
 
 
 ## setindex!
-setindex!(A::SparseMatrixCSC, v, i::Integer) = setindex!(A, v, ind2sub(size(A),i)...)
-
 function setindex!{T,Ti}(A::SparseMatrixCSC{T,Ti}, v, i0::Integer, i1::Integer)
     i0 = convert(Ti, i0)
     i1 = convert(Ti, i1)
@@ -1715,6 +1759,12 @@ setindex!{T<:Integer}(A::SparseMatrixCSC, v::AbstractMatrix, I::AbstractVector{T
 
 setindex!{T<:Integer}(A::SparseMatrixCSC, x::Number, i::Integer, J::AbstractVector{T}) = setindex!(A, x, [i], J)
 setindex!{T<:Integer}(A::SparseMatrixCSC, x::Number, I::AbstractVector{T}, j::Integer) = setindex!(A, x, I, [j])
+
+# Colon translation
+setindex!(A::SparseMatrixCSC, x, ::Colon)          = setindex!(A, x, 1:length(A))
+setindex!(A::SparseMatrixCSC, x, ::Colon, ::Colon) = setindex!(A, x, 1:size(A, 1), 1:size(A,2))
+setindex!(A::SparseMatrixCSC, x, ::Colon, j::Union(Integer, AbstractVector)) = setindex!(A, x, 1:size(A, 1), j)
+setindex!(A::SparseMatrixCSC, x, i::Union(Integer, AbstractVector), ::Colon) = setindex!(A, x, i, 1:size(A, 2))
 
 setindex!{Tv,T<:Integer}(A::SparseMatrixCSC{Tv}, x::Number, I::AbstractVector{T}, J::AbstractVector{T}) =
     (0 == x) ? spdelete!(A, I, J) : spset!(A, convert(Tv,x), I, J)

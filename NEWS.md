@@ -114,10 +114,17 @@ Language changes
     macro. Instead, the string is first unindented and then `x_str` is invoked,
     as if the string had been single-quoted ([#10228]).
 
+  * Colons (`:`) within indexing expressions are no longer lowered to the range
+    `1:end`. Instead, the `:` identifier is passed directly. Custom array types
+    that implement `getindex` or `setindex!` methods must also extend those
+    methods to support arguments of type `Colon` ([#10331]).
+
 Command line option changes
 ---------------------------
 
   * The `-i` option now forces the REPL to run after loading the specified script (if any) ([#11347]).
+
+  * New option --handle-signals={yes|no} to disable Julia's signal handlers.
 
 Compiler improvements
 ---------------------
@@ -167,6 +174,8 @@ Library improvements
 
     * OpenBLAS 64-bit (ILP64) interface is now compiled with a `64_` suffix ([#8734]) to avoid conflicts with external libraries using a 32-bit BLAS ([#4923]).
 
+    * New `vecdot` function, analogous to `vecnorm`, for Euclidean inner products over any iterable container ([#11067]).
+
   * Strings
 
     * NUL-terminated strings should now be passed to C via the new `Cstring` type, not `Ptr{UInt8}` or `Ptr{Cchar}`,
@@ -188,11 +197,22 @@ Library improvements
 
     * `is_valid_char(c)` now correctly handles Unicode "non-characters", which are valid Unicode codepoints. ([#11171])
 
-  * Data-structure processing
+  * Array and AbstractArray improvements
 
     * New multidimensional iterators and index types for efficient iteration over `AbstractArray`s. Array iteration should generally be written as `for i in eachindex(A) ... end` rather than `for i = 1:length(A) ... end`.  ([#8432])
 
     * New implementation of SubArrays with substantial performance and functionality improvements ([#8501]).
+
+    * AbstractArray subtypes only need to implement `size` and `getindex`
+      for scalar indices to support indexing; all other indexing behaviors
+      (including logical idexing, ranges of indices, vectors, colons, etc.) are
+      implemented in default fallbacks. Similarly, they only need to implement
+      scalar `setindex!` to support all forms of indexed assingment ([#10525]).
+
+    * AbstractArrays that do not extend `similar` now return an `Array` by
+      default ([#10525]).
+
+  * Data-structure processing
 
     * New `sortperm!` function for pre-allocated index arrays ([#8792]).
 
@@ -274,7 +294,7 @@ Library improvements
 
     * You can now tab-complete Emoji characters via their [short names](http://www.emoji-cheat-sheet.com/), using `\:name:<tab>` ([#10709]).
 
-    * The `gc_enable` and `gc_disable` functions now return the previous GC state.
+    * `gc_enable` subsumes `gc_disable`, and also returns the previous GC state.
 
     * `assert`, `@assert` now throws an `AssertionError` exception type ([#9734]).
 
@@ -383,6 +403,8 @@ Deprecated or removed
     of type `Vector{UInt8}`, `Vector{UInt16}`, `Vector{UInt32}`, and `Vector{Char}` ([#11241]).
 
   * Instead of `utf32(64,123,...)` use `utf32(UInt32[64,123,...])` ([#11379]).
+
+  * `start_timer` and `stop_timer` are replaced by `Timer` and `close`.
 
 Julia v0.3.0 Release Notes
 ==========================
@@ -1407,12 +1429,14 @@ Too numerous to mention.
 [#10180]: https://github.com/JuliaLang/julia/issues/10180
 [#10228]: https://github.com/JuliaLang/julia/issues/10228
 [#10328]: https://github.com/JuliaLang/julia/issues/10328
+[#10331]: https://github.com/JuliaLang/julia/issues/10331
 [#10332]: https://github.com/JuliaLang/julia/issues/10332
 [#10333]: https://github.com/JuliaLang/julia/issues/10333
 [#10380]: https://github.com/JuliaLang/julia/issues/10380
 [#10400]: https://github.com/JuliaLang/julia/issues/10400
 [#10446]: https://github.com/JuliaLang/julia/issues/10446
 [#10458]: https://github.com/JuliaLang/julia/issues/10458
+[#10525]: https://github.com/JuliaLang/julia/issues/10525
 [#10543]: https://github.com/JuliaLang/julia/issues/10543
 [#10659]: https://github.com/JuliaLang/julia/issues/10659
 [#10679]: https://github.com/JuliaLang/julia/issues/10679
@@ -1433,3 +1457,4 @@ Too numerous to mention.
 [#11241]: https://github.com/JuliaLang/julia/issues/11241
 [#11347]: https://github.com/JuliaLang/julia/issues/11347
 [#11379]: https://github.com/JuliaLang/julia/issues/11379
+[#11067]: https://github.com/JuliaLang/julia/issues/11067

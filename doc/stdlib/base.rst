@@ -220,7 +220,7 @@ All Objects
 
    Construct a tuple of the given objects.
 
-.. function:: ntuple(n, f::Function)
+.. function:: ntuple(f::Function, n)
 
    Create a tuple of length ``n``, computing each element as ``f(i)``, where ``i`` is the index of the element.
 
@@ -481,6 +481,11 @@ Types
 
       julia> f(apple)
       "I'm a FRUIT with value: 1"
+
+.. function:: instances(T::Type)
+
+   Return a collection of all instances of the given type, if applicable.
+   Mostly used for enumerated types (see ``@enum``).
 
 Generic Functions
 -----------------
@@ -886,6 +891,10 @@ Errors
 
    An operation allocated too much memory for either the system or the garbage collector to handle properly.
 
+.. function:: ReadOnlyMemoryError()
+
+   An operation tried to write to memory that is read-only.
+
 .. function:: OverflowError()
 
    The result of an expression is too large for the specified type and will cause a wraparound.
@@ -921,21 +930,20 @@ Errors
 Events
 ------
 
-.. function:: Timer(f::Function)
+.. function:: Timer(callback::Function, delay, repeat=0)
 
-   Create a timer to call the given callback function. The callback
-   is passed one argument, the timer object itself. The timer can be
-   started and stopped with ``start_timer`` and ``stop_timer``.
-
-.. function:: start_timer(t::Timer, delay, repeat)
-
-   Start invoking the callback for a ``Timer`` after the specified initial
-   delay, and then repeating with the given interval. Times are in seconds.
+   Create a timer to call the given callback function.
+   The callback is passed one argument, the timer object itself.
+   The callback will be invoked after the specified initial delay,
+   and then repeating with the given ``repeat`` interval.
    If ``repeat`` is ``0``, the timer is only triggered once.
+   Times are in seconds.
+   A timer is stopped and has its resources freed by calling ``close`` on it.
 
-.. function:: stop_timer(t::Timer)
+.. function:: Timer(delay, repeat=0)
 
-   Stop invoking the callback for a timer.
+   Create a timer that wakes up tasks waiting for it (by calling ``wait`` on
+   the timer object) at a specified interval.
 
 Reflection
 ----------
@@ -1004,15 +1012,13 @@ Internals
 
    Perform garbage collection. This should not generally be used.
 
-.. function:: gc_disable()
+.. function:: gc_enable(on::Bool)
 
-   Disable garbage collection. This should be used only with extreme
-   caution, as it can cause memory use to grow without bound.
+   Control whether garbage collection is enabled using a boolean argument (true for
+   enabled, false for disabled).
    Returns previous GC state.
-
-.. function:: gc_enable()
-
-   Re-enable garbage collection after calling :func:`gc_disable`. Returns previous GC state.
+   Disabling garbage collection should be used only with extreme caution,
+   as it can cause memory use to grow without bound.
 
 .. function:: macroexpand(x)
 

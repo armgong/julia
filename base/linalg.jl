@@ -3,7 +3,8 @@
 module LinAlg
 
 importall Base
-import Base: USE_BLAS64, size, copy, copy_transpose!, power_by_squaring, print_matrix, transpose!
+import Base: USE_BLAS64, size, copy, copy_transpose!, power_by_squaring,
+             print_matrix, transpose!, unsafe_getindex, unsafe_setindex!
 
 export
 # Modules
@@ -115,6 +116,7 @@ export
     triu,
     tril!,
     triu!,
+    vecdot,
     vecnorm,
 
 # Operators
@@ -156,20 +158,18 @@ typealias BlasComplex Union(Complex128,Complex64)
 
 if USE_BLAS64
     typealias BlasInt Int64
-    blas_int(x) = Int64(x)
 else
     typealias BlasInt Int32
-    blas_int(x) = Int32(x)
 end
 
-#Check that stride of matrix/vector is 1
+# Check that stride of matrix/vector is 1
 function chkstride1(A::StridedVecOrMat...)
     for a in A
         stride(a,1)== 1 || error("matrix does not have contiguous columns")
     end
 end
 
-#Check that matrix is square
+# Check that matrix is square
 function chksquare(A::AbstractMatrix)
     m,n = size(A)
     m == n || throw(DimensionMismatch("matrix is not square"))
@@ -185,7 +185,7 @@ function chksquare(A...)
     length(A)==1 ? sizes[1] : sizes
 end
 
-#Check that upper/lower (for special matrices) is correctly specified
+# Check that upper/lower (for special matrices) is correctly specified
 macro chkuplo()
    :((uplo=='U' || uplo=='L') || throw(ArgumentError("""invalid uplo = $uplo
 

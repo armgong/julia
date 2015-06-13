@@ -166,6 +166,14 @@ let T1 = TypeVar(:T, Integer, true), T2 = TypeVar(:T, Integer, true)
     @test !args_morespecific(b2, a)
 end
 
+# issue #11534
+let T = TypeVar(:T, Tuple{Vararg{RangeIndex}}, true)
+    t1 = Tuple{AbstractArray, Tuple{Vararg{RangeIndex}}}
+    t2 = Tuple{Array, T}
+    @test !args_morespecific(t1, t2)
+    @test  args_morespecific(t2, t1)
+end
+
 # join
 @test typejoin(Int8,Int16) === Signed
 @test typejoin(Int,AbstractString) === Any
@@ -1172,11 +1180,12 @@ function foo(x)
     end
     return ret
 end
-x = Array(Union(Dict{Int64,AbstractString},Array{Int64,3},Number,AbstractString,Void), 3)
-x[1] = 1.0
-x[2] = 2.0
-x[3] = 3.0
-foo(x) == [1.0, 2.0, 3.0]
+let x = Array(Union(Dict{Int64,AbstractString},Array{Int64,3},Number,AbstractString,Void), 3)
+    x[1] = 1.0
+    x[2] = 2.0
+    x[3] = 3.0
+    @test foo(x) == [1.0, 2.0, 3.0]
+end
 
 # TODO!!
 # issue #4115
@@ -2144,11 +2153,11 @@ f9534d(x) = (a=(1,2,4,6,7); a[x])
 @test try; f9534d() catch ex; (ex::BoundsError).a === (1,2,4,6,7) && ex.i == 7; end
 @test try; f9534d(-1) catch ex; (ex::BoundsError).a === (1,2,4,6,7) && ex.i == -1; end
 f9534e(x) = (a=IOBuffer(); a.(x) = 3)
-@test try; f9534e(-2) catch ex; is((ex::BoundsError).a,IOBuffer) && ex.i == -2; end
+@test try; f9534e(-2) catch ex; is((ex::BoundsError).a,Base.IOBuffer) && ex.i == -2; end
 f9534f() = (a=IOBuffer(); a.(-2))
 f9534f(x) = (a=IOBuffer(); a.(x))
-@test try; f9534f() catch ex; isa((ex::BoundsError).a,IOBuffer) && ex.i == -2; end
-@test try; f9534f(typemin(Int)+2) catch ex; isa((ex::BoundsError).a,IOBuffer) && ex.i == typemin(Int)+2; end
+@test try; f9534f() catch ex; isa((ex::BoundsError).a,Base.IOBuffer) && ex.i == -2; end
+@test try; f9534f(typemin(Int)+2) catch ex; isa((ex::BoundsError).a,Base.IOBuffer) && ex.i == typemin(Int)+2; end
 x9634 = 3
 @test try; getfield(1+2im, x9634); catch ex; (ex::BoundsError).a === 1+2im && ex.i == 3; end
 @test try; throw(BoundsError()) catch ex; !isdefined((ex::BoundsError), :a) && !isdefined((ex::BoundsError), :i); end
@@ -2912,3 +2921,43 @@ end
 # issue #11366
 f11366{T}(x::Type{Ref{T}}) = Ref{x}
 @test !isleaftype(Base.return_types(f11366, (Any,))[1])
+
+# issue #11065, #1571
+function f11065()
+    for i = 1:2
+        if i == 1
+            z = "z is defined"
+        elseif i == 2
+            print(z)
+        end
+    end
+end
+@test_throws UndefVarError f11065()
+
+# issue #11295
+function f11295(x...)
+    call = Expr(x...)
+end
+@test isa(f11295(:a,:b), Expr)
+
+# issue #11675
+immutable T11675{T}
+    x::T
+    T11675() = new()
+end
+let x = T11675{Union()}()
+    function f11675(x)
+        x.x + 1
+    end
+    @test_throws UndefRefError f11675(x)
+end
+
+# issue #7864
+module M7864
+export x7864
+x7864 = 1
+end
+
+@test_throws UndefVarError x7864
+using M7864
+@test x7864 == 1

@@ -742,13 +742,13 @@ a = SparseMatrixCSC(2, 2, [1, 3, 5], [1, 2, 1, 2], [1.0, 0.0, 0.0, 1.0])
 @test_approx_eq cholfact(a)\[2.0, 3.0] [2.0, 3.0]
 end
 
-# issue #10113
-let S = spzeros(5,1), I = [false,true,false,true,false]
-    @test_throws BoundsError S[I]
-end
-
 # issue #9917
 @test sparse([]') == reshape(sparse([]), 1, 0)
+@test full(sparse([])) == zeros(0, 1)
+@test_throws BoundsError sparse([])[1]
+@test_throws BoundsError sparse([])[1] = 1
+x = speye(100)
+@test_throws BoundsError x[-10:10]
 
 for T in (Int, Float16, Float32, Float64, BigInt, BigFloat)
     let R=rand(T[1:100;],2,2), I=rand(T[1:100;],2,2)
@@ -968,3 +968,28 @@ A[3,1] = 2
 A.nzval[2] = 0.0
 @test ishermitian(A) == true
 @test issym(A) == true
+
+# equality ==
+A1 = speye(10)
+A2 = speye(10)
+nonzeros(A1)[end]=0
+@test A1!=A2
+nonzeros(A1)[end]=1
+@test A1==A2
+A1[1:4,end] = 1
+@test A1!=A2
+nonzeros(A1)[end-4:end-1]=0
+@test A1==A2
+A2[1:4,end-1] = 1
+@test A1!=A2
+nonzeros(A2)[end-5:end-2]=0
+@test A1==A2
+A2[2:3,1] = 1
+@test A1!=A2
+nonzeros(A2)[2:3]=0
+@test A1==A2
+A1[2:5,1] = 1
+@test A1!=A2
+nonzeros(A1)[2:5]=0
+@test A1==A2
+@test sparse([1,1,0])!=sparse([0,1,1])

@@ -301,18 +301,17 @@
 (define (expand-compare-chain e)
   (car (expand-vector-compare e)))
 
-;; last = is this last index?
+;; return the appropriate computation for an `end` symbol for indexing
+;; the array `a` in the `n`th index.
+;; `tuples` are a list of the splatted arguments that precede index `n`
+;; `last` = is this last index?
+;; returns a call to endof(a), trailingsize(a,n), or size(a,n)
 (define (end-val a n tuples last)
   (if (null? tuples)
       (if last
           (if (= n 1)
               `(call (top endof) ,a)
               `(call (top trailingsize) ,a ,n))
-              #;`(call (top div)
-                     (call (top length) ,a)
-                     (call (top *)
-                           ,@(map (lambda (d) `(call (top size) ,a ,(1+ d)))
-                                  (iota (- n 1)))))
           `(call (top size) ,a ,n))
       (let ((dimno `(call (top +) ,(- n (length tuples))
                           ,.(map (lambda (t) `(call (top length) ,t))
@@ -321,8 +320,7 @@
             `(call (top trailingsize) ,a ,dimno)
             `(call (top size) ,a ,dimno)))))
 
-; replace end inside ex with (call (top size) a n)
-; affects only the closest ref expression, so doesn't go inside nested refs
+; replace `end` for the closest ref expression, so doesn't go inside nested refs
 (define (replace-end ex a n tuples last)
   (cond ((eq? ex 'end)                (end-val a n tuples last))
         ((or (atom? ex) (quoted? ex)) ex)
@@ -335,29 +333,7 @@
                (map (lambda (x) (replace-end x a n tuples last))
                     (cdr ex))))))
 
-; translate index x from colons to ranges
-(define (expand-index-colon x)
-  (cond ((eq? x ':) `(call colon 1 end))
-        ((and (pair? x)
-              (eq? (car x) ':))
-         (cond ((length= x 3)
-                (if (eq? (caddr x) ':)
-                    ;; (: a :) a:
-                    `(call colon ,(cadr x) end)
-                    ;; (: a b)
-                    `(call colon ,(cadr x) ,(caddr x))))
-               ((length= x 4)
-                (if (eq? (cadddr x) ':)
-                    ;; (: a b :) a:b:
-                    `(call colon ,(cadr x) ,(caddr x) end)
-                    ;; (: a b c)
-                    `(call colon ,@(cdr x))))
-               (else x)))
-        (else x)))
-
-;; : inside indexing means 1:end
-;; expand end to size(a,n),
-;;     or div(length(a), prod(size(a)[1:(n-1)])) for the last index
+;; go through indices and replace the `end` symbol
 ;; a = array being indexed, i = list of indexes
 ;; returns (values index-list stmts) where stmts are statements that need
 ;; to execute first.
@@ -386,8 +362,7 @@
                           (cons `(... ,g) ret))))
               (loop (cdr lst) (+ n 1)
                     stmts tuples
-                    (cons (replace-end (expand-index-colon idx) a n tuples last)
-                          ret)))))))
+                    (cons (replace-end idx a n tuples last) ret)))))))
 
 (define (make-decl n t) `(|::| ,n ,t))
 
@@ -449,6 +424,11 @@
     (cond ((symbol? lhs)       lhs)
           ((eq? (car lhs) 'kw) (cadr lhs))
           (else                lhs))))
+
+(define (method-expr-static-parameters m)
+  (if (eq? (car (cadr (caddr m))) 'lambda)
+      (cadr (cadr (caddr m)))
+      '()))
 
 (define (sym-ref? e)
   (or (symbol? e)
@@ -1539,7 +1519,7 @@
                                 `((quote ,(cadr a)) ,(caddr a)))
                               keys))))
      (if (null? restkeys)
-         `(call (top kwcall) call ,(length keys) ,@keyargs
+         `(call (top kwcall) (|.| ,(current-julia-module) 'call) ,(length keys) ,@keyargs
                 ,f (call (top Array) (top Any) ,(* 2 (length keys)))
                 ,@pa)
          (let ((container (make-jlgensym)))
@@ -1559,7 +1539,7 @@
                           `(block (= (tuple ,k ,v) ,rk)
                                   ,push-expr))))
                   restkeys)
-             ,(let ((kw-call `(call (top kwcall) call ,(length keys) ,@keyargs
+             ,(let ((kw-call `(call (top kwcall) (|.| ,(current-julia-module) 'call) ,(length keys) ,@keyargs
                                     ,f ,container ,@pa)))
                 (if (not (null? keys))
                     kw-call
@@ -1810,7 +1790,7 @@
                                            (tuple-wrap (cdr a) '())))
                                 (tuple-wrap (cdr a) (cons x run))))))
                     (expand-forms
-                     `(call (top _apply) call ,f ,@(tuple-wrap argl '())))))
+                     `(call (top _apply) (|.| ,(current-julia-module) 'call) ,f ,@(tuple-wrap argl '())))))
 
                  ((and (eq? (cadr e) '*) (length= e 4))
                   (expand-transposed-op
@@ -2885,35 +2865,23 @@ So far only the second case can actually occur.
 (define (make-var-info name) (list name 'Any 0))
 (define vinfo:name car)
 (define vinfo:type cadr)
+(define (vinfo:set-type! v t) (set-car! (cdr v) t))
+
 (define (vinfo:capt v) (< 0 (logand (caddr v) 1)))
 (define (vinfo:asgn v) (< 0 (logand (caddr v) 2)))
 (define (vinfo:const v) (< 0 (logand (caddr v) 8)))
-(define (vinfo:set-type! v t) (set-car! (cdr v) t))
+(define (set-bit x b val) (if val (logior x b) (logand x (lognot b))))
 ;; record whether var is captured
-(define (vinfo:set-capt! v c) (set-car! (cddr v)
-                                        (if c
-                                            (logior (caddr v) 1)
-                                            (logand (caddr v) -2))))
+(define (vinfo:set-capt! v c)  (set-car! (cddr v) (set-bit (caddr v) 1 c)))
 ;; whether var is assigned
-(define (vinfo:set-asgn! v a) (set-car! (cddr v)
-                                        (if a
-                                            (logior (caddr v) 2)
-                                            (logand (caddr v) -3))))
+(define (vinfo:set-asgn! v a)  (set-car! (cddr v) (set-bit (caddr v) 2 a)))
 ;; whether var is assigned by an inner function
-(define (vinfo:set-iasg! v a) (set-car! (cddr v)
-                                        (if a
-                                            (logior (caddr v) 4)
-                                            (logand (caddr v) -5))))
+(define (vinfo:set-iasg! v a)  (set-car! (cddr v) (set-bit (caddr v) 4 a)))
 ;; whether var is const
-(define (vinfo:set-const! v a) (set-car! (cddr v)
-                                         (if a
-                                             (logior (caddr v) 8)
-                                             (logand (caddr v) -9))))
+(define (vinfo:set-const! v a) (set-car! (cddr v) (set-bit (caddr v) 8 a)))
 ;; whether var is assigned once
-(define (vinfo:set-sa! v a) (set-car! (cddr v)
-                                      (if a
-                                          (logior (caddr v) 16)
-                                          (logand (caddr v) -17))))
+(define (vinfo:set-sa! v a)    (set-car! (cddr v) (set-bit (caddr v) 16 a)))
+;; occurs undef: mask 32
 
 (define var-info-for assq)
 
@@ -2943,7 +2911,7 @@ So far only the second case can actually occur.
 ; convert each lambda's (locals ...) to
 ;   ((localvars...) var-info-lst captured-var-infos)
 ; where var-info-lst is a list of var-info records
-(define (analyze-vars e env captvars)
+(define (analyze-vars e env captvars sp)
   (if (or (atom? e) (quoted? e))
       e
       (case (car e)
@@ -2957,7 +2925,7 @@ So far only the second case can actually occur.
                  (vinfo:set-asgn! vi #t)
                  (if (assq (car vi) captvars)
                      (vinfo:set-iasg! vi #t)))))
-         `(= ,(cadr e) ,(analyze-vars (caddr e) env captvars)))
+         `(= ,(cadr e) ,(analyze-vars (caddr e) env captvars sp)))
         #;((or (eq? (car e) 'local) (eq? (car e) 'local!))
          '(null))
         ((typeassert)
@@ -3014,12 +2982,12 @@ So far only the second case can actually occur.
                                            (not (memq (vinfo:name v) allv))
                                            (not (memq (vinfo:name v) glo))))
                                         env))
-                        cv)))
+                        cv sp)))
            ;; mark all the vars we capture as captured
            (for-each (lambda (v) (vinfo:set-capt! v #t))
                      cv)
            `(lambda ,args
-              (,(cdaddr e) ,vi ,cv ,gensym_types)
+              (,vi ,cv ,gensym_types ,sp)
               ,bod)))
         ((localize)
          ;; special feature for @spawn that wraps a piece of code in a "let"
@@ -3033,7 +3001,7 @@ So far only the second case can actually occur.
              (analyze-vars
               `(call (lambda ,vs ,(caddr (cadr e)) ,(cadddr (cadr e)))
                      ,@vs)
-              env captvars))))
+              env captvars sp))))
         ((method)
          (let ((vi (var-info-for (method-expr-name e) env)))
            (if vi
@@ -3046,14 +3014,16 @@ So far only the second case can actually occur.
 	 (if (length= e 2)
 	     `(method ,(cadr e))
 	     `(method ,(cadr e)
-		      ,(analyze-vars (caddr  e) env captvars)
-		      ,(analyze-vars (cadddr e) env captvars)
+		      ,(analyze-vars (caddr  e) env captvars sp)
+		      ,(analyze-vars (cadddr e) env captvars
+				     (delete-duplicates
+				      (append sp (method-expr-static-parameters e))))
 		      ,(caddddr e))))
         (else (cons (car e)
-                    (map (lambda (x) (analyze-vars x env captvars))
+                    (map (lambda (x) (analyze-vars x env captvars sp))
                          (cdr e)))))))
 
-(define (analyze-variables e) (analyze-vars e '() '()))
+(define (analyze-variables e) (analyze-vars e '() '() '()))
 
 (define (not-bool e)
   (cond ((memq e '(true #t))  'false)
@@ -3071,8 +3041,8 @@ So far only the second case can actually occur.
   (cond ((or (not (pair? e)) (quoted? e)) e)
         ((eq? (car e) 'lambda)
          `(lambda ,(cadr e) ,(caddr e)
-                  ,(compile-body (cadddr e) (append (cadr (caddr e))
-                                                    (caddr (caddr e))))))
+                  ,(compile-body (cadddr e) (append (car (caddr e))
+                                                    (cadr (caddr e))))))
         (else (cons (car e)
                     (map goto-form (cdr e))))))
 
@@ -3232,11 +3202,7 @@ So far only the second case can actually occur.
                     (vinf  (var-info-for vname vi)))
                (if (and vinf
                         (not (and (pair? code)
-                                  (equal? (car code) `(newvar ,vname))))
-                        ;; TODO: remove the following expression to re-null
-                        ;; all variables when they are allocated. see issue #1571
-                        (vinfo:capt vinf)
-                        )
+                                  (equal? (car code) `(newvar ,vname)))))
                    (emit `(newvar ,vname))
                    #f)))
             ((newvar)
@@ -3246,9 +3212,40 @@ So far only the second case can actually occur.
                  #f))
             (else  (emit (goto-form e))))))
     (compile e '())
-    (cons 'body (reverse! code))))
+    (let* ((stmts (reverse! code))
+	   (di    (definitely-initialized-vars stmts vi)))
+      (cons 'body (filter (lambda (e)
+			    (not (and (pair? e) (eq? (car e) 'newvar)
+				      (has? di (cadr e)))))
+			  stmts)))))
 
 (define to-goto-form goto-form)
+
+;; find newvar nodes that are unnecessary because (1) the variable is not
+;; captured, and (2) the variable is assigned before any branches.
+;; this is used to remove newvar nodes that are not needed for re-initializing
+;; variables to undefined (see issue #11065). it doesn't look for variable
+;; *uses*, because any variables used-before-def that also pass this test
+;; are *always* used undefined, and therefore don't need to be *re*-initialized.
+(define (definitely-initialized-vars stmts vi)
+  (let ((vars (table))
+	(di   (table)))
+    (let loop ((stmts stmts))
+      (if (null? stmts)
+	  di
+	  (begin
+	    (let ((e (car stmts)))
+	      (cond ((and (pair? e) (eq? (car e) 'newvar))
+		     (let ((vinf (var-info-for (cadr e) vi)))
+		       (if (not (vinfo:capt vinf))
+			   (put! vars (cadr e) #t))))
+		    ((and (pair? e) (eq? (car e) '=))
+		     (if (has? vars (cadr e))
+			 (begin (del! vars (cadr e))
+				(put! di (cadr e) #t))))
+		    ((and (pair? e) (memq (car e) '(goto gotoifnot)))
+		     (set! vars (table)))))
+	    (loop (cdr stmts)))))))
 
 ;; macro expander
 
