@@ -70,11 +70,49 @@ static inline void add_named_global(GlobalValue *gv, void *addr)
 #endif
 {
 #ifdef USE_MCJIT
-    addComdat(gv);
-    sys::DynamicLibrary::AddSymbol(gv->getName(),addr);
-#else
-    jl_ExecutionEngine->addGlobalMapping(gv,addr);
+
+    StringRef name = gv->getName();
+#ifdef _OS_WINDOWS_
+    std::string imp_name;
+    // setting DLLEXPORT correctly only matters when building a binary
+    if (jl_options.build_path != NULL) {
+        // add the __declspec(dllimport) attribute
+        gv->setDLLStorageClass(GlobalValue::DLLImportStorageClass);
+        // this will cause llvm to rename it, so we do the same
+        imp_name = Twine("__imp_", name).str();
+        name = StringRef(imp_name);
+#ifdef _P64
+        // __imp_ functions are jmp stubs (no additional work needed)
+        // __imp_ variables are indirection pointers, so use malloc to simulate that too
+        if (isa<GlobalVariable>(gv)) {
+            void** imp_addr = (void**)malloc(sizeof(void**));
+            *imp_addr = addr;
+            addr = (void*)imp_addr;
+        }
 #endif
+    }
+#endif
+    addComdat(gv);
+    sys::DynamicLibrary::AddSymbol(name, addr);
+
+#else // USE_MCJIT
+
+#ifdef _OS_WINDOWS_
+    // setting DLLEXPORT correctly only matters when building a binary
+    if (jl_options.build_path != NULL) {
+        if (gv->getLinkage() == GlobalValue::ExternalLinkage)
+            gv->setLinkage(GlobalValue::DLLImportLinkage);
+#ifdef _P64
+        // the following is correct by observation,
+        // as long as everything stays within a 32-bit offset :/
+        void** imp_addr = (void**)malloc(sizeof(void**));
+        *imp_addr = addr;
+        addr = (void*)imp_addr;
+#endif
+    }
+#endif // _OS_WINDOWS_
+    jl_ExecutionEngine->addGlobalMapping(gv, addr);
+#endif // USE_MCJIT
 }
 
 // --- string constants ---
@@ -507,6 +545,13 @@ static Value *literal_pointer_val(jl_binding_t *p)
     return julia_gv("jl_bnd#", p->name, p->owner, p);
 }
 
+static Value *julia_binding_gv(Value *bv)
+{
+    return builder.
+        CreateGEP(bv,ConstantInt::get(T_size,
+                                      offsetof(jl_binding_t,value)/sizeof(size_t)));
+}
+
 static Value *julia_binding_gv(jl_binding_t *b)
 {
     // emit a literal_pointer_val to the value field of a jl_binding_t
@@ -514,8 +559,7 @@ static Value *julia_binding_gv(jl_binding_t *b)
     Value *bv = imaging_mode ?
         builder.CreateBitCast(julia_gv("*", b->name, b->owner, b), jl_ppvalue_llvmt) :
         literal_static_pointer_val(b,jl_ppvalue_llvmt);
-    return builder.CreateGEP(bv,ConstantInt::get(T_size,
-                offsetof(jl_binding_t,value)/sizeof(size_t)));
+    return julia_binding_gv(bv);
 }
 
 // --- mapping between julia and llvm types ---

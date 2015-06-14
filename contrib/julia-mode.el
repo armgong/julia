@@ -396,7 +396,8 @@ before point. Returns nil if we're not within nested parens."
                    (progn
                      (forward-line -1)
                      (end-of-line) (backward-char 1)
-                     (equal (char-after (point)) ?=)))
+                     (and (equal (char-after (point)) ?=)
+                          (not (julia-in-comment)))))
               (+ julia-basic-offset (current-indentation))
             nil)))
       ;; Indent according to how many nested blocks we are in.
@@ -540,6 +541,18 @@ if foo
     
     bar
 end"))
+
+  (ert-deftest julia--test-indent-comment-equal ()
+    "`=` at the end of comment should not increase indent level."
+    (julia--should-indent
+     "
+# a =
+# b =
+c"
+     "
+# a =
+# b =
+c"))
 
   (defun julia--run-tests ()
     (interactive)
