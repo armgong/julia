@@ -62,21 +62,14 @@ static htable_t fptr_to_id;
 // (reverse of fptr_to_id)
 static jl_fptr_t id_to_fptrs[] = {
   NULL, NULL,
-  jl_f_throw, jl_f_is,
-  jl_f_no_function, jl_f_typeof,
-  jl_f_subtype, jl_f_isa,
-  jl_f_typeassert, jl_f_apply,
-  jl_f_top_eval, jl_f_isdefined,
-  jl_f_tuple, jl_f_svec,
+  jl_f_throw, jl_f_is, jl_f_no_function, jl_f_typeof,
+  jl_f_subtype, jl_f_isa, jl_f_typeassert, jl_f_apply,
+  jl_f_top_eval, jl_f_isdefined, jl_f_tuple, jl_f_svec,
   jl_f_get_field, jl_f_set_field, jl_f_field_type, jl_f_nfields,
-  jl_f_arraylen, jl_f_arrayref,
-  jl_f_arrayset, jl_f_arraysize,
-  jl_f_instantiate_type, jl_f_kwcall,
-  jl_trampoline, jl_f_union,
-  jl_f_methodexists, jl_f_applicable,
-  jl_f_invoke, jl_apply_generic,
-  jl_unprotect_stack,
-  jl_f_sizeof, jl_f_new_expr,
+  jl_f_arraylen, jl_f_arrayref, jl_f_arrayset, jl_f_arraysize,
+  jl_f_instantiate_type, jl_f_kwcall, jl_trampoline,
+  jl_f_methodexists, jl_f_applicable, jl_f_invoke,
+  jl_apply_generic, jl_unprotect_stack, jl_f_sizeof, jl_f_new_expr,
   NULL };
 
 // pointers to non-AST-ish objects in a compressed tree
@@ -1465,8 +1458,8 @@ void jl_save_system_image_to_stream(ios_t *f)
 
     // record reinitialization functions
     for (i = 0; i < reinit_list.len; i += 2) {
-        write_int32(f, (int)reinit_list.items[i]);
-        write_int32(f, (int)reinit_list.items[i+1]);
+        write_int32(f, (int)((uintptr_t) reinit_list.items[i]));
+        write_int32(f, (int)((uintptr_t) reinit_list.items[i+1]));
     }
     write_int32(f, -1);
 
@@ -1498,7 +1491,6 @@ extern jl_function_t *jl_typeinf_func;
 extern int jl_boot_file_loaded;
 extern void jl_get_builtin_hooks(void);
 extern void jl_get_system_hooks(void);
-extern void jl_get_uv_hooks();
 
 // Takes in a path of the form "usr/lib/julia/sys.{ji,so}", as passed to jl_restore_system_image()
 DLLEXPORT void jl_preload_sysimg_so(const char *fname)
@@ -1572,7 +1564,6 @@ void jl_restore_system_image_from_stream(ios_t *f)
     jl_get_builtin_hooks();
     if (jl_base_module) {
         jl_get_system_hooks();
-        jl_get_uv_hooks();
     }
     jl_boot_file_loaded = 1;
     jl_init_box_caches();

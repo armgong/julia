@@ -907,7 +907,8 @@ DLLEXPORT int jl_has_typevars(jl_value_t *v);
 DLLEXPORT int jl_subtype(jl_value_t *a, jl_value_t *b, int ta);
 int jl_type_morespecific(jl_value_t *a, jl_value_t *b);
 DLLEXPORT int jl_types_equal(jl_value_t *a, jl_value_t *b);
-jl_value_t *jl_type_union(jl_svec_t *types);
+DLLEXPORT jl_value_t *jl_type_union(jl_svec_t *types);
+jl_value_t *jl_type_union_v(jl_value_t **ts, size_t n);
 jl_value_t *jl_type_intersection_matching(jl_value_t *a, jl_value_t *b,
                                           jl_svec_t **penv, jl_svec_t *tvars);
 DLLEXPORT jl_value_t *jl_type_intersection(jl_value_t *a, jl_value_t *b);
@@ -924,7 +925,6 @@ DLLEXPORT jl_tupletype_t *jl_apply_tuple_type(jl_svec_t *params);
 DLLEXPORT jl_tupletype_t *jl_apply_tuple_type_v(jl_value_t **p, size_t np);
 jl_value_t *jl_apply_type_(jl_value_t *tc, jl_value_t **params, size_t n);
 jl_value_t *jl_instantiate_type_with(jl_value_t *t, jl_value_t **env, size_t n);
-DLLEXPORT jl_uniontype_t *jl_new_uniontype(jl_svec_t *types);
 jl_datatype_t *jl_new_abstracttype(jl_value_t *name, jl_datatype_t *super,
                                    jl_svec_t *parameters);
 DLLEXPORT jl_datatype_t *jl_new_uninitialized_datatype(size_t nfields);
@@ -1448,12 +1448,6 @@ void jl_longjmp(jmp_buf _Buf,int _Value);
 #define JL_STDERR jl_uv_stderr
 #define JL_STDIN  jl_uv_stdin
 
-DLLEXPORT int jl_spawn(char *name, char **argv, uv_loop_t *loop,
-                       uv_process_t *proc, jl_value_t *julia_struct,
-                       uv_handle_type stdin_type,uv_pipe_t *stdin_pipe,
-                       uv_handle_type stdout_type,uv_pipe_t *stdout_pipe,
-                       uv_handle_type stderr_type,uv_pipe_t *stderr_pipe,
-                       int detach, char **env, char *cwd);
 DLLEXPORT void jl_run_event_loop(uv_loop_t *loop);
 DLLEXPORT int jl_run_once(uv_loop_t *loop);
 DLLEXPORT int jl_process_events(uv_loop_t *loop);
@@ -1489,7 +1483,6 @@ DLLEXPORT jl_array_t *jl_takebuf_array(ios_t *s);
 DLLEXPORT jl_value_t *jl_takebuf_string(ios_t *s);
 DLLEXPORT void *jl_takebuf_raw(ios_t *s);
 DLLEXPORT jl_value_t *jl_readuntil(ios_t *s, uint8_t delim);
-DLLEXPORT void jl_free2(void *p, void *hint);
 
 typedef struct {
     void *data;

@@ -4,8 +4,8 @@
 
 typealias AbstractVector{T} AbstractArray{T,1}
 typealias AbstractMatrix{T} AbstractArray{T,2}
-typealias AbstractVecOrMat{T} Union(AbstractVector{T}, AbstractMatrix{T})
-typealias RangeIndex Union(Int, Range{Int}, UnitRange{Int}, Colon)
+typealias AbstractVecOrMat{T} Union{AbstractVector{T}, AbstractMatrix{T}}
+typealias RangeIndex Union{Int, Range{Int}, UnitRange{Int}, Colon}
 
 ## Basic functions ##
 
@@ -151,15 +151,15 @@ throw_boundserror(A, I) = (@_noinline_meta; throw(BoundsError(A, I)))
 checkbounds(A::AbstractArray, I::AbstractArray{Bool}) = size(A) == size(I) || throw_boundserror(A, I)
 checkbounds(A::AbstractArray, I::AbstractVector{Bool}) = length(A) == length(I) || throw_boundserror(A, I)
 checkbounds(A::AbstractArray, I) = (@_inline_meta; _checkbounds(length(A), I) || throw_boundserror(A, I))
-function checkbounds(A::AbstractMatrix, I::Union(Real,AbstractArray,Colon), J::Union(Real,AbstractArray,Colon))
+function checkbounds(A::AbstractMatrix, I::Union{Real,AbstractArray,Colon}, J::Union{Real,AbstractArray,Colon})
     @_inline_meta
     (_checkbounds(size(A,1), I) && _checkbounds(size(A,2), J)) || throw_boundserror(A, (I, J))
 end
-function checkbounds(A::AbstractArray, I::Union(Real,AbstractArray,Colon), J::Union(Real,AbstractArray,Colon))
+function checkbounds(A::AbstractArray, I::Union{Real,AbstractArray,Colon}, J::Union{Real,AbstractArray,Colon})
     @_inline_meta
     (_checkbounds(size(A,1), I) && _checkbounds(trailingsize(A,Val{2}), J)) || throw_boundserror(A, (I, J))
 end
-@generated function checkbounds(A::AbstractArray, I::Union(Real,AbstractArray,Colon)...)
+@generated function checkbounds(A::AbstractArray, I::Union{Real,AbstractArray,Colon}...)
     meta = Expr(:meta, :inline)
     N = length(I)
     args = Expr[:(_checkbounds(size(A,$dim), I[$dim]) || throw_boundserror(A, I)) for dim in 1:N-1]
@@ -599,13 +599,13 @@ end
 
 ## get (getindex with a default value) ##
 
-typealias RangeVecIntList{A<:AbstractVector{Int}} Union(Tuple{Vararg{Union(Range, AbstractVector{Int})}}, AbstractVector{UnitRange{Int}}, AbstractVector{Range{Int}}, AbstractVector{A})
+typealias RangeVecIntList{A<:AbstractVector{Int}} Union{Tuple{Vararg{Union{Range, AbstractVector{Int}}}}, AbstractVector{UnitRange{Int}}, AbstractVector{Range{Int}}, AbstractVector{A}}
 
 get(A::AbstractArray, i::Integer, default) = in_bounds(length(A), i) ? A[i] : default
 get(A::AbstractArray, I::Tuple{}, default) = similar(A, typeof(default), 0)
 get(A::AbstractArray, I::Dims, default) = in_bounds(size(A), I...) ? A[I...] : default
 
-function get!{T}(X::AbstractArray{T}, A::AbstractArray, I::Union(Range, AbstractVector{Int}), default::T)
+function get!{T}(X::AbstractArray{T}, A::AbstractArray, I::Union{Range, AbstractVector{Int}}, default::T)
     ind = findin(I, 1:length(A))
     X[ind] = A[I[ind]]
     X[1:first(ind)-1] = default
@@ -1290,28 +1290,30 @@ function map(f, A::AbstractArray, B::AbstractArray)
 end
 
 ## N argument
-function map!{F}(f::F, dest::AbstractArray, As::AbstractArray...)
+
+ith_all(i, ::Tuple{}) = ()
+ith_all(i, as) = (as[1][i], ith_all(i, tail(as))...)
+
+function map_n!{F}(f::F, dest::AbstractArray, As)
     n = length(As[1])
-    i = 1
-    ith = a->a[i]
     for i = 1:n
-        dest[i] = f(map(ith, As)...)
+        dest[i] = f(ith_all(i, As)...)
     end
     return dest
 end
 
-function map_to!{T,F}(f::F, offs, dest::AbstractArray{T}, As::AbstractArray...)
-    local i
-    ith = a->a[i]
+map!{F}(f::F, dest::AbstractArray, As::AbstractArray...) = map_n!(f, dest, As)
+
+function map_to_n!{T,F}(f::F, offs, dest::AbstractArray{T}, As)
     @inbounds for i = offs:length(As[1])
-        el = f(map(ith, As)...)
+        el = f(ith_all(i, As)...)
         S = typeof(el)
         if (S !== T) && !(S <: T)
             R = typejoin(T, S)
             new = similar(dest, R)
             copy!(new,1, dest,1, i-1)
             new[i] = el
-            return map_to!(f, i+1, new, As...)
+            return map_to_n!(f, i+1, new, As)
         end
         dest[i] = el::T
     end
@@ -1326,7 +1328,7 @@ function map(f, As::AbstractArray...)
     first = f(map(a->a[1], As)...)
     dest = similar(As[1], typeof(first), shape)
     dest[1] = first
-    return map_to!(f, 2, dest, As...)
+    return map_to_n!(f, 2, dest, As)
 end
 
 # multi-item push!, unshift! (built on top of type-specific 1-item version)

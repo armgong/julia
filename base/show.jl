@@ -67,16 +67,16 @@ function show(io::IO, x::IntrinsicFunction)
     print(io, "(intrinsic function #", box(Int32,unbox(IntrinsicFunction,x)), ")")
 end
 
-function show(io::IO, x::UnionType)
+function show(io::IO, x::Union)
     print(io, "Union")
-    show_delim_array(io, x.types, '(', ',', ')', false)
+    show_delim_array(io, x.types, '{', ',', '}', false)
 end
 
 show(io::IO, x::TypeConstructor) = show(io, x.body)
 
 function show(io::IO, x::DataType)
     show(io, x.name)
-    if (length(x.parameters) > 0 || x.name === Tuple.name) && x !== Tuple
+    if (length(x.parameters) > 0 || x.name === Tuple.name) && x != Tuple
         print(io, '{')
         n = length(x.parameters)
         for i = 1:n
@@ -252,8 +252,8 @@ show(io::IO, s::Symbol) = show_unquoted_quote_expr(io, s, 0, 0)
 #   eval(parse("Set{Int64}([2,3,1])”) # ==> An actual set
 # While this isn’t true of ALL show methods, it is of all ASTs.
 
-typealias ExprNode Union(Expr, QuoteNode, SymbolNode, LineNumberNode,
-                         LabelNode, GotoNode, TopNode)
+typealias ExprNode Union{Expr, QuoteNode, SymbolNode, LineNumberNode,
+                         LabelNode, GotoNode, TopNode}
 # Operators have precedence levels from 1-N, and show_unquoted defaults to a
 # precedence level of 0 (the fourth argument). The top-level print and show
 # methods use a precedence of -1 to specially allow space-separated macro syntax
@@ -812,7 +812,7 @@ xdump(fn::Function, io::IO, x::Array, n::Int, indent) =
                 show(io, x); println(io))
 
 # Types
-xdump(fn::Function, io::IO, x::UnionType, n::Int, indent) = println(io, x)
+xdump(fn::Function, io::IO, x::Union, n::Int, indent) = println(io, x)
 function xdump(fn::Function, io::IO, x::DataType, n::Int, indent)
     println(io, x, "::", typeof(x), " ", " <: ", super(x))
     fields = fieldnames(x)
@@ -857,7 +857,7 @@ function dumptype(io::IO, x, n::Int, indent)
                                 length(t.parameters) > 0 ? "{$targs}" : "",
                                 " = ", t)
                     end
-                elseif isa(t, UnionType)
+                elseif isa(t, Union)
                     if any(tt -> string(x.name) == typargs(tt), t.types)
                         println(io, indent, "  ", s, " = ", t)
                     end

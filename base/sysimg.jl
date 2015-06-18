@@ -50,6 +50,7 @@ include("int.jl")
 include("operators.jl")
 include("pointer.jl")
 include("refpointer.jl")
+include("functors.jl")
 
 # array structures
 include("abstractarray.jl")
@@ -71,7 +72,6 @@ include("simdloop.jl")
 importall .SimdLoop
 
 # map-reduce operators
-include("functors.jl")
 include("reduce.jl")
 
 ## core structures
@@ -128,7 +128,6 @@ importall .FS
 include("process.jl")
 include("multimedia.jl")
 importall .Multimedia
-ccall(:jl_get_uv_hooks, Void, ()) # TODO: should put this in _init
 include("grisu.jl")
 import .Grisu.print_shortest
 include("file.jl")

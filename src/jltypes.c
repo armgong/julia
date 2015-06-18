@@ -173,13 +173,14 @@ static int type_eqv_(jl_value_t *a, jl_value_t *b);
 
 // --- type union ---
 
-static int count_union_components(jl_svec_t *types)
+static int count_union_components(jl_value_t **types, size_t n)
 {
     size_t i, c=0;
-    for(i=0; i < jl_svec_len(types); i++) {
-        jl_value_t *e = jl_svecref(types,i);
+    for(i=0; i < n; i++) {
+        jl_value_t *e = types[i];
         if (jl_is_uniontype(e)) {
-            c += count_union_components(((jl_uniontype_t*)e)->types);
+            jl_svec_t *ts = ((jl_uniontype_t*)e)->types;
+            c += count_union_components(jl_svec_data(ts), jl_svec_len(ts));
         }
         else {
             c++;
@@ -188,13 +189,14 @@ static int count_union_components(jl_svec_t *types)
     return c;
 }
 
-static void flatten_type_union(jl_svec_t *types, jl_value_t **out, size_t *idx)
+static void flatten_type_union(jl_value_t **types, size_t n, jl_value_t **out, size_t *idx)
 {
     size_t i;
-    for(i=0; i < jl_svec_len(types); i++) {
-        jl_value_t *e = jl_svecref(types,i);
+    for(i=0; i < n; i++) {
+        jl_value_t *e = types[i];
         if (jl_is_uniontype(e)) {
-            flatten_type_union(((jl_uniontype_t*)e)->types, out, idx);
+            jl_svec_t *ts = ((jl_uniontype_t*)e)->types;
+            flatten_type_union(jl_svec_data(ts), jl_svec_len(ts), out, idx);
         }
         else {
             out[*idx] = e;
@@ -220,13 +222,13 @@ static int union_elt_morespecific(const void *a, const void *b)
 // type definitions. (issue #2365)
 int inside_typedef = 0;
 
-jl_svec_t *jl_compute_type_union(jl_svec_t *types)
+static jl_svec_t *jl_compute_type_union(jl_value_t **types, size_t ntypes)
 {
-    size_t n = count_union_components(types);
+    size_t n = count_union_components(types, ntypes);
     jl_value_t **temp;
     JL_GC_PUSHARGS(temp, n+1);
     size_t idx=0;
-    flatten_type_union(types, temp, &idx);
+    flatten_type_union(types, ntypes, temp, &idx);
     assert(idx == n);
     size_t i, j, ndel=0;
     for(i=0; i < n; i++) {
@@ -263,17 +265,24 @@ jl_svec_t *jl_compute_type_union(jl_svec_t *types)
     return result;
 }
 
+jl_value_t *jl_type_union_v(jl_value_t **ts, size_t n)
+{
+    if (n == 0) return (jl_value_t*)jl_bottom_type;
+    if (n == 1) return ts[0];
+    jl_svec_t *types = jl_compute_type_union(ts, n);
+    if (jl_svec_len(types) == 0) return (jl_value_t*)jl_bottom_type;
+    if (jl_svec_len(types) == 1) return jl_svecref(types, 0);
+    JL_GC_PUSH1(&types);
+    jl_uniontype_t *tu = (jl_uniontype_t*)newobj((jl_value_t*)jl_uniontype_type,NWORDS(sizeof(jl_uniontype_t)));
+    tu->types = types;
+    gc_wb(tu, types);
+    JL_GC_POP();
+    return (jl_value_t*)tu;
+}
+
 jl_value_t *jl_type_union(jl_svec_t *types)
 {
-    types = jl_compute_type_union(types);
-    if (jl_svec_len(types) == 1)
-        return jl_svecref(types, 0);
-    if (jl_svec_len(types) == 0)
-        return (jl_value_t*)jl_bottom_type;
-    JL_GC_PUSH1(&types);
-    jl_value_t *tu = (jl_value_t*)jl_new_uniontype(types);
-    JL_GC_POP();
-    return tu;
+    return jl_type_union_v(jl_svec_data(types), jl_svec_len(types));
 }
 
 // --- type intersection ---
@@ -366,7 +375,7 @@ static jl_value_t *intersect_union(jl_uniontype_t *a, jl_value_t *b,
     return tu;
 }
 
-// if returns with *bot!=0, then intersection is Union()
+// if returns with *bot!=0, then intersection is Union{}
 static size_t tuple_intersect_size(jl_svec_t *a, jl_svec_t *b, int *bot)
 {
     size_t al = jl_svec_len(a);
@@ -501,7 +510,7 @@ static jl_value_t *intersect_tag(jl_datatype_t *a, jl_datatype_t *b,
                 ti = jl_type_intersect(ap,bp,penv,eqc,invariant);
                 if (bp == (jl_value_t*)jl_bottom_type &&
                     !((jl_tvar_t*)ap)->bound) {
-                    // "Union()" as a type parameter
+                    // "Union{}" as a type parameter
                     jl_svecset(p, i, ti);
                     continue;
                 }
@@ -510,7 +519,7 @@ static jl_value_t *intersect_tag(jl_datatype_t *a, jl_datatype_t *b,
                 ti = jl_type_intersect(ap,bp,penv,eqc,invariant);
                 if (ap == (jl_value_t*)jl_bottom_type &&
                     !((jl_tvar_t*)bp)->bound) {
-                    // "Union()" as a type parameter
+                    // "Union{}" as a type parameter
                     jl_svecset(p, i, ti);
                     continue;
                 }
@@ -530,7 +539,7 @@ static jl_value_t *intersect_tag(jl_datatype_t *a, jl_datatype_t *b,
                 else if (type_eqv_(ap,bp)) {
                     ti = ap;
                     if (ti == (jl_value_t*)jl_bottom_type) {
-                        // "Union()" as a type parameter
+                        // "Union{}" as a type parameter
                         jl_svecset(p, i, ti);
                         continue;
                     }
@@ -1019,7 +1028,7 @@ static jl_value_t *jl_type_intersect(jl_value_t *a, jl_value_t *b,
     // uses to instantiate its supertype. this tells us what subtype parameter
     // values are implied by the intersected supertype, or that the
     // intersected supertype cannot come from this subtype (in which case
-    // our final answer is Union()).
+    // our final answer is Union{}).
     size_t i;
     // hack: we need type_match to find assignments for all typevars
     int prev_mim = match_intersection_mode;
@@ -1067,7 +1076,7 @@ static jl_value_t *jl_type_intersect(jl_value_t *a, jl_value_t *b,
             if (jl_svecref(env, e) == tp) {
                 elt = jl_type_intersect(elt, jl_svecref(env, e+1),
                                         penv, eqc, invariant);
-                // note: elt might be Union() if "Union()" was the type parameter
+                // note: elt might be Union{} if "Union{}" was the type parameter
                 break;
             }
         }
@@ -1647,6 +1656,8 @@ jl_value_t *jl_apply_type_(jl_value_t *tc, jl_value_t **params, size_t n)
 {
     if (tc == (jl_value_t*)jl_anytuple_type)
         return (jl_value_t*)jl_apply_tuple_type_v(params, n);
+    if (tc == (jl_value_t*)jl_uniontype_type)
+        return (jl_value_t*)jl_type_union_v(params, n);
     if (n == 0) {
         if (jl_is_typector(tc))
             return (jl_value_t*)((jl_typector_t*)tc)->body;
@@ -1894,7 +1905,7 @@ static int is_cacheable(jl_datatype_t *type)
 static void cache_insert_type(jl_value_t *type, ssize_t insert_at, int ordered)
 {
     assert(jl_is_datatype(type));
-    // assign uid
+    // assign uid if it hasn't been done already
     if (!jl_is_abstracttype(type) && ((jl_datatype_t*)type)->uid==0)
         ((jl_datatype_t*)type)->uid = jl_assign_type_uid();
     jl_svec_t *cache;
@@ -1951,6 +1962,24 @@ static jl_value_t *inst_type_w_(jl_value_t *t, jl_value_t **env, size_t n,
 static jl_svec_t *inst_all(jl_svec_t *p, jl_value_t **env, size_t n,
                            jl_typestack_t *stack, int check);
 
+static jl_value_t *lookup_type_stack(jl_typestack_t *stack, jl_datatype_t *tt, size_t ntp,
+                                     jl_value_t **iparams)
+{
+    // if an identical instantiation is already in process somewhere up the
+    // stack, return it. this computes a fixed point for recursive types.
+    jl_typename_t *tn = tt->name;
+    while (stack != NULL) {
+        if (stack->tt->name == tn &&
+            ntp == jl_svec_len(stack->tt->parameters) &&
+            typekey_eq(stack->tt, iparams, ntp)) {
+            jl_value_t *lkup = (jl_value_t*)stack->tt;
+            return lkup == tn->primary ? NULL : lkup;
+        }
+        stack = stack->prev;
+    }
+    return NULL;
+}
+
 static jl_value_t *inst_datatype(jl_datatype_t *dt, jl_svec_t *p, jl_value_t **iparams, size_t ntp,
                                  int cacheable, int isabstract, jl_typestack_t *stack,
                                  jl_value_t **env, size_t n)
@@ -1965,6 +1994,9 @@ static jl_value_t *inst_datatype(jl_datatype_t *dt, jl_svec_t *p, jl_value_t **i
         if (lkup != NULL)
             return lkup;
     }
+    jl_value_t *stack_lkup = lookup_type_stack(stack, dt, ntp, iparams);
+    if (stack_lkup)
+        return stack_lkup;
 
     // always use original type constructor
     if (!istuple) {
@@ -2008,7 +2040,9 @@ static jl_value_t *inst_datatype(jl_datatype_t *dt, jl_svec_t *p, jl_value_t **i
     ndt->size = 0;
     ndt->alignment = 1;
 
-    if (cacheable) jl_cache_type_(ndt);
+    // assign uid as early as possible
+    if (cacheable && !ndt->abstract && ndt->uid==0)
+        ndt->uid = jl_assign_type_uid();
 
     if (istuple)
         ndt->super = jl_any_type;
@@ -2047,6 +2081,9 @@ static jl_value_t *inst_datatype(jl_datatype_t *dt, jl_svec_t *p, jl_value_t **i
         ndt->ninitialized = ntp;
     else
         ndt->ninitialized = dt->ninitialized;
+
+    if (cacheable) jl_cache_type_(ndt);
+
     JL_GC_POP();
     return (jl_value_t*)ndt;
 }
@@ -2213,23 +2250,6 @@ static jl_value_t *inst_type_w_(jl_value_t *t, jl_value_t **env, size_t n,
     // if t's parameters are not bound in the environment, return it uncopied (#9378)
     if (!bound && t == tc) { JL_GC_POP(); return (jl_value_t*)t; }
 
-    // if an identical instantiation is already in process somewhere
-    // up the stack, return it. this computes a fixed point for
-    // recursive types.
-    jl_typestack_t *tmp = stack;
-    jl_value_t *lkup = NULL;
-    while (tmp != NULL) {
-        if (tmp->tt->name==tn && ntp==jl_svec_len(tmp->tt->parameters) &&
-            typekey_eq(tmp->tt, iparams, ntp)) {
-            lkup = (jl_value_t*)tmp->tt;
-            break;
-        }
-        tmp = tmp->prev;
-    }
-    if (lkup != NULL && lkup != (jl_value_t*)tc) {
-        JL_GC_POP();
-        return lkup;
-    }
     jl_value_t *result = inst_datatype((jl_datatype_t*)tt, NULL, iparams, ntp, cacheable, isabstract,
                                        stack, env, n);
     JL_GC_POP();
@@ -2334,7 +2354,7 @@ static int jl_subtype_le(jl_value_t *a, jl_value_t *b, int ta, int invariant)
         }
     }
     else if (a == b) {
-        // Union() <: Union()
+        // Union{} <: Union{}
         return 1;
     }
 
@@ -3168,7 +3188,7 @@ void jl_init_types(void)
     jl_nothing = newstruct(jl_void_type);
     jl_void_type->instance = jl_nothing;
 
-    jl_uniontype_type = jl_new_datatype(jl_symbol("UnionType"),
+    jl_uniontype_type = jl_new_datatype(jl_symbol("Union"),
                                         jl_type_type, jl_emptysvec,
                                         jl_svec(1, jl_symbol("types")),
                                         jl_svec(1, jl_simplevector_type),
