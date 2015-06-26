@@ -2,7 +2,7 @@
 
 module CHOLMOD
 
-import Base: (*), convert, copy, eltype, getindex, show, size,
+import Base: (*), convert, copy, eltype, getindex, show, showarray, size,
              linearindexing, LinearFast, LinearSlow
 
 import Base.LinAlg: (\), A_mul_Bc, A_mul_Bt, Ac_ldiv_B, Ac_mul_B, At_ldiv_B, At_mul_B,
@@ -924,6 +924,7 @@ function sparse(F::Factor)
         L, d = getLd!(LD)
         A = scale(L, d)*L'
     end
+    SparseMatrix.sortSparseMatrixCSC!(A)
     p = get_perm(F)
     if p != [1:s.n;]
         pinv = Array(Int, length(p))
@@ -972,7 +973,8 @@ function show(io::IO, F::Factor)
     showfactor(io, F)
 end
 
-function show(io::IO, FC::FactorComponent)
+# FactorComponent is a subtype of AbstractArray and we therefore define showarray instead of show
+function showarray(io::IO, FC::FactorComponent; kargs...)
     println(io, typeof(FC))
     showfactor(io, Factor(FC))
 end
@@ -1009,7 +1011,6 @@ function size(F::Factor, i::Integer)
     end
     return 1
 end
-
 
 linearindexing(::Dense) = LinearFast()
 

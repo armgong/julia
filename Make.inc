@@ -356,7 +356,6 @@ JCXXFLAGS += -std=c++11
 endif
 
 JFFLAGS = -O2 $(fPIC)
-JF2CFLAGS = -ff2c -fno-second-underscore
 ifneq ($(USEMSVC),1)
 CPP = $(CC) -E
 AR := $(CROSS_COMPILE)ar
@@ -374,9 +373,23 @@ LD := link
 endif #USEMSVC
 RANLIB := $(CROSS_COMPILE)ranlib
 
+# file extensions
+ifeq ($(OS), WINNT)
+  SHLIB_EXT = dll
+else ifeq ($(OS), Darwin)
+  SHLIB_EXT = dylib
+else
+  SHLIB_EXT = so
+endif
+
 
 # if not absolute, then relative to the directory of the julia executable
+# on windows, use .ji by default
+ifeq ($(OS),WINNT)
 JCPPFLAGS += "-DJL_SYSTEM_IMAGE_PATH=\"$(build_private_libdir_rel)/sys.ji\""
+else
+JCPPFLAGS += "-DJL_SYSTEM_IMAGE_PATH=\"$(build_private_libdir_rel)/sys.$(SHLIB_EXT)\""
+endif
 
 # On Windows, we want shared library files to end up in $(build_bindir), instead of $(build_libdir)
 ifeq ($(OS),WINNT)
@@ -679,18 +692,6 @@ else ifeq ($(OS), Darwin)
 else
   RPATH = -Wl,-rpath,'$$ORIGIN/$(build_private_libdir_rel)' -Wl,-rpath,'$$ORIGIN/$(build_libdir_rel)' -Wl,-z,origin
   RPATH_ORIGIN = -Wl,-rpath,'$$ORIGIN' -Wl,-z,origin
-endif
-
-# file extensions
-ifeq ($(OS), WINNT)
-  SHLIB_EXT = dll
-  SHELL_EXT = bat
-else ifeq ($(OS), Darwin)
-  SHLIB_EXT = dylib
-  SHELL_EXT = sh
-else
-  SHLIB_EXT = so
-  SHELL_EXT = sh
 endif
 
 # --whole-archive

@@ -137,7 +137,7 @@ endif
 
 $(build_private_libdir)/%.$(SHLIB_EXT): $(build_private_libdir)/%.o
 ifneq ($(USEMSVC), 1)
-	@$(call PRINT_LINK, $(CXX) -shared -fPIC -L$(build_private_libdir) -L$(build_libdir) -L$(build_shlibdir) -o $@ $< \
+	@$(call PRINT_LINK, $(CXX) $(LDFLAGS) -shared -fPIC -L$(build_private_libdir) -L$(build_libdir) -L$(build_shlibdir) -o $@ $< \
 		$$([ $(OS) = Darwin ] && echo '' -Wl,-undefined,dynamic_lookup || echo '' -Wl,--unresolved-symbols,ignore-all ) \
 		$$([ $(OS) = WINNT ] && echo '' -ljulia -lssp))
 	$(DSYMUTIL) $@
@@ -174,19 +174,24 @@ BASE_SRCS := $(wildcard base/*.jl base/*/*.jl base/*/*/*.jl)
 
 $(build_private_libdir)/inference0.o: $(CORE_SRCS) | $(build_private_libdir)
 	@$(call PRINT_JULIA, cd base && \
-	$(call spawn,$(JULIA_EXECUTABLE)) -C $(JULIA_CPU_TARGET) --build $(call cygpath_w,$(build_private_libdir)/inference0) -f \
+	$(call spawn,$(JULIA_EXECUTABLE)) -C $(JULIA_CPU_TARGET) --output-o $(call cygpath_w,$(build_private_libdir)/inference0.o) -f \
 		coreimg.jl)
 
 $(build_private_libdir)/inference.o: $(build_private_libdir)/inference0.$(SHLIB_EXT)
 	@$(call PRINT_JULIA, cd base && \
-	$(call spawn,$(JULIA_EXECUTABLE)) -C $(JULIA_CPU_TARGET) --build $(call cygpath_w,$(build_private_libdir)/inference) -f \
-		-J $(call cygpath_w,$(build_private_libdir)/inference0.ji) coreimg.jl)
+	$(call spawn,$(JULIA_EXECUTABLE)) -C $(JULIA_CPU_TARGET) --output-o $(call cygpath_w,$(build_private_libdir)/inference.o) -f \
+		-J $(call cygpath_w,$(build_private_libdir)/inference0.$(SHLIB_EXT)) coreimg.jl)
+
+# on windows, also generate a .ji file so we can delete the .dll
+ifeq ($(OS),WINNT)
+JULIA_SYSIMG_BUILD_FLAGS += --output-ji $(call cygpath_w,$(build_private_libdir)/sys.ji)
+endif
 
 COMMA:=,
 $(build_private_libdir)/sys.o: VERSION $(BASE_SRCS) $(build_docdir)/helpdb.jl $(build_private_libdir)/inference.$(SHLIB_EXT)
 	@$(call PRINT_JULIA, cd base && \
-	$(call spawn,$(JULIA_EXECUTABLE)) -C $(JULIA_CPU_TARGET) --build $(call cygpath_w,$(build_private_libdir)/sys) -f \
-		-J $(call cygpath_w,$(build_private_libdir)/inference.ji) sysimg.jl \
+	$(call spawn,$(JULIA_EXECUTABLE)) -C $(JULIA_CPU_TARGET) --output-o $(call cygpath_w,$(build_private_libdir)/sys.o) $(JULIA_SYSIMG_BUILD_FLAGS) -f \
+		-J $(call cygpath_w,$(build_private_libdir)/inference.$(SHLIB_EXT)) sysimg.jl \
 		|| { echo '*** This error is usually fixed by running `make clean`. If the error persists$(COMMA) try `make cleanall`. ***' && false; } )
 
 $(build_bindir)/stringreplace: contrib/stringreplace.c | $(build_bindir)
@@ -312,7 +317,7 @@ endif
 endif
 	$(INSTALL_F) src/julia.h src/julia_version.h src/options.h src/support/*.h $(DESTDIR)$(includedir)/julia
 	# Copy system image
-	$(INSTALL_F) $(build_private_libdir)/sys.ji $(DESTDIR)$(private_libdir)
+	-$(INSTALL_F) $(build_private_libdir)/sys.ji $(DESTDIR)$(private_libdir)
 	$(INSTALL_M) $(build_private_libdir)/sys.$(SHLIB_EXT) $(DESTDIR)$(private_libdir)
 	# Copy in system image build script
 	$(INSTALL_M) contrib/build_sysimg.jl $(DESTDIR)$(datarootdir)/julia/
@@ -358,9 +363,15 @@ else ifeq ($(OS), Linux)
 endif
 
 	# Overwrite JL_SYSTEM_IMAGE_PATH in julia library
+ifeq ($(OS),WINNT)
 	for julia in $(DESTDIR)$(private_libdir)/libjulia*.$(SHLIB_EXT) ; do \
 		$(call spawn,$(build_bindir)/stringreplace $$(strings -t x - $$julia | grep "sys.ji$$" | awk '{print $$1;}' ) "$(private_libdir_rel)/sys.ji" 256 $(call cygpath_w,$$julia)); \
 	done
+else
+	for julia in $(DESTDIR)$(private_libdir)/libjulia*.$(SHLIB_EXT) ; do \
+		$(call spawn,$(build_bindir)/stringreplace $$(strings -t x - $$julia | grep "sys.$(SHLIB_EXT)$$" | awk '{print $$1;}' ) "$(private_libdir_rel)/sys.$(SHLIB_EXT)" 256 $(call cygpath_w,$$julia)); \
+	done
+endif
 endif
 
 	mkdir -p $(DESTDIR)$(sysconfdir)
@@ -410,7 +421,7 @@ ifeq ($(OS), WINNT)
 	-rm -f $(DESTDIR)$(private_libdir)/sys.$(SHLIB_EXT)
 
 	[ ! -d dist-extras ] || ( cd dist-extras && \
-		cp 7z.exe 7z.dll libexpat-1.dll zlib1.dll $(bindir) && \
+		cp 7z.exe 7z.dll libexpat-1.dll zlib1.dll libgfortran-3.dll libquadmath-0.dll libstdc++-6.dll libgcc_s_s*-1.dll libssp-0.dll $(bindir) && \
 	    mkdir $(DESTDIR)$(prefix)/Git && \
 	    7z x PortableGit.7z -o"$(DESTDIR)$(prefix)/Git" && \
 	    echo "[core] eol = lf" >> "$(DESTDIR)$(prefix)/Git/etc/gitconfig" && \
@@ -508,7 +519,7 @@ test: check-whitespace $(JULIA_BUILD_MODE)
 	@$(MAKE) $(QUIET_MAKE) -C test default JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)
 
 testall: check-whitespace $(JULIA_BUILD_MODE)
-	cp $(build_prefix)/lib/julia/sys.ji local.ji && $(JULIA_EXECUTABLE) -J local.ji -e 'true' && rm local.ji
+	cp $(build_prefix)/lib/julia/sys.$(SHLIB_EXT) local.$(SHLIB_EXT) && $(JULIA_EXECUTABLE) -J local.$(SHLIB_EXT) -e 'true' && rm local.$(SHLIB_EXT)
 	@$(MAKE) $(QUIET_MAKE) -C test all JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)
 
 testall1: check-whitespace $(JULIA_BUILD_MODE)
@@ -537,7 +548,7 @@ ifneq (,$(filter $(ARCH), i386 i486 i586 i686))
 	$(JLDOWNLOAD) http://downloads.sourceforge.net/sevenzip/7z920.exe && \
 	7z x -y 7z920.exe 7z.exe 7z.dll && \
 	../contrib/windows/winrpm.sh http://download.opensuse.org/repositories/windows:/mingw:/win32/openSUSE_13.1 \
-	"mingw32-libexpat1 mingw32-zlib1" && \
+	"mingw32-libgfortran3 mingw32-libquadmath0 mingw32-libstdc++6 mingw32-libgcc_s_sjlj1 mingw32-libssp0 mingw32-libexpat1 mingw32-zlib1" && \
 	cp usr/i686-w64-mingw32/sys-root/mingw/bin/*.dll .
 else ifeq ($(ARCH),x86_64)
 	cd dist-extras && \
@@ -546,7 +557,7 @@ else ifeq ($(ARCH),x86_64)
 	mv _7z.dll 7z.dll && \
 	mv _7z.exe 7z.exe && \
 	../contrib/windows/winrpm.sh http://download.opensuse.org/repositories/windows:/mingw:/win64/openSUSE_13.1 \
-	"mingw64-libexpat1 mingw64-zlib1" && \
+	"mingw64-libgfortran3 mingw64-libquadmath0 mingw64-libstdc++6 mingw64-libgcc_s_seh1 mingw64-libssp0 mingw64-libexpat1 mingw64-zlib1" && \
 	cp usr/x86_64-w64-mingw32/sys-root/mingw/bin/*.dll .
 else
 	$(error no win-extras target for ARCH=$(ARCH))

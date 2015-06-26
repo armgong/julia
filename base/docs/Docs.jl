@@ -4,7 +4,7 @@ module Docs
 
 import Base.Markdown: @doc_str, MD
 
-export doc, @doc
+export doc
 
 # Basic API / Storage
 
@@ -156,8 +156,6 @@ namify(sy::Symbol) = sy
 function mdify(ex)
     if isa(ex, AbstractString)
         :(@doc_str $ex)
-    elseif isexpr(ex, :macrocall) && namify(ex) == symbol("@mstr")
-        :(@doc_str $(Expr(:triple_quoted_string, ex.args[2])))
     else
         esc(ex)
     end
@@ -190,12 +188,12 @@ function objdoc(meta, def)
     end
 end
 
-fexpr(ex) = isexpr(ex, :function) || (isexpr(ex, :(=)) && isexpr(ex.args[1], :call))
+fexpr(ex) = isexpr(ex, :function, :(=)) && isexpr(ex.args[1], :call)
 
 function docm(meta, def)
     def′ = unblock(def)
     isexpr(def′, :macro) && return namedoc(meta, def, symbol("@", namify(def′)))
-    isexpr(def′, :type) && return namedoc(meta, def, namify(def′.args[2]))
+    isexpr(def′, :type, :bitstype) && return namedoc(meta, def, namify(def′.args[2]))
     isexpr(def′, :abstract) && return namedoc(meta, def, namify(def′))
     fexpr(def′) && return funcdoc(meta, def)
     isexpr(def′, :macrocall) && (def = namify(def′))
@@ -210,55 +208,79 @@ function docm(ex)
     :(doc($(esc(ex))))
 end
 
+# Not actually used; bootstrap version in bootstrap.jl
+
 macro doc (args...)
     docm(args...)
 end
 
+# Swap out the bootstrap macro with the real one
+
+Base.DocBootstrap.setexpand!(docm)
+
+# Names are resolved relative to the DocBootstrap module, so
+# inject the ones we need there.
+
+eval(Base.DocBootstrap,
+     :(import ..Docs: @init, doc!, doc, newmethod, def_dict, @doc_str))
+
 # Metametadata
 
-@doc """
-  The Docs module provides the `@doc` macro which can be used
-  to set and retreive documentation metadata for Julia objects.
-  Please see docs for the `@doc` macro for more info.
-  """ Docs
+"""
+The Docs module provides the `@doc` macro which can be used
+to set and retreive documentation metadata for Julia objects.
+Please see docs for the `@doc` macro for more info.
+"""
+Docs
 
-@doc """
-  # Documentation
-  The `@doc` macro can be used to both set and retrieve documentation /
-  metadata. By default, documentation is written as Markdown, but any
-  object can be placed before the arrow. For example:
+"""
+# Documentation
 
-      @doc \"""
-        # The Foo Function
-        `foo(x)`: Foo the living hell out of `x`.
-      \""" ->
-      function foo() ...
+Functions, methods and types can be documented by placing a string before the
+definition:
 
-  The `->` is not required if the object is on the same line, e.g.
+    \"""
+    # The Foo Function
+    `foo(x)`: Foo the living hell out of `x`.
+    \"""
+    foo(x) = ...
 
-      @doc "foo" foo
+The `@doc` macro can be used directly to both set and retrieve documentation /
+metadata. By default, documentation is written as Markdown, but any object can
+be placed before the arrow. For example:
 
-  # Retrieving Documentation
-  You can retrieve docs for functions, macros and other objects as
-  follows:
+    @doc "blah" ->
+    function foo() ...
 
-      @doc foo
-      @doc @time
-      @doc md""
+The `->` is not required if the object is on the same line, e.g.
 
-  # Functions & Methods
-  Placing documentation before a method definition (e.g. `function foo()
-  ...` or `foo() = ...`) will cause that specific method to be
-  documented, as opposed to the whole function. Method docs are
-  concatenated together in the order they were defined to provide docs
-  for the function.
-  """ @doc
+    @doc "foo" foo
 
-@doc "`doc(obj)`: Get the doc metadata for `obj`." doc
+# Retrieving Documentation
+You can retrieve docs for functions, macros and other objects as
+follows:
 
-@doc """
-  `catdoc(xs...)`: Combine the documentation metadata `xs` into a single meta object.
-  """ catdoc
+    @doc foo
+    @doc @time
+    @doc md""
+
+# Functions & Methods
+Placing documentation before a method definition (e.g. `function foo()
+...` or `foo() = ...`) will cause that specific method to be
+documented, as opposed to the whole function. Method docs are
+concatenated together in the order they were defined to provide docs
+for the function.
+"""
+@doc
+
+"`doc(obj)`: Get the doc metadata for `obj`."
+doc
+
+"""
+`catdoc(xs...)`: Combine the documentation metadata `xs` into a single meta
+object.
+"""
+catdoc
 
 # Text / HTML objects
 
@@ -268,7 +290,7 @@ export HTML, @html_str
 
 export HTML, Text
 
-@doc """
+"""
 `HTML(s)`: Create an object that renders `s` as html.
 
     HTML("<div>foo</div>")
@@ -278,7 +300,7 @@ You can also use a stream for large amounts of data:
     HTML() do io
       println(io, "<div>foo</div>")
     end
-""" ->
+"""
 type HTML{T}
     content::T
 end
@@ -309,17 +331,17 @@ end
 
 export Text, @text_str
 
-# @doc """
-# `Text(s)`: Create an object that renders `s` as plain text.
+"""
+`Text(s)`: Create an object that renders `s` as plain text.
 
-#     Text("foo")
+    Text("foo")
 
-# You can also use a stream for large amounts of data:
+You can also use a stream for large amounts of data:
 
-#     Text() do io
-#       println(io, "foo")
-#     end
-# """ ->
+    Text() do io
+      println(io, "foo")
+    end
+"""
 type Text{T}
     content::T
 end

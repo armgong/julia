@@ -125,7 +125,13 @@ end
 tt_cons(t::ANY, tup::ANY) = Tuple{t, (isa(tup, Type) ? tup.parameters : tup)...}
 
 code_lowered(f, t::ANY) = map(m->uncompressed_ast(m.func.code), methods(f, t))
-methods(f::Function,t::ANY) = (t=to_tuple_type(t); Any[m[3] for m in _methods(f,t,-1)])
+function methods(f::Function,t::ANY)
+    if !isgeneric(f)
+        throw(ArgumentError("argument is not a generic function"))
+    end
+    t = to_tuple_type(t)
+    Any[m[3] for m in _methods(f,t,-1)]
+end
 methods(f::ANY,t::ANY) = methods(call, tt_cons(isa(f,Type) ? Type{f} : typeof(f), t))
 function _methods(f::ANY,t::ANY,lim)
     if isa(t,Type)
@@ -187,7 +193,7 @@ uncompressed_ast(l::LambdaStaticData) =
     isa(l.ast,Expr) ? l.ast : ccall(:jl_uncompress_ast, Any, (Any,Any), l, l.ast)
 
 # Printing code representations in IR and assembly
-function _dump_function(f, t::ANY, native, wrapper, strip_ir_metadata)
+function _dump_function(f, t::ANY, native, wrapper, strip_ir_metadata, dump_module)
     t = to_tuple_type(t)
     llvmf = ccall(:jl_get_llvmf, Ptr{Void}, (Any, Any, Bool), f, t, wrapper)
 
@@ -199,14 +205,14 @@ function _dump_function(f, t::ANY, native, wrapper, strip_ir_metadata)
         str = ccall(:jl_dump_function_asm, Any, (Ptr{Void},), llvmf)::ByteString
     else
         str = ccall(:jl_dump_function_ir, Any,
-                    (Ptr{Void}, Bool), llvmf, strip_ir_metadata)::ByteString
+                    (Ptr{Void}, Bool, Bool), llvmf, strip_ir_metadata, dump_module)::ByteString
     end
 
     return str
 end
 
-code_llvm(io::IO, f::Function, types::ANY, strip_ir_metadata=true) =
-    print(io, _dump_function(f, types, false, false, strip_ir_metadata))
+code_llvm(io::IO, f::Function, types::ANY, strip_ir_metadata=true, dump_module=false) =
+    print(io, _dump_function(f, types, false, false, strip_ir_metadata, dump_module))
 code_llvm(f::ANY, types::ANY) = code_llvm(STDOUT, f, types)
 code_llvm_raw(f::ANY, types::ANY) = code_llvm(STDOUT, f, types, false)
 code_llvm(io::IO, f::ANY, t::ANY, args...) =
@@ -214,14 +220,50 @@ code_llvm(io::IO, f::ANY, t::ANY, args...) =
               tt_cons(isa(f, Type) ? Type{f} : typeof(f), t), args...)
 
 code_native(io::IO, f::Function, types::ANY) =
-    print(io, _dump_function(f, types, true, false, false))
+    print(io, _dump_function(f, types, true, false, false, false))
 code_native(f::ANY, types::ANY) = code_native(STDOUT, f, types)
 code_native(io::IO, f::ANY, t::ANY) =
     code_native(io, call, tt_cons(isa(f, Type) ? Type{f} : typeof(f), t))
 
-if isdefined(Core, :Inference) && not_int(is(current_module(), Core.Inference))
-    code_typed(args...;kwargs...) = Core.Inference.code_typed(args...;kwargs...)
-    return_types(args...;kwargs...) = Core.Inference.return_types(args...;kwargs...)
+function code_typed(f::Function, types::ANY; optimize=true)
+    types = to_tuple_type(types)
+    asts = []
+    for x in _methods(f,types,-1)
+        linfo = Core.Inference.func_for_method(x[3],types,x[2])
+        if optimize
+            (tree, ty) = Core.Inference.typeinf(linfo, x[1], x[2], linfo,
+                                                true, true)
+        else
+            (tree, ty) = Core.Inference.typeinf_uncached(linfo, x[1], x[2],
+                                                         optimize=false)
+        end
+        if !isa(tree, Expr)
+            push!(asts, ccall(:jl_uncompress_ast, Any, (Any,Any), linfo, tree))
+        else
+            push!(asts, tree)
+        end
+    end
+    asts
+end
+
+function code_typed(f, t::ANY; optimize=true)
+    code_typed(call, tt_cons(isa(f, Type) ? Type{f} : typeof(f), t),
+               optimize=optimize)
+end
+
+function return_types(f::Function, types::ANY)
+    types = to_tuple_type(types)
+    rt = []
+    for x in _methods(f,types,-1)
+        linfo = Core.Inference.func_for_method(x[3],types,x[2])
+        (tree, ty) = Core.Inference.typeinf(linfo, x[1], x[2])
+        push!(rt, ty)
+    end
+    rt
+end
+
+function return_types(f, t::ANY)
+    return_types(call, tt_cons(isa(f, Type) ? Type{f} : typeof(f), t))
 end
 
 function which(f::ANY, t::ANY)

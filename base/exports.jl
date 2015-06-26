@@ -186,9 +186,11 @@ export
     Inf,
     Inf16,
     Inf32,
+    Inf64,
     NaN,
     NaN16,
     NaN32,
+    NaN64,
     im,
     π, pi,
     e, eu,
@@ -653,6 +655,7 @@ export
     ldltfact,
     ldltfact!,
     linreg,
+    logabsdet,
     logdet,
     lu,
     lufact!,
@@ -1329,7 +1332,6 @@ export
     @int128_str,
     @uint128_str,
     @big_str,
-    @mstr,   # triple-quoted strings
     @cmd,    # `commands`
 
     # notation for certain types

@@ -95,6 +95,7 @@ tail(x::Tuple) = argtail(x...)
 
 convert{T<:Tuple{Any,Vararg{Any}}}(::Type{T}, x::Tuple{Any, Vararg{Any}}) =
     tuple(convert(tuple_type_head(T),x[1]), convert(tuple_type_tail(T), tail(x))...)
+convert{T<:Tuple{Any,Vararg{Any}}}(::Type{T}, x::T) = x
 
 oftype(x,c) = convert(typeof(x),c)
 
@@ -137,7 +138,7 @@ function append_any(xs...)
 end
 
 # simple Array{Any} operations needed for bootstrap
-setindex!(A::Array{Any}, x::ANY, i::Real) = arrayset(A, x, to_index(i))
+setindex!(A::Array{Any}, x::ANY, i::Int) = arrayset(A, x, i)
 
 function length_checked_equal(args...)
     n = length(args[1])

@@ -18,7 +18,7 @@ function choosetests(choices = [])
         "linalg", "core", "keywordargs", "numbers", "strings",
         "dates", "dict", "hashing", "remote", "iobuffer", "staged",
         "arrayops", "tuple", "subarray", "reduce", "reducedim", "random",
-        "intfuncs", "simdloop", "blas", "sparse",
+        "abstractarray", "intfuncs", "simdloop", "blas", "sparse",
         "bitarray", "copy", "math", "fastmath", "functional",
         "operators", "path", "ccall", "unicode",
         "bigint", "sorting", "statistics", "spawn", "backtrace",
@@ -64,7 +64,7 @@ function choosetests(choices = [])
                    "linalg/lapack", "linalg/triangular", "linalg/tridiag",
                    "linalg/bidiag", "linalg/diagonal",
                    "linalg/pinv", "linalg/givens", "linalg/cholesky",
-                   "linalg/lu", "linalg/symmetric"]
+                   "linalg/lu", "linalg/symmetric", "linalg/generic"]
     if Base.USE_GPL_LIBS
         push!(linalgtests, "linalg/arnoldi")
     end

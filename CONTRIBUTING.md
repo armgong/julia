@@ -54,7 +54,9 @@ There are never enough tests. Track [code coverage at Coveralls](https://coveral
 
 3. Write a test that exercises this functionality---you can add your test to one of the existing files, or start a new one, whichever seems most appropriate to you. If you're adding a new test file, make sure you include it in the list of tests in `test/choosetests.jl`. http://julia.readthedocs.org/en/latest/stdlib/test/ may be helpful in explaining how the testing infrastructure works. Submit the test as a pull request (see [CONTRIBUTING.md](https://github.com/JuliaLang/julia/blob/master/CONTRIBUTING.md)).
 
-[Issue 9493](https://github.com/JuliaLang/julia/issues/9493) has a more detailed discussion on code coverage.
+* Code for the buildbot configuration is maintained at: https://github.com/staticfloat/julia-buildbot
+* You can see the current buildbot setup at: http://buildbot.e.ip.saba.us:8010/builders
+* [Issue 9493](https://github.com/JuliaLang/julia/issues/9493) has a more detailed discussion on code coverage.
 
 ### Improving documentation
 
@@ -72,7 +74,8 @@ Julia's documentation is stored in the `doc` directory, and like everything else
 - Search for the function you want to change
 - Make your changes
 - Exit Zen mode
-- Provide a title, and optionally a longer description of your change
+- Provide a title
+- Provide a longer description of your change with the tag `[av skip]` included at the bottom (this is used in order to prevent the AppVeyor job queue from growing too large because of documentation edits)
 - Submit your change
 
 Julia's documentation is built with [Sphinx](http://sphinx-doc.org/contents.html), which supports (and Julia's docs rely heavily on) [ReST directives](http://docutils.sourceforge.net/docs/ref/rst/directives.html). To build the documentation locally, run

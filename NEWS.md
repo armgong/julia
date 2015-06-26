@@ -25,18 +25,14 @@ New language features
     specialize. The quoted expression it returns forms the body of the specialized
     method which is then called at run time ([#7311]).
 
-  * (Also with syntax todo) Documentation system for functions, methods, types
-    and macros in packages and user code ([#8791]). Type `?@doc` at the repl
-    to see the current syntax and more information.
+  * [Documentation system](http://docs.julialang.org/en/latest/manual/documentation/)
+    for functions, methods, types and macros in packages and user code ([#8791]).
 
   * The syntax `function foo end` can be used to introduce a generic function without
     yet adding any methods ([#8283]).
 
 Language changes
 ----------------
-
-  * Unsigned `BigInt` literal syntax has been removed ([#11105]).
-    Unsigned literals larger than `UInt128` now throw a syntax error.
 
   * Tuple types are now written as `Tuple{A, B}` instead of as `(A, B)`.
     Tuples of bits types are inlined into structs and arrays, like other
@@ -78,6 +74,9 @@ Language changes
   * `[x,y]` constructs a vector of `x` and `y` instead of concatenating them
     ([#3737], [#2488], [#8599]).
 
+  * Unsigned `BigInt` literal syntax has been removed ([#11105]).
+    Unsigned literals larger than `UInt128` now throw a syntax error.
+
   * `error(::Exception)` and `error(::Type{Exception})` have been deprecated
      in favor of using an explicit `throw` ([#9690]).
 
@@ -85,11 +84,11 @@ Language changes
 
   * `String` is renamed to `AbstractString` ([#8872]).
 
-  * `None` is deprecated; use `Union()` instead ([#8423]).
+  * `None` is deprecated; use `Union{}` instead ([#8423]).
 
   * `Nothing` (the type of `nothing`) is renamed to `Void` ([#8423]).
 
-  * Arrays can be constructed with the syntax `Array{T}(m,n)` ([#3214], [#10075])
+  * Arrays can be constructed with the syntax `Array{T}(m,n)` ([#3214], [#10075]).
 
   * `Dict` literal syntax `[a=>b,c=>d]` is replaced by `Dict(a=>b,c=>d)`,
     `{a=>b}` is replaced by `Dict{Any,Any}(a=>b)`, and
@@ -118,6 +117,15 @@ Language changes
     `1:end`. Instead, the `:` identifier is passed directly. Custom array types
     that implement `getindex` or `setindex!` methods must also extend those
     methods to support arguments of type `Colon` ([#10331]).
+
+  * Unions of types should now be written with curly braces instead of parentheses, i.e.
+    `Union{Type1, Type2}` instead of `Union(Type1, Type2)` ([#11432]).
+
+  * The keyword `local` is no longer allowed in global scope. Use `let` instead of
+    `begin` to create a new scope from the top level ([#7234], [#10472]).
+
+  * Triple-quoted strings no longer treat tabs as 8 spaces. Instead, the
+    longest common prefix of spaces and tabs is removed.
 
 Command line option changes
 ---------------------------
@@ -405,6 +413,21 @@ Deprecated or removed
   * Instead of `utf32(64,123,...)` use `utf32(UInt32[64,123,...])` ([#11379]).
 
   * `start_timer` and `stop_timer` are replaced by `Timer` and `close`.
+
+  * The following internal julia C functions have been renamed, in order to prevent
+    potential naming conflicts with C libraries: ([#11741])
+
+    * `gc_wb*` -> `jl_gc_wb*`
+
+    * `gc_queue_root` -> `jl_gc_queue_root`
+
+    * `allocobj` -> `jl_gc_allocobj`
+
+    * `alloc_[0-3]w` -> `jl_gc_alloc_*w`
+
+    * `diff_gc_total_bytes` -> `jl_gc_diff_total_bytes`
+
+    * `sync_gc_total_bytes` -> `jl_gc_sync_total_bytes`
 
 Julia v0.3.0 Release Notes
 ==========================
@@ -1451,10 +1474,12 @@ Too numerous to mention.
 [#10914]: https://github.com/JuliaLang/julia/issues/10914
 [#10955]: https://github.com/JuliaLang/julia/issues/10955
 [#10994]: https://github.com/JuliaLang/julia/issues/10994
+[#11067]: https://github.com/JuliaLang/julia/issues/11067
 [#11105]: https://github.com/JuliaLang/julia/issues/11105
 [#11145]: https://github.com/JuliaLang/julia/issues/11145
 [#11171]: https://github.com/JuliaLang/julia/issues/11171
 [#11241]: https://github.com/JuliaLang/julia/issues/11241
 [#11347]: https://github.com/JuliaLang/julia/issues/11347
 [#11379]: https://github.com/JuliaLang/julia/issues/11379
-[#11067]: https://github.com/JuliaLang/julia/issues/11067
+[#11432]: https://github.com/JuliaLang/julia/issues/11432
+[#11741]: https://github.com/JuliaLang/julia/issues/11741

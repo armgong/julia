@@ -181,6 +181,17 @@ function chr2ind(s::AbstractString, i::Integer)
     end
 end
 
+immutable EachStringIndex{T<:AbstractString}
+    s::T
+end
+eachindex(s::AbstractString) = EachStringIndex(s)
+
+length(e::EachStringIndex) = length(e.s)
+start(e::EachStringIndex) = start(e.s)
+next(e::EachStringIndex, state) = (state, nextind(e.s, state))
+done(e::EachStringIndex, state) = done(e.s, state)
+eltype(e::EachStringIndex) = Int
+
 typealias Chars Union{Char,AbstractVector{Char},Set{Char}}
 
 function search(s::AbstractString, c::Chars, i::Integer)
@@ -1039,50 +1050,9 @@ function unindent(s::AbstractString, indent::Int)
     takebuf_string(buf)
 end
 
-function triplequoted(args...)
-    sx = Any[ isa(arg,ByteString) ? arg : esc(arg) for arg in args ]
-
-    indent = 0
-    rlines = split(RevString(sx[end]), '\n'; limit=2)
-    last_line = rlines[1]
-    if length(rlines) > 1 && lstrip(last_line) == ""
-        indent,_ = indentation(last_line)
-    else
-        indent = typemax(Int)
-        for s in sx
-            if isa(s,ByteString)
-                lines = split(s,'\n')
-                for line in lines[2:end]
-                    n,blank = indentation(line)
-                    if !blank
-                        indent = min(indent, n)
-                    end
-                end
-            end
-        end
-    end
-
-    for i in 1:length(sx)
-        if isa(sx[i],ByteString)
-            sx[i] = unindent(sx[i], indent)
-        end
-    end
-
-    # strip leading blank line
-    s = sx[1]
-    j = search(s,'\n')
-    if j != 0 && lstrip(s[1:j]) == ""
-        sx[1] = s[j+1:end]
-    end
-
-    length(sx) == 1 ? sx[1] : Expr(:call, :string, sx...)
-end
-
 ## core string macros ##
 
 macro b_str(s); :($(unescape_string(s)).data); end
-
-macro mstr(s...); triplequoted(s...); end
 
 ## shell-like command parsing ##
 

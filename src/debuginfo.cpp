@@ -68,7 +68,7 @@ struct FuncInfo {
 #else
 struct ObjectInfo {
     const object::ObjectFile* object;
-    size_t size;
+    size_t SectionSize;
 #ifdef LLVM37
     const llvm::LoadedObjectInfo *L;
 #elif defined(LLVM36)
@@ -130,7 +130,7 @@ static void create_PRUNTIME_FUNCTION(uint8_t *Code, size_t Size, StringRef fnnam
 #endif
             static int warned = 0;
             if (!warned) {
-                jl_printf(JL_STDERR, "WARNING: failed to insert module info for backtrace: %d\n", GetLastError());
+                jl_printf(JL_STDERR, "WARNING: failed to insert module info for backtrace: %lu\n", GetLastError());
                 warned = 1;
             }
         }
@@ -143,7 +143,7 @@ static void create_PRUNTIME_FUNCTION(uint8_t *Code, size_t Size, StringRef fnnam
             name[len-1] = 0;
             if (!SymAddSymbol(GetCurrentProcess(), (ULONG64)Section, name,
                         (DWORD64)Code, (DWORD)Size, 0)) {
-                jl_printf(JL_STDERR, "WARNING: failed to insert function name %s into debug info: %d\n", name, GetLastError());
+                jl_printf(JL_STDERR, "WARNING: failed to insert function name %s into debug info: %lu\n", name, GetLastError());
             }
         }
         jl_in_stackwalk = 0;
@@ -152,7 +152,7 @@ static void create_PRUNTIME_FUNCTION(uint8_t *Code, size_t Size, StringRef fnnam
     if (!RtlAddFunctionTable(tbl, 1, (DWORD64)Section)) {
         static int warned = 0;
         if (!warned) {
-            jl_printf(JL_STDERR, "WARNING: failed to insert function stack unwind info: %d\n", GetLastError());
+            jl_printf(JL_STDERR, "WARNING: failed to insert function stack unwind info: %lu\n", GetLastError());
             warned = 1;
         }
     }
@@ -219,13 +219,11 @@ public:
 #endif
 #endif
 
-#ifdef _OS_WINDOWS_
 #ifndef LLVM36
         uint64_t SectionAddr = 0;
 #endif
         uint64_t SectionSize = 0;
         uint64_t SectionAddrCheck = 0; // assert that all of the Sections are at the same location
-#endif
 
 #if defined(_OS_WINDOWS_)
 #if defined(_CPU_X86_64_)
@@ -295,11 +293,6 @@ public:
         for (const object::SymbolRef &sym_iter : obj.symbols()) {
             sym_iter.getType(SymbolType);
             if (SymbolType != object::SymbolRef::ST_Function) continue;
-#if defined(LLVM37)
-            Size = sym_iter.getSize();
-#else
-            sym_iter.getSize(Size);
-#endif
             sym_iter.getAddress(Addr);
             sym_iter.getSection(Section);
             if (Section == EndSection) continue;
@@ -310,6 +303,12 @@ public:
             Addr += SectionAddr;
 #else
             if (Section->isText(isText) || !isText) continue;
+#endif
+#if defined(LLVM36)
+            SectionSize = Section->getSize();
+#else
+            Section->getAddress(SectionAddr);
+            Section->getSize(SectionSize);
 #endif
 #ifdef _OS_DARWIN_
 #   if defined(LLVM37)
@@ -330,11 +329,11 @@ public:
             if (!Addr) continue;
 #   endif
 #elif defined(_OS_WINDOWS_)
-#   if defined(LLVM36)
-            SectionSize = Section->getSize();
+#   if defined(LLVM37)
+            assert(obj.isELF)
+            Size = obj.getSymbolSize(sym_iter);
 #   else
-            Section->getAddress(SectionAddr);
-            Section->getSize(SectionSize);
+            sym_iter.getSize(Size);
 #   endif
             sym_iter.getName(sName);
 #   ifdef _CPU_X86_
@@ -354,7 +353,7 @@ public:
 #else
                 obj.getObjectFile();
 #endif
-            ObjectInfo tmp = {objfile, (size_t)Size
+            ObjectInfo tmp = {objfile, SectionSize
 #ifdef LLVM37
                 ,L.clone().release()
 #elif defined(LLVM36)
@@ -726,7 +725,7 @@ void jl_getFunctionInfo(const char **name, size_t *line, const char **filename, 
     std::map<size_t, ObjectInfo, revcomp> &objmap = jl_jit_events->getObjectMap();
     std::map<size_t, ObjectInfo, revcomp>::iterator it = objmap.lower_bound(pointer);
 
-    if (it != objmap.end() && (intptr_t)(*it).first + (*it).second.size > pointer) {
+    if (it != objmap.end() && (intptr_t)(*it).first + (*it).second.SectionSize > pointer) {
 #if defined(_OS_DARWIN_) && !defined(LLVM37)
         *name = jl_demangle((*it).second.name);
         DIContext *context = NULL; // versions of MCJIT < 3.7 can't handle MachO relocations
@@ -828,7 +827,7 @@ int jl_get_llvmf_info(uint64_t fptr, uint64_t *symsize, uint64_t *slide,
     std::map<size_t, ObjectInfo, revcomp>::iterator fit = objmap.find(fptr);
 
     if (fit != objmap.end()) {
-        *symsize = fit->second.size;
+        *symsize = fit->second.SectionSize;
         *object = fit->second.object;
 #if defined(LLVM36) && !defined(LLVM37)
         *slide = fit->second.slide;
