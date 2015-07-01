@@ -232,7 +232,8 @@ let reqarg = Set(UTF8String["--home",          "-H",
                             "--output-o",
                             "--output-ji",
                             "--output-bc",
-                            "--bind-to"])
+                            "--bind-to",
+                            "--precompiled"])
     global process_options
     function process_options(opts::JLOptions, args::Vector{UTF8String})
         if !isempty(args)
@@ -449,7 +450,6 @@ function _start()
         end
     catch err
         display_error(err,catch_backtrace())
-        println()
         exit(1)
     end
     if is_interactive && have_color

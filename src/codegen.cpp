@@ -3,7 +3,7 @@
 #include "llvm-version.h"
 #include "platform.h"
 #include "options.h"
-#if defined(_OS_WINDOWS_) && !defined(LLVM36)
+#if defined(_OS_WINDOWS_)
 // trick pre-llvm36 into skipping the generation of _chkstk calls
 //   since it has some codegen issues associated with them:
 //   (a) assumed to be within 32-bit offset
@@ -154,10 +154,10 @@ DLLEXPORT LLVMContext &jl_LLVMContext = getGlobalContext();
 static IRBuilder<> builder(getGlobalContext());
 static bool nested_compile=false;
 DLLEXPORT ExecutionEngine *jl_ExecutionEngine;
-static TargetMachine *jl_TargetMachine;
+DLLEXPORT TargetMachine *jl_TargetMachine;
 #ifdef USE_MCJIT
 static Module *shadow_module;
-static RTDyldMemoryManager *jl_mcjmm;
+DLLEXPORT RTDyldMemoryManager *jl_mcjmm;
 #define jl_Module (builder.GetInsertBlock()->getParent()->getParent())
 #else
 static Module *jl_Module;
@@ -480,9 +480,9 @@ void jl_dump_objfile(char *fname, int jit_model, const char *sysimg_data, size_t
 
     PassManager PM;
 #ifndef LLVM37
-    PM.add(new TargetLibraryInfo(Triple(jl_TargetMachine->getTargetTriple())));
+    PM.add(new TargetLibraryInfo(Triple(TM->getTargetTriple())));
 #else
-    PM.add(new TargetLibraryInfoWrapperPass(Triple(jl_TargetMachine->getTargetTriple())));
+    PM.add(new TargetLibraryInfoWrapperPass(Triple(TM->getTargetTriple())));
 #endif
 #ifdef LLVM37
 // No DataLayout pass needed anymore.
@@ -510,6 +510,11 @@ void jl_dump_objfile(char *fname, int jit_model, const char *sysimg_data, size_t
     if (sysimg_data)
         jl_sysimg_to_llvm(shadow_module, globalvars, sysimg_data, sysimg_len);
     jl_gen_llvm_gv_array(shadow_module, globalvars);
+    // Reset the target triple to make sure it matches the new target machine
+#ifdef LLVM37
+    shadow_module->setTargetTriple(TM->getTargetTriple().str());
+    shadow_module->setDataLayout(TM->getDataLayout()->getStringRepresentation());
+#endif
     PM.run(*shadow_module);
 #else
     if (sysimg_data)
@@ -883,8 +888,10 @@ extern "C" void jl_generate_fptr(jl_function_t *f)
 #else
             (void)jl_ExecutionEngine->getPointerToFunction((Function*)li->specFunctionObject);
 #endif
+#ifndef KEEP_BODIES
             if (!imaging_mode)
                 ((Function*)li->specFunctionObject)->deleteBody();
+#endif
         }
         JL_SIGATOMIC_END();
     }
@@ -2009,8 +2016,8 @@ static Value *emit_f_is(jl_value_t *rt1, jl_value_t *rt2,
                         jl_value_t *fldty = jl_svecref(types, i);
                         Value *subAns;
 #ifdef LLVM37
-                        Value *fld1 = builder.CreateConstGEP2_32(elty->getPointerTo(), varg1, 0, i);
-                        Value *fld2 = builder.CreateConstGEP2_32(elty->getPointerTo(), varg2, 0, i);
+                        Value *fld1 = builder.CreateConstGEP2_32(elty, varg1, 0, i);
+                        Value *fld2 = builder.CreateConstGEP2_32(elty, varg2, 0, i);
 #else
                         Value *fld1 = builder.CreateConstGEP2_32(varg1, 0, i);
                         Value *fld2 = builder.CreateConstGEP2_32(varg2, 0, i);

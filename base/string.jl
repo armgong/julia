@@ -579,15 +579,6 @@ isascii(c::Char) = c < Char(0x80)
 isascii(s::AbstractString) = all(isascii, s)
 isascii(s::ASCIIString) = true
 
-## generic string uses only endof and next ##
-
-immutable GenericString <: AbstractString
-    string::AbstractString
-end
-
-endof(s::GenericString) = endof(s.string)
-next(s::GenericString, i::Int) = next(s.string, i)
-
 ## substrings reference original strings ##
 
 immutable SubString{T<:AbstractString} <: AbstractString
@@ -1261,7 +1252,8 @@ function lpad(s::AbstractString, n::Integer, p::AbstractString=" ")
     end
     q = div(m,l)
     r = m - q*l
-    bytestring(p^q*p[1:chr2ind(p,r)]*s)
+    i = r != 0 ? chr2ind(p, r) : -1
+    bytestring(p^q*p[1:i]*s)
 end
 
 function rpad(s::AbstractString, n::Integer, p::AbstractString=" ")
@@ -1273,7 +1265,8 @@ function rpad(s::AbstractString, n::Integer, p::AbstractString=" ")
     end
     q = div(m,l)
     r = m - q*l
-    bytestring(s*p^q*p[1:chr2ind(p,r)])
+    i = r != 0 ? chr2ind(p, r) : -1
+    bytestring(s*p^q*p[1:i])
 end
 
 lpad(s, n::Integer, p=" ") = lpad(string(s),n,string(p))
@@ -1334,7 +1327,10 @@ function _rsplit{T<:AbstractString,U<:Array}(str::T, splitter, limit::Integer, k
 end
 #rsplit(str::AbstractString) = rsplit(str, _default_delims, 0, false)
 
-function replace(str::ByteString, pattern, repl::Function, limit::Integer)
+_replacement(repl, str, j, k) = repl
+_replacement(repl::Function, str, j, k) = repl(SubString(str, j, k))
+
+function replace(str::ByteString, pattern, repl, limit::Integer)
     n = 1
     e = endof(str)
     i = a = start(str)
@@ -1343,8 +1339,8 @@ function replace(str::ByteString, pattern, repl::Function, limit::Integer)
     out = IOBuffer()
     while j != 0
         if i == a || i <= k
-            write(out, SubString(str,i,prevind(str,j)))
-            write(out, string(repl(SubString(str,j,k))))
+            write_sub(out, str.data, i, j-i)
+            write(out, _replacement(repl, str, j, k))
         end
         if k<j
             i = j
@@ -1363,8 +1359,7 @@ function replace(str::ByteString, pattern, repl::Function, limit::Integer)
     write(out, SubString(str,i))
     takebuf_string(out)
 end
-replace(s::AbstractString, pat, f::Function, n::Integer) = replace(bytestring(s), pat, f, n)
-replace(s::AbstractString, pat, r, n::Integer) = replace(s, pat, x->r, n)
+replace(s::AbstractString, pat, f, n::Integer) = replace(bytestring(s), pat, f, n)
 replace(s::AbstractString, pat, r) = replace(s, pat, r, 0)
 
 function print_joined(io, strings, delim, last)

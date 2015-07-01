@@ -253,15 +253,34 @@ for T in (UInt8,UInt16,UInt32,UInt64)
     @test_throws OverflowError parse(T,string(big(typemax(T))+1))
 end
 
+@test lpad("foo", 3) == "foo"
+@test rpad("foo", 3) == "foo"
+@test lpad("foo", 5) == "  foo"
+@test rpad("foo", 5) == "foo  "
+@test lpad("foo", 5, "  ") == "  foo"
+@test rpad("foo", 5, "  ") == "foo  "
+@test lpad("foo", 6, "  ") == "   foo"
+@test rpad("foo", 6, "  ") == "foo   "
+
 # string manipulation
 @test strip("\t  hi   \n") == "hi"
+@test strip("foobarfoo", ['f', 'o']) == "bar"
 
 # some test strings
 astr = "Hello, world.\n"
 u8str = "∀ ε > 0, ∃ δ > 0: |x-y| < δ ⇒ |f(x)-f(y)| < ε"
 
+## generic string uses only endof and next ##
+
+immutable GenericString <: AbstractString
+    string::AbstractString
+end
+
+Base.endof(s::GenericString) = endof(s.string)
+Base.next(s::GenericString, i::Int) = next(s.string, i)
+
 # ascii search
-for str in [astr, Base.GenericString(astr)]
+for str in [astr, GenericString(astr)]
     @test_throws BoundsError search(str, 'z', 0)
     @test_throws BoundsError search(str, '∀', 0)
     @test search(str, 'x') == 0
@@ -300,7 +319,7 @@ for str in [astr]
 end
 
 # utf-8 search
-for str in (u8str, Base.GenericString(u8str))
+for str in (u8str, GenericString(u8str))
     @test_throws BoundsError search(str, 'z', 0)
     @test_throws BoundsError search(str, '∀', 0)
     @test search(str, 'z') == 0
@@ -555,6 +574,9 @@ end
 @test search("foo,bar,baz", r"az") == 10:11
 @test search("foo,bar,baz", r"az", 12) == 0:-1
 
+@test searchindex("foo", 'o') == 2
+@test searchindex("foo", 'o', 3) == 3
+
 # string searchindex with a two-char UTF-8 (2 byte) string literal
 @test searchindex("ééé", "éé") == 1
 @test searchindex("ééé", "éé", 1) == 1
@@ -760,6 +782,12 @@ end
 @test replace("ḟøøƀäṙḟøø", r"(ḟø|ƀä)", "xx") == "xxøxxṙxxø"
 @test replace("ḟøøƀäṙḟøø", r"(ḟøø|ƀä)", "ƀäṙ") == "ƀäṙƀäṙṙƀäṙ"
 
+@test replace("foo", "oo", uppercase) == "fOO"
+
+# chomp/chop
+@test chomp("foo\n") == "foo"
+@test chop("foob") == "foo"
+
 # lower and upper
 @test uppercase("aBc") == "ABC"
 @test uppercase('A') == 'A'
@@ -787,6 +815,8 @@ end
 @test endswith("abcd", "cd")
 @test !endswith("abcd", "dc")
 @test !endswith("cd", "abcd")
+
+@test filter(x -> x ∈ ['f', 'o'], "foobar") == "foo"
 
 # RepStrings and SubStrings
 u8str2 = u8str^2
@@ -829,6 +859,8 @@ ss=SubString(str2,1,4)  #empty source string
 
 ss=SubString(str2,1,1)  #empty source string, identical start and end index
 @test length(ss)==0
+
+@test SubString("foobar",big(1),big(3)) == "foo"
 
 str = "aa\u2200\u2222bb"
 u = SubString(str, 3, 6)
@@ -937,6 +969,9 @@ s = "   p"
 @test """
       foo
       bar\t""" == "foo$(nl)bar\t"
+@test """
+      $("\n      ")
+      """ == "\n      $(nl)"
 
 # bytes2hex and hex2bytes
 hex_str = "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592"
@@ -1132,6 +1167,7 @@ end
 
 @test symbol("asdf") === :asdf
 @test symbol(:abc,"def",'g',"hi",0) === :abcdefghi0
+@test :a < :b
 @test startswith(string(gensym("asdf")),"##asdf#")
 @test gensym("asdf") != gensym("asdf")
 @test gensym() != gensym()
@@ -1637,8 +1673,8 @@ tstr = tstStringType("12");
 @test_throws ErrorException endof(tstr)
 @test_throws ErrorException next(tstr, Bool(1))
 
-gstr = Base.GenericString("12");
-@test typeof(string(gstr))==Base.GenericString
+gstr = GenericString("12");
+@test typeof(string(gstr))==GenericString
 @test bytestring()==""
 
 @test convert(Array{UInt8}, gstr) ==[49;50]
@@ -1653,7 +1689,7 @@ gstr = Base.GenericString("12");
 
 @test_throws ErrorException sizeof(gstr)
 
-@test length(Base.GenericString(""))==0
+@test length(GenericString(""))==0
 
 @test getindex(gstr,AbstractVector([Bool(1):Bool(1);]))=="1"
 

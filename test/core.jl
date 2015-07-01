@@ -3014,3 +3014,49 @@ let a = (1:1000...),
     @test (a == b) === true
     @test (a === b) === true
 end
+
+# issue 11858
+type Foo11858
+    x::Float64
+end
+
+type Bar11858
+    x::Float64
+end
+
+g11858(x::Float64) = x
+f11858(a) = for Baz in a
+    Baz(x) = Baz(float(x))
+end
+f11858(Any[Foo11858, Bar11858, g11858])
+
+@test g11858(1) == 1.0
+@test Foo11858(1).x == 1.0
+@test Bar11858(1).x == 1.0
+
+# issue 11904
+@noinline throw_error() = error()
+foo11904(x::Int) = x
+@inline function foo11904{S}(x::Nullable{S})
+    if isbits(S)
+        Nullable(foo11904(x.value), x.isnull)
+    else
+        throw_error()
+    end
+end
+
+@test !foo11904(Nullable(1)).isnull
+
+# issue 11874
+immutable Foo11874
+   x::Int
+end
+
+function bar11874(x)
+   y::Foo11874
+   y=x
+end
+
+Base.convert(::Type{Foo11874},x::Int) = float(x)
+
+@test_throws TypeError bar11874(1)

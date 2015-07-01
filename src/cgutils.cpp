@@ -154,7 +154,7 @@ static GlobalVariable *stringConst(const std::string &txt)
 
 typedef struct {Value* gv; int32_t index;} jl_value_llvm; // uses 1-based indexing
 static std::map<void*, jl_value_llvm> jl_value_to_llvm;
-static std::map<Value *, void*> llvm_to_jl_value;
+DLLEXPORT std::map<Value *, void*> jl_llvm_to_jl_value;
 
 #ifdef USE_MCJIT
 class FunctionMover : public ValueMaterializer
@@ -277,8 +277,8 @@ public:
                 }
             }
             std::map<Value*, void *>::iterator it;
-            it = llvm_to_jl_value.find(GV);
-            if (it != llvm_to_jl_value.end()) {
+            it = jl_llvm_to_jl_value.find(GV);
+            if (it != jl_llvm_to_jl_value.end()) {
                 newGV->setInitializer(Constant::getIntegerValue(GV->getType()->getElementType(),APInt(sizeof(void*)*8,(ptrint_t)it->second)));
                 newGV->setConstant(true);
             }
@@ -444,7 +444,7 @@ static Value *julia_gv(const char *cname, void *addr)
 
     // make the pointer valid for this session
 #ifdef USE_MCJIT
-    llvm_to_jl_value[gv] = addr;
+    jl_llvm_to_jl_value[gv] = addr;
 #else
     void **p = (void**)jl_ExecutionEngine->getPointerToGlobal(gv);
     *p = addr;
@@ -1334,13 +1334,13 @@ static Value *emit_getfield_unknownidx(Value *strct, Value *idx, jl_datatype_t *
     }
     else if (is_tupletype_homogeneous(stt->types)) {
         assert(jl_isbits(stt));
-        assert(!jl_field_isptr(stt, 0));
         if (nfields == 0) {
             // TODO: pass correct thing to emit_bounds_check ?
             idx = emit_bounds_check(tbaa_decorate(tbaa_const, builder.CreateLoad(prepare_global(jlemptysvec_var))),
                                     (jl_value_t*)stt, idx, ConstantInt::get(T_size, nfields), ctx);
             return UndefValue::get(jl_pvalue_llvmt);
         }
+        assert(!jl_field_isptr(stt, 0));
         jl_value_t *jt = jl_field_type(stt,0);
         if (!stt->uid) {
             // add root for types not cached

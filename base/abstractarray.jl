@@ -441,12 +441,12 @@ function _getindex(::LinearFast, A::AbstractArray, I::Real...)
     @_inline_meta
     # We must check bounds for sub2ind; so we can then call unsafe_getindex
     checkbounds(A, I...)
-    unsafe_getindex(A, sub2ind(size(A), to_index(I)...))
+    unsafe_getindex(A, sub2ind(size(A), to_indexes(I...)...))
 end
 _unsafe_getindex(::LinearFast, A::AbstractArray, I::Int) = (@_inline_meta; getindex(A, I))
 function _unsafe_getindex(::LinearFast, A::AbstractArray, I::Real...)
     @_inline_meta
-    unsafe_getindex(A, sub2ind(size(A), to_index(I)...))
+    unsafe_getindex(A, sub2ind(size(A), to_indexes(I...)...))
 end
 
 # LinearSlow Scalar indexing
@@ -533,12 +533,12 @@ function _setindex!(::LinearFast, A::AbstractArray, v, I::Real...)
     @_inline_meta
     # We must check bounds for sub2ind; so we can then call unsafe_setindex!
     checkbounds(A, I...)
-    unsafe_setindex!(A, v, sub2ind(size(A), to_index(I)...))
+    unsafe_setindex!(A, v, sub2ind(size(A), to_indexes(I...)...))
 end
 _unsafe_setindex!(::LinearFast, A::AbstractArray, v, I::Int) = (@_inline_meta; setindex!(A, v, I))
 function _unsafe_setindex!(::LinearFast, A::AbstractArray, v, I::Real...)
     @_inline_meta
-    unsafe_setindex!(A, v, sub2ind(size(A), to_index(I)...))
+    unsafe_setindex!(A, v, sub2ind(size(A), to_indexes(I...)...))
 end
 
 # LinearSlow Scalar indexing
@@ -1133,8 +1133,8 @@ end
 ## transform any set of dimensions
 ## dims specifies which dimensions will be transformed. for example
 ## dims==1:2 will call f on all slices A[:,:,...]
-mapslices(f::Function, A::AbstractArray, dims) = mapslices(f, A, [dims...])
-function mapslices(f::Function, A::AbstractArray, dims::AbstractVector)
+mapslices(f, A::AbstractArray, dims) = mapslices(f, A, [dims...])
+function mapslices(f, A::AbstractArray, dims::AbstractVector)
     if isempty(dims)
         return map(f,A)
     end
