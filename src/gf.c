@@ -895,7 +895,7 @@ DLLEXPORT jl_function_t *jl_instantiate_staged(jl_methlist_t *m, jl_tupletype_t 
         oldast = (jl_expr_t*)jl_uncompress_ast(m->func->linfo, m->func->linfo->ast);
     assert(oldast->head == lambda_sym);
     ex = jl_exprn(arrow_sym, 2);
-    jl_array_t *oldargnames = (jl_array_t*)jl_cellref(oldast->args,0);
+    jl_array_t *oldargnames = jl_lam_args(oldast);
     jl_expr_t *argnames = jl_exprn(tuple_sym, jl_array_len(oldargnames));
     jl_cellset(ex->args, 0, argnames);
     for (size_t i = 0; i < jl_array_len(oldargnames); ++i) {
@@ -921,6 +921,21 @@ DLLEXPORT jl_function_t *jl_instantiate_staged(jl_methlist_t *m, jl_tupletype_t 
     jl_cellset(linenode->args, 0, jl_box_long(m->func->linfo->line));
     jl_cellset(linenode->args, 1, m->func->linfo->file);
     jl_cellset(body->args, 1, jl_apply(func, jl_svec_data(tt->parameters), jl_nparams(tt)));
+    if (m->tvars != jl_emptysvec) {
+        // mark this function as having the same static parameters as the generator
+        size_t nsp = jl_is_typevar(m->tvars) ? 1 : jl_svec_len(m->tvars);
+        oldast = jl_exprn(jl_symbol("with-static-parameters"), nsp+1);
+        jl_exprarg(oldast,0) = (jl_value_t*)ex;
+        // (with-static-parameters func_expr sp_1 sp_2 ...)
+        if (jl_is_typevar(m->tvars)) {
+            jl_exprarg(oldast,1) = (jl_value_t*)((jl_tvar_t*)m->tvars)->name;
+        }
+        else {
+            for(size_t i=0; i < nsp; i++)
+                jl_exprarg(oldast,i+1) = (jl_value_t*)((jl_tvar_t*)jl_svecref(m->tvars,i))->name;
+        }
+        ex = oldast;
+    }
     func = (jl_function_t*)jl_toplevel_eval_in(m->func->linfo->module, (jl_value_t*)ex);
     func->linfo->name = m->func->linfo->name;
     JL_GC_POP();
@@ -1438,6 +1453,8 @@ jl_function_t *jl_get_specialization(jl_function_t *f, jl_tupletype_t *types)
 
 void jl_trampoline_compile_function(jl_function_t *f, int always_infer, jl_tupletype_t *sig);
 
+int jl_in_vinfo_array(jl_array_t *a, jl_sym_t *v);
+
 static void parameters_to_closureenv(jl_value_t *ast, jl_svec_t *tvars)
 {
     jl_array_t *closed = jl_lam_capt((jl_expr_t*)ast);
@@ -1451,6 +1468,8 @@ static void parameters_to_closureenv(jl_value_t *ast, jl_svec_t *tvars)
         tvs = jl_svec_data(tvars);
         tvarslen = jl_svec_len(tvars);
     }
+    if (jl_in_vinfo_array(closed, ((jl_tvar_t*)tvs[0])->name))
+        return;
     size_t i;
     jl_array_t *vi=NULL;
     JL_GC_PUSH1(&vi);
