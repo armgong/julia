@@ -457,6 +457,7 @@ export
     airyprime,
     airyx,
     besselh,
+    besselhx,
     besseli,
     besselix,
     besselj,
@@ -915,6 +916,8 @@ export
     get_rounding,
     set_rounding,
     with_rounding,
+    get_zero_subnormals,
+    set_zero_subnormals,
 
 # statistics
     cor,
@@ -1095,8 +1098,6 @@ export
     evalfile,
     include,
     include_string,
-    reload,
-    require,
 
 # RTS internals
     finalizer,
@@ -1315,6 +1316,7 @@ export
     pointer,
     pointer_from_objref,
     pointer_to_array,
+    pointer_to_string,
     reenable_sigint,
     unsafe_copy!,
     unsafe_load,

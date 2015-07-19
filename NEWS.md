@@ -31,6 +31,12 @@ New language features
   * The syntax `function foo end` can be used to introduce a generic function without
     yet adding any methods ([#8283]).
 
+  * Incremental compilation of modules: ``Base.compile(module::Symbol)`` (stored in `~/.julia/lib/v0.4`)
+
+      * See manual section on `Module initialization and precompilation` (under `Modules`) for details and errata.
+
+      * New option `--compile-incremental={yes|no}` added to invoke the equivalent of ``Base.compile`` from the command line.
+
 Language changes
 ----------------
 
@@ -186,6 +192,11 @@ Library improvements
     * OpenBLAS 64-bit (ILP64) interface is now compiled with a `64_` suffix ([#8734]) to avoid conflicts with external libraries using a 32-bit BLAS ([#4923]).
 
     * New `vecdot` function, analogous to `vecnorm`, for Euclidean inner products over any iterable container ([#11067]).
+
+  * `p = plan_fft(x)` and similar functions now return a `Base.DFT.Plan` object, rather
+    than an anonymous function.  Calling it via `p(x)` is deprecated in favor of
+    `p * x` or `p \ x` (for the inverse), and it can also be used with `A_mul_B!`
+    to employ pre-allocated output arrays ([#12087]).
 
   * Strings
 
@@ -449,6 +460,8 @@ Deprecated or removed
     * `diff_gc_total_bytes` -> `jl_gc_diff_total_bytes`
 
     * `sync_gc_total_bytes` -> `jl_gc_sync_total_bytes`
+
+  * `require(::AbstractString)` and `reload` (see news about addition of `compile`)
 
 Julia v0.3.0 Release Notes
 ==========================
@@ -1511,3 +1524,4 @@ Too numerous to mention.
 [#11922]: https://github.com/JuliaLang/julia/issues/11922
 [#11985]: https://github.com/JuliaLang/julia/issues/11985
 [#12031]: https://github.com/JuliaLang/julia/issues/12031
+[#12087]: https://github.com/JuliaLang/julia/issues/12087

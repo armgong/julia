@@ -474,13 +474,11 @@ export float32_isvalid, float64_isvalid
 @deprecate ($)(x::Char, y::Char)  Char(UInt32(x) $ UInt32(y))
 
 # 11241
-
 @deprecate is_valid_char(ch::Char)          isvalid(ch)
 @deprecate is_valid_ascii(str::ASCIIString) isvalid(str)
 @deprecate is_valid_utf8(str::UTF8String)   isvalid(str)
 @deprecate is_valid_utf16(str::UTF16String) isvalid(str)
 @deprecate is_valid_utf32(str::UTF32String) isvalid(str)
-
 @deprecate is_valid_char(ch)   isvalid(Char, ch)
 @deprecate is_valid_ascii(str) isvalid(ASCIIString, str)
 @deprecate is_valid_utf8(str)  isvalid(UTF8String, str)
@@ -488,8 +486,18 @@ export float32_isvalid, float64_isvalid
 @deprecate is_valid_utf32(str) isvalid(UTF32String, str)
 
 # 11379
-
 @deprecate utf32(c::Integer...)   UTF32String(UInt32[c...,0])
+
+# 12087
+@deprecate call(P::Base.DFT.Plan, A) P * A
+for f in (:plan_fft, :plan_ifft, :plan_bfft, :plan_fft!, :plan_ifft!, :plan_bfft!, :plan_rfft)
+    @eval @deprecate $f(A, dims, flags) $f(A, dims; flags=flags)
+    @eval @deprecate $f(A, dims, flags, tlim) $f(A, dims; flags=flags, timelimit=tlim)
+end
+for f in (:plan_brfft, :plan_irfft)
+    @eval @deprecate $f(A, d, dims, flags) $f(A, d, dims; flags=flags)
+    @eval @deprecate $f(A, d, dims, flags, tlim) $f(A, d, dims; flags=flags, timelimit=tlim)
+end
 
 # 10862
 
@@ -635,7 +643,6 @@ end
 @deprecate mmap_bitarray{N}(::Type{Bool}, dims::NTuple{N,Integer}, s::IOStream, offset::FileOffset=position(s)) mmap(s, BitArray, dims, offset)
 @deprecate mmap_bitarray{N}(dims::NTuple{N,Integer}, s::IOStream, offset=position(s)) mmap(s, BitArray, dims, offset)
 
-
 # T[a:b] and T[a:s:b]
 @noinline function getindex{T<:Union{Char,Number}}(::Type{T}, r::Range)
     depwarn("T[a:b] concatenation is deprecated; use T[a:b;] instead", :getindex)
@@ -654,3 +661,34 @@ function getindex{T<:Union{Char,Number}}(::Type{T}, r1::Range, rs::Range...)
     end
     return a
 end
+
+function require(mod::AbstractString)
+    depwarn("`require` is deprecated, use `using` or `import` instead", :require)
+    require(symbol(require_filename(mod)))
+end
+function require(f::AbstractString, fs::AbstractString...)
+    require(f)
+    for fn in fs
+        require(fn)
+    end
+end
+export require
+function require_filename(name::AbstractString)
+    # This function can be deleted when the deprecation for `require`
+    # is deleted.
+    # While we could also strip off the absolute path, the user may be
+    # deliberately directing to a different file than what got
+    # cached. So this takes a conservative approach.
+    if endswith(name, ".jl")
+        tmp = name[1:end-3]
+        for prefix in LOAD_CACHE_PATH
+            path = joinpath(prefix, tmp*".ji")
+            if isfile(path)
+                return tmp
+            end
+        end
+    end
+    name
+end
+const reload = require
+export reload
