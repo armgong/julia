@@ -2,15 +2,18 @@
 
 # Base.require is the implementation for the `import` statement
 
-function find_in_path(name::AbstractString)
+# `wd` is a working directory to search. from the top level (e.g the prompt)
+# it's just the cwd, otherwise it will be set to source_dir().
+function find_in_path(name::AbstractString, wd = pwd())
     isabspath(name) && return name
-    isfile(name) && return abspath(name)
+    if wd === nothing; wd = pwd(); end
+    isfile(joinpath(wd,name)) && return joinpath(wd,name)
     base = name
     if endswith(name,".jl")
         base = name[1:end-3]
     else
         name = string(base,".jl")
-        isfile(name) && return abspath(name)
+        isfile(joinpath(wd,name)) && return joinpath(wd,name)
     end
     for prefix in [Pkg.dir(); LOAD_PATH]
         path = joinpath(prefix, name)
@@ -23,8 +26,13 @@ function find_in_path(name::AbstractString)
     return nothing
 end
 
-find_in_node_path(name, node::Int=1) = myid() == node ?
-    find_in_path(name) : remotecall_fetch(node, find_in_path, name)
+function find_in_node_path(name, srcpath, node::Int=1)
+    if myid() == node
+        find_in_path(name, srcpath)
+    else
+        remotecall_fetch(node, find_in_path, name, srcpath)
+    end
+end
 
 function find_source_file(file)
     (isabspath(file) || isfile(file)) && return file
@@ -34,15 +42,16 @@ function find_source_file(file)
     isfile(file2) ? file2 : nothing
 end
 
-function find_in_cache_path(mod::Symbol)
+function find_all_in_cache_path(mod::Symbol)
     name = string(mod)
+    paths = String[]
     for prefix in LOAD_CACHE_PATH
         path = joinpath(prefix, name*".ji")
         if isfile(path)
-            produce(path)
+            push!(paths, path)
         end
     end
-    nothing
+    paths
 end
 
 function _include_from_serialized(content::Vector{UInt8})
@@ -83,20 +92,16 @@ function _require_from_serialized(node::Int, path_to_try::ByteString, toplevel_l
 end
 
 function _require_from_serialized(node::Int, mod::Symbol, toplevel_load::Bool)
-    name = string(mod)
-    finder = @spawnat node @task find_in_cache_path(mod) # TODO: switch this to an explicit Channel
-    while true
-        path_to_try = remotecall_fetch(node, consume_fetch, finder)
-        path_to_try === nothing && return false
+    paths = @fetchfrom node find_all_in_cache_path(mod)
+    for path_to_try in paths
         if _require_from_serialized(node, path_to_try, toplevel_load)
             return true
         else
             warn("deserialization checks failed while attempting to load cache from $path_to_try")
         end
     end
+    return false
 end
-
-consume_fetch(finder) = consume(fetch(finder))
 
 # to synchronize multiple tasks trying to import/using something
 const package_locks = Dict{Symbol,Condition}()
@@ -130,7 +135,7 @@ function require(mod::Symbol)
         end
 
         name = string(mod)
-        path = find_in_node_path(name, 1)
+        path = find_in_node_path(name, source_dir(), 1)
         path === nothing && throw(ArgumentError("$name not found in path"))
         if last && myid() == 1 && nprocs() > 1
             # broadcast top-level import/using from node 1 (only)
@@ -170,6 +175,11 @@ function source_path(default::Union{AbstractString,Void}="")
         end
         t = t.parent
     end
+end
+
+function source_dir()
+    p = source_path(nothing)
+    p === nothing ? p : dirname(p)
 end
 
 macro __FILE__() source_path() end
@@ -215,11 +225,10 @@ function create_expr_cache(input::AbstractString, output::AbstractString)
             eval(Main, deserialize(STDIN))
         end
         """
-    io, pobj = open(detach(setenv(`$(julia_cmd())
+    io, pobj = open(detach(`$(julia_cmd())
             --output-ji $output --output-incremental=yes
             --startup-file=no --history-file=no
-            --eval $code_object`,
-        ["JULIA_HOME=$JULIA_HOME", "HOME=$(homedir())"])), "w", STDOUT)
+            --eval $code_object`), "w", STDOUT)
     serialize(io, quote
         empty!(Base.LOAD_PATH)
         append!(Base.LOAD_PATH, $LOAD_PATH)

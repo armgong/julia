@@ -86,7 +86,7 @@ Getting Around
 
    When searching for files, ``require`` first looks in the current working directory, then looks for package code under ``Pkg.dir()``, then tries paths in the global array ``LOAD_PATH``.
 
-.. function:: compile(module::String)
+.. function:: compile(module::Symbol)
 
    Creates a precompiled cache file for module (see help for ``require``) and all of its dependencies. This can be used to reduce package load times. Cache files are stored in LOAD_CACHE_PATH[1], which defaults to `~/.julia/lib/VERSION`. See the manual section `Module initialization and precompilation` (under `Modules`) for important notes.
 
@@ -942,6 +942,8 @@ Events
 
    Create a timer that wakes up tasks waiting for it (by calling ``wait`` on
    the timer object) at a specified interval.
+   Waiting tasks are also woken up when the timer is closed (by ``close``).
+   Use ``isopen`` to check whether a timer is still active after a wakeup.
 
 Reflection
 ----------

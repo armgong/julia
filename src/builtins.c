@@ -34,7 +34,7 @@ extern "C" {
 DLLEXPORT void NORETURN jl_error(const char *str)
 {
     if (jl_errorexception_type == NULL) {
-        jl_printf(JL_STDERR, "%s\n", str);
+        jl_printf(JL_STDERR, "ERROR: %s\n", str);
         jl_exit(1);
     }
     jl_value_t *msg = jl_pchar_to_string((char*)str, strlen(str));
@@ -47,6 +47,7 @@ extern int vasprintf(char **str, const char *fmt, va_list ap);
 static void NORETURN jl_vexceptionf(jl_datatype_t *exception_type, const char *fmt, va_list args)
 {
     if (exception_type == NULL) {
+        jl_printf(JL_STDERR, "ERROR: ");
         jl_vprintf(JL_STDERR, fmt, args);
         jl_printf(JL_STDERR, "\n");
         jl_exit(1);
@@ -266,10 +267,13 @@ static int NOINLINE compare_fields(jl_value_t *a, jl_value_t *b, jl_datatype_t *
         }
         else {
             jl_datatype_t *ft = (jl_datatype_t*)jl_field_type(dt, f);
-            if (!ft->haspadding)
+            if (!ft->haspadding) {
                 eq = bits_equal(ao, bo, dt->fields[f].size);
-            else
+            }
+            else {
+                assert(jl_datatype_nfields(ft) > 0);
                 eq = compare_fields((jl_value_t*)ao, (jl_value_t*)bo, ft);
+            }
         }
         if (!eq) return 0;
     }

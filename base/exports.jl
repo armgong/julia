@@ -219,6 +219,7 @@ export
     .-,
     .*,
     ./,
+    .%,
     .<,
     .<=,
     .≤,
@@ -247,6 +248,7 @@ export
     \,
     ^,
     |,
+    |>,
     ~,
     :,
     ÷,
@@ -659,6 +661,7 @@ export
     linreg,
     logabsdet,
     logdet,
+    logm,
     lu,
     lufact!,
     lufact,
@@ -1337,6 +1340,7 @@ export
     # notation for certain types
     @b_str,  # byte vector
     @r_str,  # regex
+    @s_str,  # regex substitution string
     @v_str,  # version number
 
     # documentation

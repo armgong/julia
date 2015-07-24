@@ -628,6 +628,7 @@ static Function *to_function(jl_lambda_info_t *li)
     DebugLoc olddl = builder.getCurrentDebugLocation();
     bool last_n_c = nested_compile;
     nested_compile = true;
+    jl_gc_inhibit_finalizers(nested_compile);
     Function *f = NULL;
     JL_TRY {
         f = emit_function(li);
@@ -647,6 +648,7 @@ static Function *to_function(jl_lambda_info_t *li)
     }
     assert(f != NULL);
     nested_compile = last_n_c;
+    jl_gc_inhibit_finalizers(nested_compile);
 #ifdef JL_DEBUG_BUILD
 #ifdef LLVM35
     llvm::raw_fd_ostream out(1,false);
@@ -954,7 +956,7 @@ void *jl_get_llvmf(jl_function_t *f, jl_tupletype_t *tt, bool getwrapper)
             return NULL;
         }
         jl_printf(JL_STDERR,
-                  "Warning: Returned code may not match what actually runs.\n");
+                  "WARNING: Returned code may not match what actually runs.\n");
     }
     if (sf->linfo->specFunctionObject != NULL) {
         // found in the system image: force a recompile
@@ -1092,7 +1094,7 @@ const jl_value_t *jl_dump_function_asm(void *f)
         jl_dump_asm_internal(fptr, symsize, slide, object, fstream);
     }
     else {
-        jl_printf(JL_STDERR, "Warning: Unable to find function pointer\n");
+        jl_printf(JL_STDERR, "WARNING: Unable to find function pointer\n");
     }
     fstream.flush();
 
@@ -1254,16 +1256,6 @@ extern "C" void jl_write_malloc_log(void)
 
 // --- constant determination ---
 
-static bool in_vinfo(jl_sym_t *s, jl_array_t *vi)
-{
-    size_t i, l = jl_array_len(vi);
-    for(i=0; i < l; i++) {
-        if (s == (jl_sym_t*)jl_cellref(jl_cellref(vi, i), 0))
-            return true;
-    }
-    return false;
-}
-
 // try to statically evaluate, NULL if not possible
 extern "C"
 jl_value_t *jl_static_eval(jl_value_t *ex, void *ctx_, jl_module_t *mod,
@@ -1279,7 +1271,7 @@ jl_value_t *jl_static_eval(jl_value_t *ex, void *ctx_, jl_module_t *mod,
             isglob = is_global(sym, ctx);
         }
         else if (ast) {
-            isglob = !in_vinfo(sym, jl_lam_vinfo(ast)) && !in_vinfo(sym, jl_lam_capt(ast));
+            isglob = !jl_local_in_ast(ast, sym);
         }
         if (isglob) {
             size_t i;
@@ -3399,7 +3391,7 @@ static Value *emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, bool 
     }
     else if (head == simdloop_sym) {
         if (!llvm::annotateSimdLoop(builder.GetInsertBlock()))
-            jl_printf(JL_STDERR, "Warning: could not attach metadata for @simd loop.\n");
+            jl_printf(JL_STDERR, "WARNING: could not attach metadata for @simd loop.\n");
         return NULL;
     }
     else if (head == meta_sym) {
@@ -5522,7 +5514,7 @@ extern "C" void jl_init_codegen(void)
 #endif
     std::string TheCPU = strcmp(jl_options.cpu_target,"native") ? jl_options.cpu_target : sys::getHostCPUName();
     if (TheCPU.empty() || TheCPU == "generic") {
-        jl_printf(JL_STDERR, "warning: unable to determine host cpu name.\n");
+        jl_printf(JL_STDERR, "WARNING: unable to determine host cpu name.\n");
 #ifdef _CPU_ARM_
         MAttrs.append(1, "+vfp2"); // the processors that don't have VFP are old and (hopefully) rare. this affects the platform calling convention.
 #endif

@@ -13,17 +13,14 @@ New language features
 
   * Unicode version 8 is now supported for identifiers etcetera ([#7917], [#12031]).
 
-  * Type parameters now permit any arbitrary `isbits` type, not just
-    `Int` and `Bool` ([#6081]).
+  * Type parameters now permit any `isbits` type, not just `Int` and `Bool` ([#6081]).
 
   * Keyword argument names can be computed, using syntax such as `f(; symbol => val)` ([#7704]).
 
-  * The `@generated function` enables generation of specialized methods depending
-    upon the types of its arguments. Sometimes referred to as a staged function,
-    it operates at two different stages of evaluation. At compile time, the generated
-    function is called with its arguments bound to the types for which it should
-    specialize. The quoted expression it returns forms the body of the specialized
-    method which is then called at run time ([#7311]).
+  * The syntax `@generated function` enables generation of specialized methods based on
+    argument types. At compile time, the function is called with its arguments bound to their
+    types instead of to their values. The function then returns an expression forming the
+    body of the function to be called at run time ([#7311]).
 
   * [Documentation system](http://docs.julialang.org/en/latest/manual/documentation/)
     for functions, methods, types and macros in packages and user code ([#8791]).
@@ -31,11 +28,16 @@ New language features
   * The syntax `function foo end` can be used to introduce a generic function without
     yet adding any methods ([#8283]).
 
-  * Incremental compilation of modules: ``Base.compile(module::Symbol)`` (stored in `~/.julia/lib/v0.4`)
+  * Incremental compilation of modules: `Base.compile(module::Symbol)` imports the named module,
+    but instead of loading it into the current session saves the result of compiling it in
+    `~/.julia/lib/v0.4` ([#8745]).
 
       * See manual section on `Module initialization and precompilation` (under `Modules`) for details and errata.
 
-      * New option `--compile-incremental={yes|no}` added to invoke the equivalent of ``Base.compile`` from the command line.
+      * New option `--output-incremental={yes|no}` added to invoke the equivalent of ``Base.compile`` from the command line.
+
+  * The syntax `new{parameters...}(...)` can be used in constructors to specify parameters for
+    the type to be constructed ([#8135]).
 
 Language changes
 ----------------
@@ -193,10 +195,14 @@ Library improvements
 
     * New `vecdot` function, analogous to `vecnorm`, for Euclidean inner products over any iterable container ([#11067]).
 
-  * `p = plan_fft(x)` and similar functions now return a `Base.DFT.Plan` object, rather
+    * `p = plan_fft(x)` and similar functions now return a `Base.DFT.Plan` object, rather
     than an anonymous function.  Calling it via `p(x)` is deprecated in favor of
     `p * x` or `p \ x` (for the inverse), and it can also be used with `A_mul_B!`
     to employ pre-allocated output arrays ([#12087]).
+
+    * `LU{T,Tridiagonal{T}}` now supports extraction of `L`, `U`, `p`, and `P` factors ([#12137]).
+
+    * Allocations in sparse matrix factorizations are now tracked by Julia's garbage collector ([#12034]).
 
   * Strings
 
@@ -227,7 +233,7 @@ Library improvements
 
     * AbstractArray subtypes only need to implement `size` and `getindex`
       for scalar indices to support indexing; all other indexing behaviors
-      (including logical idexing, ranges of indices, vectors, colons, etc.) are
+      (including logical indexing, ranges of indices, vectors, colons, etc.) are
       implemented in default fallbacks. Similarly, they only need to implement
       scalar `setindex!` to support all forms of indexed assingment ([#10525]).
 
@@ -350,6 +356,9 @@ Library improvements
 
     * `mktemp` and `mktempdir` now take an optional argument to set which
       directory the temporary file or directory is created in.
+
+    * New garbage collector tracked memory allocator functions: `jl_malloc`, `jl_calloc`,
+    `jl_realloc`, and `jl_free` with libc API ([[#12034]]).
 
 Deprecated or removed
 ---------------------
@@ -1411,6 +1420,7 @@ Too numerous to mention.
 [#7992]: https://github.com/JuliaLang/julia/issues/7992
 [#8011]: https://github.com/JuliaLang/julia/issues/8011
 [#8089]: https://github.com/JuliaLang/julia/issues/8089
+[#8135]: https://github.com/JuliaLang/julia/issues/8135
 [#8152]: https://github.com/JuliaLang/julia/issues/8152
 [#8246]: https://github.com/JuliaLang/julia/issues/8246
 [#8283]: https://github.com/JuliaLang/julia/issues/8283
@@ -1429,6 +1439,7 @@ Too numerous to mention.
 [#8672]: https://github.com/JuliaLang/julia/issues/8672
 [#8712]: https://github.com/JuliaLang/julia/issues/8712
 [#8734]: https://github.com/JuliaLang/julia/issues/8734
+[#8745]: https://github.com/JuliaLang/julia/issues/8745
 [#8750]: https://github.com/JuliaLang/julia/issues/8750
 [#8776]: https://github.com/JuliaLang/julia/issues/8776
 [#8791]: https://github.com/JuliaLang/julia/issues/8791

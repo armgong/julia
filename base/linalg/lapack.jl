@@ -3159,14 +3159,13 @@ for (syev, syevr, sygvd, elty) in
             if range == 'V' && vl >= vu
                 throw(ArgumentError("Lower boundary, $vl, must be less than upper boundary, $vu"))
             end
-            lda = max(1,stride(A,2))
+            lda = stride(A,2)
             m = Array(BlasInt, 1)
             w = similar(A, $elty, n)
+            ldz = n
             if jobz == 'N'
-                ldz = 1
                 Z = similar(A, $elty, ldz, 0)
             elseif jobz == 'V'
-                ldz = max(1,n)
                 Z = similar(A, $elty, ldz, n)
             end
             isuppz = similar(A, BlasInt, 2*n)
@@ -3184,9 +3183,9 @@ for (syev, syevr, sygvd, elty) in
                         Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt}, Ptr{BlasInt},
                         Ptr{BlasInt}),
                     &jobz, &range, &uplo, &n,
-                    A, &lda, &vl, &vu,
+                    A, &max(1,lda), &vl, &vu,
                     &il, &iu, &abstol, m,
-                    w, Z, &ldz, isuppz,
+                    w, Z, &max(1,ldz), isuppz,
                     work, &lwork, iwork, &liwork,
                     info)
                 @lapackerror
@@ -3558,7 +3557,6 @@ for (gecon, elty, relty) in
      (:cgecon_,:Complex64, :Float32))
     @eval begin
         function gecon!(normtype::Char, A::StridedMatrix{$elty}, anorm::$relty)
-            chkstride1(A)
 #       SUBROUTINE ZGECON( NORM, N, A, LDA, ANORM, RCOND, WORK, RWORK,
 #      $                   INFO )
 # *     .. Scalar Arguments ..
@@ -3570,8 +3568,8 @@ for (gecon, elty, relty) in
 #       DOUBLE PRECISION   RWORK( * )
 #       COMPLEX*16         A( LDA, * ), WORK( * )
             chkstride1(A)
-            n = size(A, 2)
-            lda = max(1, size(A, 1))
+            n = chksquare(A)
+            lda = max(1, stride(A, 2))
             rcond = Array($relty, 1)
             work = Array($elty, 2n)
             rwork = Array($relty, 2n)

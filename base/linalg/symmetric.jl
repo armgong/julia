@@ -44,7 +44,17 @@ issym{T<:Real,S}(A::Hermitian{T,S}) = true
 issym{T<:Complex,S}(A::Hermitian{T,S}) = all(imag(A.data) .== 0)
 issym(A::Symmetric) = true
 transpose(A::Symmetric) = A
+ctranspose{T<:Real}(A::Symmetric{T}) = A
+function ctranspose(A::Symmetric)
+    AC = ctranspose(A.data)
+    return Symmetric(AC, ifelse(A.uplo == 'U', :L, :U))
+end
+function transpose(A::Hermitian)
+    AT = transpose(A.data)
+    return Hermitian(AT, ifelse(A.uplo == 'U', :L, :U))
+end
 ctranspose(A::Hermitian) = A
+trace(A::Hermitian) = real(trace(A.data))
 
 ## Matvec
 A_mul_B!{T<:BlasFloat,S<:StridedMatrix}(y::StridedVector{T}, A::Symmetric{T,S}, x::StridedVector{T}) = BLAS.symv!(A.uplo, one(T), A.data, x, zero(T), y)
@@ -112,6 +122,11 @@ end
 
 #Matrix-valued functions
 expm{T<:Real}(A::RealHermSymComplexHerm{T}) = (F = eigfact(A); F.vectors*Diagonal(exp(F.values))*F.vectors')
+function logm{T<:Real}(A::RealHermSymComplexHerm{T})
+    F = eigfact(A)
+    isposdef(F) && return F.vectors*Diagonal(log(F.values))*F.vectors'
+    return F.vectors*Diagonal(log(complex(F.values)))*F.vectors'
+end
 function sqrtm{T<:Real}(A::RealHermSymComplexHerm{T})
     F = eigfact(A)
     isposdef(F) && return F.vectors*Diagonal(sqrt(F.values))*F.vectors'

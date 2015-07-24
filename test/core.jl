@@ -3127,3 +3127,31 @@ f12063{T}(tt, g, p, c, b, v, cu::T, d::AbstractArray{T, 2}, ve) = 1
 f12063(args...) = 2
 g12063() = f12063(0, 0, 0, 0, 0, 0, 0.0, spzeros(0,0), Int[])
 @test g12063() == 1
+
+# issue #11587
+type Sampler11587{N}
+    clampedpos::Array{Int,2}
+    buf::Array{Float64,N}
+end
+function Sampler11587()
+    a = tuple(Any[32,32]...,)
+    Sampler11587(zeros(Int,a), zeros(Float64,a))
+end
+@test isa(Sampler11587(), Sampler11587{2})
+
+# issue #8010 - error when convert returns wrong type during new()
+immutable Vec8010{T}
+    x::T
+    y::T
+end
+Vec8010(a::AbstractVector) = Vec8010(ntuple(x->a[x],2)...)
+Base.convert{T}(::Type{Vec8010{T}},x::AbstractVector) = Vec8010(x)
+Base.convert(::Type{Void},x::AbstractVector) = Vec8010(x)
+immutable MyType8010
+     m::Vec8010{Float32}
+end
+immutable MyType8010_ghost
+     m::Void
+end
+@test_throws TypeError MyType8010([3.0;4.0])
+@test_throws TypeError MyType8010_ghost([3.0;4.0])
