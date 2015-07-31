@@ -891,6 +891,17 @@ void *jl_function_ptr(jl_function_t *f, jl_value_t *rt, jl_value_t *argt)
     assert(llvmf);
     JL_GC_POP();
 #ifdef USE_MCJIT
+    if (imaging_mode) {
+        // Copy the function out of the shadow module, unless this was done before
+        void *addr = (void*)(intptr_t)jl_ExecutionEngine->getFunctionAddress(llvmf->getName());
+        if (addr != nullptr) {
+            return addr;
+        }
+        Module *m = new Module("julia", jl_LLVMContext);
+        jl_setup_module(m, true);
+        FunctionMover mover(m, shadow_module);
+        llvmf = mover.CloneFunction(llvmf);
+    }
     return (void*)(intptr_t)jl_ExecutionEngine->getFunctionAddress(llvmf->getName());
 #else
     return jl_ExecutionEngine->getPointerToFunction(llvmf);
@@ -1705,11 +1716,7 @@ static Value *emit_lambda_closure(jl_value_t *expr, jl_codectx_t *ctx)
         jl_varinfo_t &vari = ctx->vars[s];
         if (vari.closureidx != -1) {
             int idx = vari.closureidx;
-#ifdef OVERLAP_SVEC_LEN
-            val = emit_nthptr((Value*)ctx->envArg, idx, tbaa_sveclen);
-#else
             val = emit_nthptr((Value*)ctx->envArg, idx+1, tbaa_sveclen);
-#endif
         }
         else {
             Value *l = vari.memvalue;
@@ -1855,22 +1862,23 @@ static Value *emit_f_is(jl_value_t *rt1, jl_value_t *rt2,
     bool isleaf = jl_is_leaf_type(rt1) && jl_is_leaf_type(rt2);
     bool isteq = jl_types_equal(rt1, rt2);
     bool isbits = isleaf && isteq && jl_is_bitstype(rt1);
-    if (isteq && isleaf && jl_is_datatype_singleton((jl_datatype_t*)rt1))
-        return ConstantInt::get(T_int1, 1);
+    bool issingleton = isteq && isleaf && jl_is_datatype_singleton((jl_datatype_t*)rt1);
     if (arg1 && !varg1) {
         varg1 = isbits ? auto_unbox(arg1, ctx) : emit_expr(arg1, ctx);
-        if (arg2 && !varg2 && !isbits && varg1->getType() == jl_pvalue_llvmt &&
+        if (!issingleton && arg2 && !varg2 && !isbits && varg1->getType() == jl_pvalue_llvmt &&
             rt1 != (jl_value_t*)jl_sym_type && might_need_root(arg1)) {
             make_gcroot(varg1, ctx);
         }
     }
-    Value *answer;
     if (arg2 && !varg2)
         varg2 = isbits ? auto_unbox(arg2, ctx) : emit_expr(arg2, ctx);
+    if (issingleton)
+        return ConstantInt::get(T_int1, 1);
     if (isleaf && !isteq && !jl_is_type_type(rt1) && !jl_is_type_type(rt2)) {
         ctx->gc.argDepth = last_depth;
         return ConstantInt::get(T_int1, 0);
     }
+    Value *answer;
     Type *at1 = varg1->getType();
     Type *at2 = varg2->getType();
     if (at1 != jl_pvalue_llvmt && at2 != jl_pvalue_llvmt) {
@@ -2807,17 +2815,9 @@ static Value *var_binding_pointer(jl_sym_t *s, jl_binding_t **pbnd,
         int idx = vi.closureidx;
         assert(((Value*)ctx->envArg)->getType() == jl_pvalue_llvmt);
         if (isBoxed(s, ctx)) {
-#ifdef OVERLAP_SVEC_LEN
-            return builder.CreatePointerCast(emit_nthptr((Value*)ctx->envArg, idx, tbaa_sveclen), jl_ppvalue_llvmt);
-#else
             return builder.CreatePointerCast(emit_nthptr((Value*)ctx->envArg, idx+1, tbaa_sveclen), jl_ppvalue_llvmt);
-#endif
         }
-#ifdef OVERLAP_SVEC_LEN
-        return emit_nthptr_addr((Value*)ctx->envArg, idx);
-#else
         return emit_nthptr_addr((Value*)ctx->envArg, idx+1);
-#endif
     }
     Value *l = vi.memvalue;
     if (l == NULL) return NULL;
@@ -3803,7 +3803,7 @@ static Function *gen_jlcall_wrapper(jl_lambda_info_t *lam, jl_expr_t *ast, Funct
     return w;
 }
 
-// cstyle = compile with c-callable signature, not jlcall
+// Compile to LLVM IR, using a specialized signature if applicable.
 static Function *emit_function(jl_lambda_info_t *lam)
 {
     // step 1. unpack AST and allocate codegen context for this function
@@ -5546,7 +5546,9 @@ extern "C" void jl_init_codegen(void)
             );
     delete targetMachine;
     assert(jl_TargetMachine);
-#if defined(LLVM36) && !defined(LLVM37)
+#if defined(LLVM38)
+    engine_module->setDataLayout(jl_TargetMachine->createDataLayout());
+#elif defined(LLVM36) && !defined(LLVM37)
     engine_module->setDataLayout(jl_TargetMachine->getSubtargetImpl()->getDataLayout());
 #elif defined(LLVM35) && !defined(LLVM37)
     engine_module->setDataLayout(jl_TargetMachine->getDataLayout());

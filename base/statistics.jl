@@ -177,7 +177,15 @@ varm(iterable, m::Number; corrected::Bool=true) =
 
 ## variances over ranges
 
-varm(v::Range, m::Number) = var(v)
+function varm(v::Range, m::Number)
+    f = first(v) - m
+    s = step(v)
+    l = length(v)
+    if l == 0 || l == 1
+           return NaN
+    end
+    return f^2 * l / (l - 1) + f * s * l + s^2 * l * (2 * l - 1) / 6
+end
 
 function var(v::Range)
     s = step(v)
@@ -449,7 +457,7 @@ end
 
 # Specialized functions for real types allow for improved performance
 middle(x::Union{Bool,Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128}) = Float64(x)
-middle(x::FloatingPoint) = x
+middle(x::AbstractFloat) = x
 middle(x::Float16) = Float32(x)
 middle(x::Real) = (x + zero(x)) / 1
 middle(x::Real, y::Real) = x/2 + y/2
@@ -458,7 +466,7 @@ middle(a::AbstractArray) = ((v1, v2) = extrema(a); middle(v1, v2))
 
 function median!{T}(v::AbstractVector{T})
     isempty(v) && throw(ArgumentError("median of an empty array is undefined, $(repr(v))"))
-    if T<:FloatingPoint
+    if T<:AbstractFloat
         @inbounds for x in v
             isnan(x) && return x
         end
@@ -518,7 +526,7 @@ end
 
 ## nice-valued ranges for histograms
 
-function histrange{T<:FloatingPoint,N}(v::AbstractArray{T,N}, n::Integer)
+function histrange{T<:AbstractFloat,N}(v::AbstractArray{T,N}, n::Integer)
     nv = length(v)
     if nv == 0 && n < 0
         throw(ArgumentError("number of bins must be ≥ 0 for an empty array, got $n"))

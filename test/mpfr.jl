@@ -145,13 +145,16 @@ y = BigFloat(1)
 @test typeof(convert(BigFloat, Float32(0.5))) == BigFloat
 @test convert(BigFloat, parse(BigInt,"9223372036854775808")) == parse(BigFloat,"9223372036854775808")
 @test typeof(convert(BigFloat, parse(BigInt,"9223372036854775808"))) == BigFloat
-@test convert(FloatingPoint, parse(BigInt,"9223372036854775808")) == parse(BigFloat,"9223372036854775808")
-@test typeof(convert(FloatingPoint, parse(BigInt,"9223372036854775808"))) == BigFloat
+@test convert(AbstractFloat, parse(BigInt,"9223372036854775808")) == parse(BigFloat,"9223372036854775808")
+@test typeof(convert(AbstractFloat, parse(BigInt,"9223372036854775808"))) == BigFloat
 
 # convert from
 @test convert(Float64, BigFloat(0.5)) == 0.5
 @test convert(Float32, BigFloat(0.5)) == Float32(0.5)
 @test convert(Float16, BigFloat(0.5)) == Float16(0.5)
+@test convert(Bool, BigFloat(0.0)) == false
+@test convert(Bool, BigFloat(1.0)) == true
+@test_throws InexactError convert(Bool, BigFloat(0.1))
 
 # exponent
 x = BigFloat(0)
@@ -841,3 +844,11 @@ err(z, x) = abs(z - x) / abs(x)
 
 # issue #10994: handle embedded NUL chars for string parsing
 @test_throws ArgumentError parse(BigFloat, "1\0")
+
+# serialization (issue #12386)
+let b = IOBuffer()
+    x = 2.1*big(pi)
+    serialize(b, x)
+    seekstart(b)
+    @test deserialize(b) == x
+end

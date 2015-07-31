@@ -89,28 +89,19 @@ typedef struct _jl_value_t {
 
 typedef struct {
     union {
-        jl_value_t *type;
+        jl_value_t *type; // 16-bytes aligned
         uintptr_t type_bits;
         struct {
             uintptr_t gc_bits:2;
-#ifdef OVERLAP_SVEC_LEN
-#ifdef _P64
-            uintptr_t unmarked:50;
-#else
-#error OVERLAP_SVEC_LEN requires 64-bit pointers
-#endif
-            uintptr_t length:12;
-#endif
         };
     };
     jl_value_t value;
 } jl_taggedvalue_t;
 
 #define jl_astaggedvalue__MACRO(v) container_of((v),jl_taggedvalue_t,value)
-#define jl_typeof__MACRO(v) ((jl_value_t*)(jl_astaggedvalue__MACRO(v)->type_bits&~(size_t)3))
+#define jl_typeof__MACRO(v) ((jl_value_t*)(jl_astaggedvalue__MACRO(v)->type_bits&~(uintptr_t)15))
 #define jl_astaggedvalue jl_astaggedvalue__MACRO
 #define jl_typeof jl_typeof__MACRO
-//#define jl_set_typeof(v,t) (jl_astaggedvalue(v)->type = (jl_value_t*)(t))
 static inline void jl_set_typeof(void *v, void *t)
 {
     jl_taggedvalue_t *tag = jl_astaggedvalue(v);
@@ -133,9 +124,7 @@ typedef struct _jl_gensym_t {
 
 typedef struct {
     JL_DATA_TYPE
-#ifndef OVERLAP_SVEC_LEN
     size_t length;
-#endif
     jl_value_t *data[];
 } jl_svec_t;
 
@@ -323,6 +312,7 @@ typedef struct _jl_module_t {
     jl_array_t *constant_table;
     jl_function_t *call_func;  // cached lookup of `call` within this module
     uint8_t istopmod;
+    uint8_t std_imports;  // only for temporarily deprecating `importall Base.Operators`
     uint64_t uuid;
 } jl_module_t;
 
@@ -454,13 +444,12 @@ extern DLLEXPORT jl_datatype_t *jl_topnode_type;
 extern DLLEXPORT jl_datatype_t *jl_intrinsic_type;
 extern DLLEXPORT jl_datatype_t *jl_methtable_type;
 extern DLLEXPORT jl_datatype_t *jl_method_type;
-extern DLLEXPORT jl_datatype_t *jl_task_type;
 
 extern DLLEXPORT jl_svec_t *jl_emptysvec;
 extern DLLEXPORT jl_value_t *jl_emptytuple;
-DLLEXPORT extern jl_value_t *jl_true;
-DLLEXPORT extern jl_value_t *jl_false;
-DLLEXPORT extern jl_value_t *jl_nothing;
+extern DLLEXPORT jl_value_t *jl_true;
+extern DLLEXPORT jl_value_t *jl_false;
+extern DLLEXPORT jl_value_t *jl_nothing;
 
 // some important symbols
 extern jl_sym_t *call_sym;
@@ -581,29 +570,30 @@ void gc_setmark_buf(void *buf, int);
 
 static inline void jl_gc_wb_binding(jl_binding_t *bnd, void *val) // val isa jl_value_t*
 {
-    if (__unlikely((*((uintptr_t*)bnd-1) & 1) == 1 && (*(uintptr_t*)jl_astaggedvalue(val) & 1) == 0))
+    if (__unlikely((jl_astaggedvalue(bnd)->gc_bits & 1) == 1 &&
+                   (jl_astaggedvalue(val)->gc_bits & 1) == 0))
         gc_queue_binding(bnd);
 }
 
 static inline void jl_gc_wb(void *parent, void *ptr) // parent and ptr isa jl_value_t*
 {
-    if (__unlikely((*((uintptr_t*)jl_astaggedvalue(parent)) & 1) == 1 &&
-                   (*((uintptr_t*)jl_astaggedvalue(ptr)) & 1) == 0))
+    if (__unlikely((jl_astaggedvalue(parent)->gc_bits & 1) == 1 &&
+                   (jl_astaggedvalue(ptr)->gc_bits & 1) == 0))
         jl_gc_queue_root((jl_value_t*)parent);
 }
 
 static inline void jl_gc_wb_buf(void *parent, void *bufptr) // parent isa jl_value_t*
 {
     // if parent is marked and buf is not
-    if (__unlikely((*((uintptr_t*)jl_astaggedvalue(parent)) & 1) == 1))
-        //                   (*((uintptr_t*)bufptr) & 3) != 1))
-        gc_setmark_buf(bufptr, *(uintptr_t*)jl_astaggedvalue(parent) & 3);
+    if (__unlikely((jl_astaggedvalue(parent)->gc_bits & 1) == 1))
+        //            (jl_astaggedvalue(bufptr)->gc_bits) != 1))
+        gc_setmark_buf(bufptr, jl_astaggedvalue(parent)->gc_bits);
 }
 
 static inline void jl_gc_wb_back(void *ptr) // ptr isa jl_value_t*
 {
     // if ptr is marked
-    if(__unlikely((*((uintptr_t*)jl_astaggedvalue(ptr)) & 1) == 1)) {
+    if (__unlikely((jl_astaggedvalue(ptr)->gc_bits & 1) == 1)) {
         jl_gc_queue_root((jl_value_t*)ptr);
     }
 }
@@ -1489,10 +1479,6 @@ DLLEXPORT jl_value_t *jl_stderr_obj(void);
 DLLEXPORT size_t jl_static_show(JL_STREAM *out, jl_value_t *v);
 DLLEXPORT size_t jl_static_show_func_sig(JL_STREAM *s, jl_value_t *type);
 DLLEXPORT void jlbacktrace(void);
-
-#if defined(GC_FINAL_STATS)
-void jl_print_gc_stats(JL_STREAM *s);
-#endif
 
 // debugging
 void show_execution_point(char *filename, int lno);

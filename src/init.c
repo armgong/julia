@@ -120,6 +120,7 @@ jl_options_t jl_options = { 0,    // quiet
                             NULL, // outputbc
                             NULL, // outputo
                             NULL, // outputji
+                            0, // incremental
 };
 
 int jl_boot_file_loaded = 0;
@@ -550,9 +551,7 @@ static struct uv_shutdown_queue_item *next_shutdown_queue_item(struct uv_shutdow
 DLLEXPORT void jl_atexit_hook(int exitcode)
 {
     if (exitcode == 0) julia_save();
-#if defined(GC_FINAL_STATS)
     jl_print_gc_stats(JL_STDERR);
-#endif
     if (jl_options.code_coverage)
         jl_write_coverage_data();
     if (jl_options.malloc_log)
@@ -1365,7 +1364,7 @@ void jl_get_builtin_hooks(void)
 
     jl_float32_type = (jl_datatype_t*)core("Float32");
     jl_float64_type = (jl_datatype_t*)core("Float64");
-    jl_floatingpoint_type = (jl_datatype_t*)core("FloatingPoint");
+    jl_floatingpoint_type = (jl_datatype_t*)core("AbstractFloat");
     jl_number_type = (jl_datatype_t*)core("Number");
     jl_signed_type = (jl_datatype_t*)core("Signed");
 

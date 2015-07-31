@@ -281,12 +281,14 @@ DLLEXPORT const char* jl_ver_string(void)
 
 // Create function versions of some useful macros
 #undef jl_astaggedvalue
-DLLEXPORT jl_taggedvalue_t *jl_astaggedvalue(jl_value_t *v) {
+DLLEXPORT jl_taggedvalue_t *jl_astaggedvalue(jl_value_t *v)
+{
     return jl_astaggedvalue__MACRO(v);
 }
 
 #undef jl_typeof
-DLLEXPORT jl_value_t *jl_typeof(jl_value_t *v) {
+DLLEXPORT jl_value_t *jl_typeof(jl_value_t *v)
+{
     return jl_typeof__MACRO(v);
 }
 

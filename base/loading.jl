@@ -7,14 +7,13 @@
 function find_in_path(name::AbstractString, wd = pwd())
     isabspath(name) && return name
     if wd === nothing; wd = pwd(); end
-    isfile(joinpath(wd,name)) && return joinpath(wd,name)
     base = name
     if endswith(name,".jl")
         base = name[1:end-3]
     else
         name = string(base,".jl")
-        isfile(joinpath(wd,name)) && return joinpath(wd,name)
     end
+    isfile(joinpath(wd,name)) && return joinpath(wd,name)
     for prefix in [Pkg.dir(); LOAD_PATH]
         path = joinpath(prefix, name)
         isfile(path) && return abspath(path)
@@ -254,9 +253,9 @@ function create_expr_cache(input::AbstractString, output::AbstractString)
     return pobj
 end
 
-function compile(mod::Symbol)
+compile(mod::Symbol) = compile(string(mod))
+function compile(name::ByteString)
     myid() == 1 || error("can only compile from node 1")
-    name = string(mod)
     path = find_in_path(name)
     path === nothing && throw(ArgumentError("$name not found in path"))
     cachepath = LOAD_CACHE_PATH[1]

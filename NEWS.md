@@ -92,6 +92,8 @@ Language changes
 
   * `String` is renamed to `AbstractString` ([#8872]).
 
+  * `FloatingPoint` is renamed to `AbstractFloat` ([#12162]).
+
   * `None` is deprecated; use `Union{}` instead ([#8423]).
 
   * `Nothing` (the type of `nothing`) is renamed to `Void` ([#8423]).
@@ -137,6 +139,9 @@ Language changes
 
   * `global x` in a nested scope is now a syntax error if `x` is local
     to the enclosing scope ([#7264]/[#11985]).
+
+  * The default `importall Base.Operators` is deprecated, and relying on it
+    will give a warning ([#8113]).
 
 Command line option changes
 ---------------------------
@@ -379,7 +384,7 @@ Deprecated or removed
      end
     ```
 
-  * indexing with Reals that are not subtypes of Integers (Rationals, FloatingPoint, etc.) has been deprecated ([#10458]).
+  * indexing with Reals that are not subtypes of Integers (Rationals, AbstractFloat, etc.) has been deprecated ([#10458]).
 
   * `push!(A)` has been deprecated, use `append!` instead of splatting arguments to `push!` ([#10400]).
 
@@ -1420,6 +1425,7 @@ Too numerous to mention.
 [#7992]: https://github.com/JuliaLang/julia/issues/7992
 [#8011]: https://github.com/JuliaLang/julia/issues/8011
 [#8089]: https://github.com/JuliaLang/julia/issues/8089
+[#8113]: https://github.com/JuliaLang/julia/issues/8113
 [#8135]: https://github.com/JuliaLang/julia/issues/8135
 [#8152]: https://github.com/JuliaLang/julia/issues/8152
 [#8246]: https://github.com/JuliaLang/julia/issues/8246
@@ -1535,4 +1541,7 @@ Too numerous to mention.
 [#11922]: https://github.com/JuliaLang/julia/issues/11922
 [#11985]: https://github.com/JuliaLang/julia/issues/11985
 [#12031]: https://github.com/JuliaLang/julia/issues/12031
+[#12034]: https://github.com/JuliaLang/julia/issues/12034
 [#12087]: https://github.com/JuliaLang/julia/issues/12087
+[#12137]: https://github.com/JuliaLang/julia/issues/12137
+[#12162]: https://github.com/JuliaLang/julia/issues/12162

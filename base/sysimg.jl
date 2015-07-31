@@ -177,7 +177,7 @@ importall .GMP
 include("mpfr.jl")
 importall .MPFR
 big(n::Integer) = convert(BigInt,n)
-big(x::FloatingPoint) = convert(BigFloat,x)
+big(x::AbstractFloat) = convert(BigFloat,x)
 big(q::Rational) = big(num(q))//big(den(q))
 
 include("combinatorics.jl")
@@ -204,6 +204,7 @@ importall .Enums
 # concurrency and parallelism
 include("serialize.jl")
 importall .Serializer
+include("channels.jl")
 include("multi.jl")
 include("managers.jl")
 
@@ -238,7 +239,7 @@ include("REPLCompletions.jl")
 include("REPL.jl")
 include("client.jl")
 
-# Documentation
+# Documentation
 
 include("markdown/Markdown.jl")
 include("docs/Docs.jl")
@@ -306,7 +307,6 @@ function __init__()
     # Base library init
     reinit_stdio()
     Multimedia.reinit_displays() # since Multimedia.displays uses STDOUT as fallback
-    fdwatcher_init()
     early_init()
     init_load_path()
     init_parallel()

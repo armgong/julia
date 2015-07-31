@@ -3,7 +3,7 @@
 module CHOLMOD
 
 import Base: (*), convert, copy, eltype, getindex, show, showarray, size,
-             linearindexing, LinearFast, LinearSlow
+             linearindexing, LinearFast, LinearSlow, ctranspose
 
 import Base.LinAlg: (\), A_mul_Bc, A_mul_Bt, Ac_ldiv_B, Ac_mul_B, At_ldiv_B, At_mul_B,
                  cholfact, det, diag, ishermitian, isposdef,
@@ -1013,9 +1013,9 @@ free!(A::Dense) = free_dense!(A.p)
 free!(A::Sparse) = free_sparse!(A.p)
 free!(F::Factor) = free_factor!(F.p)
 
-eltype{T<:VTypes}(A::Dense{T}) = T
-eltype{T<:VTypes}(A::Factor{T}) = T
-eltype{T<:VTypes}(A::Sparse{T}) = T
+eltype{T<:VTypes}(::Type{Dense{T}}) = T
+eltype{T<:VTypes}(::Type{Factor{T}}) = T
+eltype{T<:VTypes}(::Type{Sparse{T}}) = T
 
 nnz(F::Factor) = nnz(Sparse(F))
 

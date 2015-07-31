@@ -806,7 +806,7 @@ end
 
 # issue #1153
 type SI{m, s, kg}
-    value::FloatingPoint
+    value::AbstractFloat
 end
 
 import Base.*
@@ -1726,6 +1726,7 @@ test5536(a::Union{Real, AbstractArray}) = "Non-splatting"
 @test_throws LoadError include_string("#= #= #= =# =# =")
 
 # issue #6142
+import Base: +
 type A6142 <: AbstractMatrix{Float64}; end
 +{TJ}(x::A6142, y::UniformScaling{TJ}) = "UniformScaling method called"
 +(x::A6142, y::AbstractArray) = "AbstractArray method called"
@@ -2072,10 +2073,10 @@ end
 
 # issue #8851
 abstract AbstractThing{T,N}
-type ConcreteThing{T<:FloatingPoint,N} <: AbstractThing{T,N}
+type ConcreteThing{T<:AbstractFloat,N} <: AbstractThing{T,N}
 end
 
-testintersect(AbstractThing{TypeVar(:T,true),2}, ConcreteThing, ConcreteThing{TypeVar(:T,FloatingPoint),2}, isequal)
+testintersect(AbstractThing{TypeVar(:T,true),2}, ConcreteThing, ConcreteThing{TypeVar(:T,AbstractFloat),2}, isequal)
 
 # issue #8978
 module I8978
@@ -3155,3 +3156,20 @@ immutable MyType8010_ghost
 end
 @test_throws TypeError MyType8010([3.0;4.0])
 @test_throws TypeError MyType8010_ghost([3.0;4.0])
+
+# don't allow redefining types if ninitialized changes
+immutable NInitializedTestType
+    a
+end
+
+@test_throws ErrorException @eval immutable NInitializedTestType
+    a
+    NInitializedTestType() = new()
+end
+
+# issue #12394
+type Empty12394 end
+let x = Array(Empty12394,1), y = [Empty12394()]
+    @test_throws UndefRefError x==y
+    @test_throws UndefRefError y==x
+end

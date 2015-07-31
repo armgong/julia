@@ -48,6 +48,7 @@ typedef struct {
     uint64_t    malloc;
     uint64_t    realloc;
     uint64_t    poolalloc;
+    uint64_t    bigalloc;
     uint64_t    freecall;
     uint64_t    total_time;
     uint64_t    total_allocd;
@@ -57,7 +58,7 @@ typedef struct {
     int         full_sweep;
 } GC_Num;
 
-static GC_Num gc_num = {0,0,0,0,0,0,0,0,0,0,0,0};
+static GC_Num gc_num = {0,0,0,0,0,0,0,0,0,0,0,0,0};
 
 #define collect_interval gc_num.collect
 #define n_pause         gc_num.pause
@@ -73,7 +74,7 @@ typedef struct _buff_t {
         uintptr_t header;
         struct _buff_t *next;
         uptrint_t flags;
-        jl_value_t *type;
+        jl_value_t *type; // 16-bytes aligned
         struct {
             uintptr_t gc_bits:2;
             uintptr_t pooled:1;
@@ -167,6 +168,11 @@ typedef struct _gcpage_t {
 #define REGION_COUNT 8
 
 typedef struct {
+    // Page layout:
+    //  Padding: GC_PAGE_OFFSET
+    //  Blocks: osize * n
+    //    Tag: sizeof_jl_taggedvalue_t
+    //    Data: <= osize - sizeof_jl_taggedvalue_t
     char pages[REGION_PG_COUNT][GC_PAGE_SZ]; // must be first, to preserve page alignment
     uint32_t freemap[REGION_PG_COUNT/32];
     gcpage_t meta[REGION_PG_COUNT];
@@ -439,38 +445,40 @@ static htable_t obj_sizes[3];
 #endif
 
 #ifdef GC_FINAL_STATS
-static size_t total_freed_bytes=0;
+static size_t total_freed_bytes = 0;
 static uint64_t max_pause = 0;
-static uint64_t total_sweep_time=0;
-static uint64_t total_mark_time=0;
-static uint64_t total_fin_time=0;
+static uint64_t total_sweep_time = 0;
+static uint64_t total_mark_time = 0;
+static uint64_t total_fin_time = 0;
 #endif
 int sweeping = 0;
 
 /*
-  The state transition looks like :
-
- <-[quicksweep]--
- <-[sweep]---   |
-            |   |
-    ---> GC_QUEUED <---[sweep && age>promotion]--------
-    |     |     ^                                     |
-    |   [mark]  |                                     |
- [sweep]  |  [write barrier]                          |
-    |     v     |                                     |
-    ----- GC_MARKED <--------                         |
-             |              |                         |
-             --[quicksweep]--                         |
-                                                      |          === above this line objects are old
- ----[new]------> GC_CLEAN ------[mark]--------> GC_MARKED_NOESC
-                   | ^ ^                                | |
-                   | | |                                | |
- <---[sweep]-------- | ------[sweep && age<=promotion]--- |
-                     |                                    |
-                     --[quicksweep && age<=promotion]------
+ * The state transition looks like :
+ *
+ * ([(quick)sweep] means either a sweep or a quicksweep)
+ *
+ * <-[(quick)sweep]-
+ *                 |
+ *     ---> GC_QUEUED <--[(quick)sweep && age>promotion]--
+ *     |     |     ^                                     |
+ *     |   [mark]  |                                     |
+ *  [sweep]  |  [write barrier]                          |
+ *     |     v     |                                     |
+ *     ----- GC_MARKED <--------                         |
+ *              |              |                         |
+ *              --[quicksweep]--                         |
+ *                                                       |
+ *  ========= above this line objects are old =========  |
+ *                                                       |
+ *  ----[new]------> GC_CLEAN ------[mark]--------> GC_MARKED_NOESC
+ *                    |    ^                                   |
+ *  <-[(quick)sweep]---    |                                   |
+ *                         --[(quick)sweep && age<=promotion]---
  */
 
-// A quick sweep is a sweep where sweep_mask == GC_MARKED_NOESC. It means we won't touch GC_MARKED objects.
+// A quick sweep is a sweep where sweep_mask == GC_MARKED_NOESC.
+// It means we won't touch GC_MARKED objects (old gen).
 
 // When a reachable object has survived more than PROMOTE_AGE+1 collections
 // it is tagged with GC_QUEUED during sweep and will be promoted on next mark
@@ -821,9 +829,10 @@ static NOINLINE void *alloc_big(size_t sz)
     if (allocsz < sz)  // overflow in adding offs, size was "negative"
         jl_throw(jl_memory_exception);
     bigval_t *v = (bigval_t*)malloc_a16(allocsz);
-    allocd_bytes += allocsz;
     if (v == NULL)
         jl_throw(jl_memory_exception);
+    allocd_bytes += allocsz;
+    gc_num.bigalloc++;
 #ifdef MEMDEBUG
     memset(v, 0xee, allocsz);
 #endif
@@ -1135,34 +1144,9 @@ static int freed_pages = 0;
 static int lazy_freed_pages = 0;
 static int page_done = 0;
 static gcval_t** sweep_page(pool_t* p, gcpage_t* pg, gcval_t **pfl,int,int);
-static void sweep_pool_region(int region_i, int sweep_mask)
+static void sweep_pool_region(gcval_t **pfl[N_POOLS], int region_i, int sweep_mask)
 {
     region_t* region = regions[region_i];
-    gcval_t **pfl[N_POOLS];
-
-    // update metadata of pages that were pointed to by freelist or newpages from a pool
-    // i.e. pages being the current allocation target
-    FOR_EACH_HEAP
-        for (int i = 0; i < N_POOLS; i++) {
-            pool_t* p = &HEAP(norm_pools)[i];
-            gcval_t* last = p->freelist;
-            if (last) {
-                gcpage_t* pg = page_metadata(last);
-                pg->allocd = 1;
-                pg->nfree = p->nfree;
-            }
-            p->freelist =  NULL;
-            pfl[i] = &p->freelist;
-
-            last = p->newpages;
-            if (last) {
-                gcpage_t* pg = page_metadata(last);
-                pg->nfree = (GC_PAGE_SZ - ((char*)last - GC_PAGE_DATA(last))) / p->osize;
-                pg->allocd = 1;
-            }
-            p->newpages = NULL;
-        }
-    END
 
     // the actual sweeping
     int ub = 0;
@@ -1187,17 +1171,6 @@ static void sweep_pool_region(int region_i, int sweep_mask)
     }
     regions_ub[region_i] = ub;
     regions_lb[region_i] = lb;
-
-    // null out terminal pointers of free lists and cache back pg->nfree in the pool_t
-    FOR_EACH_HEAP
-        for (int i = 0; i < N_POOLS; i++) {
-            pool_t* p = &HEAP(norm_pools)[i];
-            *pfl[i] = NULL;
-            if (p->freelist) {
-                p->nfree = page_metadata(p->freelist)->nfree;
-            }
-        }
-    END
 }
 
 // Returns pointer to terminal pointer of list rooted at *pfl.
@@ -1367,10 +1340,48 @@ static int gc_sweep_inc(int sweep_mask)
     page_done = 0;
     int finished = 1;
 
+    gcval_t **pfl[N_POOLS];
+
+    // update metadata of pages that were pointed to by freelist or newpages from a pool
+    // i.e. pages being the current allocation target
+    FOR_EACH_HEAP
+        for (int i = 0; i < N_POOLS; i++) {
+            pool_t* p = &HEAP(norm_pools)[i];
+            gcval_t* last = p->freelist;
+            if (last) {
+                gcpage_t* pg = page_metadata(last);
+                pg->allocd = 1;
+                pg->nfree = p->nfree;
+            }
+            p->freelist =  NULL;
+            pfl[i] = &p->freelist;
+
+            last = p->newpages;
+            if (last) {
+                gcpage_t* pg = page_metadata(last);
+                pg->nfree = (GC_PAGE_SZ - ((char*)last - GC_PAGE_DATA(last))) / p->osize;
+                pg->allocd = 1;
+            }
+            p->newpages = NULL;
+        }
+    END
+
     for (int i = 0; i < REGION_COUNT; i++) {
         if (regions[i])
-            /*finished &= */sweep_pool_region(i, sweep_mask);
+            /*finished &= */sweep_pool_region(pfl, i, sweep_mask);
     }
+
+
+    // null out terminal pointers of free lists and cache back pg->nfree in the pool_t
+    FOR_EACH_HEAP
+        for (int i = 0; i < N_POOLS; i++) {
+            pool_t* p = &HEAP(norm_pools)[i];
+            *pfl[i] = NULL;
+            if (p->freelist) {
+                p->nfree = page_metadata(p->freelist)->nfree;
+            }
+        }
+    END
 
 #ifdef GC_TIME
     double sweep_pool_sec = clock_now() - t0;
@@ -1694,14 +1705,8 @@ static int push_root(jl_value_t *v, int d, int bits)
     else if (vt == (jl_value_t*)jl_symbol_type) {
         //gc_setmark_other(v, GC_MARKED); // symbols have their own allocator and are never freed
     }
-    else if (
-#ifdef GC_VERIFY
-             // this check should not be needed but it helps catching corruptions early
-             gc_typeof(vt) == (jl_value_t*)jl_datatype_type
-#else
-             1
-#endif
-             ) {
+    // this check should not be needed but it helps catching corruptions early
+    else if (gc_typeof(vt) == (jl_value_t*)jl_datatype_type) {
         jl_datatype_t *dt = (jl_datatype_t*)vt;
         size_t dtsz;
         if (dt == jl_datatype_type)
@@ -1729,13 +1734,11 @@ static int push_root(jl_value_t *v, int d, int bits)
         //while(ci)
         //  refyoung |= gc_push_root(children[--ci], d);
     }
-#ifdef GC_VERIFY
     else {
         jl_printf(JL_STDOUT, "GC error (probable corruption) :\n");
         jl_(vt);
         abort();
     }
-#endif
 
  ret:
 #ifdef GC_VERIFY
@@ -2066,9 +2069,7 @@ void jl_gc_collect(int full)
 #endif
             estimate_freed = live_bytes - scanned_bytes - perm_scanned_bytes + actual_allocd;
 
-#ifdef GC_VERIFY
             gc_verify();
-#endif
 
 #if defined(MEMPROFILE)
             all_pool_stats();
@@ -2186,6 +2187,7 @@ void jl_gc_collect(int full)
     }
 #endif
     if (recollect) {
+        n_pause--;
         jl_gc_collect(0);
     }
 }
@@ -2305,8 +2307,9 @@ void jl_print_gc_stats(JL_STREAM *s)
         jl_printf(s, "gc pause \t%.2f ms avg\n\t\t%2.0f ms max\n",
                   NS2MS(total_gc_time)/n_pause, NS2MS(max_pause));
         jl_printf(s, "\t\t(%2d%% mark, %2d%% sweep, %2d%% finalizers)\n",
-                  (total_mark_time*100)/total_gc_time, (total_sweep_time*100)/total_gc_time,
-                  (total_fin_time*100)/total_gc_time);
+                  (int)(total_mark_time * 100 / total_gc_time),
+                  (int)(total_sweep_time * 100 / total_gc_time),
+                  (int)(total_fin_time * 100 / total_gc_time));
     }
     int i = 0;
     while (i < REGION_COUNT && regions[i]) i++;
@@ -2314,7 +2317,7 @@ void jl_print_gc_stats(JL_STREAM *s)
     struct mallinfo mi = mallinfo();
     jl_printf(s, "malloc size\t%d MB\n", mi.uordblks/1024/1024);
     jl_printf(s, "max page alloc\t%ld MB\n", max_pg_count*GC_PAGE_SZ/1024/1024);
-    jl_printf(s, "total freed\t%llu b\n", total_freed_bytes);
+    jl_printf(s, "total freed\t%" PRIuPTR " b\n", total_freed_bytes);
     jl_printf(s, "free rate\t%.1f MB/sec\n", (total_freed_bytes/gct)/1024/1024);
 }
 #endif

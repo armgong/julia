@@ -2,6 +2,9 @@
 
 ## basic task functions and TLS
 
+# allow tasks to be constructed with arbitrary function objects
+Task(f) = Task(()->f())
+
 show(io::IO, t::Task) = print(io, "Task ($(t.state)) @0x$(hex(convert(UInt, pointer_from_objref(t)), WORD_SIZE>>2))")
 
 macro task(ex)
@@ -232,7 +235,8 @@ function wait(c::Condition)
     end
 end
 
-function notify(c::Condition, arg::ANY=nothing; all=true, error=false)
+notify(c::Condition, arg::ANY=nothing; all=true, error=false) = notify(c, arg, all, error)
+function notify(c::Condition, arg, all, error)
     if all
         for t in c.waitq
             schedule(t, arg, error=error)

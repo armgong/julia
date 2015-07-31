@@ -1,5 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+using Base.Test
+
 ## Least squares solutions
 a = [ones(20) 1:20 1:20]
 b = reshape(eye(8, 5), 20, 2)
@@ -159,23 +161,35 @@ for elty in (Float32, Float64, Complex64, Complex128)
                                              [4.000000000000000  -1.414213562373094  -1.414213562373095
                                               -1.414213562373095   4.999999999999996  -0.000000000000000
                                               0  -0.000000000000002   3.000000000000000])
+    @test_throws KeyError hessfact(A1)[:Z]
+    @test_approx_eq full(hessfact(A1)) A1
+    @test_approx_eq full(Base.LinAlg.HessenbergQ(hessfact(A1))) full(hessfact(A1)[:Q])
 end
 
 for elty in (Float64, Complex{Float64})
+
     A4  = convert(Matrix{elty}, [1/2 1/3 1/4 1/5+eps();
                                  1/3 1/4 1/5 1/6;
                                  1/4 1/5 1/6 1/7;
                                  1/5 1/6 1/7 1/8])
     @test_approx_eq expm(logm(A4)) A4
 
+    OLD_STDERR = STDERR
+    rd,wr = redirect_stderr()
     A5  = convert(Matrix{elty}, [1 1 0 1; 0 1 1 0; 0 0 1 1; 1 0 0 1])
     @test_approx_eq expm(logm(A5)) A5
+    s = readline(rd)
+    @test contains(s, "WARNING: Matrix with nonpositive real eigenvalues, a nonprimary matrix logarithm will be returned.")
 
     A6  = convert(Matrix{elty}, [-5 2 0 0 ; 1/2 -7 3 0; 0 1/3 -9 4; 0 0 1/4 -11])
     @test_approx_eq expm(logm(A6)) A6
+    s = readline(rd)
+    @test contains(s, "WARNING: Matrix with nonpositive real eigenvalues, a nonprimary matrix logarithm will be returned.")
+    redirect_stderr(OLD_STDERR)
 
     A7  = convert(Matrix{elty}, [1 0 0 1e-8; 0 1 0 0; 0 0 1 0; 0 0 0 1])
     @test_approx_eq expm(logm(A7)) A7
+
 end
 
 A8 = 100 * [-1+1im 0 0 1e-8; 0 1 0 0; 0 0 1 0; 0 0 0 1];

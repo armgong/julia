@@ -40,7 +40,7 @@ const DEFAULT_PRECISION = [256]
 
 # Basic type and initialization definitions
 
-type BigFloat <: FloatingPoint
+type BigFloat <: AbstractFloat
     prec::Clong
     sign::Cint
     exp::Clong
@@ -95,7 +95,7 @@ function tryparse(::Type{BigFloat}, s::AbstractString, base::Int=0)
 end
 
 convert(::Type{Rational}, x::BigFloat) = convert(Rational{BigInt}, x)
-convert(::Type{FloatingPoint}, x::BigInt) = BigFloat(x)
+convert(::Type{AbstractFloat}, x::BigInt) = BigFloat(x)
 
 ## BigFloat -> Integer
 function unsafe_cast(::Type{Int64}, x::BigFloat, ri::Cint)
@@ -156,7 +156,7 @@ floor(::Type{Integer}, x::BigFloat) = floor(BigInt, x)
 ceil(::Type{Integer}, x::BigFloat) = ceil(BigInt, x)
 round(::Type{Integer}, x::BigFloat) = round(BigInt, x)
 
-convert(::Type{Bool}, x::BigFloat) = (x != 0)
+convert(::Type{Bool}, x::BigFloat) = x==0 ? false : x==1 ? true : throw(InexactError())
 function convert(::Type{BigInt},x::BigFloat)
     isinteger(x) || throw(InexactError())
     trunc(BigInt,x)
@@ -167,7 +167,7 @@ function convert{T<:Integer}(::Type{T},x::BigFloat)
     trunc(T,x)
 end
 
-## BigFloat -> FloatingPoint
+## BigFloat -> AbstractFloat
 convert(::Type{Float64}, x::BigFloat) =
     ccall((:mpfr_get_d,:libmpfr), Float64, (Ptr{BigFloat},Int32), &x, ROUNDING_MODE[end])
 convert(::Type{Float32}, x::BigFloat) =
@@ -184,10 +184,10 @@ call(::Type{Float16}, x::BigFloat, r::RoundingMode) =
     convert(Float16, call(Float32, x, r))
 
 promote_rule{T<:Real}(::Type{BigFloat}, ::Type{T}) = BigFloat
-promote_rule{T<:FloatingPoint}(::Type{BigInt},::Type{T}) = BigFloat
-promote_rule{T<:FloatingPoint}(::Type{BigFloat},::Type{T}) = BigFloat
+promote_rule{T<:AbstractFloat}(::Type{BigInt},::Type{T}) = BigFloat
+promote_rule{T<:AbstractFloat}(::Type{BigFloat},::Type{T}) = BigFloat
 
-function convert(::Type{Rational{BigInt}}, x::FloatingPoint)
+function convert(::Type{Rational{BigInt}}, x::AbstractFloat)
     if isnan(x); return zero(BigInt)//zero(BigInt); end
     if isinf(x); return copysign(one(BigInt),x)//zero(BigInt); end
     if x == 0;   return zero(BigInt) // one(BigInt); end

@@ -492,7 +492,11 @@ static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, 
 #ifdef LLVM37
     // Reset the target triple to make sure it matches the new target machine
     clone->setTargetTriple(TM->getTargetTriple().str());
+#ifdef LLVM38
+    clone->setDataLayout(TM->createDataLayout());
+#else
     clone->setDataLayout(TM->getDataLayout()->getStringRepresentation());
+#endif
 #endif
 
     // add metadata information
@@ -971,17 +975,10 @@ static Value *emit_typeof(Value *p)
     if (p->getType() == jl_pvalue_llvmt) {
         Value *tt = builder.CreateBitCast(p, jl_ppvalue_llvmt);
         tt = builder.CreateLoad(emit_typeptr_addr(tt), false);
-#ifdef OVERLAP_SVEC_LEN
-        tt = builder.CreateIntToPtr(builder.CreateAnd(
-                    builder.CreatePtrToInt(tt, T_int64),
-                    ConstantInt::get(T_int64,0x000ffffffffffffe)),
-                jl_pvalue_llvmt);
-#else
         tt = builder.CreateIntToPtr(builder.CreateAnd(
                     builder.CreatePtrToInt(tt, T_size),
-                    ConstantInt::get(T_size,~(uptrint_t)3)),
+                    ConstantInt::get(T_size,~(uptrint_t)15)),
                 jl_pvalue_llvmt);
-#endif
         return tt;
     }
     return literal_pointer_val(julia_type_of(p));

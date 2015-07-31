@@ -117,6 +117,7 @@ process that owns ``r``, so the :func:`fetch` will be a no-op.
 as a :ref:`macro <man-macros>`. It is possible to define your
 own such constructs.)
 
+.. _man-parallel-computing-code-availability:
 
 Code Availability and Loading Packages
 --------------------------------------
@@ -444,6 +445,24 @@ preemptively. This means context switches only occur at well-defined
 points: in this case, when :func:`remotecall_fetch` is called.
 
 
+Channels
+--------
+Channels provide for a fast means of inter-task communication. A
+``Channel(T::Type, n::Int)`` is a shared queue of maximum length ``n``
+holding objects of type ``T``. Multiple readers can read off the channel
+via ``fetch`` and ``take!``. Multiple writers can add to the channel via
+``put!``. ``isready`` tests for the prescence of any object in
+the channel, while ``wait`` waits for an object to become available.
+``close`` closes a Channel. On a closed channel, ``put!`` will fail,
+while ``take!`` and ``fetch`` successfully return any existing values
+till it is emptied.
+
+A Channel can be used as an iterable object in a ``for`` loop, in which
+case the loop runs as long as the channel has data or is open. The loop
+variable takes on all values added to the channel. An empty, closed channel
+causes the ``for`` loop to terminate.
+
+
 Shared Arrays (Experimental)
 -----------------------------------------------
 
@@ -736,7 +755,22 @@ implementation simply executes an ``exit()`` call on the specified remote worker
 ``examples/clustermanager/simple`` is an example that shows a simple implementation using unix domain sockets for cluster setup
 
 
+Specifying network topology (Experimental)
+-------------------------------------------
 
+Keyword argument ``topology`` to ``addprocs`` is used to specify how the workers must
+be connected to each other:
+    - ``:all_to_all`` : is the default, where all workers are connected to each other.
+
+    - ``:master_slave`` : only the driver process, i.e. pid 1 has connections to the workers.
+
+    - ``:custom`` : the ``launch`` method of the cluster manager specifes the connection topology.
+      Fields ``ident`` and ``connect_idents`` in ``WorkerConfig`` are used to specify the  same.
+      ``connect_idents`` is a list of ``ClusterManager`` provided identifiers to workers that worker
+      with identified by ``ident`` must connect to.
+
+Currently sending a message between unconnected workers results in an error. This behaviour, as also the
+functionality and interface should be considered experimental in nature and may change in future releases.
 
 .. rubric:: Footnotes
 

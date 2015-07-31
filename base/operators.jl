@@ -11,13 +11,13 @@ super(T::DataType) = T.super
 ==(x,y) = x === y
 
 isequal(x, y) = x == y
-isequal(x::FloatingPoint, y::FloatingPoint) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
-isequal(x::Real,          y::FloatingPoint) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
-isequal(x::FloatingPoint, y::Real         ) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
+isequal(x::AbstractFloat, y::AbstractFloat) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
+isequal(x::Real,          y::AbstractFloat) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
+isequal(x::AbstractFloat, y::Real         ) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
 
-isless(x::FloatingPoint, y::FloatingPoint) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
-isless(x::Real,          y::FloatingPoint) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
-isless(x::FloatingPoint, y::Real         ) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
+isless(x::AbstractFloat, y::AbstractFloat) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
+isless(x::Real,          y::AbstractFloat) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
+isless(x::AbstractFloat, y::Real         ) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
 
 =={T}(::Type{T}, ::Type{T}) = true  # encourage more specialization on types (see #11425)
 ==(T::Type, S::Type)        = typeseq(T, S)
@@ -303,20 +303,15 @@ function setindex_shape_check{T}(X::AbstractArray{T,2}, i::Int, j::Int)
 end
 setindex_shape_check(X, I::Int...) = nothing # Non-arrays broadcast to all idxs
 
-# convert to integer index
+# convert to a supported index type (Array, Colon, or Int)
 to_index(i::Int) = i
 to_index(i::Integer) = convert(Int,i)::Int
-to_index(r::UnitRange{Int}) = r
-to_index(r::Range{Int}) = r
-to_index(I::UnitRange{Bool}) = find(I)
-to_index(I::Range{Bool}) = find(I)
-to_index{T<:Integer}(r::UnitRange{T}) = to_index(first(r)):to_index(last(r))
-to_index{T<:Integer}(r::StepRange{T}) = to_index(first(r)):to_index(step(r)):to_index(last(r))
 to_index(c::Colon) = c
 to_index(I::AbstractArray{Bool}) = find(I)
-to_index(A::AbstractArray{Int}) = A
-to_index{T<:Integer}(A::AbstractArray{T}) = [to_index(x) for x in A]
-to_index(i) = error("invalid index: $i")
+to_index(A::AbstractArray) = A
+to_index{T<:AbstractArray}(A::AbstractArray{T}) = throw(ArgumentError("invalid index: $A"))
+to_index(A::AbstractArray{Colon}) = throw(ArgumentError("invalid index: $A"))
+to_index(i) = throw(ArgumentError("invalid index: $i"))
 
 to_indexes() = ()
 to_indexes(i1) = (to_index(i1),)
@@ -332,7 +327,7 @@ for f in (:+, :-)
             range($f(r1.start,r2.start), $f(step(r1),step(r2)), r1l)
         end
 
-        function $f{T<:FloatingPoint}(r1::FloatRange{T}, r2::FloatRange{T})
+        function $f{T<:AbstractFloat}(r1::FloatRange{T}, r2::FloatRange{T})
             len = r1.len
             (len == r2.len ||
              throw(DimensionMismatch("argument dimensions must match")))
@@ -351,7 +346,7 @@ for f in (:+, :-)
             end
         end
 
-        function $f{T<:FloatingPoint}(r1::LinSpace{T}, r2::LinSpace{T})
+        function $f{T<:AbstractFloat}(r1::LinSpace{T}, r2::LinSpace{T})
             len = r1.len
             (len == r2.len ||
              throw(DimensionMismatch("argument dimensions must match")))
@@ -445,6 +440,8 @@ isless(p::Pair, q::Pair) = ifelse(!isequal(p.first,q.first), isless(p.first,q.fi
 getindex(p::Pair,i::Int) = getfield(p,i)
 getindex(p::Pair,i::Real) = getfield(p, convert(Int, i))
 reverse(p::Pair) = Pair(p.second, p.first)
+
+endof(p::Pair) = 2
 
 # some operators not defined yet
 global //, >:, <|, hcat, hvcat, ⋅, ×, ∈, ∉, ∋, ∌, ⊆, ⊈, ⊊, ∩, ∪, √, ∛

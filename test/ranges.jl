@@ -484,6 +484,9 @@ end
 # issue #8584
 @test (0:1//2:2)[1:2:3] == 0:1//1:1
 
+# issue #12278
+@test length(1:UInt(0)) == 0
+
 # zip
 let i = 0
 x = 1:2:8
@@ -609,12 +612,12 @@ for _r in (1:2:100, 1:100, 1f0:2f0:100f0, 1.0:2.0:100.0,
     float_r = float(_r)
     big_r = big(_r)
     @test typeof(big_r).name === typeof(_r).name
-    if eltype(_r) <: FloatingPoint
+    if eltype(_r) <: AbstractFloat
         @test isa(float_r, typeof(_r))
         @test eltype(big_r) === BigFloat
     else
         @test isa(float_r, Range)
-        @test eltype(float_r) <: FloatingPoint
+        @test eltype(float_r) <: AbstractFloat
         @test eltype(big_r) === BigInt
     end
 end
@@ -656,3 +659,8 @@ test_range_sum_diff(1:5, linspace(0, 8, 5),
                     linspace(1, 13, 5), linspace(1, -3, 5))
 test_range_sum_diff(1.:5., linspace(0, 8, 5),
                     linspace(1, 13, 5), linspace(1, -3, 5))
+
+# Issue #12388
+let r = 0x02:0x05
+    @test r[2:3] == 0x03:0x04
+end

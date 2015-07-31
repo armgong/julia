@@ -72,7 +72,7 @@ Data Formats
 
 .. function:: float(x)
 
-   Convert a number, array, or string to a ``FloatingPoint`` data type. For numeric data, the smallest suitable ``FloatingPoint`` type is used. Converts strings to ``Float64``.
+   Convert a number, array, or string to a ``AbstractFloat`` data type. For numeric data, the smallest suitable ``AbstractFloat`` type is used. Converts strings to ``Float64``.
 
 .. function:: significand(x)
 
@@ -209,7 +209,7 @@ General Number Functions and Constants
 
    Get the next floating point number in lexicographic order
 
-.. function:: prevfloat(f) -> FloatingPoint
+.. function:: prevfloat(f) -> AbstractFloat
 
    Get the previous floating point number in lexicographic order
 
@@ -273,11 +273,12 @@ General Number Functions and Constants
    ``big`` string literal.
 
    .. doctest::
+
       julia> BigFloat(2.1)
-      2.100000000000000088817841970012523233890533447265625e+00 with 256 bits of precision
+      2.100000000000000088817841970012523233890533447265625000000000000000000000000000
 
       julia> big"2.1"
-      2.099999999999999999999999999999999999999999999999999999999999999999999999999986e+00 with 256 bits of precision
+      2.099999999999999999999999999999999999999999999999999999999999999999999999999986
 
 
 .. function:: get_rounding(T)
@@ -439,7 +440,7 @@ BigFloats
 ---------
 The `BigFloat` type implements arbitrary-precision floating-point arithmetic using the `GNU MPFR library <http://www.mpfr.org/>`_.
 
-.. function:: precision(num::FloatingPoint)
+.. function:: precision(num::AbstractFloat)
 
    Get the precision of a floating point number, as defined by the effective number of bits in the mantissa.
 

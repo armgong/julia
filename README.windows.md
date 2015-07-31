@@ -241,8 +241,8 @@ If you are building for 64-bit windows, the steps are essentially the same. Just
 [Vagrant](http://www.vagrantup.com/downloads) can also be used with a Windows
 guest VM via the `Vagrantfile` in [contrib/windows](contrib/windows/Vagrantfile),
 just run `vagrant up` from that folder. To build with Cygwin instead of MSYS2,
-replace `config.vm.provision :shell, :inline => $script_msys2` (near the end
-of the file) with `config.vm.provision :shell, :inline => $script_cygwin`.
+replace `config.vm.provision :shell, privileged: false, :inline => $script_msys2`
+(near the end of the file) with `config.vm.provision :shell, privileged: false, :inline => $script_cygwin`.
 
 
 ## Windows Build Debugging
@@ -261,7 +261,7 @@ of the file) with `config.vm.provision :shell, :inline => $script_cygwin`.
 
 ### Build process is slow/eats memory/hangs my computer
 
-- Disable the Windows [Superfetch](http://en.wikipedia.org/wiki/Windows_Vista_I/O_technologies#SuperFetch) and
+- Disable the Windows [Superfetch](https://en.wikipedia.org/wiki/Windows_Vista_I/O_technologies#SuperFetch) and
   [Program Compatibility Assistant](http://blogs.msdn.com/b/cjacks/archive/2011/11/22/managing-the-windows-7-program-compatibility-assistant-pca.aspx) services, as they are known to have
   [spurious interactions]((https://cygwin.com/ml/cygwin/2011-12/msg00058.html)) with MinGW/Cygwin.
 

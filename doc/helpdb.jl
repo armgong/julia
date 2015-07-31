@@ -1645,7 +1645,7 @@ Any[
       ERROR: InexactError()
        in convert at int.jl:196
 
-   If \"T\" is a \"FloatingPoint\" or \"Rational\" type, then it will
+   If \"T\" is a \"AbstractFloat\" or \"Rational\" type, then it will
    return the closest value to \"x\" representable by \"T\".
 
       julia> x = 1/3
@@ -2624,7 +2624,10 @@ Any[
 ("Base","Timer","Timer(delay, repeat=0)
 
    Create a timer that wakes up tasks waiting for it (by calling
-   \"wait\" on the timer object) at a specified interval.
+   \"wait\" on the timer object) at a specified interval. Waiting
+   tasks are also woken up when the timer is closed (by \"close\").
+   Use \"isopen\" to check whether a timer is still active after a
+   wakeup.
 
 "),
 
@@ -7044,7 +7047,7 @@ Mmap.mmap(type::Type{Array{T, N}}, dims)
       +-------------------------+---------------------------+------------------------------------------------+
       | \\\"Matrix()\\\"            | \\\"LU\\\"                    | \\\"F[:L]*F[:U] == A[F[:p], :]\\\"                 |
       +-------------------------+---------------------------+------------------------------------------------+
-      | \\\"Tridiagonal()\\\"       | \\\"LU{T,Tridiagonal{T}}\\\"  | N/A                                            |
+      | \\\"Tridiagonal()\\\"       | \\\"LU{T,Tridiagonal{T}}\\\"  | \\\"F[:L]*F[:U] == A[F[:p], :]\\\"                 |
       +-------------------------+---------------------------+------------------------------------------------+
       | \\\"SparseMatrixCSC()\\\"   | \\\"UmfpackLU\\\"             | \\\"F[:L]*F[:U] == (F[:Rs] .* A)[F[:p], F[:q]]\\\" |
       +-------------------------+---------------------------+------------------------------------------------+
@@ -7055,13 +7058,13 @@ Mmap.mmap(type::Type{Array{T, N}}, dims)
       +-------------+-----------------------------------------+--------+--------------------------+---------------+
       | Component   | Description                             | \\\"LU\\\" | \\\"LU{T,Tridiagonal{T}}\\\" | \\\"UmfpackLU\\\" |
       +-------------+-----------------------------------------+--------+--------------------------+---------------+
-      | \\\"F[:L]\\\"   | \\\"L\\\" (lower triangular) part of \\\"LU\\\" | ✓      |                          | ✓             |
+      | \\\"F[:L]\\\"   | \\\"L\\\" (lower triangular) part of \\\"LU\\\" | ✓      | ✓                        | ✓             |
       +-------------+-----------------------------------------+--------+--------------------------+---------------+
-      | \\\"F[:U]\\\"   | \\\"U\\\" (upper triangular) part of \\\"LU\\\" | ✓      |                          | ✓             |
+      | \\\"F[:U]\\\"   | \\\"U\\\" (upper triangular) part of \\\"LU\\\" | ✓      | ✓                        | ✓             |
       +-------------+-----------------------------------------+--------+--------------------------+---------------+
-      | \\\"F[:p]\\\"   | (right) permutation \\\"Vector\\\"          | ✓      |                          | ✓             |
+      | \\\"F[:p]\\\"   | (right) permutation \\\"Vector\\\"          | ✓      | ✓                        | ✓             |
       +-------------+-----------------------------------------+--------+--------------------------+---------------+
-      | \\\"F[:P]\\\"   | (right) permutation \\\"Matrix\\\"          | ✓      |                          |               |
+      | \\\"F[:P]\\\"   | (right) permutation \\\"Matrix\\\"          | ✓      | ✓                        |               |
       +-------------+-----------------------------------------+--------+--------------------------+---------------+
       | \\\"F[:q]\\\"   | left permutation \\\"Vector\\\"             |        |                          | ✓             |
       +-------------+-----------------------------------------+--------+--------------------------+---------------+
@@ -9114,12 +9117,12 @@ Mmap.mmap(type::Type{Array{T, N}}, dims)
    Inexact equality comparison - behaves slightly different depending
    on types of input args:
 
-   * For \"FloatingPoint\" numbers, \"isapprox\" returns \"true\" if
+   * For \"AbstractFloat\" numbers, \"isapprox\" returns \"true\" if
      \"abs(x-y) <= atol + rtol*max(abs(x), abs(y))\".
 
    * For \"Integer\" and \"Rational\" numbers, \"isapprox\" returns
      \"true\" if \"abs(x-y) <= atol\". The *rtol* argument is ignored.
-     If one of \"x\" and \"y\" is \"FloatingPoint\", the other is
+     If one of \"x\" and \"y\" is \"AbstractFloat\", the other is
      promoted, and the method above is called instead.
 
    * For \"Complex\" numbers, the distance in the complex plane is
@@ -11041,8 +11044,8 @@ Mmap.mmap(type::Type{Array{T, N}}, dims)
 
 ("Base","float","float(x)
 
-   Convert a number, array, or string to a \"FloatingPoint\" data
-   type. For numeric data, the smallest suitable \"FloatingPoint\"
+   Convert a number, array, or string to a \"AbstractFloat\" data
+   type. For numeric data, the smallest suitable \"AbstractFloat\"
    type is used. Converts strings to \"Float64\".
 
 "),
@@ -11243,7 +11246,7 @@ golden
 
 "),
 
-("Base","prevfloat","prevfloat(f) -> FloatingPoint
+("Base","prevfloat","prevfloat(f) -> AbstractFloat
 
    Get the previous floating point number in lexicographic order
 
@@ -11490,7 +11493,7 @@ golden
 
 "),
 
-("Base","precision","precision(num::FloatingPoint)
+("Base","precision","precision(num::AbstractFloat)
 
    Get the precision of a floating point number, as defined by the
    effective number of bits in the mantissa.
@@ -12319,8 +12322,8 @@ golden
 
 ("Base.Pkg","update","update()
 
-   Update package the metadata repo – kept in
-   \"Pkg.dir(\"METADATA\")\" – then update any fixed packages that can
+   Update package the metadata repo – kept in
+   \"Pkg.dir(\"METADATA\")\" – then update any fixed packages that can
    safely be pulled from their origin; then call \"Pkg.resolve()\" to
    determine a new optimal set of packages versions.
 
@@ -12382,8 +12385,9 @@ golden
    keys: \"\"MIT\"\", \"\"BSD\"\" or \"\"ASL\"\". If you want to make
    a package with a different license, you can edit it afterwards.
    Generate creates a git repo at \"Pkg.dir(pkg)\" for the package and
-   inside it \"LICENSE.md\", \"README.md\", the julia entrypoint
-   \"\$pkg/src/\$pkg.jl\", and a travis test file, \".travis.yml\".
+   inside it \"LICENSE.md\", \"README.md\", \"REQUIRE\", the julia
+   entrypoint \"\$pkg/src/\$pkg.jl\", and Travis and AppVeyor CI
+   configuration files \".travis.yml\" and \"appveyor.yml\".
 
 "),
 
@@ -12646,6 +12650,30 @@ golden
    Variant of \"select!\" which copies \"v\" before partially sorting
    it, thereby returning the same thing as \"select!\" but leaving
    \"v\" unmodified.
+
+"),
+
+("Base","selectperm","selectperm(v, k, [alg=<algorithm>,] [by=<transform>,] [lt=<comparison>,] [rev=false])
+
+   Return a partial permutation of the the vector \"v\", according to
+   the order specified by \"by\", \"lt\" and \"rev\", so that
+   \"v[output]\" returns the first \"k\" (or range of adjacent values
+   if \"k\" is a range) values of a fully sorted version of \"v\". If
+   \"k\" is a single index (Integer), an array  of the first \"k\"
+   indices is returned; if \"k\" is a range, an array of those indices
+   is returned. Note that the handling of integer values for \"k\" is
+   different from \"select\" in that it returns a vector of \"k\"
+   elements instead of just the \"k\" th element. Also note that this
+   is equivalent to, but more efficient than, calling
+   \"sortperm(...)[k]\"
+
+"),
+
+("Base","selectperm!","selectperm!(ix, v, k, [alg=<algorithm>,] [by=<transform>,] [lt=<comparison>,] [rev=false,] [initialized=false])
+
+   Like \"selectperm\", but accepts a preallocated index vector
+   \"ix\".  If \"initialized\" is \"false\" (the default), ix is
+   initialized to contain the values \"1:length(ix)\".
 
 "),
 
@@ -12946,7 +12974,10 @@ golden
    occurrences.  As with search, the second argument may be a single
    character, a vector or a set of characters, a string, or a regular
    expression. If \"r\" is a function, each occurrence is replaced
-   with \"r(s)\" where \"s\" is the matched substring.
+   with \"r(s)\" where \"s\" is the matched substring. If \"pat\" is a
+   regular expression and \"r\" is a \"SubstitutionString\", then
+   capture group references in \"r\" are replaced with the
+   corresponding matched text.
 
 "),
 
