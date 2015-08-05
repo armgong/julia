@@ -23,6 +23,7 @@ export
     Markdown,
 
 # Types
+    AbstractChannel,
     AbstractMatrix,
     AbstractSparseArray,
     AbstractSparseMatrix,
@@ -156,6 +157,8 @@ export
 # Exceptions
     ArgumentError,
     DimensionMismatch,
+    CapturedException,
+    CompositeException,
     EOFError,
     ErrorException,
     InvalidStateException,
@@ -165,6 +168,7 @@ export
     NullException,
     ParseError,
     ProcessExitedException,
+    RemoteException,
     SystemError,
     TypeError,
     AssertionError,
@@ -1073,7 +1077,6 @@ export
     symbol,
 
 # help and reflection
-    apropos,
     current_module,
     edit,
     code_typed,
@@ -1083,7 +1086,6 @@ export
     code_native,
     fullname,
     functionloc,
-    help,
     isconst,
     isgeneric,
     isinteractive,

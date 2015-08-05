@@ -143,6 +143,15 @@ Language changes
   * The default `importall Base.Operators` is deprecated, and relying on it
     will give a warning ([#8113]).
 
+  * `remotecall_fetch` and `fetch` now rethrow any uncaught remote exception locally as a
+    `RemoteException`. Previously they would return the remote exception object.
+    The worker pid, remote exception and remote backtrace are available in the
+    thrown `RemoteException`.
+
+  * If any of the enclosed async operations in a `@sync` block throw exceptions, they
+    are now collected in a `CompositeException` and the `CompositeException` thrown.
+
+
 Command line option changes
 ---------------------------
 
@@ -301,6 +310,8 @@ Library improvements
     * Optional `log` and `log1p` functions implemented in pure Julia (experimental) ([#10008]).
 
     * The `MathConst` type has been renamed `Irrational` ([#11922]).
+
+    * `isapprox` now has simpler and more sensible default tolerances ([#12393]).
 
   * Random numbers
 
@@ -1545,3 +1556,4 @@ Too numerous to mention.
 [#12087]: https://github.com/JuliaLang/julia/issues/12087
 [#12137]: https://github.com/JuliaLang/julia/issues/12137
 [#12162]: https://github.com/JuliaLang/julia/issues/12162
+[#12393]: https://github.com/JuliaLang/julia/issues/12393

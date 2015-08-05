@@ -36,7 +36,7 @@ end
 function find_source_file(file)
     (isabspath(file) || isfile(file)) && return file
     file2 = find_in_path(file)
-    file2 != nothing && return file2
+    file2 !== nothing && return file2
     file2 = joinpath(JULIA_HOME, DATAROOTDIR, "julia", "base", file)
     isfile(file2) ? file2 : nothing
 end
@@ -54,11 +54,12 @@ function find_all_in_cache_path(mod::Symbol)
 end
 
 function _include_from_serialized(content::Vector{UInt8})
-    m = ccall(:jl_restore_incremental_from_buf, UInt, (Ptr{Uint8},Int), content, sizeof(content))
-    return m != 0
+    return ccall(:jl_restore_incremental_from_buf, Any, (Ptr{Uint8},Int), content, sizeof(content))
 end
 
+# returns an array of modules loaded, or nothing if failed
 function _require_from_serialized(node::Int, path_to_try::ByteString, toplevel_load::Bool)
+    restored = nothing
     if toplevel_load && myid() == 1 && nprocs() > 1
         # broadcast top-level import/using from node 1 (only)
         if node == myid()
@@ -66,40 +67,37 @@ function _require_from_serialized(node::Int, path_to_try::ByteString, toplevel_l
         else
             content = remotecall_fetch(node, open, readbytes, path_to_try)
         end
-        if _include_from_serialized(content)
+        restored = _include_from_serialized(content)
+        if restored !== nothing
             others = filter(x -> x != myid(), procs())
-            refs = Any[ @spawnat p _include_from_serialized(content) for p in others]
+            refs = Any[ @spawnat p (nothing !== _include_from_serialized(content)) for p in others]
             for (id, ref) in zip(others, refs)
                 if !fetch(ref)
                     warn("node state is inconsistent: node $id failed to load cache from $path_to_try")
                 end
             end
-            return true
         end
     elseif node == myid()
-        if ccall(:jl_restore_incremental, UInt, (Ptr{Uint8},), path_to_try) != 0
-            return true
-        end
+        restored = ccall(:jl_restore_incremental, Any, (Ptr{Uint8},), path_to_try)
     else
         content = remotecall_fetch(node, open, readbytes, path_to_try)
-        if _include_from_serialized(content)
-            return true
-        end
+        restored = _include_from_serialized(content)
     end
     # otherwise, continue search
-    return false
+    return restored
 end
 
 function _require_from_serialized(node::Int, mod::Symbol, toplevel_load::Bool)
     paths = @fetchfrom node find_all_in_cache_path(mod)
     for path_to_try in paths
-        if _require_from_serialized(node, path_to_try, toplevel_load)
-            return true
-        else
+        restored = _require_from_serialized(node, path_to_try, toplevel_load)
+        if restored === nothing
             warn("deserialization checks failed while attempting to load cache from $path_to_try")
+        else
+            return restored
         end
     end
-    return false
+    return nothing
 end
 
 # to synchronize multiple tasks trying to import/using something
@@ -121,13 +119,19 @@ function require(mod::Symbol)
     last = toplevel_load::Bool
     try
         toplevel_load = false
-        if _require_from_serialized(1, mod, last)
+        restored = _require_from_serialized(1, mod, last)
+        if restored !== nothing
+            for M in restored
+                if isdefined(M, :__META__)
+                    push!(Base.Docs.modules, M)
+                end
+            end
             return true
         end
         if JLOptions().incremental != 0
             # spawn off a new incremental compile task from node 1 for recursive `require` calls
             cachefile = compile(mod)
-            if !_require_from_serialized(1, cachefile, last)
+            if nothing === _require_from_serialized(1, cachefile, last)
                 warn("require failed to create a precompiled cache file")
             end
             return
@@ -185,7 +189,7 @@ macro __FILE__() source_path() end
 
 function include_from_node1(path::AbstractString)
     prev = source_path(nothing)
-    path = (prev == nothing) ? abspath(path) : joinpath(dirname(prev),path)
+    path = (prev === nothing) ? abspath(path) : joinpath(dirname(prev),path)
     tls = task_local_storage()
     tls[:SOURCE_PATH] = path
     local result
@@ -199,7 +203,7 @@ function include_from_node1(path::AbstractString)
             result = include_string(remotecall_fetch(1, readall, path), path)
         end
     finally
-        if prev == nothing
+        if prev === nothing
             delete!(tls, :SOURCE_PATH)
         else
             tls[:SOURCE_PATH] = prev

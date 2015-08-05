@@ -503,6 +503,7 @@ end
 @test isfinite(-2//3) == true
 @test isfinite(5//0)  == false
 @test isfinite(-3//0) == false
+@test isfinite(pi)    == true
 
 @test isequal(-Inf,-Inf)
 @test isequal(-1.0,-1.0)
@@ -2232,6 +2233,14 @@ for i = -100:100
     @test nextpow2(i) == nextpow2(big(i))
     @test prevpow2(i) == prevpow2(big(i))
 end
+for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
+    @test nextpow2(T(42)) === T(64)
+    @test prevpow2(T(42)) === T(32)
+end
+
+@test  ispow2(64)
+@test !ispow2(42)
+@test !ispow2(~typemax(Int))
 
 @test nextpow(2,1) == 1
 @test prevpow(2,1) == 1
@@ -2501,3 +2510,5 @@ for (d,B) in ((4//2+1im,Rational{BigInt}),(3.0+1im,BigFloat),(2+1im,BigInt))
     @test typeof(big([d])) == Vector{Complex{B}}
     @test big([d]) == [d]
 end
+
+@test 0x2^9 === 0x2^big(9) === 0x0

@@ -63,6 +63,7 @@ end
 <=(x::Irrational,y::Rational) = x < y
 <=(x::Rational,y::Irrational) = x < y
 
+isfinite(::Irrational) = true
 
 hash(x::Irrational, h::UInt) = 3*object_id(x) - h
 
@@ -132,6 +133,6 @@ log(::Irrational{:e}, x) = log(x)
 # align along = for nice Array printing
 function alignment(x::Irrational)
     m = match(r"^(.*?)(=.*)$", sprint(showcompact_lim, x))
-    m == nothing ? (length(sprint(showcompact_lim, x)), 0) :
+    m === nothing ? (length(sprint(showcompact_lim, x)), 0) :
     (length(m.captures[1]), length(m.captures[2]))
 end

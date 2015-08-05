@@ -103,7 +103,7 @@ function doc(f::Function)
     for mod in modules
         if haskey(meta(mod), f)
             fd = meta(mod)[f]
-            length(docs) == 0 && fd.main != nothing && push!(docs, fd.main)
+            length(docs) == 0 && fd.main !== nothing && push!(docs, fd.main)
             if isa(fd, FuncDoc)
                 for m in fd.order
                     push!(docs, fd.meta[m])
@@ -139,7 +139,7 @@ function field_meta(def)
     for l in def.args[3].args
         if isdoc(l)
             doc = mdify(l)
-        elseif doc != nothing && isexpr(l, Symbol, :(::))
+        elseif doc !== nothing && isexpr(l, Symbol, :(::))
             meta[namify(l)] = doc
             doc = nothing
         end
@@ -175,7 +175,7 @@ function doc(f::DataType)
         if haskey(meta(mod), f)
             fd = meta(mod)[f]
             if isa(fd, TypeDoc)
-                length(docs) == 0 && fd.main != nothing && push!(docs, fd.main)
+                length(docs) == 0 && fd.main !== nothing && push!(docs, fd.main)
                 for m in fd.order
                     push!(docs, fd.meta[m])
                 end
@@ -209,7 +209,7 @@ doc(f, ::Method) = doc(f)
 
 function doc(m::Module)
     md = invoke(doc, Tuple{Any}, m)
-    md == nothing || return md
+    md === nothing || return md
     readme = Pkg.dir(string(m), "README.md")
     if isfile(readme)
         return Markdown.parse_file(readme)
@@ -527,10 +527,7 @@ macro repl(ex)
             if $(isfield(ex) ? :(isa($(esc(ex.args[1])), DataType)) : false)
                 $(isfield(ex) ? :(fielddoc($(esc(ex.args[1])), $(ex.args[2]))) : nothing)
             else
-                # Backwards-compatible with the previous help system, for now
-                let doc = @doc $(esc(ex))
-                    doc ≠ nothing ? doc : Base.Help.@help_ $(esc(ex))
-                end
+                @doc $(esc(ex))
             end
         end
     end
