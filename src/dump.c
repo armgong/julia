@@ -132,46 +132,48 @@ static jl_array_t *datatype_list=NULL; // (only used in MODE_SYSTEM_IMAGE)
 #define write_int8(s, n) write_uint8(s, n)
 #define read_int8(s) read_uint8(s)
 
+/* read and write in network (bigendian) order: */
+
 static void write_int32(ios_t *s, int32_t i)
 {
-    write_uint8(s, i       & 0xff);
-    write_uint8(s, (i>> 8) & 0xff);
-    write_uint8(s, (i>>16) & 0xff);
     write_uint8(s, (i>>24) & 0xff);
+    write_uint8(s, (i>>16) & 0xff);
+    write_uint8(s, (i>> 8) & 0xff);
+    write_uint8(s, i       & 0xff);
 }
 
 static int32_t read_int32(ios_t *s)
 {
-    int b0 = read_uint8(s);
-    int b1 = read_uint8(s);
-    int b2 = read_uint8(s);
     int b3 = read_uint8(s);
+    int b2 = read_uint8(s);
+    int b1 = read_uint8(s);
+    int b0 = read_uint8(s);
     return b0 | (b1<<8) | (b2<<16) | (b3<<24);
 }
 
 static void write_uint64(ios_t *s, uint64_t i)
 {
-    write_int32(s, i       & 0xffffffff);
     write_int32(s, (i>>32) & 0xffffffff);
+    write_int32(s, i       & 0xffffffff);
 }
 
 static uint64_t read_uint64(ios_t *s)
 {
-    uint64_t b0 = (uint32_t)read_int32(s);
     uint64_t b1 = (uint32_t)read_int32(s);
+    uint64_t b0 = (uint32_t)read_int32(s);
     return b0 | (b1<<32);
 }
 
 static void write_uint16(ios_t *s, uint16_t i)
 {
-    write_uint8(s, i       & 0xff);
     write_uint8(s, (i>> 8) & 0xff);
+    write_uint8(s, i       & 0xff);
 }
 
 static uint16_t read_uint16(ios_t *s)
 {
-    int b0 = read_uint8(s);
     int b1 = read_uint8(s);
+    int b0 = read_uint8(s);
     return b0 | (b1<<8);
 }
 
@@ -949,6 +951,71 @@ void jl_serialize_mod_list(ios_t *s)
     write_int32(s, 0);
 }
 
+// "magic" string and version header of .ji file
+static const int JI_FORMAT_VERSION = 1;
+static const char JI_MAGIC[] = "\373jli\r\n\032\n"; // based on PNG signature
+static const uint16_t BOM = 0xFEFF; // byte-order marker
+static void jl_serialize_header(ios_t *s)
+{
+    ios_write(s, JI_MAGIC, strlen(JI_MAGIC));
+    write_uint16(s, JI_FORMAT_VERSION);
+    ios_write(s, (char *) &BOM, 2);
+    write_uint8(s, sizeof(void*));
+    const char *OS_NAME = jl_get_OS_NAME()->name, *ARCH = jl_get_ARCH()->name;
+    ios_write(s, OS_NAME, strlen(OS_NAME)+1);
+    ios_write(s, ARCH, strlen(ARCH)+1);
+    ios_write(s, JULIA_VERSION_STRING, strlen(JULIA_VERSION_STRING)+1);
+    const char *branch = jl_git_branch(), *commit = jl_git_commit();
+    ios_write(s, branch, strlen(branch)+1);
+    ios_write(s, commit, strlen(commit)+1);
+}
+
+// serialize the global _require_dependencies array of pathnames that
+// are include depenencies
+void jl_serialize_dependency_list(ios_t *s)
+{
+    size_t total_size = 0;
+    static jl_array_t *deps = NULL;
+    if (!deps)
+        deps = (jl_array_t*)jl_get_global(jl_base_module, jl_symbol("_require_dependencies"));
+    if (deps) {
+        // sort!(deps) so that we can easily eliminate duplicates
+        static jl_value_t *sort_func = NULL;
+        if (!sort_func)
+            sort_func = jl_get_global(jl_base_module, jl_symbol("sort!"));
+        jl_apply((jl_function_t*)sort_func, (jl_value_t**)&deps, 1);
+
+        size_t l = jl_array_len(deps);
+        jl_value_t *prev = NULL;
+        for (size_t i=0; i < l; i++) {
+            jl_value_t *dep = jl_cellref(deps, i);
+            size_t slen = jl_string_len(dep);
+            if (!prev || memcmp(jl_string_data(dep), jl_string_data(prev), slen)) {
+                total_size += 4 + slen;
+            }
+            prev = dep;
+        }
+        total_size += 4;
+    }
+    // write the total size so that we can quickly seek past all of the
+    // dependencies if we don't need them
+    write_uint64(s, total_size);
+    if (deps) {
+        size_t l = jl_array_len(deps);
+        jl_value_t *prev = NULL;
+        for (size_t i=0; i < l; i++) {
+            jl_value_t *dep = jl_cellref(deps, i);
+            size_t slen = jl_string_len(dep);
+            if (!prev || memcmp(jl_string_data(dep), jl_string_data(prev), slen)) {
+                write_int32(s, slen);
+                ios_write(s, jl_string_data(dep), slen);
+            }
+            prev = dep;
+        }
+        write_int32(s, 0); // terminator, for ease of reading
+    }
+}
+
 // --- deserialize ---
 
 static jl_fptr_t jl_deserialize_fptr(ios_t *s)
@@ -1525,6 +1592,29 @@ int jl_deserialize_verify_mod_list(ios_t *s)
     }
 }
 
+static int readstr_verify(ios_t *s, const char *str)
+{
+    size_t len = strlen(str);
+    for (size_t i=0; i < len; ++i)
+        if ((char) read_uint8(s) != str[i])
+            return 0;
+    return 1;
+}
+
+DLLEXPORT int jl_deserialize_verify_header(ios_t *s)
+{
+    uint16_t bom;
+    return (readstr_verify(s, JI_MAGIC) &&
+            read_uint16(s) == JI_FORMAT_VERSION &&
+            ios_read(s, (char *) &bom, 2) == 2 && bom == BOM &&
+            read_uint8(s) == sizeof(void*) &&
+            readstr_verify(s, jl_get_OS_NAME()->name) && !read_uint8(s) &&
+            readstr_verify(s, jl_get_ARCH()->name) && !read_uint8(s) &&
+            readstr_verify(s, JULIA_VERSION_STRING) && !read_uint8(s) &&
+            readstr_verify(s, jl_git_branch()) && !read_uint8(s) &&
+            readstr_verify(s, jl_git_commit()) && !read_uint8(s));
+}
+
 jl_array_t *jl_module_init_order;
 
 static void jl_finalize_serializer(ios_t *f) {
@@ -1567,7 +1657,7 @@ static void jl_reinit_item(ios_t *f, jl_value_t *v, int how) {
                         jl_errorf("invalid redefinition of constant %s", mod->name->name); // this also throws
                     }
                     if (jl_generating_output() && jl_options.incremental) {
-                        jl_errorf("cannot replace module %s during incremental compile", mod->name->name);
+                        jl_errorf("cannot replace module %s during incremental precompile", mod->name->name);
                     }
                     jl_printf(JL_STDERR, "WARNING: replacing module %s\n", mod->name->name);
                 }
@@ -1892,7 +1982,9 @@ DLLEXPORT int jl_save_incremental(const char *fname, jl_array_t *worklist)
         return 1;
     }
     serializer_worklist = worklist;
+    jl_serialize_header(&f);
     jl_serialize_mod_list(&f); // this can throw, keep it early (before any actual initialization)
+    jl_serialize_dependency_list(&f);
 
     JL_SIGATOMIC_BEGIN();
     arraylist_new(&reinit_list, 0);
@@ -1933,10 +2025,13 @@ static jl_array_t *_jl_restore_incremental(ios_t *f)
         ios_close(f);
         return NULL;
     }
-    if (!jl_deserialize_verify_mod_list(f)) {
+    if (!jl_deserialize_verify_header(f) ||
+        !jl_deserialize_verify_mod_list(f)) {
         ios_close(f);
         return NULL;
     }
+    size_t deplen = read_uint64(f);
+    ios_skip(f, deplen); // skip past the dependency list
     JL_SIGATOMIC_BEGIN();
     arraylist_new(&backref_list, 4000);
     arraylist_push(&backref_list, jl_main_module);
@@ -2056,7 +2151,7 @@ static jl_array_t *_jl_restore_incremental(ios_t *f)
     ios_close(f);
     JL_SIGATOMIC_END();
 
-    JL_GC_PUSH1(&init_order);
+    JL_GC_PUSH2(&init_order,&restored);
     jl_init_restored_modules(init_order);
     JL_GC_POP();
 
