@@ -85,6 +85,27 @@ for elty1 in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
             @test !istril(A1)
         end
 
+        #tril/triu
+        if uplo1 == :L
+            @test tril(A1,0)  == A1
+            @test tril(A1,-1) == LowerTriangular(tril(full(A1),-1))
+            @test tril(A1,1)  == t1(tril(tril(full(A1),1)))
+            @test_throws ArgumentError tril!(A1,n+1)
+            @test triu(A1,0)  == t1(diagm(diag(A1)))
+            @test triu(A1,-1) == t1(tril(triu(A1.data,-1)))
+            @test triu(A1,1)  == LowerTriangular(zeros(A1.data))
+            @test_throws ArgumentError triu!(A1,n+1)
+        else
+            @test triu(A1,0)  == A1
+            @test triu(A1,1)  == UpperTriangular(triu(full(A1),1))
+            @test triu(A1,-1) == t1(triu(triu(full(A1),-1)))
+            @test_throws ArgumentError triu!(A1,n+1)
+            @test tril(A1,0)  == t1(diagm(diag(A1)))
+            @test tril(A1,1)  == t1(triu(tril(A1.data,1)))
+            @test tril(A1,-1) == UpperTriangular(zeros(A1.data))
+            @test_throws ArgumentError tril!(A1,n+1)
+        end
+
         # factorize
         @test factorize(A1) == A1
 
@@ -104,6 +125,16 @@ for elty1 in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
         @test full(-A1) == -full(A1)
 
         # Binary operations
+        B = similar(A1)
+        copy!(B,A1)
+        @test B == A1
+        B = similar(A1.')
+        copy!(B, A1.')
+        @test B == A1.'
+        @test scale(A1,0.5) == 0.5*A1
+        @test scale(A1,0.5im) == 0.5im*A1
+        @test scale(A1.',0.5) == 0.5*A1.'
+        @test scale(A1.',0.5im) == 0.5im*A1.'
         @test A1*0.5 == full(A1)*0.5
         @test 0.5*A1 == 0.5*full(A1)
         @test A1/0.5 == full(A1)/0.5
@@ -122,7 +153,7 @@ for elty1 in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
         @test_approx_eq_eps det(A1) det(lufact(full(A1))) sqrt(eps(real(float(one(elty1)))))*n*n
 
         # Matrix square root
-        @test_approx_eq sqrtm(A1) |> t->t*t A1
+        @test sqrtm(A1) |> t->t*t ≈ A1
 
         # naivesub errors
         @test_throws DimensionMismatch naivesub!(A1,ones(elty1,n+1))
@@ -237,6 +268,14 @@ for elty1 in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
         end
     end
 end
+
+# Matrix square root
+Atn = UpperTriangular([-1 1 2; 0 -2 2; 0 0 -3])
+Atp = UpperTriangular([1 1 2; 0 2 2; 0 0 3])
+@test sqrtm(Atn) |> t->t*t ≈ Atn
+@test typeof(sqrtm(Atn)[1,1]) <: Complex
+@test sqrtm(Atp) |> t->t*t ≈ Atp
+@test typeof(sqrtm(Atp)[1,1]) <: Real
 
 Areal   = randn(n, n)/2
 Aimg    = randn(n, n)/2

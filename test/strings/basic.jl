@@ -176,6 +176,11 @@ gstr = GenericString("12");
 @test getindex(gstr,Bool(1):Bool(1))=="1"
 @test getindex(gstr,AbstractVector([Bool(1):Bool(1);]))=="1"
 
+@test done(eachindex("foobar"),7)
+@test eltype(Base.EachStringIndex) == Int
+@test map(uppercase, "foó") == "FOÓ"
+@test chr2ind("fóobar",3) == 4
+
 @test symbol(gstr)==symbol("12")
 
 @test_throws ErrorException sizeof(gstr)
@@ -189,7 +194,7 @@ gstr = GenericString("12");
 @test ind2chr(gstr,2)==2
 
 # issue #10307
-@test typeof(map(Int16,String[])) == Vector{Int16}
+@test typeof(map(Int16,AbstractString[])) == Vector{Int16}
 
 for T in [Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Int128, UInt128]
     for i in [typemax(T), typemin(T)]
@@ -445,6 +450,12 @@ end
 @test ucfirst("abc") == "Abc"
 @test lcfirst("ABC") == "aBC"
 @test lcfirst("aBC") == "aBC"
+@test ucfirst(utf32("")) == ""
+@test lcfirst(utf32("")) == ""
+@test ucfirst(utf32("a")) == "A"
+@test lcfirst(utf32("A")) == "a"
+@test lcfirst(utf32("a")) == "a"
+@test ucfirst(utf32("A")) == "A"
 
 # issue # 11464: uppercase/lowercase of UTF16String becomes a UTF8String
 str = "abcdef\uff\uffff\u10ffffABCDEF"

@@ -29,14 +29,16 @@ doc/_build/html:
 	@$(MAKE) -C doc html
 
 # doc needs to live under $(build_docdir), not under $(build_datarootdir)/julia/
-CLEAN_TARGETS += clean-$(build_docdir)
-clean-$(build_docdir):
+CLEAN_TARGETS += clean-docdir
+clean-docdir:
 	@-rm -fr $(abspath $(build_docdir))
-$(subst $(abspath $(JULIAHOME))/,,$(abspath $(build_docdir))): $(build_docdir)
-$(build_docdir):
-	@mkdir -p $@/examples
-	@cp -R examples/*.jl $@/examples/
-	@cp -R examples/clustermanager $@/examples/
+$(build_prefix)/.examples: $(wildcard $(JULIAHOME)/examples/*.jl) $(shell find $(JULIAHOME)/examples/clustermanager)
+	@echo Copying in usr/share/doc/julia/examples
+	@-rm -fr $(build_docdir)/examples
+	@mkdir -p $(build_docdir)/examples
+	@cp -R $(JULIAHOME)/examples/*.jl $(build_docdir)/examples/
+	@cp -R $(JULIAHOME)/examples/clustermanager $(build_docdir)/examples/
+	@echo 1 > $@
 
 julia-symlink: julia-ui-$(JULIA_BUILD_MODE)
 ifneq ($(OS),WINNT)
@@ -45,10 +47,10 @@ ifndef JULIA_VAGRANT_BUILD
 endif
 endif
 
-julia-deps: | $(DIRS) $(build_datarootdir)/julia/base $(build_datarootdir)/julia/test $(build_docdir) $(build_sysconfdir)/julia/juliarc.jl $(build_man1dir)/julia.1
+julia-deps: | $(DIRS) $(build_datarootdir)/julia/base $(build_datarootdir)/julia/test
 	@$(MAKE) $(QUIET_MAKE) -C deps
 
-julia-base: julia-deps
+julia-base: julia-deps $(build_sysconfdir)/julia/juliarc.jl $(build_man1dir)/julia.1
 	@$(MAKE) $(QUIET_MAKE) -C base
 
 julia-libccalltest:
@@ -60,7 +62,7 @@ julia-src-release julia-src-debug : julia-src-% : julia-deps
 julia-ui-release julia-ui-debug : julia-ui-% : julia-src-%
 	@$(MAKE) $(QUIET_MAKE) -C ui julia-$*
 
-julia-inference : julia-base julia-ui-$(JULIA_BUILD_MODE)
+julia-inference : julia-base julia-ui-$(JULIA_BUILD_MODE) $(build_prefix)/.examples
 	@$(MAKE) $(QUIET_MAKE) $(build_private_libdir)/inference.ji JULIA_BUILD_MODE=$(JULIA_BUILD_MODE)
 
 julia-sysimg-release : julia-inference julia-ui-release
@@ -124,11 +126,13 @@ release-candidate: release testall
 	@echo 10. Change master to release-0.X in base/version.jl and base/version_git.sh as in 4cb1e20
 	@echo
 
-$(build_man1dir)/julia.1: doc/man/julia.1 | $(build_man1dir)
+$(build_man1dir)/julia.1: $(JULIAHOME)/doc/man/julia.1 | $(build_man1dir)
+	@echo Copying in usr/share/man/man1/julia.1
 	@mkdir -p $(build_man1dir)
 	@cp $< $@
 
-$(build_sysconfdir)/julia/juliarc.jl: etc/juliarc.jl | $(build_sysconfdir)/julia
+$(build_sysconfdir)/julia/juliarc.jl: $(JULIAHOME)/etc/juliarc.jl | $(build_sysconfdir)/julia
+	@echo Creating usr/etc/julia/juliarc.jl
 	@cp $< $@
 ifeq ($(OS), WINNT)
 	@cat ./contrib/windows/juliarc.jl >> $(build_sysconfdir)/julia/juliarc.jl
@@ -283,6 +287,8 @@ install: $(build_bindir)/stringreplace doc/_build/html
 	$(INSTALL_M) $(build_bindir)/julia* $(DESTDIR)$(bindir)/
 ifeq ($(OS),WINNT)
 	-$(INSTALL_M) $(build_bindir)/*.dll $(DESTDIR)$(bindir)/
+	-$(INSTALL_M) $(build_libdir)/libjulia.dll.a $(DESTDIR)$(libdir)/
+	-$(INSTALL_M) $(build_libdir)/libjulia-debug.dll.a $(DESTDIR)$(libdir)/
 else
 	-cp -a $(build_libexecdir) $(DESTDIR)$(prefix)
 
@@ -482,8 +488,7 @@ clean: | $(CLEAN_TARGETS)
 		light-source-dist.tmp light-source-dist.tmp1 \
 		full-source-dist.tmp full-source-dist.tmp1
 	@rm -fr $(build_private_libdir)
-# Temporarily add this line to the Makefile to remove extras
-	@rm -fr $(build_datarootdir)/julia/extras
+	@rm -f $(build_prefix)/.examples
 
 cleanall: clean
 	@$(MAKE) -C src clean-flisp clean-support
@@ -502,7 +507,7 @@ distcleanall: cleanall
 	julia-debug julia-release julia-deps \
 	julia-ui-release julia-ui-debug julia-src-release julia-src-debug \
 	julia-symlink julia-base julia-inference julia-sysimg-release julia-sysimg-debug \
-	test testall testall1 test clean distcleanall cleanall \
+	test testall testall1 test clean distcleanall cleanall clean-* \
 	run-julia run-julia-debug run-julia-release run \
 	install binary-dist light-source-dist.tmp light-source-dist \
 	dist full-source-dist source-dist

@@ -331,7 +331,7 @@ JL_CALLABLE(jl_f_sizeof)
     jl_value_t *x = args[0];
     if (jl_is_datatype(x)) {
         jl_datatype_t *dx = (jl_datatype_t*)x;
-        if (dx->name == jl_array_typename || dx == jl_symbol_type)
+        if (dx->name == jl_array_typename || dx == jl_symbol_type || dx == jl_simplevector_type)
             jl_error("type does not have a canonical binary representation");
         if (!(dx->name->names == jl_emptysvec && dx->size > 0)) {
             // names===() and size > 0  =>  bitstype, size always known
@@ -348,6 +348,8 @@ JL_CALLABLE(jl_f_sizeof)
     assert(!dt->abstract);
     if (dt == jl_symbol_type)
         jl_error("value does not have a canonical binary representation");
+    if (dt == jl_simplevector_type)
+        return jl_box_long((1+jl_svec_len(x))*sizeof(void*));
     return jl_box_long(jl_datatype_size(dt));
 }
 
@@ -958,8 +960,30 @@ extern int jl_in_inference;
 extern int jl_boot_file_loaded;
 int jl_eval_with_compiler_p(jl_expr_t *ast, jl_expr_t *expr, int compileloops, jl_module_t *m);
 
+static int jl_eval_inner_with_compiler(jl_expr_t *e, jl_module_t *m)
+{
+    int i;
+    for(i=0; i < jl_array_len(e->args); i++) {
+        jl_value_t *ei = jl_exprarg(e,i);
+        if (jl_is_lambda_info(ei)) {
+            jl_lambda_info_t *li = (jl_lambda_info_t*)ei;
+            if (!jl_is_expr(li->ast)) {
+                li->ast = jl_uncompress_ast(li, li->ast);
+                jl_gc_wb(li, li->ast);
+            }
+            jl_expr_t *a = (jl_expr_t*)li->ast;
+            if (jl_lam_capt(a)->length > 0 && jl_eval_with_compiler_p(a, jl_lam_body(a), 1, m))
+                return 1;
+        }
+        if (jl_is_expr(ei) && jl_eval_inner_with_compiler((jl_expr_t*)ei, m))
+            return 1;
+    }
+    return 0;
+}
+
 void jl_trampoline_compile_function(jl_function_t *f, int always_infer, jl_tupletype_t *sig)
 {
+    assert(sig);
     assert(f->linfo != NULL);
     // to run inference on all thunks. slows down loading files.
     // NOTE: if this call to inference is removed, type_annotate in inference.jl
@@ -972,7 +996,12 @@ void jl_trampoline_compile_function(jl_function_t *f, int always_infer, jl_tuple
             }
             assert(jl_is_expr(f->linfo->ast));
             if (always_infer ||
-                jl_eval_with_compiler_p((jl_expr_t*)f->linfo->ast, jl_lam_body((jl_expr_t*)f->linfo->ast), 1, f->linfo->module)) {
+                jl_eval_with_compiler_p((jl_expr_t*)f->linfo->ast, jl_lam_body((jl_expr_t*)f->linfo->ast), 1, f->linfo->module) ||
+                // if this function doesn't need to be compiled, but contains inner
+                // functions that do and that capture variables, we need to run
+                // inference on the whole thing to propagate types into the inner
+                // functions. caused issue #12794
+                jl_eval_inner_with_compiler(jl_lam_body((jl_expr_t*)f->linfo->ast), f->linfo->module)) {
                 jl_type_infer(f->linfo, sig, f->linfo);
             }
         }
@@ -992,24 +1021,15 @@ JL_CALLABLE(jl_trampoline)
 {
     assert(jl_is_func(F));
     jl_function_t *f = (jl_function_t*)F;
-    jl_trampoline_compile_function(f, 0, jl_anytuple_type);
+    jl_trampoline_compile_function(f, 0, f->linfo->specTypes ? f->linfo->specTypes : jl_anytuple_type);
     return jl_apply(f, args, nargs);
 }
 
 JL_CALLABLE(jl_f_instantiate_type)
 {
     JL_NARGSV(instantiate_type, 1);
-    if (args[0] == (jl_value_t*)jl_uniontype_type) {
-        size_t i;
-        for(i=1; i < nargs; i++) {
-            if (!jl_is_type(args[i]) && !jl_is_typevar(args[i])) {
-                jl_type_error_rt("apply_type", "parameter of Union",
-                                 (jl_value_t*)jl_type_type, args[i]);
-            }
-        }
-    }
-    else if (!jl_is_datatype(args[0])) {
-        JL_TYPECHK(instantiate_type, typector, args[0]);
+    if (!jl_is_datatype(args[0]) && !jl_is_typector(args[0])) {
+        jl_type_error("Type{...} expression", (jl_value_t*)jl_type_type, args[0]);
     }
     return jl_apply_type_(args[0], &args[1], nargs-1);
 }

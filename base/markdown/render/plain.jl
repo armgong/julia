@@ -68,7 +68,7 @@ plaininline(io::IO, link::Link) = plaininline(io, "[", link.text, "](", link.url
 
 plaininline(io::IO, md::Image) = plaininline(io, "![", md.alt, "](", md.url, ")")
 
-plaininline(io::IO, s::String) = print(io, s)
+plaininline(io::IO, s::AbstractString) = print(io, s)
 
 plaininline(io::IO, md::Bold) = plaininline(io, "**", md.text, "**")
 
@@ -83,3 +83,4 @@ plaininline(io::IO, x) = writemime(io, MIME"text/plain"(), x)
 # writemime
 
 Base.writemime(io::IO, ::MIME"text/plain", md::MD) = plain(io, md)
+Base.writemime(io::IO, ::MIME"text/markdown", md::MD) = plain(io, md)

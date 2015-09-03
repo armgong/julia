@@ -20,8 +20,8 @@ r_promote(op, x::WidenReduceResult) = widen(x)
 r_promote(op, x) = x
 r_promote(::AddFun, x::WidenReduceResult) = widen(x)
 r_promote(::MulFun, x::WidenReduceResult) = widen(x)
-r_promote(::AddFun, x::Number) = x + zero(x)
-r_promote(::MulFun, x::Number) = x * one(x)
+r_promote(::AddFun, x::Number) = oftype(x + zero(x), x)
+r_promote(::MulFun, x::Number) = oftype(x * one(x), x)
 r_promote(::AddFun, x) = x
 r_promote(::MulFun, x) = x
 r_promote(::MaxFun, x::WidenReduceResult) = x
@@ -206,7 +206,7 @@ mapreduce_sc(f::ReturnsBool, op, itr) = mapreduce_sc_impl(f, op, itr)
 mapreduce_sc(f::Func{1},     op, itr) = mapreduce_no_sc(f, op, itr)
 
 mapreduce_sc(f::IdFun, op, itr) =
-    eltype(itr) <: Bool?
+    eltype(itr) <: Bool ?
         mapreduce_sc_impl(f, op, itr) :
         mapreduce_no_sc(f, op, itr)
 
@@ -351,23 +351,20 @@ end
 
 ## all & any
 
-# make sure that the identity function is defined before `any` or `all` are used
-function identity end
-
 any(itr) = any(IdFun(), itr)
 all(itr) = all(IdFun(), itr)
 
-any(f::Any,       itr) = any(f === identity? IdFun() : Predicate(f), itr)
+any(f::Any,       itr) = any(Predicate(f), itr)
 any(f::Predicate, itr) = mapreduce_sc_impl(f, OrFun(), itr)
 any(f::IdFun,     itr) =
-    eltype(itr) <: Bool?
+    eltype(itr) <: Bool ?
         mapreduce_sc_impl(f, OrFun(), itr) :
         nonboolean_any(itr)
 
-all(f::Any,       itr) = all(f === identity? IdFun() : Predicate(f), itr)
+all(f::Any,       itr) = all(Predicate(f), itr)
 all(f::Predicate, itr) = mapreduce_sc_impl(f, AndFun(), itr)
 all(f::IdFun,     itr) =
-    eltype(itr) <: Bool?
+    eltype(itr) <: Bool ?
         mapreduce_sc_impl(f, AndFun(), itr) :
         nonboolean_all(itr)
 

@@ -25,6 +25,20 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
     @test_throws ArgumentError Bidiagonal(dv,ev,'R')
     @test_throws DimensionMismatch Bidiagonal(dv,ones(elty,n),true)
     @test_throws ArgumentError Bidiagonal(dv,ev)
+
+    #getindex and size
+    BD = Bidiagonal(dv,ev,true)
+    @test_throws BoundsError BD[n+1,1]
+    @test_throws ArgumentError size(BD,0)
+    @test size(BD,3) == 1
+
+    debug && println("show")
+    dstring = sprint(Base.print_matrix,BD.dv')
+    estring = sprint(Base.print_matrix,BD.ev')
+    @test sprint(show,BD) == "$(summary(BD)):\n diag:$dstring\n super:$estring"
+    BD = Bidiagonal(dv,ev,false)
+    @test sprint(show,BD) == "$(summary(BD)):\n diag:$dstring\n sub:$estring"
+
     debug && println("Test upper and lower bidiagonal matrices")
     for isupper in (true, false)
         debug && println("isupper is: $(isupper)")
@@ -34,12 +48,38 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
         @test size(T) == (n, n)
         @test full(T) == diagm(dv) + diagm(ev, isupper?1:-1)
         @test Bidiagonal(full(T), isupper) == T
+        @test big(T) == T
         z = zeros(elty, n)
 
         debug && println("Idempotent tests")
         for func in (conj, transpose, ctranspose)
             @test func(func(T)) == T
         end
+
+        debug && println("triu and tril")
+        @test istril(Bidiagonal(dv,ev,'L'))
+        @test !istril(Bidiagonal(dv,ev,'U'))
+        @test tril!(Bidiagonal(dv,ev,'U'),-1) == Bidiagonal(zeros(dv),zeros(ev),'U')
+        @test tril!(Bidiagonal(dv,ev,'L'),-1) == Bidiagonal(zeros(dv),ev,'L')
+        @test tril!(Bidiagonal(dv,ev,'U'),-2) == Bidiagonal(zeros(dv),zeros(ev),'U')
+        @test tril!(Bidiagonal(dv,ev,'L'),-2) == Bidiagonal(zeros(dv),zeros(ev),'L')
+        @test tril!(Bidiagonal(dv,ev,'U'),1)  == Bidiagonal(dv,ev,'U')
+        @test tril!(Bidiagonal(dv,ev,'L'),1)  == Bidiagonal(dv,ev,'L')
+        @test tril!(Bidiagonal(dv,ev,'U'))    == Bidiagonal(dv,zeros(ev),'U')
+        @test tril!(Bidiagonal(dv,ev,'L'))    == Bidiagonal(dv,ev,'L')
+        @test_throws ArgumentError tril!(Bidiagonal(dv,ev,'U'),n+1)
+
+        @test istriu(Bidiagonal(dv,ev,'U'))
+        @test !istriu(Bidiagonal(dv,ev,'L'))
+        @test triu!(Bidiagonal(dv,ev,'L'),1)  == Bidiagonal(zeros(dv),zeros(ev),'L')
+        @test triu!(Bidiagonal(dv,ev,'U'),1)  == Bidiagonal(zeros(dv),ev,'U')
+        @test triu!(Bidiagonal(dv,ev,'U'),2)  == Bidiagonal(zeros(dv),zeros(ev),'U')
+        @test triu!(Bidiagonal(dv,ev,'L'),2)  == Bidiagonal(zeros(dv),zeros(ev),'L')
+        @test triu!(Bidiagonal(dv,ev,'U'),-1) == Bidiagonal(dv,ev,'U')
+        @test triu!(Bidiagonal(dv,ev,'L'),-1) == Bidiagonal(dv,ev,'L')
+        @test triu!(Bidiagonal(dv,ev,'L'))    == Bidiagonal(dv,zeros(ev),'L')
+        @test triu!(Bidiagonal(dv,ev,'U'))    == Bidiagonal(dv,ev,'U')
+        @test_throws ArgumentError triu!(Bidiagonal(dv,ev,'U'),n+1)
 
         debug && println("Linear solver")
         Tfull = full(T)
@@ -83,7 +123,7 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
 
         debug && println("Diagonals")
         @test diag(T,2) == zeros(elty, n-2)
-        @test_throws BoundsError diag(T,n+1)
+        @test_throws ArgumentError diag(T,n+1)
 
         debug && println("Eigensystems")
         d1, v1 = eig(T)
@@ -95,7 +135,7 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
 
         debug && println("Singular systems")
         if (elty <: BlasReal)
-            @test_approx_eq full(svdfact!(copy(T))) full(svdfact!(copy(Tfull)))
+            @test_approx_eq full(svdfact(T)) full(svdfact!(copy(Tfull)))
             @test_approx_eq svdvals(Tfull) svdvals(T)
             u1, d1, v1 = svd(Tfull)
             u2, d2, v2 = svd(T)
@@ -126,6 +166,9 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
         debug && println("Inverse")
         @test_approx_eq inv(T)*Tfull eye(elty,n)
     end
+
+    @test Matrix{Complex{Float64}}(BD) == BD
+
 end
 
 # Issue 10742 and similar
@@ -133,3 +176,10 @@ let A = Bidiagonal([1,2,3], [0,0], true)
     @test istril(A)
     @test isdiag(A)
 end
+
+#test promote_rule
+A = Bidiagonal(ones(Float32,10),ones(Float32,9),true)
+B = rand(Float64,10,10)
+C = Tridiagonal(rand(Float64,9),rand(Float64,10),rand(Float64,9))
+@test promote(B,A) == (B,convert(Matrix{Float64},full(A)))
+@test promote(C,A) == (C,Tridiagonal(zeros(Float64,9),convert(Vector{Float64},A.dv),convert(Vector{Float64},A.ev)))

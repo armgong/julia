@@ -15,6 +15,7 @@ try
               module $Foo_module
               @doc "foo function" foo(x) = x + 1
               include_dependency("foo.jl")
+              include_dependency("foo.jl")
               module Bar
               @doc "bar function" bar(x) = x + 2
               include_dependency("bar.jl")
@@ -23,10 +24,8 @@ try
               """)
     end
 
-    if myid() == 1
-        @test_throws Base.PrecompilableError __precompile__(true)
-        @test_throws LoadError include(Foo_file) # from __precompile__(true)
-    end
+    # Issue #12623
+    @test __precompile__(true) === nothing
 
     Base.require(Foo_module)
     cachefile = joinpath(dir, "$Foo_module.ji")
@@ -47,7 +46,7 @@ try
         deps = Base.cache_dependencies(cachefile)
         @test sort(deps[1]) == map(s -> (s, Base.module_uuid(eval(s))),
                                    [:Base,:Core,:Main])
-        @test sort(deps[2]) == [Foo_file,joinpath(dir,"bar.jl"),joinpath(dir,"foo.jl")]
+        @test map(x -> x[1], sort(deps[2])) == [Foo_file,joinpath(dir,"bar.jl"),joinpath(dir,"foo.jl")]
     end
 
     Baz_file = joinpath(dir, "Baz.jl")
@@ -60,6 +59,28 @@ try
     end
     println(STDERR, "\nNOTE: The following 'LoadError: __precompile__(false)' indicates normal operation")
     @test_throws ErrorException Base.compilecache("Baz") # from __precompile__(false)
+
+    # Issue #12720
+    FooBar_file = joinpath(dir, "FooBar.jl")
+    open(FooBar_file, "w") do f
+        print(f, """
+              __precompile__(true)
+              module FooBar
+              end
+              """)
+    end
+    Base.compilecache("FooBar")
+    sleep(2)
+    open(FooBar_file, "w") do f
+        print(f, """
+              __precompile__(true)
+              module FooBar
+              error("break me")
+              end
+              """)
+    end
+    println(STDERR, "\nNOTE: The following 'LoadError: break me' indicates normal operation")
+    @test_throws ErrorException require(:FooBar)
 finally
     splice!(Base.LOAD_CACHE_PATH, 1)
     splice!(LOAD_PATH, 1)

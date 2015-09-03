@@ -20,7 +20,7 @@ end
 @doc ("I am a macro";)  :@ModuleMacroDoc.m
 
 @test (@doc ModuleMacroDoc)    == "I am a module"
-@test (@doc ModuleMacroDoc.@m) == ["I am a macro"]
+@test (@doc ModuleMacroDoc.@m) == "I am a macro"
 
 # General tests for docstrings.
 
@@ -36,6 +36,14 @@ end
 
 "f-2"
 f(x, y) = x + y
+
+"s-1"
+@generated function s(x)
+    :(x)
+end
+
+"s-2"
+@generated s(x, y) = :(x + y)
 
 "g"
 function g end
@@ -63,7 +71,7 @@ immutable IT
 end
 
 "TA"
-typealias TA Union(T, IT)
+typealias TA Union{T, IT}
 
 "@mac"
 macro mac() end
@@ -73,6 +81,28 @@ G = :G
 
 "K"
 const K = :K
+
+# Adding docstrings to methods after definition.
+
+t(x::AbstractString) = x
+t(x::Int, y) = y
+t{S <: Integer}(x::S) = x
+
+"t-1"
+t(::AbstractString)
+"t-2"
+t(::Int, ::Any)
+"t-3"
+t{S <: Integer}(::S)
+
+"FieldDocs"
+type FieldDocs
+    "one"
+    one
+    doc"two"
+    two
+    three
+end
 
 end
 
@@ -87,6 +117,15 @@ let f = DocsTest.f
     @test funcdoc.order == order
     @test funcdoc.meta[order[1]] == doc"f-1"
     @test funcdoc.meta[order[2]] == doc"f-2"
+end
+
+let s = DocsTest.s
+    funcdoc = meta(DocsTest)[s]
+    order = [methods(s, sig)[1] for sig in [(Any,), (Any, Any)]]
+    @test funcdoc.main == nothing
+    @test funcdoc.order == order
+    @test funcdoc.meta[order[1]] == doc"s-1"
+    @test funcdoc.meta[order[2]] == doc"s-2"
 end
 
 let g = DocsTest.g
@@ -116,17 +155,21 @@ let IT = DocsTest.IT
     @test typedoc.fields[:y] == doc"IT.y"
 end
 
-let TA = DocsTest.TA
-    @test meta(DocsTest)[TA] == doc"TA"
-end
+@test @doc(DocsTest.TA) == doc"TA"
 
-let mac = getfield(DocsTest, symbol("@mac"))
-    funcdoc = meta(DocsTest)[mac]
-    @test funcdoc.main == doc"@mac"
-end
+@test @doc(DocsTest.@mac) == doc"@mac"
 
-@test meta(DocsTest)[:G] == doc"G"
-@test meta(DocsTest)[:K] == doc"K"
+@test @doc(DocsTest.G) == doc"G"
+@test @doc(DocsTest.K) == doc"K"
+
+@test @doc(DocsTest.t(::AbstractString)) == doc"t-1"
+@test @doc(DocsTest.t(::Int, ::Any)) == doc"t-2"
+@test @doc(DocsTest.t{S <: Integer}(::S)) == doc"t-3"
+
+let fields = meta(DocsTest)[DocsTest.FieldDocs].fields
+    @test haskey(fields, :one) && fields[:one] == doc"one"
+    @test haskey(fields, :two) && fields[:two] == doc"two"
+end
 
 # issue 11993
 # Check if we are documenting the expansion of the macro
@@ -184,3 +227,15 @@ end
 let fd = meta(I12515)[Base.collect]
     @test fd.order[1].sig == Tuple{Type{I12515.EmptyType{TypeVar(:T, Any, true)}}}
 end
+
+
+# PR #12593
+
+"$(1 + 1)"
+f12593_1() = 1
+
+"$(1 + 1) 2"
+f12593_2() = 1
+
+@test (@doc f12593_1) !== nothing
+@test (@doc f12593_2) !== nothing

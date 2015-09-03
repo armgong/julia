@@ -11,7 +11,7 @@ github_user() = readchomp(ignorestatus(`git config --global --get github.user`))
 function git_contributors(dir::AbstractString, n::Int=typemax(Int))
     contrib = Dict()
     tty = @windows? "CON:" : "/dev/tty"
-    for line in eachline(pipe(tty, Git.cmd(`shortlog -nes`, dir=dir)))
+    for line in eachline(pipeline(tty, Git.cmd(`shortlog -nes`, dir=dir)))
         m = match(r"\s*(\d+)\s+(.+?)\s+\<(.+?)\>\s*$", line)
         m === nothing && continue
         commits, name, email = m.captures
@@ -102,6 +102,8 @@ function init(pkg::AbstractString, url::AbstractString=""; config::Dict=Dict())
     info("Origin: $url")
     Git.run(`remote add origin $url`,dir=pkg)
     Git.set_remote_url(url,dir=pkg)
+    Git.run(`config branch.master.remote origin`, dir=pkg)
+    Git.run(`config branch.master.merge refs/heads/master`, dir=pkg)
 end
 
 function license(pkg::AbstractString, license::AbstractString,
@@ -162,6 +164,7 @@ end
 function travis(pkg::AbstractString; force::Bool=false)
     genfile(pkg,".travis.yml",force) do io
         print(io, """
+        # Documentation: http://docs.travis-ci.com/user/languages/julia/
         language: julia
         os:
           - linux
@@ -174,7 +177,7 @@ function travis(pkg::AbstractString; force::Bool=false)
         # uncomment the following lines to override the default test script
         #script:
         #  - if [[ -a .git/shallow ]]; then git fetch --unshallow; fi
-        #  - julia --check-bounds=yes -e 'Pkg.clone(pwd()); Pkg.build("$pkg"); Pkg.test("$pkg"; coverage=true)'
+        #  - julia -e 'Pkg.clone(pwd()); Pkg.build("$pkg"); Pkg.test("$pkg"; coverage=true)'
         """)
     end
 end
@@ -233,6 +236,7 @@ function gitignore(pkg::AbstractString; force::Bool=false)
     genfile(pkg,".gitignore",force) do io
         print(io, """
         *.jl.cov
+        *.jl.*.cov
         *.jl.mem
         """)
     end

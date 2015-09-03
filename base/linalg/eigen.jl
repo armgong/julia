@@ -23,7 +23,7 @@ function getindex(A::Union{Eigen,GeneralizedEigen}, d::Symbol)
     throw(KeyError(d))
 end
 
-isposdef(A::Union{Eigen,GeneralizedEigen}) = all(A.values .> 0)
+isposdef(A::Union{Eigen,GeneralizedEigen}) = isreal(A.values) && all(A.values .> 0)
 
 function eigfact!{T<:BlasReal}(A::StridedMatrix{T}; permute::Bool=true, scale::Bool=true)
     n = size(A, 2)
@@ -67,8 +67,10 @@ function eig(A::Union{Number, AbstractMatrix}; kwargs...)
     F.values, F.vectors
 end
 #Calculates eigenvectors
-eigvecs(A::Union{Number, AbstractMatrix}, args...; kwargs...) = eigfact(A, args...; kwargs...)[:vectors]
+eigvecs(A::Union{Number, AbstractMatrix}, args...; kwargs...) = eigvecs(eigfact(A, args...; kwargs...))
+eigvecs{T,V,S,U}(F::Union{Eigen{T,V,S,U}, GeneralizedEigen{T,V,S,U}}) = F[:vectors]::S
 
+eigvals{T,V,S,U}(F::Union{Eigen{T,V,S,U}, GeneralizedEigen{T,V,S,U}}) = F[:values]::U
 function eigvals!{T<:BlasReal}(A::StridedMatrix{T}; permute::Bool=true, scale::Bool=true)
     issym(A) && return eigvals!(Symmetric(A))
     _, valsre, valsim, _ = LAPACK.geevx!(permute ? (scale ? 'B' : 'P') : (scale ? 'S' : 'N'), 'N', 'N', 'N', A)

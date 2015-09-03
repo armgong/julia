@@ -148,8 +148,9 @@ function write{T,N,A<:Array}(s::IOStream, a::SubArray{T,N,A})
     if N<=1
         return write(s, pointer(a, 1), colsz)
     else
-        cartesianmap((idxs...)->write(s, pointer(a, idxs), colsz),
-                     tuple(1, size(a)[2:end]...))
+        for idxs in CartesianRange((1, size(a)[2:end]...))
+            write(s, pointer(a, idxs.I), colsz)
+        end
         return colsz*trailingsize(a,2)
     end
 end
@@ -193,7 +194,7 @@ end
 read(s::IOStream, ::Type{Char}) = ccall(:jl_getutf8, Char, (Ptr{Void},), s.ios)
 
 takebuf_string(s::IOStream) =
-    ccall(:jl_takebuf_string, ByteString, (Ptr{Void},), s.ios)
+    ccall(:jl_takebuf_string, Any, (Ptr{Void},), s.ios)::ByteString
 
 takebuf_array(s::IOStream) =
     ccall(:jl_takebuf_array, Vector{UInt8}, (Ptr{Void},), s.ios)

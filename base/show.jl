@@ -70,7 +70,8 @@ end
 
 function show(io::IO, x::Union)
     print(io, "Union")
-    show_delim_array(io, x.types, '{', ',', '}', false)
+    sorted_types = sort!(collect(x.types); by=string)
+    show_comma_array(io, sorted_types, '{', '}')
 end
 
 show(io::IO, x::TypeConstructor) = show(io, x.body)
@@ -283,7 +284,7 @@ const indent_width = 4
 const quoted_syms = Set{Symbol}([:(:),:(::),:(:=),:(=),:(==),:(!=),:(===),:(!==),:(=>),:(>=),:(<=)])
 const uni_ops = Set{Symbol}([:(+), :(-), :(!), :(¬), :(~), :(<:), :(>:), :(√), :(∛), :(∜)])
 const expr_infix_wide = Set{Symbol}([:(=), :(+=), :(-=), :(*=), :(/=), :(\=), :(&=),
-    :(|=), :($=), :(>>>=), :(>>=), :(<<=), :(&&), :(||), :(<:), :(=>)])
+    :(|=), :($=), :(>>>=), :(>>=), :(<<=), :(&&), :(||), :(<:), :(=>), :(÷=)])
 const expr_infix = Set{Symbol}([:(:), :(->), symbol("::")])
 const expr_infix_any = union(expr_infix, expr_infix_wide)
 const all_ops = union(quoted_syms, uni_ops, expr_infix_any)
@@ -330,8 +331,6 @@ unquoted(ex::Expr)       = ex.args[1]
 ## AST printing helpers ##
 
 const indent_width = 4
-may_show_expr_type_emphasize = false
-show_expr_type_emphasize = false
 
 function show_expr_type(io::IO, ty)
     if is(ty, Function)
@@ -339,7 +338,8 @@ function show_expr_type(io::IO, ty)
     elseif is(ty, IntrinsicFunction)
         print(io, "::I")
     else
-        if show_expr_type_emphasize::Bool && !isleaftype(ty)
+        emph = get(task_local_storage(), :TYPEEMPHASIZE, false)::Bool
+        if emph && !isleaftype(ty)
             emphasize(io, "::$ty")
         else
             if !is(ty, Any)
@@ -467,9 +467,7 @@ end
 function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     head, args, nargs = ex.head, ex.args, length(ex.args)
     show_type = true
-    global show_expr_type_emphasize
-    state = show_expr_type_emphasize::Bool
-
+    emphstate = get(task_local_storage(), :TYPEEMPHASIZE, false)
     # dot (i.e. "x.y")
     if is(head, :(.))
         show_unquoted(io, args[1], indent + indent_width)
@@ -518,7 +516,7 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         func_args = args[2:end]
 
         if in(ex.args[1], (:box, TopNode(:box), :throw)) || ismodulecall(ex)
-            show_expr_type_emphasize::Bool = show_type = false
+            show_type = task_local_storage(:TYPEEMPHASIZE, false)
         end
 
         # scalar multiplication (i.e. "100x")
@@ -606,10 +604,12 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
 
     # block with argument
     elseif head in (:for,:while,:function,:if) && nargs==2
-        show_block(io, head, args[1], args[2], indent); print(io, "end")
+        show_block(io, head, args[1], args[2], indent)
+        print(io, "end")
 
     elseif is(head, :module) && nargs==3 && isa(args[1],Bool)
-        show_block(io, args[1] ? :module : :baremodule, args[2], args[3], indent); print(io, "end")
+        show_block(io, args[1] ? :module : :baremodule, args[2], args[3], indent)
+        print(io, "end")
 
     # type declaration
     elseif is(head, :type) && nargs==3
@@ -740,7 +740,9 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     # print anything else as "Expr(head, args...)"
     else
         show_type = false
-        show_expr_type_emphasize::Bool = may_show_expr_type_emphasize::Bool && in(ex.head, (:lambda, :method))
+        emph = get(task_local_storage(), :TYPEEMPHASIZE, false)::Bool &&
+               (ex.head === :lambda || ex.head == :method)
+        task_local_storage(:TYPEEMPHASIZE, emph)
         print(io, "\$(Expr(")
         show(io, ex.head)
         for arg in args
@@ -749,16 +751,14 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         end
         print(io, "))")
     end
-
-    if ex.head in (:(=), :boundscheck, :gotoifnot, :return)
+    if (ex.head == :(=) ||
+        ex.head == :boundscheck ||
+        ex.head == :gotoifnot ||
+        ex.head == :return)
         show_type = false
     end
-
-    if show_type
-        show_expr_type(io, ex.typ)
-    end
-
-    show_expr_type_emphasize::Bool = state
+    show_type && show_expr_type(io, ex.typ)
+    task_local_storage(:TYPEEMPHASIZE, emphstate)
 end
 
 function ismodulecall(ex::Expr)
@@ -1132,7 +1132,8 @@ function show_nd(io::IO, a::AbstractArray, limit, print_matrix, label_slices)
     end
     tail = size(a)[3:end]
     nd = ndims(a)-2
-    function print_slice(idxs...)
+    for I in CartesianRange(tail)
+        idxs = I.I
         if limit
             for i = 1:nd
                 ii = idxs[i]
@@ -1141,15 +1142,15 @@ function show_nd(io::IO, a::AbstractArray, limit, print_matrix, label_slices)
                         for j=i+1:nd
                             szj = size(a,j+2)
                             if szj>10 && 3 < idxs[j] <= szj-3
-                                return
+                                @goto skip
                             end
                         end
                         #println(io, idxs)
                         print(io, "...\n\n")
-                        return
+                        @goto skip
                     end
                     if 3 < ii <= size(a,i+2)-3
-                        return
+                        @goto skip
                     end
                 end
             end
@@ -1162,21 +1163,9 @@ function show_nd(io::IO, a::AbstractArray, limit, print_matrix, label_slices)
         slice = sub(a, 1:size(a,1), 1:size(a,2), idxs...)
         print_matrix(io, slice)
         print(io, idxs == tail ? "" : "\n\n")
-    end
-    cartesianmap(print_slice, tail)
-end
-
-function whos(m::Module, pattern::Regex)
-    for v in sort(names(m))
-        s = string(v)
-        if isdefined(m,v) && ismatch(pattern, s)
-            println(rpad(s, 30), summary(eval(m,v)))
-        end
+        @label skip
     end
 end
-whos() = whos(r"")
-whos(m::Module) = whos(m, r"")
-whos(pat::Regex) = whos(current_module(), pat)
 
 # global flag for limiting output
 # TODO: this should be replaced with a better mechanism. currently it is only

@@ -909,7 +909,6 @@ A = sparse(ones(5,5))
 @test_throws DimensionMismatch one(sprand(5,6,0.2))
 
 #istriu/istril
-
 A = sparse(triu(rand(5,5)))
 @test istriu(A)
 @test !istriu(sparse(ones(5,5)))
@@ -918,33 +917,30 @@ A = sparse(tril(rand(5,5)))
 @test !istril(sparse(ones(5,5)))
 
 # symperm
-
 srand(1234321)
 A = triu(sprand(10,10,0.2))       # symperm operates on upper triangle
 perm = randperm(10)
 @test symperm(A,perm).colptr == [1,2,3,3,3,4,5,5,7,9,10]
 
 # droptol
-
 @test Base.droptol!(A,0.01).colptr == [1,1,1,2,2,3,4,6,6,7,9]
 
 #trace
-
 @test_throws DimensionMismatch trace(sparse(ones(5,6)))
 @test trace(speye(5)) == 5
 
 #diagm on a matrix
-
 @test_throws DimensionMismatch diagm(sparse(ones(5,2)))
 @test_throws DimensionMismatch diagm(sparse(ones(2,5)))
 @test diagm(sparse(ones(1,5))) == speye(5)
 
 # triu/tril
-
 A = sprand(5,5,0.2)
 AF = full(A)
 @test full(triu(A,1)) == triu(AF,1)
 @test full(tril(A,1)) == tril(AF,1)
+@test full(triu!(copy(A), 2)) == triu(AF,2)
+@test full(tril!(copy(A), 2)) == tril(AF,2)
 @test_throws BoundsError tril(A,6)
 @test_throws BoundsError tril(A,-6)
 @test_throws BoundsError triu(A,6)
@@ -1065,5 +1061,40 @@ Ai = ceil(Int,Ar*100)
 @test_approx_eq norm(Ai,Inf)   norm(full(Ai),Inf)
 @test_approx_eq vecnorm(Ai)    vecnorm(full(Ai))
 
+# test sparse matrix cond
+A = sparse([1.0])
+Ac = sprandn(20,20,.5) + im* sprandn(20,20,.5)
+Ar = sprandn(20,20,.5)
+@test cond(A,1) == 1.0
+@test_approx_eq_eps cond(Ar,1) cond(full(Ar),1) 1e-4
+@test_approx_eq_eps cond(Ac,1) cond(full(Ac),1) 1e-4
+@test_approx_eq_eps cond(Ar,Inf) cond(full(Ar),Inf) 1e-4
+@test_approx_eq_eps cond(Ac,Inf) cond(full(Ac),Inf) 1e-4
+@test_throws ArgumentError cond(A,2)
+@test_throws ArgumentError cond(A,3)
+let Arect = spzeros(10, 6)
+    @test_throws DimensionMismatch cond(Arect, 1)
+    @test_throws ArgumentError cond(Arect,2)
+    @test_throws DimensionMismatch cond(Arect, Inf)
+end
+
+# test sparse matrix normestinv
+Ac = sprandn(20,20,.5) + im* sprandn(20,20,.5)
+Aci = ceil(Int64,100*sprand(20,20,.5))+ im*ceil(Int64,sprand(20,20,.5))
+Ar = sprandn(20,20,.5)
+Ari = ceil(Int64,100*Ar)
+@test_approx_eq_eps Base.SparseMatrix.normestinv(Ac,3) norm(inv(full(Ac)),1) 1e-4
+@test_approx_eq_eps Base.SparseMatrix.normestinv(Aci,3) norm(inv(full(Aci)),1) 1e-4
+@test_approx_eq_eps Base.SparseMatrix.normestinv(Ar) norm(inv(full(Ar)),1) 1e-4
+@test_throws ArgumentError Base.SparseMatrix.normestinv(Ac,0)
+@test_throws ArgumentError Base.SparseMatrix.normestinv(Ac,21)
+@test_throws DimensionMismatch Base.SparseMatrix.normestinv(sprand(3,5,.9))
+
 @test_throws ErrorException transpose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
 @test_throws ErrorException ctranspose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
+
+# csc_permute
+A = sprand(10,10,0.2)
+p = randperm(10)
+q = randperm(10)
+@test Base.SparseMatrix.csc_permute(A, invperm(p), q) == full(A)[p, q]

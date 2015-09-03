@@ -13,7 +13,7 @@ export sin, cos, tan, sinh, cosh, tanh, asin, acos, atan,
        cbrt, sqrt, erf, erfc, erfcx, erfi, dawson,
        significand,
        lgamma, hypot, gamma, lfact, max, min, minmax, ldexp, frexp,
-       clamp, modf, ^, mod2pi,
+       clamp, clamp!, modf, ^, mod2pi,
        airy, airyai, airyprime, airyaiprime, airybi, airybiprime, airyx,
        besselj0, besselj1, besselj, besseljx,
        bessely0, bessely1, bessely, besselyx,
@@ -45,6 +45,13 @@ clamp{T}(x::AbstractArray{T,2}, lo, hi) =
     [clamp(x[i,j], lo, hi) for i in 1:size(x,1), j in 1:size(x,2)]
 clamp{T}(x::AbstractArray{T}, lo, hi) =
     reshape([clamp(xx, lo, hi) for xx in x], size(x))
+
+function clamp!{T}(x::AbstractArray{T}, lo, hi)
+    @inbounds for i in eachindex(x)
+        x[i] = clamp(x[i], lo, hi)
+    end
+    x
+end
 
 # evaluate p[1] + x * (p[2] + x * (....)), i.e. a polynomial via Horner's rule
 macro horner(x, p...)
@@ -84,10 +91,10 @@ macro evalpoly(z, p...)
       end)
 end
 
-rad2deg(z::Real) = oftype(z, 57.29577951308232*z)
-deg2rad(z::Real) = oftype(z, 0.017453292519943295*z)
-rad2deg(z::Integer) = rad2deg(float(z))
-deg2rad(z::Integer) = deg2rad(float(z))
+rad2deg(z::AbstractFloat) = z * (180 / oftype(z, pi))
+deg2rad(z::AbstractFloat) = z * (oftype(z, pi) / 180)
+rad2deg(z::Real) = rad2deg(float(z))
+deg2rad(z::Real) = deg2rad(float(z))
 @vectorize_1arg Real rad2deg
 @vectorize_1arg Real deg2rad
 

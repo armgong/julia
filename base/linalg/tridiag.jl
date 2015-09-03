@@ -7,7 +7,9 @@ immutable SymTridiagonal{T} <: AbstractMatrix{T}
     dv::Vector{T}                        # diagonal
     ev::Vector{T}                        # subdiagonal
     function SymTridiagonal(dv::Vector{T}, ev::Vector{T})
-        length(dv) - 1 <= length(ev) <= length(dv) || throw(DimensionMismatch("subdiagonal has wrong length. Has length $(length(ev)), but should be either $(length(dv) - 1) or $(length(dv))."))
+        if !(length(dv) - 1 <= length(ev) <= length(dv))
+            throw(DimensionMismatch("subdiagonal has wrong length. Has length $(length(ev)), but should be either $(length(dv) - 1) or $(length(dv))."))
+        end
         new(dv,ev)
     end
 end
@@ -19,7 +21,14 @@ function SymTridiagonal{Td,Te}(dv::Vector{Td}, ev::Vector{Te})
     SymTridiagonal(convert(Vector{T}, dv), convert(Vector{T}, ev))
 end
 
-SymTridiagonal(A::AbstractMatrix) = diag(A,1)==diag(A,-1)?SymTridiagonal(diag(A), diag(A,1)):throw(DimensionMismatch("matrix is not symmetric; cannot convert to SymTridiagonal"))
+function SymTridiagonal(A::AbstractMatrix)
+    if diag(A,1) == diag(A,-1)
+        SymTridiagonal(diag(A), diag(A,1))
+    else
+        throw(ArgumentError("matrix is not symmetric; cannot convert to SymTridiagonal"))
+    end
+end
+
 full{T}(M::SymTridiagonal{T}) = convert(Matrix{T}, M)
 convert{T}(::Type{SymTridiagonal{T}}, S::SymTridiagonal) = SymTridiagonal(convert(Vector{T}, S.dv), convert(Vector{T}, S.ev))
 convert{T}(::Type{AbstractMatrix{T}}, S::SymTridiagonal) = SymTridiagonal(convert(Vector{T}, S.dv), convert(Vector{T}, S.ev))
@@ -39,7 +48,15 @@ end
 convert{T}(::Type{Matrix}, M::SymTridiagonal{T}) = convert(Matrix{T}, M)
 
 size(A::SymTridiagonal) = (length(A.dv), length(A.dv))
-size(A::SymTridiagonal, d::Integer) = d<1 ? throw(ArgumentError("dimension must be ≥ 1, got $d")) : (d<=2 ? length(A.dv) : 1)
+function size(A::SymTridiagonal, d::Integer)
+    if d < 1
+        throw(ArgumentError("dimension must be ≥ 1, got $d"))
+    elseif d<=2
+        return length(A.dv)
+    else
+        return 1
+    end
+end
 
 #Elementary operations
 for func in (:conj, :copy, :round, :trunc, :floor, :ceil)
@@ -77,7 +94,7 @@ function A_mul_B!(C::StridedVecOrMat, S::SymTridiagonal, B::StridedVecOrMat)
         throw(DimensionMismatch("A has first dimension $(size(S,1)), B has $(size(B,1)), C has $(size(C,1)) but all must match"))
     end
     if n != size(C, 2)
-        throw(DimensionMismatch("Second dimension of B, $n, doesn't match second dimension of C, $(size(C,2))"))
+        throw(DimensionMismatch("second dimension of B, $n, doesn't match second dimension of C, $(size(C,2))"))
     end
 
     α = S.dv
@@ -98,8 +115,6 @@ function A_mul_B!(C::StridedVecOrMat, S::SymTridiagonal, B::StridedVecOrMat)
 
     return C
 end
-
-factorize(S::SymTridiagonal) = ldltfact(S)
 
 eigfact!{T<:BlasReal}(A::SymTridiagonal{T}) = Eigen(LAPACK.stegr!('V', A.dv, A.ev)...)
 eigfact{T}(A::SymTridiagonal{T}) = (S = promote_type(Float32, typeof(zero(T)/norm(one(T)))); eigfact!(S != T ? convert(SymTridiagonal{S}, A) : copy(A)))
@@ -126,6 +141,47 @@ eigmin(A::SymTridiagonal) = eigvals(A, 1:1)[1]
 #Compute selected eigenvectors only corresponding to particular eigenvalues
 eigvecs(A::SymTridiagonal) = eigfact(A)[:vectors]
 eigvecs{T<:BlasFloat,Eigenvalue<:Real}(A::SymTridiagonal{T}, eigvals::Vector{Eigenvalue}) = LAPACK.stein!(A.dv, A.ev, eigvals)
+
+#tril and triu
+
+istriu(M::SymTridiagonal) = all(M.ev .== 0)
+istril(M::SymTridiagonal) = all(M.ev .== 0)
+
+function tril!(M::SymTridiagonal, k::Integer=0)
+    n = length(M.dv)
+    if abs(k) > n
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($n,$n)"))
+    elseif k < -1
+        fill!(M.ev,0)
+        fill!(M.dv,0)
+        return Tridiagonal(M.ev,M.dv,copy(M.ev))
+    elseif k == -1
+        fill!(M.dv,0)
+        return Tridiagonal(M.ev,M.dv,zeros(M.ev))
+    elseif k == 0
+        return Tridiagonal(M.ev,M.dv,zeros(M.ev))
+    elseif k >= 1
+        return Tridiagonal(M.ev,M.dv,copy(M.ev))
+    end
+end
+
+function triu!(M::SymTridiagonal, k::Integer=0)
+    n = length(M.dv)
+    if abs(k) > n
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($n,$n)"))
+    elseif k > 1
+        fill!(M.ev,0)
+        fill!(M.dv,0)
+        return Tridiagonal(M.ev,M.dv,copy(M.ev))
+    elseif k == 1
+        fill!(M.dv,0)
+        return Tridiagonal(zeros(M.ev),M.dv,M.ev)
+    elseif k == 0
+        return Tridiagonal(zeros(M.ev),M.dv,M.ev)
+    elseif k <= -1
+        return Tridiagonal(M.ev,M.dv,copy(M.ev))
+    end
+end
 
 ###################
 # Generic methods #
@@ -302,6 +358,45 @@ function getindex{T}(A::Tridiagonal{T}, i::Integer, j::Integer)
     end
 end
 
+#tril and triu
+
+istriu(M::Tridiagonal) = all(M.dl .== 0)
+istril(M::Tridiagonal) = all(M.du .== 0)
+
+function tril!(M::Tridiagonal, k::Integer=0)
+    n = length(M.d)
+    if abs(k) > n
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($n,$n)"))
+    elseif k < -1
+        fill!(M.dl,0)
+        fill!(M.d,0)
+        fill!(M.du,0)
+    elseif k == -1
+        fill!(M.d,0)
+        fill!(M.du,0)
+    elseif k == 0
+        fill!(M.du,0)
+    end
+    return M
+end
+
+function triu!(M::Tridiagonal, k::Integer=0)
+    n = length(M.d)
+    if abs(k) > n
+        throw(ArgumentError("requested diagonal, $k, out of bounds in matrix of size ($n,$n)"))
+    elseif k > 1
+        fill!(M.dl,0)
+        fill!(M.d,0)
+        fill!(M.du,0)
+    elseif k == 1
+        fill!(M.dl,0)
+        fill!(M.d,0)
+    elseif k == 0
+        fill!(M.dl,0)
+    end
+    return M
+end
+
 ###################
 # Generic methods #
 ###################
@@ -319,25 +414,16 @@ end
 inv(A::Tridiagonal) = inv_usmani(A.dl, A.d, A.du)
 det(A::Tridiagonal) = det_usmani(A.dl, A.d, A.du)
 
-# Elementary operations that mix Tridiagonal and SymTridiagonal matrices
-convert(::Type{Tridiagonal}, A::SymTridiagonal) = Tridiagonal(A.ev, A.dv, A.ev)
-+(A::Tridiagonal, B::SymTridiagonal) = Tridiagonal(A.dl+B.ev, A.d+B.dv, A.du+B.ev)
-+(A::SymTridiagonal, B::Tridiagonal) = Tridiagonal(A.ev+B.dl, A.dv+B.d, A.ev+B.du)
--(A::Tridiagonal, B::SymTridiagonal) = Tridiagonal(A.dl-B.ev, A.d-B.dv, A.du-B.ev)
--(A::SymTridiagonal, B::Tridiagonal) = Tridiagonal(A.ev-B.dl, A.dv-B.d, A.ev-B.du)
-
 convert{T}(::Type{Tridiagonal{T}},M::Tridiagonal) = Tridiagonal(convert(Vector{T}, M.dl), convert(Vector{T}, M.d), convert(Vector{T}, M.du), convert(Vector{T}, M.du2))
 convert{T}(::Type{AbstractMatrix{T}},M::Tridiagonal) = convert(Tridiagonal{T}, M)
 convert{T}(::Type{Tridiagonal{T}}, M::SymTridiagonal{T}) = Tridiagonal(M)
 function convert{T}(::Type{SymTridiagonal{T}}, M::Tridiagonal)
     if M.dl == M.du
-        return SymTridiagonal(M.dl, M.d)
+        return SymTridiagonal(convert(Vector{T},M.d), convert(Vector{T},M.dl))
     else
         throw(ArgumentError("Tridiagonal is not symmetric, cannot convert to SymTridiagonal"))
     end
 end
-
-convert{T}(::Type{SymTridiagonal{T}},M::SymTridiagonal) = SymTridiagonal(convert(Vector{T}, M.dv), convert(Vector{T}, M.ev))
 
 function A_mul_B!(C::AbstractVecOrMat, A::Tridiagonal, B::AbstractVecOrMat)
     nA = size(A,1)

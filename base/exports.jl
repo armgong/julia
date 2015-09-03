@@ -164,6 +164,7 @@ export
     InvalidStateException,
     KeyError,
     LoadError,
+    InitError,
     MethodError,
     NullException,
     ParseError,
@@ -455,6 +456,8 @@ export
     zero,
     √,
     ∛,
+    ≈,
+    ≉,
 
 # specfun
     airy,
@@ -496,11 +499,11 @@ export
     broadcast_function,
     broadcast_getindex,
     broadcast_setindex!,
-    cartesianmap,
     cat,
     cell,
     checkbounds,
     circshift,
+    clamp!,
     colon,
     conj!,
     copy!,
@@ -916,6 +919,7 @@ export
     randexp,
     srand,
     bitrand,
+    randjump,
 
 # bigfloat & precision
     precision,
@@ -1156,7 +1160,8 @@ export
     nb_available,
     ntoh,
     open,
-    pipe,
+    pipeline,
+    Pipe,
     PipeBuffer,
     poll_fd,
     poll_file,
@@ -1245,6 +1250,7 @@ export
 # shared arrays
     sdata,
     indexpids,
+    localindexes,
 
 # paths and file names
     abspath,

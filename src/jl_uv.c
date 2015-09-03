@@ -27,8 +27,23 @@
 #include <io.h>
 #define write _write
 #endif
-#if defined(_COMPILER_MICROSOFT_) && !defined(_Static_assert)
-#define _Static_assert static_assert
+
+#ifndef static_assert
+#  ifdef __cplusplus
+#    if __cplusplus < 201103L
+#      define static_assert(...)
+#    endif
+#  else
+#    define static_assert(...)
+// Remove the following gcc special handling when we officially requires
+// gcc 4.7 (for c++11) and -std=gnu11
+#    ifdef __GNUC__
+#      if __GNUC__ > 4 || (__GNUC__ == 4 && __GNUC_MINOR__ >= 6)
+#        undef static_assert
+#        define static_assert _Static_assert
+#      endif
+#    endif
+#  endif
 #endif
 
 #ifdef __cplusplus
@@ -97,7 +112,6 @@ DLLEXPORT void *jl_uv_req_data(uv_req_t *req) { return req->data; }
 DLLEXPORT void jl_uv_req_set_data(uv_req_t *req, void *data) { req->data = data; }
 DLLEXPORT void *jl_uv_handle_data(uv_handle_t *handle) { return handle->data; }
 DLLEXPORT void *jl_uv_write_handle(uv_write_t *req) { return req->handle; }
-
 
 DLLEXPORT int jl_run_once(uv_loop_t *loop)
 {
@@ -257,7 +271,7 @@ DLLEXPORT int jl_fs_unlink(char *path)
     return ret;
 }
 
-DLLEXPORT int jl_fs_rename(char *src_path, char *dst_path)
+DLLEXPORT int jl_fs_rename(const char *src_path, const char *dst_path)
 {
     uv_fs_t req;
     JL_SIGATOMIC_BEGIN();
@@ -365,7 +379,7 @@ DLLEXPORT void jl_uv_writecb(uv_write_t *req, int status)
 static void jl_write(uv_stream_t *stream, const char *str, size_t n)
 {
     assert(stream);
-    _Static_assert(offsetof(uv_stream_t,type) == offsetof(ios_t,bm) &&
+    static_assert(offsetof(uv_stream_t,type) == offsetof(ios_t,bm) &&
         sizeof(((uv_stream_t*)0)->type) == sizeof(((ios_t*)0)->bm),
 	   "UV and ios layout mismatch");
 
@@ -675,7 +689,6 @@ DLLEXPORT int jl_tcp_quickack(uv_tcp_t *handle, int on)
 
 #endif
 
-
 DLLEXPORT int jl_tcp_reuseport(uv_tcp_t *handle)
 {
 #if defined(SO_REUSEPORT)
@@ -796,6 +809,7 @@ DLLEXPORT HANDLE jl_uv_handle(uv_stream_t *handle)
     }
 }
 #endif
+
 #ifdef __cplusplus
 }
 #endif

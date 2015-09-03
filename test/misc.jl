@@ -156,3 +156,17 @@ v11801, t11801 = @timed sin(1)
 @test isa(t11801,Real) && t11801 >= 0
 
 @test names(current_module(), true) == names_before_timing
+
+# interactive utilities
+
+import Base.summarysize
+@test summarysize(Core) > summarysize(Core.Inference) > Core.sizeof(Core)
+@test summarysize(Base) > 10_000*sizeof(Int)
+module _test_whos_
+export x
+x = 1.0
+end
+@test sprint(whos, Main, r"^$") == ""
+let v = sprint(whos, _test_whos_)
+    @test contains(v, "x      8 bytes  Float64 : 1.0")
+end

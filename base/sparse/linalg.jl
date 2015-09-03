@@ -34,54 +34,39 @@ function (*){TvA,TiA,TvB,TiB}(A::SparseMatrixCSC{TvA,TiA}, B::SparseMatrixCSC{Tv
 end
 
 # In matrix-vector multiplication, the correct orientation of the vector is assumed.
-function A_mul_B!(α::Number, A::SparseMatrixCSC, B::StridedVecOrMat, β::Number, C::StridedVecOrMat)
-    A.n == size(B, 1) || throw(DimensionMismatch())
-    A.m == size(C, 1) || throw(DimensionMismatch())
-    size(B, 2) == size(C, 2) || throw(DimensionMismatch())
-    if β != 1
-        β != 0 ? scale!(C, β) : fill!(C, zero(eltype(C)))
-    end
-    nzv = A.nzval
-    rv = A.rowval
-    for col = 1:A.n
-        for j in 1:size(C, 2)
-            αxj = α*B[col,j]
-            @inbounds for k = A.colptr[col]:(A.colptr[col + 1] - 1)
-                C[rv[k], j] += nzv[k]*αxj
-            end
-        end
-    end
-    C
-end
 
-function (*){TA,S,Tx}(A::SparseMatrixCSC{TA,S}, x::StridedVector{Tx})
-    T = promote_type(TA,Tx)
-    A_mul_B!(one(T), A, x, zero(T), similar(x, T, A.m))
-end
-function (*){TA,S,Tx}(A::SparseMatrixCSC{TA,S}, B::StridedMatrix{Tx})
-    T = promote_type(TA,Tx)
-    A_mul_B!(one(T), A, B, zero(T), similar(B, T, (A.m, size(B, 2))))
-end
-
-for (f, op) in ((:Ac_mul_B, :ctranspose),
-                (:At_mul_B, :transpose))
+for (f, op, transp) in ((:A_mul_B, :identity, false),
+                        (:Ac_mul_B, :ctranspose, true),
+                        (:At_mul_B, :transpose, true))
     @eval begin
         function $(symbol(f,:!))(α::Number, A::SparseMatrixCSC, B::StridedVecOrMat, β::Number, C::StridedVecOrMat)
-            A.n == size(C, 1) || throw(DimensionMismatch())
-            A.m == size(B, 1) || throw(DimensionMismatch())
+            if $transp
+                A.n == size(C, 1) || throw(DimensionMismatch())
+                A.m == size(B, 1) || throw(DimensionMismatch())
+            else
+                A.n == size(B, 1) || throw(DimensionMismatch())
+                A.m == size(C, 1) || throw(DimensionMismatch())
+            end
             size(B, 2) == size(C, 2) || throw(DimensionMismatch())
             nzv = A.nzval
             rv = A.rowval
             if β != 1
                 β != 0 ? scale!(C, β) : fill!(C, zero(eltype(C)))
             end
-            for i = 1:A.n
+            for col = 1:A.n
                 for k = 1:size(C, 2)
-                    tmp = zero(eltype(C))
-                    @inbounds for j = A.colptr[i]:(A.colptr[i + 1] - 1)
-                        tmp += $(op)(nzv[j])*B[rv[j],k]
+                    if $transp
+                        tmp = zero(eltype(C))
+                        @inbounds for j = A.colptr[col]:(A.colptr[col + 1] - 1)
+                            tmp += $(op)(nzv[j])*B[rv[j],k]
+                        end
+                        C[col,k] += α*tmp
+                    else
+                        αxj = α*B[col,k]
+                        @inbounds for j = A.colptr[col]:(A.colptr[col + 1] - 1)
+                            C[rv[j], k] += nzv[j]*αxj
+                        end
                     end
-                    C[i,k] += α*tmp
                 end
             end
             C
@@ -109,8 +94,10 @@ function (*){TX,TvA,TiA}(X::StridedMatrix{TX}, A::SparseMatrixCSC{TvA,TiA})
     mX, nX = size(X)
     nX == A.m || throw(DimensionMismatch())
     Y = zeros(promote_type(TX,TvA), mX, A.n)
-    for multivec_row=1:mX, col = 1:A.n, k=A.colptr[col]:(A.colptr[col+1]-1)
-        Y[multivec_row, col] += X[multivec_row, A.rowval[k]] * A.nzval[k]
+    rowval = A.rowval
+    nzval = A.nzval
+    @inbounds for multivec_row=1:mX, col = 1:A.n, k=A.colptr[col]:(A.colptr[col+1]-1)
+        Y[multivec_row, col] += X[multivec_row, rowval[k]] * nzval[k]
     end
     Y
 end
@@ -264,7 +251,7 @@ end
 
 ## triu, tril
 
-function triu{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti}, k::Integer)
+function triu{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti}, k::Integer=0)
     m,n = size(S)
     if (k > 0 && k > n) || (k < 0 && -k > m)
         throw(BoundsError())
@@ -295,7 +282,7 @@ function triu{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti}, k::Integer)
     A
 end
 
-function tril{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti}, k::Integer)
+function tril{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti}, k::Integer=0)
     m,n = size(S)
     if (k > 0 && k > n) || (k < 0 && -k > m)
         throw(BoundsError())
@@ -499,7 +486,195 @@ function norm(A::SparseMatrixCSC,p::Real=2)
     throw(ArgumentError("invalid p-norm p=$p. Valid: 1, Inf"))
 end
 
-# TODO
+# TODO rank
+
+# cond
+function cond(A::SparseMatrixCSC, p::Real=2)
+    if p == 1
+        normAinv = normestinv(A)
+        normA = norm(A, 1)
+        return normA * normAinv
+    elseif p == Inf
+        normAinv = normestinv(A')
+        normA = norm(A, Inf)
+        return normA * normAinv
+    elseif p == 2
+        throw(ArgumentError("2-norm condition number is not implemented for sparse matrices, try cond(full(A), 2) instead"))
+    else
+        throw(ArgumentError("second argment must be either 1 or Inf, got $p"))
+    end
+end
+
+function normestinv{T}(A::SparseMatrixCSC{T}, t::Integer = min(2,maximum(size(A))))
+    maxiter = 5
+    # Check the input
+    n = chksquare(A)
+    F = factorize(A)
+    if t <= 0
+        throw(ArgumentError("number of blocks must be a positive integer"))
+    end
+    if t > n
+        throw(ArgumentError("number of blocks must not be greater than $n"))
+    end
+    ind = Array(Int64, n)
+    ind_hist = Array(Int64, maxiter * t)
+
+    Ti = typeof(float(zero(T)))
+
+    S = zeros(T <: Real ? Int : Ti, n, t)
+
+    function _rand_pm1!(v)
+        for i in eachindex(v)
+            v[i] = rand()<0.5?1:-1
+        end
+    end
+
+    function _any_abs_eq(v,n::Int)
+        for i in eachindex(v)
+            if abs(v[i])==n
+                return true
+            end
+        end
+        return false
+    end
+
+    # Generate the block matrix
+    X = Array(Ti, n, t)
+    X[1:n,1] = 1
+    for j = 2:t
+        while true
+            _rand_pm1!(slice(X,1:n,j))
+            yaux = X[1:n,j]' * X[1:n,1:j-1]
+            if !_any_abs_eq(yaux,n)
+                break
+            end
+        end
+    end
+    scale!(X, 1./n)
+
+    iter = 0
+    local est
+    local est_old
+    est_ind = 0
+    while iter < maxiter
+        iter += 1
+        Y = F \ X
+        est = zero(real(eltype(Y)))
+        est_ind = 0
+        for i = 1:t
+            y = norm(Y[1:n,i], 1)
+            if y > est
+                est = y
+                est_ind = i
+            end
+        end
+        if iter == 1
+            est_old = est
+        end
+        if est > est_old || iter == 2
+            ind_best = est_ind
+        end
+        if iter >= 2 && est <= est_old
+            est = est_old
+            break
+        end
+        est_old = est
+        S_old = copy(S)
+        for j = 1:t
+            for i = 1:n
+                S[i,j] = Y[i,j]==0?one(Y[i,j]):sign(Y[i,j])
+            end
+        end
+
+        if T <: Real
+            # Check wether cols of S are parallel to cols of S or S_old
+            for j = 1:t
+                while true
+                    repeated = false
+                    if j > 1
+                        saux = S[1:n,j]' * S[1:n,1:j-1]
+                        if _any_abs_eq(saux,n)
+                            repeated = true
+                        end
+                    end
+                    if !repeated
+                        saux2 = S[1:n,j]' * S_old[1:n,1:t]
+                        if _any_abs_eq(saux2,n)
+                            repeated = true
+                        end
+                    end
+                    if repeated
+                        _rand_pm1!(slice(S,1:n,j))
+                    else
+                        break
+                    end
+                end
+            end
+        end
+
+        # Use the conjugate transpose
+        Z = F' \ S
+        h_max = zero(real(eltype(Z)))
+        h = zeros(real(eltype(Z)), n)
+        h_ind = 0
+        for i = 1:n
+            h[i] = norm(Z[i,1:t], Inf)
+            if h[i] > h_max
+                h_max = h[i]
+                h_ind = i
+            end
+            ind[i] = i
+        end
+        if iter >=2 && ind_best == h_ind
+            break
+        end
+        p = sortperm(h, rev=true)
+        h = h[p]
+        permute!(ind, p)
+        if t > 1
+            addcounter = t
+            elemcounter = 0
+            while addcounter > 0 && elemcounter < n
+                elemcounter = elemcounter + 1
+                current_element = ind[elemcounter]
+                found = false
+                for i = 1:t * (iter - 1)
+                    if current_element == ind_hist[i]
+                        found = true
+                        break
+                    end
+                end
+                if !found
+                    addcounter = addcounter - 1
+                    for i = 1:current_element - 1
+                        X[i,t-addcounter] = 0
+                    end
+                    X[current_element,t-addcounter] = 1
+                    for i = current_element + 1:n
+                        X[i,t-addcounter] = 0
+                    end
+                    ind_hist[iter * t - addcounter] = current_element
+                else
+                    if elemcounter == t && addcounter == t
+                        break
+                    end
+                end
+            end
+        else
+            ind_hist[1:t] = ind[1:t]
+            for j = 1:t
+                for i = 1:ind[j] - 1
+                    X[i,j] = 0
+                end
+                X[ind[j],j] = 1
+                for i = ind[j] + 1:n
+                    X[i,j] = 0
+                end
+            end
+        end
+    end
+    return est
+end
 
 # kron
 

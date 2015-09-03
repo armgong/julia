@@ -1,5 +1,40 @@
 // This file is a part of Julia. License is MIT: http://julialang.org/license
 
+// Find the memory block in the pool that owns the byte pointed to by p.
+// For end of object pointer (which is always the case for pointer to a
+// singleton object), this usually returns the same pointer which points to
+// the next object but it can also return NULL if the pointer is pointing to
+// the end of the page.
+DLLEXPORT jl_taggedvalue_t *jl_gc_find_taggedvalue_pool(char *p,
+                                                        size_t *osize_p)
+{
+    region_t *r = find_region(p, 1);
+    // Not in the pool
+    if (!r)
+        return NULL;
+    char *page_begin = GC_PAGE_DATA(p) + GC_PAGE_OFFSET;
+    // In the page header
+    if (p < page_begin)
+        return NULL;
+    size_t ofs = p - page_begin;
+    int pg_idx = PAGE_INDEX(r, p);
+    // Check if this is a free page
+    if (r->freemap[pg_idx / 32] & (uint32_t)(1 << (pg_idx % 32)))
+        return NULL;
+    gcpage_t *pagemeta = &r->meta[pg_idx];
+    int osize = pagemeta->osize;
+    // Shouldn't be needed, just in case
+    if (osize == 0)
+        return NULL;
+    char *tag = (char*)p - ofs % osize;
+    // Points to an "object" that gets into the next page
+    if (tag + osize > GC_PAGE_DATA(p) + GC_PAGE_SZ)
+        return NULL;
+    if (osize_p)
+        *osize_p = osize;
+    return (jl_taggedvalue_t*)tag;
+}
+
 #ifdef GC_DEBUG_ENV
 #include <inttypes.h>
 #include <stdio.h>
@@ -194,7 +229,7 @@ static void gc_verify(void)
     for(int i = 0; i < clean_len + bits_save[GC_QUEUED].len; i++) {
         gcval_t* v = (gcval_t*)bits_save[i >= clean_len ? GC_QUEUED : GC_CLEAN].items[i >= clean_len ? i - clean_len : i];
         if (gc_marked(v)) {
-            jl_printf(JL_STDERR, "Error. Early free of 0x%lx type :", (uptrint_t)v);
+            jl_printf(JL_STDERR, "Error. Early free of %p type :", v);
             jl_(jl_typeof(jl_valueof(v)));
             jl_printf(JL_STDERR, "val : ");
             jl_(jl_valueof(v));
@@ -262,8 +297,10 @@ static int gc_debug_alloc_check(jl_alloc_num_t *num)
     return ((num->num - num->min) % num->interv) == 0;
 }
 
+static char *gc_stack_lo;
 static void gc_debug_init()
 {
+    gc_stack_lo = (char*)gc_get_stack_ptr();
     char *env = getenv("JL_GC_NO_GENERATIONAL");
     if (env && strcmp(env, "0") != 0) {
         gc_debug_env.sweep_mask = GC_MARKED;
@@ -301,6 +338,37 @@ static inline void gc_debug_print()
     gc_debug_print_status();
 }
 
+static void gc_scrub_range(char *stack_lo, char *stack_hi)
+{
+    stack_lo = (char*)((uintptr_t)stack_lo & ~(uintptr_t)15);
+    for (char **stack_p = (char**)stack_lo;
+         stack_p > (char**)stack_hi;stack_p--) {
+        char *p = *stack_p;
+        size_t osize;
+        jl_taggedvalue_t *tag = jl_gc_find_taggedvalue_pool(p, &osize);
+        if (osize <= sizeof_jl_taggedvalue_t || !tag || gc_marked(tag))
+            continue;
+        gcpage_t *pg = page_metadata(tag);
+        // Make sure the sweep rebuild the freelist
+        pg->allocd = 1;
+        pg->gc_bits = 0x3;
+        // Find the age bit
+        char *page_begin = GC_PAGE_DATA(tag) + GC_PAGE_OFFSET;
+        int obj_id = (((char*)tag) - page_begin) / osize;
+        uint8_t *ages = pg->ages + obj_id / 8;
+        // Force this to be a young object to save some memory
+        // (especially on 32bit where it's more likely to have pointer-like
+        //  bit patterns)
+        *ages &= ~(1 << (obj_id % 8));
+        memset(tag, 0xff, osize);
+    }
+}
+
+static void gc_scrub(char *stack_hi)
+{
+    gc_scrub_range(gc_stack_lo, stack_hi);
+}
+
 #else
 
 static inline int gc_debug_check_other()
@@ -319,6 +387,11 @@ static inline void gc_debug_print()
 
 static inline void gc_debug_init()
 {
+}
+
+static void gc_scrub(char *stack_hi)
+{
+    (void)stack_hi;
 }
 
 #endif

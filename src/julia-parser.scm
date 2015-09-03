@@ -16,7 +16,7 @@
 (define prec-colon       '(: |..|))
 (define prec-plus        '(+ - ⊕ ⊖ ⊞ ⊟ |.+| |.-| |++| |\|| ∪ ∨ $ ⊔ ± ∓ ∔ ∸ ≂ ≏ ⊎ ⊻ ⊽ ⋎ ⋓ ⧺ ⧻ ⨈ ⨢ ⨣ ⨤ ⨥ ⨦ ⨧ ⨨ ⨩ ⨪ ⨫ ⨬ ⨭ ⨮ ⨹ ⨺ ⩁ ⩂ ⩅ ⩊ ⩌ ⩏ ⩐ ⩒ ⩔ ⩖ ⩗ ⩛ ⩝ ⩡ ⩢ ⩣))
 (define prec-bitshift    '(<< >> >>> |.<<| |.>>| |.>>>|))
-(define prec-times       '(* / |./| ÷ % ⋅ ∘ × |.%| |.*| |\\| |.\\| & ∩ ∧ ⊗ ⊘ ⊙ ⊚ ⊛ ⊠ ⊡ ⊓ ∗ ∙ ∤ ⅋ ≀ ⊼ ⋄ ⋆ ⋇ ⋉ ⋊ ⋋ ⋌ ⋏ ⋒ ⟑ ⦸ ⦼ ⦾ ⦿ ⧶ ⧷ ⨇ ⨰ ⨱ ⨲ ⨳ ⨴ ⨵ ⨶ ⨷ ⨸ ⨻ ⨼ ⨽ ⩀ ⩃ ⩄ ⩋ ⩍ ⩎ ⩑ ⩓ ⩕ ⩘ ⩚ ⩜ ⩞ ⩟ ⩠ ⫛ ⊍))
+(define prec-times       '(* / |./| ÷ |.÷| % ⋅ ∘ × |.%| |.*| |\\| |.\\| & ∩ ∧ ⊗ ⊘ ⊙ ⊚ ⊛ ⊠ ⊡ ⊓ ∗ ∙ ∤ ⅋ ≀ ⊼ ⋄ ⋆ ⋇ ⋉ ⋊ ⋋ ⋌ ⋏ ⋒ ⟑ ⦸ ⦼ ⦾ ⦿ ⧶ ⧷ ⨇ ⨰ ⨱ ⨲ ⨳ ⨴ ⨵ ⨶ ⨷ ⨸ ⨻ ⨼ ⨽ ⩀ ⩃ ⩄ ⩋ ⩍ ⩎ ⩑ ⩓ ⩕ ⩘ ⩚ ⩜ ⩞ ⩟ ⩠ ⫛ ⊍))
 (define prec-rational    '(// .//))
 (define prec-power       '(^ |.^| ↑ ↓ ⇵ ⟰ ⟱ ⤈ ⤉ ⤊ ⤋ ⤒ ⤓ ⥉ ⥌ ⥍ ⥏ ⥑ ⥔ ⥕ ⥘ ⥙ ⥜ ⥝ ⥠ ⥡ ⥣ ⥥ ⥮ ⥯ ￪ ￬))
 (define prec-decl        '(|::|))
@@ -705,12 +705,12 @@
 
 (define (parse-block s (down parse-eq))
   (parse-Nary s down '(#\newline #\;) 'block
-	      '(end else elseif catch finally) #t))
+              '(end else elseif catch finally) #t))
 
 ;; ";" at the top level produces a sequence of top level expressions
 (define (parse-stmts s)
   (let ((ex (parse-Nary s (lambda (s) (parse-docstring s parse-eq))
-			'(#\;) 'toplevel '(#\newline) #t)))
+                        '(#\;) 'toplevel '(#\newline) #t)))
     ;; check for unparsed junk after an expression
     (let ((t (peek-token s)))
       (if (not (or (eof-object? t) (eqv? t #\newline) (eq? t #f)))
@@ -2039,14 +2039,17 @@
            (with-space-sensitive
             (let* ((head (parse-unary-prefix s))
                    (t    (peek-token s)))
-              (if (ts:space? s)
+              (cond
+                 ((eqv? head '__LINE__) (input-port-line (ts:port s)))
+                 ((ts:space? s)
                   `(macrocall ,(macroify-name head)
-                              ,@(parse-space-separated-exprs s))
-                  (let ((call (parse-call-chain s head #t)))
-                    (if (and (pair? call) (eq? (car call) 'call))
+                              ,@(parse-space-separated-exprs s)))
+                 (else
+                   (let ((call (parse-call-chain s head #t)))
+                      (if (and (pair? call) (eq? (car call) 'call))
                         `(macrocall ,(macroify-name (cadr call)) ,@(cddr call))
                         `(macrocall ,(macroify-name call)
-                                    ,@(parse-space-separated-exprs s))))))))
+                                    ,@(parse-space-separated-exprs s)))))))))
 
           ;; command syntax
           ((eqv? t #\`)
@@ -2071,17 +2074,21 @@
 
 (define (doc-string-literal? e)
   (or (simple-string-literal? e)
+      (and (pair? e) (eq? 'string (car e))) ; string interpolation
       (and (length= e 3) (eq? (car e) 'macrocall)
-	   (simple-string-literal? (caddr e))
-	   (eq? (cadr e) '@doc_str))))
+           (simple-string-literal? (caddr e))
+           (eq? (cadr e) '@doc_str))))
 
 (define (parse-docstring s production)
-  (let* ((isstr (eqv? (peek-token s) #\"))
-	 (ex    (production s)))
-    (if (and (or isstr (doc-string-literal? ex))
-	     (not (closing-token? (peek-token s))))
-	`(macrocall (|.| Base (quote @doc)) ,ex ,(production s))
-	ex)))
+  (let* ((ex (production s)))
+    (if (and (doc-string-literal? ex)
+             (let loop ((t (peek-token s)))
+               (cond
+                ((closing-token? t) #f)
+                ((newline? t) (take-token s) (loop (peek-token s)))
+                (else #t))))
+        `(macrocall @doc ,ex ,(production s))
+        ex)))
 
 ; --- main entry point ---
 

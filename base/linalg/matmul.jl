@@ -9,8 +9,11 @@ arithtype(::Type{Bool}) = Int
 function scale!(C::AbstractMatrix, A::AbstractMatrix, b::AbstractVector)
     m, n = size(A)
     p, q = size(C)
-    if n != length(b) || p != m || q != n
-        throw(DimensionMismatch())
+    if size(A) != size(C)
+        throw(DimensionMismatch("size of A, $(size(A)), does not match size of C, $(size(C))"))
+    end
+    if n != length(b)
+        throw(DimensionMismatch("second dimension of A, $n, does not match length of b, $(length(b))"))
     end
     @inbounds for j = 1:n
         bj = b[j]
@@ -24,8 +27,11 @@ end
 function scale!(C::AbstractMatrix, b::AbstractVector, A::AbstractMatrix)
     m, n = size(A)
     p, q = size(C)
-    if m != length(b) || p != m || q != n
-        throw(DimensionMismatch())
+    if size(A) != size(C)
+        throw(DimensionMismatch("size of A, $(size(A)), does not match size of C, $(size(C))"))
+    end
+    if m != length(b)
+        throw(DimensionMismatch("first dimension of A, $m, does not match length of b, $(length(b))"))
     end
     @inbounds for j = 1:n, i = 1:m
         C[i,j] = A[i,j]*b[i]
@@ -39,17 +45,29 @@ scale(b::Vector, A::Matrix) = scale!(similar(b, promote_type(eltype(A),eltype(b)
 
 vecdot{T<:BlasReal}(x::Union{DenseArray{T},StridedVector{T}}, y::Union{DenseArray{T},StridedVector{T}}) = BLAS.dot(x, y)
 vecdot{T<:BlasComplex}(x::Union{DenseArray{T},StridedVector{T}}, y::Union{DenseArray{T},StridedVector{T}}) = BLAS.dotc(x, y)
+
 function dot{T<:BlasReal, TI<:Integer}(x::Vector{T}, rx::Union{UnitRange{TI},Range{TI}}, y::Vector{T}, ry::Union{UnitRange{TI},Range{TI}})
-    length(rx)==length(ry) || throw(DimensionMismatch())
-    if minimum(rx) < 1 || maximum(rx) > length(x) || minimum(ry) < 1 || maximum(ry) > length(y)
-        throw(BoundsError())
+    if length(rx) != length(ry)
+        throw(DimensionMismatch("length of rx, $(length(rx)), does not equal length of ry, $(length(ry))"))
+    end
+    if minimum(rx) < 1 || maximum(rx) > length(x)
+        throw(BoundsError(x, rx))
+    end
+    if minimum(ry) < 1 || maximum(ry) > length(y)
+        throw(BoundsError(y, ry))
     end
     BLAS.dot(length(rx), pointer(x)+(first(rx)-1)*sizeof(T), step(rx), pointer(y)+(first(ry)-1)*sizeof(T), step(ry))
 end
+
 function dot{T<:BlasComplex, TI<:Integer}(x::Vector{T}, rx::Union{UnitRange{TI},Range{TI}}, y::Vector{T}, ry::Union{UnitRange{TI},Range{TI}})
-    length(rx)==length(ry) || throw(DimensionMismatch())
-    if minimum(rx) < 1 || maximum(rx) > length(x) || minimum(ry) < 1 || maximum(ry) > length(y)
-        throw(BoundsError())
+    if length(rx) != length(ry)
+        throw(DimensionMismatch("length of rx, $(length(rx)), does not equal length of ry, $(length(ry))"))
+    end
+    if minimum(rx) < 1 || maximum(rx) > length(x)
+        throw(BoundsError(x, rx))
+    end
+    if minimum(ry) < 1 || maximum(ry) > length(y)
+        throw(BoundsError(y, ry))
     end
     BLAS.dotc(length(rx), pointer(x)+(first(rx)-1)*sizeof(T), step(rx), pointer(y)+(first(ry)-1)*sizeof(T), step(ry))
 end
@@ -202,10 +220,10 @@ end
 function gemv!{T<:BlasFloat}(y::StridedVector{T}, tA::Char, A::StridedVecOrMat{T}, x::StridedVector{T})
     mA, nA = lapack_size(tA, A)
     if nA != length(x)
-        throw(DimensionMismatch())
+        throw(DimensionMismatch("second dimension of A, $nA, does not match length of x, $(length(x))"))
     end
     if mA != length(y)
-        throw(DimensionMismatch())
+        throw(DimensionMismatch("first dimension of A, $mA, does not match length of y, $(length(y))"))
     end
     if mA == 0
         return y
@@ -292,7 +310,7 @@ function gemm_wrapper!{T<:BlasFloat}(C::StridedVecOrMat{T}, tA::Char, tB::Char,
     mB, nB = lapack_size(tB, B)
 
     if nA != mB
-        throw(DimensionMismatch("A has dimensions ($mA,$nA) but B has dimensions ($mB, $nB)"))
+        throw(DimensionMismatch("A has dimensions ($mA,$nA) but B has dimensions ($mB,$nB)"))
     end
 
     if mA == 0 || nA == 0 || nB == 0
@@ -348,19 +366,22 @@ function generic_matvecmul!{T,S,R}(C::AbstractVector{R}, tA, A::AbstractVecOrMat
     mB = length(B)
     mA, nA = lapack_size(tA, A)
     if mB != nA
-        throw(DimensionMismatch("Matrix A has dimensions ($mA,$nA), vector B has length $mB"))
+        throw(DimensionMismatch("matrix A has dimensions ($mA,$nA), vector B has length $mB"))
     end
     if mA != length(C)
-        throw(DimensionMismatch("Result C has length $(length(C)), needs length $mA"))
+        throw(DimensionMismatch("result C has length $(length(C)), needs length $mA"))
     end
-    z = zero(R)
 
     Astride = size(A, 1)
 
     if tA == 'T'  # fastest case
         for k = 1:mA
             aoffs = (k-1)*Astride
-            s = z
+            if mB == 0
+                s = zero(R)
+            else
+                s = zero(A[aoffs + 1]*B[1] + A[aoffs + 1]*B[1])
+            end
             for i = 1:nA
                 s += A[aoffs+i].'B[i]
             end
@@ -369,19 +390,29 @@ function generic_matvecmul!{T,S,R}(C::AbstractVector{R}, tA, A::AbstractVecOrMat
     elseif tA == 'C'
         for k = 1:mA
             aoffs = (k-1)*Astride
-            s = z
+            if mB == 0
+                s = zero(R)
+            else
+                s = zero(A[aoffs + 1]*B[1] + A[aoffs + 1]*B[1])
+            end
             for i = 1:nA
-                s += A[aoffs+i]'B[i]
+                s += A[aoffs + i]'B[i]
             end
             C[k] = s
         end
     else # tA == 'N'
-        fill!(C, z)
+        for i = 1:mA
+            if mB == 0
+                C[i] = zero(R)
+            else
+                C[i] = zero(A[i]*B[1] + A[i]*B[1])
+            end
+        end
         for k = 1:mB
             aoffs = (k-1)*Astride
             b = B[k]
             for i = 1:mA
-                C[i] += A[aoffs+i] * b
+                C[i] += A[aoffs + i] * b
             end
         end
     end
@@ -404,10 +435,10 @@ function generic_matmatmul!{T,S,R}(C::AbstractVecOrMat{R}, tA, tB, A::AbstractVe
     mA, nA = lapack_size(tA, A)
     mB, nB = lapack_size(tB, B)
     if mB != nA
-        throw(DimensionMismatch("Matrix A has dimensions ($mA, $nB), matrix B has dimensions ($mB, $nB)"))
+        throw(DimensionMismatch("matrix A has dimensions ($mA, $nB), matrix B has dimensions ($mB, $nB)"))
     end
     if size(C,1) != mA || size(C,2) != nB
-        throw(DimensionMismatch("Result C has dimensions $(size(C)), needs ($mA, $nB)"))
+        throw(DimensionMismatch("result C has dimensions $(size(C)), needs ($mA, $nB)"))
     end
 
     if mA == nA == nB == 2
@@ -472,27 +503,40 @@ function generic_matmatmul!{T,S,R}(C::AbstractVecOrMat{R}, tA, tB, A::AbstractVe
         end
     else
         # Multiplication for non-plain-data uses the naive algorithm
+
         if tA == 'N'
             if tB == 'N'
                 for i = 1:mA, j = 1:nB
-                    Ctmp = A[i, 1]*B[1, j]
-                    for k = 2:nA
+                    if length(A) == 0 || length(B) == 0
+                        Ctmp = zero(R)
+                    else
+                        Ctmp = zero(A[i, 1]*B[1, j] + A[i, 1]*B[1, j])
+                    end
+                    for k = 1:nA
                         Ctmp += A[i, k]*B[k, j]
                     end
                     C[i,j] = Ctmp
                 end
             elseif tB == 'T'
                 for i = 1:mA, j = 1:nB
-                    Ctmp = A[i, 1]*B[j, 1].'
-                    for k = 2:nA
+                    if length(A) == 0 || length(B) == 0
+                        Ctmp = zero(R)
+                    else
+                        Ctmp = zero(A[i, 1]*B[j, 1] + A[i, 1]*B[j, 1])
+                    end
+                    for k = 1:nA
                         Ctmp += A[i, k]*B[j, k].'
                     end
                     C[i,j] = Ctmp
                 end
             else
                 for i = 1:mA, j = 1:nB
-                    Ctmp = A[i, 1]*B[j, 1]'
-                    for k = 2:nA
+                    if length(A) == 0 || length(B) == 0
+                        Ctmp = zero(R)
+                    else
+                        Ctmp = zero(A[i, 1]*B[j, 1] + A[i, 1]*B[j, 1])
+                    end
+                    for k = 1:nA
                         Ctmp += A[i, k]*B[j, k]'
                     end
                     C[i,j] = Ctmp
@@ -501,24 +545,36 @@ function generic_matmatmul!{T,S,R}(C::AbstractVecOrMat{R}, tA, tB, A::AbstractVe
         elseif tA == 'T'
             if tB == 'N'
                 for i = 1:mA, j = 1:nB
-                    Ctmp = A[1, i].'B[1, j]
-                    for k = 2:nA
+                    if length(A) == 0 || length(B) == 0
+                        Ctmp = zero(R)
+                    else
+                        Ctmp = zero(A[1, i]*B[1, j] + A[1, i]*B[1, j])
+                    end
+                    for k = 1:nA
                         Ctmp += A[k, i].'B[k, j]
                     end
                     C[i,j] = Ctmp
                 end
             elseif tB == 'T'
                 for i = 1:mA, j = 1:nB
-                    Ctmp = A[1, i].'B[j, 1].'
-                    for k = 2:nA
+                    if length(A) == 0 || length(B) == 0
+                        Ctmp = zero(R)
+                    else
+                        Ctmp = zero(A[1, i]*B[j, 1] + A[1, i]*B[j, 1])
+                    end
+                    for k = 1:nA
                         Ctmp += A[k, i].'B[j, k].'
                     end
                     C[i,j] = Ctmp
                 end
             else
                 for i = 1:mA, j = 1:nB
-                    Ctmp = A[1, i].'B[j, 1]'
-                    for k = 2:nA
+                    if length(A) == 0 || length(B) == 0
+                        Ctmp = zero(R)
+                    else
+                        Ctmp = zero(A[1, i]*B[j, 1] + A[1, i]*B[j, 1])
+                    end
+                    for k = 1:nA
                         Ctmp += A[k, i].'B[j, k]'
                     end
                     C[i,j] = Ctmp
@@ -527,24 +583,36 @@ function generic_matmatmul!{T,S,R}(C::AbstractVecOrMat{R}, tA, tB, A::AbstractVe
         else
             if tB == 'N'
                 for i = 1:mA, j = 1:nB
-                    Ctmp = A[1, i]'B[1, j]
-                    for k = 2:nA
+                    if length(A) == 0 || length(B) == 0
+                        Ctmp = zero(R)
+                    else
+                        Ctmp = zero(A[1, i]*B[1, j] + A[1, i]*B[1, j])
+                    end
+                    for k = 1:nA
                         Ctmp += A[k, i]'B[k, j]
                     end
                     C[i,j] = Ctmp
                 end
             elseif tB == 'T'
                 for i = 1:mA, j = 1:nB
-                    Ctmp = A[1, i]'B[j, 1].'
-                    for k = 2:nA
+                    if length(A) == 0 || length(B) == 0
+                        Ctmp = zero(R)
+                    else
+                        Ctmp = zero(A[1, i]*B[j, 1] + A[1, i]*B[j, 1])
+                    end
+                    for k = 1:nA
                         Ctmp += A[k, i]'B[j, k].'
                     end
                     C[i,j] = Ctmp
                 end
             else
                 for i = 1:mA, j = 1:nB
-                    Ctmp = A[1, i]'B[j, 1]'
-                    for k = 2:nA
+                    if length(A) == 0 || length(B) == 0
+                        Ctmp = zero(R)
+                    else
+                        Ctmp = zero(A[1, i]*B[j, 1] + A[1, i]*B[j, 1])
+                    end
+                    for k = 1:nA
                         Ctmp += A[k, i]'B[j, k]'
                     end
                     C[i,j] = Ctmp

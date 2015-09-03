@@ -2,18 +2,19 @@
 
 # Base.require is the implementation for the `import` statement
 
-# `wd` is a working directory to search. from the top level (e.g the prompt)
-# it's just the cwd, otherwise it will be set to source_dir().
+# `wd` is a working directory to search. defaults to current working directory.
+# if `wd === nothing`, no extra path is searched.
 function find_in_path(name::AbstractString, wd = pwd())
     isabspath(name) && return name
-    if wd === nothing; wd = pwd(); end
     base = name
     if endswith(name,".jl")
         base = name[1:end-3]
     else
         name = string(base,".jl")
     end
-    isfile(joinpath(wd,name)) && return joinpath(wd,name)
+    if wd !== nothing
+        isfile(joinpath(wd,name)) && return joinpath(wd,name)
+    end
     for prefix in [Pkg.dir(); LOAD_PATH]
         path = joinpath(prefix, name)
         isfile(path) && return abspath(path)
@@ -43,7 +44,7 @@ end
 
 function find_all_in_cache_path(mod::Symbol)
     name = string(mod)
-    paths = String[]
+    paths = AbstractString[]
     for prefix in LOAD_CACHE_PATH
         path = joinpath(prefix, name*".ji")
         if isfile(path)
@@ -54,7 +55,7 @@ function find_all_in_cache_path(mod::Symbol)
 end
 
 function _include_from_serialized(content::Vector{UInt8})
-    return ccall(:jl_restore_incremental_from_buf, Any, (Ptr{Uint8},Int), content, sizeof(content))
+    return ccall(:jl_restore_incremental_from_buf, Any, (Ptr{UInt8},Int), content, sizeof(content))
 end
 
 # returns an array of modules loaded, or nothing if failed
@@ -80,7 +81,7 @@ function _require_from_serialized(node::Int, mod::Symbol, path_to_try::ByteStrin
         end
     elseif node == myid()
         myid() == 1 && recompile_stale(mod, path_to_try)
-        restored = ccall(:jl_restore_incremental, Any, (Ptr{Uint8},), path_to_try)
+        restored = ccall(:jl_restore_incremental, Any, (Ptr{UInt8},), path_to_try)
     else
         content = remotecall_fetch(node, open, readbytes, path_to_try)
         restored = _include_from_serialized(content)
@@ -98,7 +99,11 @@ function _require_from_serialized(node::Int, mod::Symbol, path_to_try::ByteStrin
 end
 
 function _require_from_serialized(node::Int, mod::Symbol, toplevel_load::Bool)
-    paths = @fetchfrom node find_all_in_cache_path(mod)
+    if node == myid()
+        paths = find_all_in_cache_path(mod)
+    else
+        paths = @fetchfrom node find_all_in_cache_path(mod)
+    end
     sort!(paths, by=mtime, rev=true) # try newest cachefiles first
     for path_to_try in paths
         restored = _require_from_serialized(node, mod, path_to_try, toplevel_load)
@@ -116,13 +121,14 @@ const package_locks = Dict{Symbol,Condition}()
 const package_loaded = Set{Symbol}()
 
 # used to optionally track dependencies when requiring a module:
-const _require_dependencies = ByteString[]
+const _require_dependencies = Tuple{ByteString,Float64}[]
 const _track_dependencies = [false]
 function _include_dependency(_path::AbstractString)
     prev = source_path(nothing)
     path = (prev === nothing) ? abspath(_path) : joinpath(dirname(prev),_path)
-    if _track_dependencies[1]
-        push!(_require_dependencies, abspath(path))
+    if myid() == 1 && _track_dependencies[1]
+        apath = abspath(path)
+        push!(_require_dependencies, (apath, mtime(apath)))
     end
     return path, prev
 end
@@ -144,13 +150,15 @@ function show(io::IO, ex::PrecompilableError)
     end
 end
 precompilableerror(ex::PrecompilableError, c) = ex.isprecompilable == c
-precompilableerror(ex::LoadError, c) = precompilableerror(ex.error, c)
+precompilableerror(ex::WrappedException, c) = precompilableerror(ex.error, c)
 precompilableerror(ex, c) = false
 
-# put at the top of a file to force it to be precompiled (true), or
-# to be prevent it from being precompiled (false).
+# Call __precompile__ at the top of a file to force it to be precompiled (true), or
+# to be prevent it from being precompiled (false).  __precompile__(true) is
+# ignored except within "require" call.
 function __precompile__(isprecompilable::Bool=true)
-    if myid() == 1 && isprecompilable != (0 != ccall(:jl_generating_output, Cint, ()))
+    if myid() == 1 && isprecompilable != (0 != ccall(:jl_generating_output, Cint, ())) &&
+        !(isprecompilable && toplevel_load::Bool)
         throw(PrecompilableError(isprecompilable))
     end
 end
@@ -188,7 +196,7 @@ function require(mod::Symbol)
         end
 
         name = string(mod)
-        path = find_in_node_path(name, source_dir(), 1)
+        path = find_in_node_path(name, nothing, 1)
         path === nothing && throw(ArgumentError("$name not found in path"))
         try
             if last && myid() == 1 && nprocs() > 1
@@ -286,45 +294,52 @@ end
 evalfile(path::AbstractString, args::Vector) = evalfile(path, UTF8String[args...])
 
 function create_expr_cache(input::AbstractString, output::AbstractString)
+    isfile(output) && rm(output)
     code_object = """
         while !eof(STDIN)
             eval(Main, deserialize(STDIN))
         end
         """
     io, pobj = open(detach(`$(julia_cmd())
-            --output-ji $output --output-incremental=yes
-            --startup-file=no --history-file=no
-            --eval $code_object`), "w", STDOUT)
-    serialize(io, quote
-        empty!(Base.LOAD_PATH)
-        append!(Base.LOAD_PATH, $LOAD_PATH)
-        empty!(Base.LOAD_CACHE_PATH)
-        append!(Base.LOAD_CACHE_PATH, $LOAD_CACHE_PATH)
-        empty!(Base.DL_LOAD_PATH)
-        append!(Base.DL_LOAD_PATH, $DL_LOAD_PATH)
-    end)
-    source = source_path(nothing)
-    if source !== nothing
+                           --output-ji $output --output-incremental=yes
+                           --startup-file=no --history-file=no
+                           --eval $code_object`), "w", STDOUT)
+    try
         serialize(io, quote
-            task_local_storage()[:SOURCE_PATH] = $(source)
-        end)
+                  empty!(Base.LOAD_PATH)
+                  append!(Base.LOAD_PATH, $LOAD_PATH)
+                  empty!(Base.LOAD_CACHE_PATH)
+                  append!(Base.LOAD_CACHE_PATH, $LOAD_CACHE_PATH)
+                  empty!(Base.DL_LOAD_PATH)
+                  append!(Base.DL_LOAD_PATH, $DL_LOAD_PATH)
+                  end)
+        source = source_path(nothing)
+        if source !== nothing
+            serialize(io, quote
+                      task_local_storage()[:SOURCE_PATH] = $(source)
+                      end)
+        end
+        serialize(io, :(Base._track_dependencies[1] = true))
+        serialize(io, :(Base.include($(abspath(input)))))
+        if source !== nothing
+            serialize(io, quote
+                      delete!(task_local_storage(), :SOURCE_PATH)
+                      end)
+        end
+        close(io)
+        wait(pobj)
+        return pobj
+    catch
+        kill(pobj)
+        close(io)
+        rethrow()
     end
-    serialize(io, :(Base._track_dependencies[1] = true))
-    serialize(io, :(Base.include($(abspath(input)))))
-    if source !== nothing
-        serialize(io, quote
-            delete!(task_local_storage(), :SOURCE_PATH)
-        end)
-    end
-    close(io)
-    wait(pobj)
-    return pobj
 end
 
 compilecache(mod::Symbol) = compilecache(string(mod))
 function compilecache(name::ByteString)
     myid() == 1 || error("can only precompile from node 1")
-    path = find_in_path(name)
+    path = find_in_path(name, nothing)
     path === nothing && throw(ArgumentError("$name not found in path"))
     cachepath = LOAD_CACHE_PATH[1]
     if !isdir(cachepath)
@@ -343,7 +358,7 @@ isvalid_cache_header(f::IOStream) = 0 != ccall(:jl_deserialize_verify_header, Ci
 
 function cache_dependencies(f::IO)
     modules = Tuple{Symbol,UInt64}[]
-    files = ByteString[]
+    files = Tuple{ByteString,Float64}[]
     while true
         n = ntoh(read(f, Int32))
         n == 0 && break
@@ -355,7 +370,7 @@ function cache_dependencies(f::IO)
     while true
         n = ntoh(read(f, Int32))
         n == 0 && break
-        push!(files, bytestring(readbytes(f, n)))
+        push!(files, (bytestring(readbytes(f, n)), ntoh(read(f, Float64))))
     end
     return modules, files
 end
@@ -370,15 +385,18 @@ function cache_dependencies(cachefile::AbstractString)
     end
 end
 
-function stale_cachefile(cachefile::AbstractString, cachefile_mtime::Real=mtime(cachefile))
+function stale_cachefile(modpath, cachefile)
     io = open(cachefile, "r")
     try
         if !isvalid_cache_header(io)
             return true # invalid cache file
         end
         modules, files = cache_dependencies(io)
-        for f in files
-            if mtime(f) > cachefile_mtime
+        if files[1][1] != modpath
+            return true # cache file was compiled from a different path
+        end
+        for (f,ftime) in files
+            if mtime(f) != ftime
                 return true
             end
         end
@@ -398,9 +416,15 @@ function stale_cachefile(cachefile::AbstractString, cachefile_mtime::Real=mtime(
 end
 
 function recompile_stale(mod, cachefile)
-    cachestat = stat(cachefile)
-    if iswritable(cachestat) && stale_cachefile(cachefile, cachestat.mtime)
+    path = find_in_path(string(mod), nothing)
+    if path === nothing
+        rm(cachefile)
+        error("module $mod not found in current path; removed orphaned cache file $cachefile")
+    end
+    if stale_cachefile(path, cachefile)
         info("Recompiling stale cache file $cachefile for module $mod.")
-        create_expr_cache(find_in_path(string(mod)), cachefile)
+        if !success(create_expr_cache(path, cachefile))
+            error("Failed to precompile $mod to $cachefile")
+        end
     end
 end

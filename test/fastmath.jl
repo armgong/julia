@@ -143,7 +143,7 @@ for T in (Complex64, Complex128, Complex{BigFloat})
     rtol = Base.rtoldefault(real(T))
 
     for f in (:+, :-, :abs, :abs2, :conj, :inv, :sign,
-              :acos, :acosh, :asin, :asinh, :atan, :atanh, :cos,
+              :acos, :acosh, :asin, :asinh, :atan, :atanh, :cis, :cos,
               :cosh, :exp10, :exp2, :exp, :expm1, :log10, :log1p,
               :log2, :log, :sin, :sinh, :sqrt, :tan, :tanh)
         @test isapprox((@eval @fastmath $f($half)), (@eval $f($half)), rtol=rtol)

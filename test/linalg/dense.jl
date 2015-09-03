@@ -24,6 +24,7 @@ for elty in (Float32, Float64, Complex64, Complex128)
     @test_approx_eq_eps cond(a, 2) 1.960057871514615e+02 0.01
     @test_approx_eq_eps cond(a, Inf) 3.757017682707787e+02 0.01
     @test_approx_eq_eps cond(a[:,1:5]) 10.233059337453463 0.01
+    @test_throws ArgumentError cond(a,3)
 end
 
 areal = randn(n,n)/2
@@ -40,6 +41,7 @@ for eltya in (Float32, Float64, Complex64, Complex128, Int)
     apd  = a'*a                 # symmetric positive-definite
     ε = εa = eps(abs(float(one(eltya))))
 
+    @test isposdef(apd,:U)
     for eltyb in (Float32, Float64, Complex64, Complex128, Int)
         b = eltyb == Int ? rand(1:5, n, 2) : convert(Matrix{eltyb}, eltyb <: Complex ? complex(breal, bimg) : breal)
         εb = eps(abs(float(one(eltyb))))
@@ -53,6 +55,7 @@ debug && println("Solve square general system of equations")
     @test_throws DimensionMismatch b'\b
     @test_throws DimensionMismatch b\b'
     @test norm(a*x - b, 1)/norm(b) < ε*κ*n*2 # Ad hoc, revisit!
+    @test zeros(eltya,n)\ones(eltya,n) ≈ zeros(eltya,n,1)\ones(eltya,n,1)
 
 
 debug && println("Test nullspace")
@@ -61,12 +64,15 @@ debug && println("Test nullspace")
         @test_approx_eq_eps norm(a[:,1:n1]'a15null, Inf) zero(eltya) 300ε
         @test_approx_eq_eps norm(a15null'a[:,1:n1], Inf) zero(eltya) 400ε
         @test size(nullspace(b), 2) == 0
+        @test nullspace(zeros(eltya,n)) == eye(eltya,1)
     end # for eltyb
 
 debug && println("Test pinv")
     pinva15 = pinv(a[:,1:n1])
     @test_approx_eq a[:,1:n1]*pinva15*a[:,1:n1] a[:,1:n1]
     @test_approx_eq pinva15*a[:,1:n1]*pinva15 pinva15
+
+    @test size(pinv(ones(eltya,0,0))) == (0,0)
 
 debug && println("Lyapunov/Sylvester")
     let
@@ -81,14 +87,55 @@ debug && println("Matrix square root")
     @test_approx_eq asq*asq a
     asymsq = sqrtm(asym)
     @test_approx_eq asymsq*asymsq asym
+
+debug && println("Numbers")
+    α = rand(eltya)
+    A = zeros(eltya,1,1)
+    A[1,1] = α
+    @test diagm(α) == A
+    @test expm(α) == exp(α)
+
+debug && println("Powers")
+    if eltya <: FloatingPoint
+        z = zero(eltya)
+        t = convert(eltya,2)
+        r = convert(eltya,2.5)
+        @test a^z ≈ eye(a)
+        @test a^t ≈ a^2
+        @test eye(eltya,n,n)^r ≈ eye(a)
+    end
+
+debug && println("Factorize")
+    d = rand(eltya,n)
+    e = rand(eltya,n-1)
+    e2 = rand(eltya,n-1)
+    f = rand(eltya,n-2)
+    A = diagm(d)
+    @test factorize(A) == Diagonal(d)
+    A += diagm(e,-1)
+    @test factorize(A) == Bidiagonal(d,e,false)
+    A += diagm(f,-2)
+    @test factorize(A) == LowerTriangular(A)
+    A = diagm(d) + diagm(e,1)
+    @test factorize(A) == Bidiagonal(d,e,true)
+    if eltya <: Real
+        A = diagm(d) + diagm(e,1) + diagm(e,-1)
+        @test full(factorize(A)) ≈ full(factorize(SymTridiagonal(d,e)))
+        A = diagm(d) + diagm(e,1) + diagm(e,-1) + diagm(f,2) + diagm(f,-2)
+        @test inv(factorize(A)) ≈ inv(factorize(Symmetric(A)))
+    end
+    A = diagm(d) + diagm(e,1) + diagm(e2,-1)
+    @test full(factorize(A)) ≈ full(factorize(Tridiagonal(e2,d,e)))
+    A = diagm(d) + diagm(e,1) + diagm(f,2)
+    @test factorize(A) == UpperTriangular(A)
 end # for eltya
 
 # test triu/tril bounds checking
 A = rand(5,7)
-@test_throws(BoundsError,triu(A,8))
-@test_throws(BoundsError,triu(A,-6))
-@test_throws(BoundsError,tril(A,8))
-@test_throws(BoundsError,tril(A,-6))
+@test_throws(ArgumentError,triu(A,8))
+@test_throws(ArgumentError,triu(A,-6))
+@test_throws(ArgumentError,tril(A,8))
+@test_throws(ArgumentError,tril(A,-6))
 
 # Test gradient
 for elty in (Int32, Int64, Float32, Float64, Complex64, Complex128)
@@ -100,6 +147,7 @@ for elty in (Int32, Int64, Float32, Float64, Complex64, Complex128)
         g = convert(Vector{elty}, complex(ones(3), ones(3)))
     end
     @test_approx_eq gradient(x) g
+    @test gradient(ones(elty,1)) == zeros(elty,1)
 end
 
 # Tests norms
@@ -119,6 +167,11 @@ for elty in (Float32, Float64, BigFloat, Complex{Float32}, Complex{Float64}, Com
     @test_approx_eq norm(x, 2) sqrt(10)
     @test_approx_eq norm(x, 3) cbrt(10)
     @test_approx_eq norm(x, Inf) 1
+    if elty <: Base.LinAlg.BlasFloat
+        @test_approx_eq norm(x, 1:4) 2
+        @test_throws BoundsError norm(x,-1:4)
+        @test_throws BoundsError norm(x,1:11)
+    end
     @test_approx_eq norm(xs, -Inf) 1
     @test_approx_eq norm(xs, -1) 1/5
     @test_approx_eq norm(xs, 0) 5
@@ -126,6 +179,14 @@ for elty in (Float32, Float64, BigFloat, Complex{Float32}, Complex{Float64}, Com
     @test_approx_eq norm(xs, 2) sqrt(5)
     @test_approx_eq norm(xs, 3) cbrt(5)
     @test_approx_eq norm(xs, Inf) 1
+
+    # Issue #12552:
+    if real(elty) <: AbstractFloat
+        for p in [-Inf,-1,1,2,3,Inf]
+            @test isnan(norm(elty[0,NaN],p))
+            @test isnan(norm(elty[NaN,0],p))
+        end
+    end
 
     ## Number
     norm(x[1:1]) === norm(x[1], -Inf)
@@ -324,14 +385,19 @@ for elty in (Float32, Float64, Complex64, Complex128)
                                  0.135335281175235 0.406005843524598 0.541341126763207]')
     @test_approx_eq expm(A3) eA3
 
+    A4 = convert(Matrix{elty}, [0.25 0.25; 0 0])
+    eA4 = convert(Matrix{elty}, [1.2840254166877416 0.2840254166877415; 0 1])
+    @test expm(A4) ≈ eA4
+
+    A5 = convert(Matrix{elty}, [0 0.02; 0 0])
+    eA5 = convert(Matrix{elty}, [1 0.02; 0 1])
+    @test expm(A5) ≈ eA5
+
     # Hessenberg
     @test_approx_eq hessfact(A1)[:H] convert(Matrix{elty},
                                              [4.000000000000000  -1.414213562373094  -1.414213562373095
                                               -1.414213562373095   4.999999999999996  -0.000000000000000
                                               0  -0.000000000000002   3.000000000000000])
-    @test_throws KeyError hessfact(A1)[:Z]
-    @test_approx_eq full(hessfact(A1)) A1
-    @test_approx_eq full(Base.LinAlg.HessenbergQ(hessfact(A1))) full(hessfact(A1)[:Q])
 end
 
 for elty in (Float64, Complex{Float64})
@@ -347,12 +413,12 @@ for elty in (Float64, Complex{Float64})
     A5  = convert(Matrix{elty}, [1 1 0 1; 0 1 1 0; 0 0 1 1; 1 0 0 1])
     @test_approx_eq expm(logm(A5)) A5
     s = readline(rd)
-    @test contains(s, "WARNING: Matrix with nonpositive real eigenvalues, a nonprimary matrix logarithm will be returned.")
+    @test contains(s, "WARNING: Matrix with nonpositive real eigenvalues, a nonprincipal matrix logarithm will be returned.")
 
     A6  = convert(Matrix{elty}, [-5 2 0 0 ; 1/2 -7 3 0; 0 1/3 -9 4; 0 0 1/4 -11])
     @test_approx_eq expm(logm(A6)) A6
     s = readline(rd)
-    @test contains(s, "WARNING: Matrix with nonpositive real eigenvalues, a nonprimary matrix logarithm will be returned.")
+    @test contains(s, "WARNING: Matrix with nonpositive real eigenvalues, a nonprincipal matrix logarithm will be returned.")
     redirect_stderr(OLD_STDERR)
 
     A7  = convert(Matrix{elty}, [1 0 0 1e-8; 0 1 0 0; 0 0 1 0; 0 0 0 1])
@@ -384,7 +450,7 @@ A = [ 1  5  9
       2  6 10
       3  7 11
       4  8 12 ]
-@test_throws BoundsError diag(A, -5)
+@test_throws ArgumentError diag(A, -5)
 @test diag(A,-4) == []
 @test diag(A,-3) == [4]
 @test diag(A,-2) == [3,8]
@@ -393,21 +459,21 @@ A = [ 1  5  9
 @test diag(A, 1) == [5,10]
 @test diag(A, 2) == [9]
 @test diag(A, 3) == []
-@test_throws BoundsError diag(A, 4)
+@test_throws ArgumentError diag(A, 4)
 
 @test diag(zeros(0,0)) == []
-@test_throws BoundsError diag(zeros(0,0),1)
-@test_throws BoundsError diag(zeros(0,0),-1)
+@test_throws ArgumentError diag(zeros(0,0),1)
+@test_throws ArgumentError diag(zeros(0,0),-1)
 
 @test diag(zeros(1,0)) == []
 @test diag(zeros(1,0),-1) == []
-@test_throws BoundsError diag(zeros(1,0),1)
-@test_throws BoundsError diag(zeros(1,0),-2)
+@test_throws ArgumentError diag(zeros(1,0),1)
+@test_throws ArgumentError diag(zeros(1,0),-2)
 
 @test diag(zeros(0,1)) == []
 @test diag(zeros(0,1),1) == []
-@test_throws BoundsError diag(zeros(0,1),-1)
-@test_throws BoundsError diag(zeros(0,1),2)
+@test_throws ArgumentError diag(zeros(0,1),-1)
+@test_throws ArgumentError diag(zeros(0,1),2)
 
 ## Least squares solutions
 a = [ones(20) 1:20 1:20]
@@ -438,3 +504,18 @@ for elty in (Float32, Float64, Complex64, Complex128)
     # symmetric, indefinite
     @test_approx_eq inv(convert(Matrix{elty}, [1. 2; 2 1])) convert(Matrix{elty}, [-1. 2; 2 -1]/3)
 end
+
+# test ops on Numbers
+for elty in [Float32,Float64,Complex64,Complex128]
+    a = rand(elty)
+    @test expm(a) == exp(a)
+    @test isposdef(one(elty))
+    @test sqrtm(a) == sqrt(a)
+    @test logm(a) ≈ log(a)
+    @test lyap(one(elty),a) == -a/2
+end
+
+# stride1
+a = rand(10)
+b = slice(a,2:2:10)
+@test Base.LinAlg.stride1(b) == 2

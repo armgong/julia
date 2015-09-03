@@ -119,27 +119,27 @@ function searchsorted(v::AbstractVector, x, ilo::Int, ihi::Int, o::Ordering)
         else
             a = searchsortedfirst(v, x, max(lo,ilo), m, o)
             b = searchsortedlast(v, x, m, min(hi,ihi), o)
-            return a:b
+            return a : b
         end
     end
-    return lo+1:hi-1
+    return (lo + 1) : (hi - 1)
 end
 
 function searchsortedlast{T<:Real}(a::Range{T}, x::Real, o::DirectOrdering)
     if step(a) == 0
         lt(o, x, first(a)) ? 0 : length(a)
     else
-        n = max(min(round(Integer,(x-first(a))/step(a))+1,length(a)),1)
-        lt(o, x, a[n]) ? n-1 : n
+        n = round(Integer, clamp((x - first(a)) / step(a) + 1, 1, length(a)))
+        lt(o, x, a[n]) ? n - 1 : n
     end
 end
 
 function searchsortedfirst{T<:Real}(a::Range{T}, x::Real, o::DirectOrdering)
     if step(a) == 0
-        lt(o, first(a), x) ? length(a)+1 : 1
+        lt(o, first(a), x) ? length(a) + 1 : 1
     else
-        n = max(min(round(Integer,(x-first(a))/step(a))+1,length(a)),1)
-        lt(o, a[n] ,x) ? n+1 : n
+        n = round(Integer, clamp((x - first(a)) / step(a) + 1, 1, length(a)))
+        lt(o, a[n] ,x) ? n + 1 : n
     end
 end
 
@@ -147,7 +147,7 @@ function searchsortedlast{T<:Integer}(a::Range{T}, x::Real, o::DirectOrdering)
     if step(a) == 0
         lt(o, x, first(a)) ? 0 : length(a)
     else
-        max(min(fld(floor(Integer,x)-first(a),step(a))+1,length(a)),0)
+        clamp( fld(floor(Integer, x) - first(a), step(a)) + 1, 0, length(a))
     end
 end
 
@@ -155,15 +155,15 @@ function searchsortedfirst{T<:Integer}(a::Range{T}, x::Real, o::DirectOrdering)
     if step(a) == 0
         lt(o, first(a), x) ? length(a)+1 : 1
     else
-        max(min(-fld(floor(Integer,-x)+first(a),step(a))+1,length(a)+1),1)
+        clamp(-fld(floor(Integer, -x) + first(a), step(a)) + 1, 1, length(a) + 1)
     end
 end
 
 function searchsortedfirst{T<:Integer}(a::Range{T}, x::Unsigned, o::DirectOrdering)
     if step(a) == 0
-        lt(o, first(a), x) ? length(a)+1 : 1
+        lt(o, first(a), x) ? length(a) + 1 : 1
     else
-        max(min(-fld(first(a)-signed(x),step(a))+1,length(a)+1),1)
+        clamp(-fld(first(a) - signed(x), step(a)) + 1, 1, length(a) + 1)
     end
 end
 
@@ -171,12 +171,12 @@ function searchsortedlast{T<:Integer}(a::Range{T}, x::Unsigned, o::DirectOrderin
     if step(a) == 0
         lt(o, x, first(a)) ? 0 : length(a)
     else
-        max(min(fld(signed(x)-first(a),step(a))+1,length(a)),0)
+        clamp( fld(signed(x) - first(a), step(a)) + 1, 0, length(a))
     end
 end
 
 searchsorted{T<:Real}(a::Range{T}, x::Real, o::DirectOrdering) =
-    searchsortedfirst(a,x,o):searchsortedlast(a,x,o)
+    searchsortedfirst(a, x, o) : searchsortedlast(a, x, o)
 
 for s in [:searchsortedfirst, :searchsortedlast, :searchsorted]
     @eval begin
@@ -195,9 +195,14 @@ immutable InsertionSortAlg <: Algorithm end
 immutable QuickSortAlg     <: Algorithm end
 immutable MergeSortAlg     <: Algorithm end
 
-immutable PartialQuickSort{T <: Union(Int,OrdinalRange)} <: Algorithm
+immutable PartialQuickSort{T <: Union{Int,OrdinalRange}} <: Algorithm
     k::T
 end
+
+Base.first(a::PartialQuickSort{Int}) = 1
+Base.last(a::PartialQuickSort{Int}) = a.k
+Base.first(a::PartialQuickSort) = first(a.k)
+Base.last(a::PartialQuickSort) = last(a.k)
 
 const InsertionSort = InsertionSortAlg()
 const QuickSort     = QuickSortAlg()
@@ -338,38 +343,42 @@ function sort!(v::AbstractVector, lo::Int, hi::Int, a::MergeSortAlg, o::Ordering
     return v
 end
 
-function sort!(v::AbstractVector, lo::Int, hi::Int, a::PartialQuickSort{Int},
+## TODO: When PartialQuickSort is parameterized by an Int, this version of sort
+##       has one less comparison per loop than the version below, but enabling
+##       it causes return type inference to fail for sort/sort! (#12833)
+##
+# function sort!(v::AbstractVector, lo::Int, hi::Int, a::PartialQuickSort{Int},
+#                o::Ordering)
+#     @inbounds while lo < hi
+#         hi-lo <= SMALL_THRESHOLD && return sort!(v, lo, hi, SMALL_ALGORITHM, o)
+#         j = partition!(v, lo, hi, o)
+#         if j >= a.k
+#             # we don't need to sort anything bigger than j
+#             hi = j-1
+#         elseif j-lo < hi-j
+#             # recurse on the smaller chunk
+#             # this is necessary to preserve O(log(n))
+#             # stack space in the worst case (rather than O(n))
+#             lo < (j-1) && sort!(v, lo, j-1, a, o)
+#             lo = j+1
+#         else
+#             (j+1) < hi && sort!(v, j+1, hi, a, o)
+#             hi = j-1
+#         end
+#     end
+#     return v
+# end
+
+
+function sort!(v::AbstractVector, lo::Int, hi::Int, a::PartialQuickSort,
                o::Ordering)
     @inbounds while lo < hi
         hi-lo <= SMALL_THRESHOLD && return sort!(v, lo, hi, SMALL_ALGORITHM, o)
         j = partition!(v, lo, hi, o)
-        if j >= a.k
-            # we don't need to sort anything bigger than j
-            hi = j-1
-        elseif j-lo < hi-j
-            # recurse on the smaller chunk
-            # this is necessary to preserve O(log(n))
-            # stack space in the worst case (rather than O(n))
-            lo < (j-1) && sort!(v, lo, j-1, a, o)
+
+        if j <= first(a)
             lo = j+1
-        else
-            (j+1) < hi && sort!(v, j+1, hi, a, o)
-            hi = j-1
-        end
-    end
-    return v
-end
-
-
-function sort!{T<:OrdinalRange}(v::AbstractVector, lo::Int, hi::Int, a::PartialQuickSort{T},
-               o::Ordering)
-    @inbounds while lo < hi
-        hi-lo <= SMALL_THRESHOLD && return sort!(v, lo, hi, SMALL_ALGORITHM, o)
-        j = partition!(v, lo, hi, o)
-
-        if j <= first(a.k)
-            lo = j+1
-        elseif j >= last(a.k)
+        elseif j >= last(a)
             hi = j-1
         else
             if j-lo < hi-j
@@ -406,11 +415,11 @@ sort(v::AbstractVector; kws...) = sort!(copy(v); kws...)
 
 ## selectperm: the permutation to sort the first k elements of an array ##
 
-selectperm(v::AbstractVector, k::Union(Integer,OrdinalRange); kwargs...) =
+selectperm(v::AbstractVector, k::Union{Integer,OrdinalRange}; kwargs...) =
     selectperm!(Vector{eltype(k)}(length(v)), v, k; kwargs..., initialized=false)
 
 function selectperm!{I<:Integer}(ix::AbstractVector{I}, v::AbstractVector,
-                                 k::Union(Int, OrdinalRange);
+                                 k::Union{Int, OrdinalRange};
                                  lt::Function=isless,
                                  by::Function=identity,
                                  rev::Bool=false,

@@ -6,58 +6,76 @@
 convert{T}(::Type{Bidiagonal}, A::Diagonal{T})=Bidiagonal(A.diag, zeros(T, size(A.diag,1)-1), true)
 convert{T}(::Type{SymTridiagonal}, A::Diagonal{T})=SymTridiagonal(A.diag, zeros(T, size(A.diag,1)-1))
 convert{T}(::Type{Tridiagonal}, A::Diagonal{T})=Tridiagonal(zeros(T, size(A.diag,1)-1), A.diag, zeros(T, size(A.diag,1)-1))
-convert(::Type{UpperTriangular}, A::Diagonal) = UpperTriangular(full(A), :L)
-convert(::Type{LowerTriangular}, A::Diagonal) = LowerTriangular(full(A), :L)
 convert(::Type{LowerTriangular}, A::Bidiagonal) = !A.isupper ? LowerTriangular(full(A)) : throw(ArgumentError("Bidiagonal matrix must have lower off diagonal to be converted to LowerTriangular"))
 convert(::Type{UpperTriangular}, A::Bidiagonal) = A.isupper ? UpperTriangular(full(A)) : throw(ArgumentError("Bidiagonal matrix must have upper off diagonal to be converted to UpperTriangular"))
 convert(::Type{Matrix}, D::Diagonal) = diagm(D.diag)
 
 function convert(::Type{UnitUpperTriangular}, A::Diagonal)
-    all(A.diag .== one(eltype(A))) || throw(ArgumentError("Matrix cannot be represented as UnitUpperTriangular"))
+    if !all(A.diag .== one(eltype(A)))
+        throw(ArgumentError("matrix cannot be represented as UnitUpperTriangular"))
+    end
     UnitUpperTriangular(full(A))
 end
 
 function convert(::Type{UnitLowerTriangular}, A::Diagonal)
-    all(A.diag .== one(eltype(A))) || throw(ArgumentError("Matrix cannot be represented as UnitLowerTriangular"))
+    if !all(A.diag .== one(eltype(A)))
+        throw(ArgumentError("matrix cannot be represented as UnitLowerTriangular"))
+    end
     UnitLowerTriangular(full(A))
 end
 
 function convert(::Type{Diagonal}, A::Union{Bidiagonal, SymTridiagonal})
-    all(A.ev .== 0) || throw(ArgumentError("Matrix cannot be represented as Diagonal"))
+    if !all(A.ev .== 0)
+        throw(ArgumentError("matrix cannot be represented as Diagonal"))
+    end
     Diagonal(A.dv)
 end
 
 function convert(::Type{SymTridiagonal}, A::Bidiagonal)
-    all(A.ev .== 0) || throw(ArgumentError("Matrix cannot be represented as SymTridiagonal"))
+    if !all(A.ev .== 0)
+        throw(ArgumentError("matrix cannot be represented as SymTridiagonal"))
+    end
     SymTridiagonal(A.dv, A.ev)
 end
 
 convert{T}(::Type{Tridiagonal}, A::Bidiagonal{T})=Tridiagonal(A.isupper?zeros(T, size(A.dv,1)-1):A.ev, A.dv, A.isupper?A.ev:zeros(T, size(A.dv,1)-1))
 
 function convert(::Type{Bidiagonal}, A::SymTridiagonal)
-    all(A.ev .== 0) || throw(ArgumentError("Matrix cannot be represented as Bidiagonal"))
+    if !all(A.ev .== 0)
+        throw(ArgumentError("matrix cannot be represented as Bidiagonal"))
+    end
     Bidiagonal(A.dv, A.ev, true)
 end
 
 function convert(::Type{Diagonal}, A::Tridiagonal)
-    all(A.dl .== 0) && all(A.du .== 0) || throw(ArgumentError("Matrix cannot be represented as Diagonal"))
+    if !(all(A.dl .== 0) && all(A.du .== 0))
+        throw(ArgumentError("matrix cannot be represented as Diagonal"))
+    end
     Diagonal(A.d)
 end
 
 function convert(::Type{Bidiagonal}, A::Tridiagonal)
     if all(A.dl .== 0) return Bidiagonal(A.d, A.du, true)
     elseif all(A.du .== 0) return Bidiagonal(A.d, A.dl, false)
-    else throw(ArgumentError("Matrix cannot be represented as Bidiagonal"))
+    else throw(ArgumentError("matrix cannot be represented as Bidiagonal"))
     end
 end
 
 function convert(::Type{SymTridiagonal}, A::Tridiagonal)
-    all(A.dl .== A.du) || throw(ArgumentError("Matrix cannot be represented as SymTridiagonal"))
+    if !all(A.dl .== A.du)
+        throw(ArgumentError("matrix cannot be represented as SymTridiagonal"))
+    end
     SymTridiagonal(A.d, A.dl)
 end
 
+function convert(::Type{Tridiagonal}, A::SymTridiagonal)
+    Tridiagonal(copy(A.ev), A.dv, A.ev)
+end
+
 function convert(::Type{Diagonal}, A::AbstractTriangular)
-    full(A) == diagm(diag(A)) || throw(ArgumentError("Matrix cannot be represented as Diagonal"))
+    if full(A) != diagm(diag(A))
+        throw(ArgumentError("matrix cannot be represented as Diagonal"))
+    end
     Diagonal(diag(A))
 end
 
@@ -68,7 +86,7 @@ function convert(::Type{Bidiagonal}, A::AbstractTriangular)
     elseif fA == diagm(diag(A)) + diagm(diag(fA, -1), -1)
         return Bidiagonal(diag(A), diag(fA,-1), false)
     else
-        throw(ArgumentError("Matrix cannot be represented as Bidiagonal"))
+        throw(ArgumentError("matrix cannot be represented as Bidiagonal"))
     end
 end
 
@@ -79,7 +97,7 @@ function convert(::Type{Tridiagonal}, A::AbstractTriangular)
     if fA == diagm(diag(A)) + diagm(diag(fA, 1), 1) + diagm(diag(fA, -1), -1)
         return Tridiagonal(diag(fA, -1), diag(A), diag(fA,1))
     else
-        throw(ArgumentError("Matrix cannot be represented as Tridiagonal"))
+        throw(ArgumentError("matrix cannot be represented as Tridiagonal"))
     end
 end
 
@@ -128,4 +146,3 @@ end
 A_mul_Bc!(A::AbstractTriangular, B::QRCompactWYQ) = A_mul_Bc!(full!(A),B)
 A_mul_Bc!(A::AbstractTriangular, B::QRPackedQ) = A_mul_Bc!(full!(A),B)
 A_mul_Bc(A::AbstractTriangular, B::Union{QRCompactWYQ,QRPackedQ}) = A_mul_Bc(full(A), B)
-

@@ -23,7 +23,9 @@ function generic_scale!(X::AbstractArray, s::Number)
 end
 
 function generic_scale!(C::AbstractArray, X::AbstractArray, s::Number)
-    length(C) == length(X) || throw(DimensionMismatch("first array argument must be the same length as the second array argument"))
+    if length(C) != length(X)
+        throw(DimensionMismatch("first array has length $(length(C)) which does not match the length of the second, $(length(X))."))
+    end
     for i = 1:length(X)
         @inbounds C[i] = X[i]*s
     end
@@ -38,6 +40,8 @@ cross(a::AbstractVector, b::AbstractVector) = [a[2]*b[3]-a[3]*b[2], a[3]*b[1]-a[
 
 triu(M::AbstractMatrix) = triu!(copy(M))
 tril(M::AbstractMatrix) = tril!(copy(M))
+triu(M::AbstractMatrix,k::Integer) = triu!(copy(M),k)
+tril(M::AbstractMatrix,k::Integer) = tril!(copy(M),k)
 triu!(M::AbstractMatrix) = triu!(M,0)
 tril!(M::AbstractMatrix) = tril!(M,0)
 
@@ -58,7 +62,7 @@ end
 gradient(F::AbstractVector) = gradient(F, [1:length(F);])
 gradient(F::AbstractVector, h::Real) = gradient(F, [h*(1:length(F));])
 
-diag(A::AbstractVector) = error("use diagm instead of diag to construct a diagonal matrix")
+diag(A::AbstractVector) = throw(ArgumentError("use diagm instead of diag to construct a diagonal matrix"))
 
 #diagm{T}(v::AbstractVecOrMat{T})
 
@@ -72,7 +76,8 @@ function generic_vecnormMinusInf(x)
     minabs = norm(v)
     while !done(x, s)
         (v, s) = next(x, s)
-        minabs = Base.scalarmin(minabs, norm(v))
+        vnorm = norm(v)
+        minabs = ifelse(isnan(minabs) | (minabs < vnorm), minabs, vnorm)
     end
     return float(minabs)
 end
@@ -83,7 +88,8 @@ function generic_vecnormInf(x)
     maxabs = norm(v)
     while !done(x, s)
         (v, s) = next(x, s)
-        maxabs = Base.scalarmax(maxabs, norm(v))
+        vnorm = norm(v)
+        maxabs = ifelse(isnan(maxabs) | (maxabs > vnorm), maxabs, vnorm)
     end
     return float(maxabs)
 end
@@ -233,7 +239,7 @@ norm(x::Number, p::Real=2) =
 function vecdot(x::AbstractVector, y::AbstractVector)
     lx = length(x)
     if lx != length(y)
-        throw(DimensionMismatch("Vector x has length $lx, but vector y has length $(length(y))"))
+        throw(DimensionMismatch("vector x has length $lx, but vector y has length $(length(y))"))
     end
     if lx == 0
         return dot(zero(eltype(x)), zero(eltype(y)))
@@ -301,7 +307,7 @@ trace(x::Number) = x
 
 #det(a::AbstractMatrix)
 
-inv(a::StridedMatrix) = error("argument must be a square matrix")
+inv(a::StridedMatrix) = throw(ArgumentError("argument must be a square matrix"))
 function inv{T}(A::AbstractMatrix{T})
     S = typeof(zero(T)/one(T))
     A_ldiv_B!(factorize(convert(AbstractMatrix{S}, A)), eye(S, chksquare(A)))
@@ -309,7 +315,7 @@ end
 
 function \{T}(A::AbstractMatrix{T}, B::AbstractVecOrMat{T})
     if size(A,1) != size(B,1)
-        throw(DimensionMismatch("LHS and RHS should have the same number of rows. LHS has $(size(A,1)) rows, but RHS has $(size(B,1)) rows."))
+        throw(DimensionMismatch("left and right hand sides should have the same number of rows, left hand side has $(size(A,1)) rows, but right hand side has $(size(B,1)) rows."))
     end
     factorize(A)\B
 end
@@ -433,12 +439,16 @@ function axpy!(alpha, x::AbstractArray, y::AbstractArray)
     end
     y
 end
+
 function axpy!{Ti<:Integer,Tj<:Integer}(alpha, x::AbstractArray, rx::AbstractArray{Ti}, y::AbstractArray, ry::AbstractArray{Tj})
     if length(x) != length(y)
         throw(DimensionMismatch("x has length $(length(x)), but y has length $(length(y))"))
-    end
-    if minimum(rx) < 1 || maximum(rx) > length(x) || minimum(ry) < 1 || maximum(ry) > length(y) || length(rx) != length(ry)
-        throw(BoundsError())
+    elseif minimum(rx) < 1 || maximum(rx) > length(x)
+        throw(BoundsError(x, rx))
+    elseif minimum(ry) < 1 || maximum(ry) > length(y)
+        throw(BoundsError(y, ry))
+    elseif length(rx) != length(ry)
+        throw(ArgumentError("rx has length $(length(rx)), but ry has length $(length(ry))"))
     end
     for i = 1:length(rx)
         @inbounds y[ry[i]] += alpha * x[rx[i]]
@@ -447,80 +457,47 @@ function axpy!{Ti<:Integer,Tj<:Integer}(alpha, x::AbstractArray, rx::AbstractArr
 end
 
 # Elementary reflection similar to LAPACK. The reflector is not Hermitian but ensures that tridiagonalization of Hermitian matrices become real. See lawn72
-function elementaryLeft!(A::AbstractMatrix, row::Integer, col::Integer)
-    m, n = size(A)
-    if !(1 <= row <= m)
-        throw(BoundsError("row cannot be less than one or larger than $(size(A,1))"))
-    end
-    if !(1 <= col <= n)
-        throw(BoundsError("col cannot be less than one or larger than $(size(A,2))"))
-    end
+@inline function reflector!(x::AbstractVector)
+    n = length(x)
     @inbounds begin
-        ξ1 = A[row,col]
+        ξ1 = x[1]
         normu = abs2(ξ1)
-        for i = row+1:m
-            normu += abs2(A[i,col])
+        for i = 2:n
+            normu += abs2(x[i])
+        end
+        if normu == zero(normu)
+            return zero(ξ1/normu)
         end
         normu = sqrt(normu)
-        ν = copysign(normu,real(ξ1))
-        A[row,col] += ν
+        ν = copysign(normu, real(ξ1))
         ξ1 += ν
-        A[row,col] = -ν
-        for i = row+1:m
-            A[i,col] /= ξ1
+        x[1] = -ν
+        for i = 2:n
+            x[i] /= ξ1
         end
     end
     ξ1/ν
 end
-function elementaryRight!(A::AbstractMatrix, row::Integer, col::Integer)
+
+@inline function reflectorApply!(x::AbstractVector, τ::Number, A::StridedMatrix) # apply reflector from left
     m, n = size(A)
-    if !(1 <= row <= m)
-        throw(BoundsError("row cannot be less than one or larger than $(size(A,1))"))
-    end
-    if !(1 <= col <= n)
-        throw(BoundsError("col cannot be less than one or larger than $(size(A,2))"))
-    end
-    if row > col
-        throw(ArgumentError("row cannot be larger than col"))
+    if length(x) != m
+        throw(DimensionMismatch("reflector must have same length as first dimension of matrix"))
     end
     @inbounds begin
-        ξ1 = A[row,col]
-        normu = abs2(ξ1)
-        for i = col+1:n
-            normu += abs2(A[row,i])
-        end
-        normu = sqrt(normu)
-        ν = copysign(normu,real(ξ1))
-        A[row,col] += ν
-        ξ1 += ν
-        A[row,col] = -ν
-        for i = col+1:n
-            A[row,i] /= ξ1
+        for j = 1:n
+            vAj = A[1, j]
+            for i = 2:m
+                vAj += x[i]'*A[i, j]
+            end
+            vAj = τ'*vAj
+            A[1, j] -= vAj
+            for i = 2:m
+                A[i, j] -= x[i]*vAj
+            end
         end
     end
-    conj(ξ1/ν)
-end
-function elementaryRightTrapezoid!(A::AbstractMatrix, row::Integer)
-    m, n = size(A)
-    if !(1 <= row <= m)
-        throw(BoundsError("row cannot be less than one or larger than $(size(A,1))"))
-    end
-    @inbounds begin
-        ξ1 = A[row,row]
-        normu = abs2(A[row,row])
-        for i = m+1:n
-            normu += abs2(A[row,i])
-        end
-        normu = sqrt(normu)
-        ν = copysign(normu,real(ξ1))
-        A[row,row] += ν
-        ξ1 += ν
-        A[row,row] = -ν
-        for i = m+1:n
-            A[row,i] /= ξ1
-        end
-    end
-    conj(ξ1/ν)
+    return A
 end
 
 function det{T}(A::AbstractMatrix{T})
@@ -535,3 +512,8 @@ det(x::Number) = x
 logdet(A::AbstractMatrix) = logdet(lufact(A))
 logabsdet(A::AbstractMatrix) = logabsdet(lufact(A))
 
+# isapprox: approximate equality of arrays [like isapprox(Number,Number)]
+function isapprox{T<:Number,S<:Number}(x::AbstractArray{T}, y::AbstractArray{S}; rtol::Real=Base.rtoldefault(T,S), atol::Real=0, norm::Function=vecnorm)
+    d = norm(x - y)
+    return isfinite(d) ? d <= atol + rtol*max(norm(x), norm(y)) : x == y
+end

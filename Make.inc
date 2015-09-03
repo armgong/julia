@@ -160,6 +160,9 @@ BUILD_LLDB = 0
 # Path to cmake (override in Make.user if needed)
 CMAKE ?= cmake
 
+# Point pkg-config to only look at our libraries
+export PKG_CONFIG_LIBDIR = $(JULIAHOME)/usr/lib/pkgconfig
+
 # Figure out OS and architecture
 BUILD_OS := $(shell uname)
 
@@ -325,7 +328,7 @@ $(error Address Sanitizer only supported with clang. Try setting SANITIZE=0)
 endif
 CC  = icc
 CXX = icpc
-JCFLAGS = -std=gnu99 -pipe $(fPIC) -fno-strict-aliasing -D_FILE_OFFSET_BITS=64 -fp-model precise -fp-model except -no-ftz
+JCFLAGS = -std=gnu11 -pipe $(fPIC) -fno-strict-aliasing -D_FILE_OFFSET_BITS=64 -fp-model precise -fp-model except -no-ftz
 JCPPFLAGS =
 JCXXFLAGS = -pipe $(fPIC) -fno-rtti
 DEBUGFLAGS = -O0 -g -DJL_DEBUG_BUILD -fstack-protector-all
@@ -729,7 +732,7 @@ endif
 
 ifeq ($(OS), FreeBSD)
 JLDFLAGS = -Wl,-Bdynamic
-OSLIBS += -lkvm -lrt -Wl,--export-dynamic -Wl,--version-script=$(JULIAHOME)/src/julia.expmap $(NO_WHOLE_ARCHIVE) $(LIBUNWIND)
+OSLIBS += -lelf -lkvm -lrt -Wl,--export-dynamic -Wl,--version-script=$(JULIAHOME)/src/julia.expmap $(NO_WHOLE_ARCHIVE) $(LIBUNWIND)
 endif
 
 ifeq ($(OS), Darwin)

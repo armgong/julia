@@ -89,6 +89,12 @@ end
 @test searchsorted([1,2,3], 0) == 1:0
 @test searchsorted([1,2,3], 4) == 4:3
 
+# issue 8866
+@test searchsortedfirst(500:1.0:600, -1.0e20) == 1
+@test searchsortedfirst(500:1.0:600, 1.0e20) == 102
+@test searchsortedlast(500:1.0:600, -1.0e20) == 0
+@test searchsortedlast(500:1.0:600, 1.0e20) == 101
+
 # exercise the codepath in searchsorted* methods for ranges that check for zero step range
 immutable ConstantRange{T} <: Range{T}
    val::T
@@ -340,3 +346,6 @@ Base.isless(x :: Twain, y :: Twain) = x.a < y.a
 let x = Twain(2,3), y = Twain(2,4)
     @test (min(x,y), max(x,y)) == (x,y) == minmax(x,y)
 end
+
+# issue #12833 - type stability of sort
+@test Base.return_types(sort, (Vector{Int},)) == [Vector{Int}]

@@ -15,7 +15,7 @@ export srand,
        shuffle,shuffle!,
        randperm, randcycle,
        AbstractRNG, RNG, MersenneTwister, RandomDevice,
-       GLOBAL_RNG
+       GLOBAL_RNG, randjump
 
 
 abstract AbstractRNG
@@ -71,8 +71,8 @@ type MersenneTwister <: AbstractRNG
     idx::Int
     seed::Vector{UInt32}
 
-    MersenneTwister(seed) = srand(new(DSFMT_state(), Array(Float64, MTCacheLength)),
-                                  seed)
+    MersenneTwister(state::DSFMT_state, seed) = new(state, Array(Float64, MTCacheLength), MTCacheLength, seed)
+    MersenneTwister(seed) = srand(new(DSFMT_state(), Array(Float64, MTCacheLength)), seed)
     MersenneTwister() = MersenneTwister(0)
 end
 
@@ -114,10 +114,28 @@ function srand(r::MersenneTwister, seed::Vector{UInt32})
     return r
 end
 
+# MersenneTwister jump
+function randjump(mt::MersenneTwister, jumps::Integer, jumppoly::AbstractString)
+    mts = MersenneTwister[]
+    push!(mts, mt)
+    for i in 1:jumps-1
+        cmt = mts[end]
+        push!(mts, MersenneTwister(dSFMT.dsfmt_jump(cmt.state, jumppoly),  cmt.seed))
+    end
+    return mts
+end
+randjump(r::MersenneTwister, jumps::Integer) = randjump(r, jumps, dSFMT.JPOLY1e21)
 
 ## initialization
 
-__init__() = srand()
+function __init__()
+    try
+        srand()
+    catch ex
+        Base.showerror_nostdio(ex,
+            "WARNING: Error during initialization of module Random")
+    end
+end
 
 
 ## make_seed()
@@ -131,7 +149,7 @@ function make_seed()
         seed = reinterpret(UInt64, time())
         seed = hash(seed, UInt64(getpid()))
         try
-        seed = hash(seed, parse(UInt64, readall(pipe(`ifconfig`, `sha1sum`))[1:40], 16))
+        seed = hash(seed, parse(UInt64, readall(pipeline(`ifconfig`, `sha1sum`))[1:40], 16))
         end
         return make_seed(seed)
     end
@@ -424,7 +442,7 @@ rem_knuth{T<:Unsigned}(a::T, b::T) = b != 0 ? a % b : a
 maxmultiple{T<:Unsigned}(k::T) = (div(typemax(T) - k + one(k), k + (k == 0))*k + k - one(k))::T
 
 # maximum multiple of k within 1:2^32 or 1:2^64 decremented by one, depending on size
-maxmultiplemix(k::UInt64) = if k >> 32 != 0; maxmultiple(k); else (div(0x0000000100000000, k + (k == 0))*k - one(k))::Uint64; end
+maxmultiplemix(k::UInt64) = if k >> 32 != 0; maxmultiple(k); else (div(0x0000000100000000, k + (k == 0))*k - one(k))::UInt64; end
 
 abstract RangeGenerator
 
@@ -1163,15 +1181,63 @@ randexp(rng::AbstractRNG, dims::Int...) = randexp!(rng, Array(Float64, dims))
 
 immutable UUID
     value::UInt128
-end
-UUID(u::AbstractString) = convert(UUID, u)
 
+    UUID(u::UInt128) = new(u)
+end
+
+"""
+    uuid1([rng::AbstractRNG]) -> UUID
+
+Generates a version 1 (time-based) universally unique identifier (UUID), as specified
+by RFC 4122. Note that the Node ID is randomly generated (does not identify the host)
+according to section 4.5 of the RFC.
+"""
+function uuid1(rng::AbstractRNG=GLOBAL_RNG)
+    u = rand(rng, UInt128)
+
+    # mask off clock sequence and node
+    u &= 0x00000000000000003fffffffffffffff
+
+    # set the unicast/multicast bit and version
+    u |= 0x00000000000010000000010000000000
+
+    # 0x01b21dd213814000 is the number of 100 nanosecond intervals
+    # between the UUID epoch and Unix epoch
+    timestamp = round(UInt64, time() * 1e7) + 0x01b21dd213814000
+    ts_low = timestamp & typemax(UInt32)
+    ts_mid = (timestamp >> 32) & typemax(UInt16)
+    ts_hi = (timestamp >> 48) & 0x0fff
+
+    u |= UInt128(ts_low) << 96
+    u |= UInt128(ts_mid) << 80
+    u |= UInt128(ts_hi) << 64
+
+    UUID(u)
+end
+
+"""
+    uuid4([rng::AbstractRNG]) -> UUID
+
+Generates a version 4 (random or pseudo-random) universally unique identifier (UUID),
+as specified by RFC 4122.
+"""
 function uuid4(rng::AbstractRNG=GLOBAL_RNG)
     u = rand(rng, UInt128)
     u &= 0xffffffffffff0fff3fffffffffffffff
     u |= 0x00000000000040008000000000000000
     UUID(u)
 end
+
+"""
+    uuid_version(u::UUID) -> Integer
+
+Inspects the given UUID and returns its version (see RFC 4122).
+"""
+function uuid_version(u::UUID)
+    Int((u.value >> 76) & 0xf)
+end
+
+Base.convert(::Type{UInt128}, u::UUID) = u.value
 
 function Base.convert(::Type{UUID}, s::AbstractString)
     s = lowercase(s)
