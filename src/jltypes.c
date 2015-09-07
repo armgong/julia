@@ -2125,7 +2125,9 @@ static jl_value_t *inst_datatype(jl_datatype_t *dt, jl_svec_t *p, jl_value_t **i
 
 static void check_tuple_parameter(jl_value_t *pi, size_t i, size_t np)
 {
-    if (!(jl_is_type(pi) || jl_is_typevar(pi)))
+    // TODO: should possibly only allow Types and TypeVars, but see
+    // https://github.com/JuliaLang/julia/commit/85f45974a581ab9af955bac600b90d9ab00f093b#commitcomment-13041922
+    if (!valid_type_param(pi))
         jl_type_error_rt("Tuple", "parameter", (jl_value_t*)jl_type_type, pi);
     if (i != np-1 && jl_is_vararg_type(pi))
         jl_type_error_rt("Tuple", "non-final parameter", (jl_value_t*)jl_type_type, pi);
@@ -2790,7 +2792,7 @@ static int jl_type_morespecific_(jl_value_t *a, jl_value_t *b, int invariant)
     return 0;
 }
 
-int jl_type_morespecific(jl_value_t *a, jl_value_t *b)
+DLLEXPORT int jl_type_morespecific(jl_value_t *a, jl_value_t *b)
 {
     return jl_type_morespecific_(a, b, 0);
 }
@@ -3367,8 +3369,8 @@ void jl_init_types(void)
 
     jl_linenumbernode_type =
         jl_new_datatype(jl_symbol("LineNumberNode"), jl_any_type, jl_emptysvec,
-                        jl_svec(1, jl_symbol("line")),
-                        jl_svec(1, jl_long_type), 0, 0, 1);
+                        jl_svec(2, jl_symbol("file"), jl_symbol("line")),
+                        jl_svec(2, jl_symbol_type, jl_long_type), 0, 0, 2);
 
     jl_labelnode_type =
         jl_new_datatype(jl_symbol("LabelNode"), jl_any_type, jl_emptysvec,

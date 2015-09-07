@@ -121,3 +121,13 @@ for elty in [Float32,Float64,Complex64,Complex128]
 end
 
 @test qr(big([0 1; 0 0]))[2] == [0 1; 0 0]
+
+@test norm([2.4e-322, 4.4e-323]) ≈ 2.47e-322
+@test norm([2.4e-322, 4.4e-323], 3) ≈ 2.4e-322
+
+# test generic vecnorm for arrays of arrays
+let x = Vector{Int}[[1,2], [3,4]]
+    @test norm(x) ≈ sqrt(30)
+    @test norm(x, 1) ≈ sqrt(5) + 5
+    @test norm(x, 3) ≈ cbrt(sqrt(125)+125)
+end
