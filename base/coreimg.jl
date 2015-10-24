@@ -17,6 +17,9 @@ print(x::ANY) = show(x)
 println(x::ANY) = ccall(:jl_, Void, (Any,), x) # includes a newline
 print(a::ANY...) = for x=a; print(x); end
 
+# Doc macro shim.
+macro doc(str, def) Expr(:escape, def) end
+
 ## Load essential files and libraries
 include("essentials.jl")
 include("reflection.jl")
@@ -43,7 +46,7 @@ include("abstractarray.jl")
 typealias StridedArray{T,N,A<:DenseArray,I<:Tuple{Vararg{RangeIndex}}} DenseArray{T,N}
 typealias StridedVector{T,A<:DenseArray,I<:Tuple{Vararg{RangeIndex}}}  DenseArray{T,1}
 typealias StridedMatrix{T,A<:DenseArray,I<:Tuple{Vararg{RangeIndex}}}  DenseArray{T,2}
-typealias StridedVecOrMat{T} Union(StridedVector{T}, StridedMatrix{T})
+typealias StridedVecOrMat{T} Union{StridedVector{T}, StridedMatrix{T}}
 include("array.jl")
 
 #TODO: eliminate Dict from inference
@@ -65,7 +68,7 @@ include("iterator.jl")
 # compiler
 include("inference.jl")
 
-precompile(CallStack, (Expr, Module, (Void,), EmptyCallStack))
+precompile(CallStack, (Expr, Module, Tuple{Void}, EmptyCallStack))
 precompile(_ieval, (Symbol,))
 precompile(abstract_eval, (LambdaStaticData, ObjectIdDict, StaticVarInfo))
 precompile(abstract_interpret, (Bool, ObjectIdDict, StaticVarInfo))

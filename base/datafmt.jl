@@ -9,41 +9,31 @@ import Base: _default_delims, tryparse_internal
 
 export countlines, readdlm, readcsv, writedlm, writecsv
 
+invalid_dlm(::Type{Char})   = reinterpret(Char, 0xfffffffe)
+invalid_dlm(::Type{UInt8})  = 0xfe
+invalid_dlm(::Type{UInt16}) = 0xfffe
+invalid_dlm(::Type{UInt32}) = 0xfffffffe
 
-const invalid_dlm = Char(0xfffffffe)
 const offs_chunk_size = 5000
 
-countlines(nameorfile) = countlines(nameorfile, '\n')
-function countlines(filename::AbstractString, eol::Char)
-    open(filename) do io
-        countlines(io, eol)
-    end
-end
-function countlines(io::IO, eol::Char)
-    if !isascii(eol)
-        throw(ArgumentError("only ASCII line terminators are supported"))
-    end
+countlines(f::AbstractString,eol::Char='\n') = open(io->countlines(io,eol),f)::Int
+function countlines(io::IO, eol::Char='\n')
+    isascii(eol) || throw(ArgumentError("only ASCII line terminators are supported"))
     a = Array(UInt8, 8192)
     nl = 0
-    preceded_by_eol = true
     while !eof(io)
         nb = readbytes!(io, a)
-        for i=1:nb
-            if Char(a[i]) == eol
-                preceded_by_eol = true
-            elseif preceded_by_eol
-                preceded_by_eol = false
-                nl+=1
-            end
+        @simd for i=1:nb
+            @inbounds nl += a[i] == eol
         end
     end
     nl
 end
 
-readdlm(input, T::Type; opts...) = readdlm(input, invalid_dlm, T, '\n'; opts...)
+readdlm(input, T::Type; opts...) = readdlm(input, invalid_dlm(Char), T, '\n'; opts...)
 readdlm(input, dlm::Char, T::Type; opts...) = readdlm(input, dlm, T, '\n'; opts...)
 
-readdlm(input; opts...) = readdlm(input, invalid_dlm, '\n'; opts...)
+readdlm(input; opts...) = readdlm(input, invalid_dlm(Char), '\n'; opts...)
 readdlm(input, dlm::Char; opts...) = readdlm(input, dlm, '\n'; opts...)
 
 readdlm(input, dlm::Char, eol::Char; opts...) = readdlm_auto(input, dlm, Float64, eol, true; opts...)
@@ -61,7 +51,7 @@ end
 
 function as_mmap(fname::AbstractString, fsz::Int64)
     open(fname) do io
-        mmap_array(UInt8, (Int(fsz),), io)
+        Mmap.mmap(io, Vector{UInt8}, (Int(fsz),))
     end
 end
 
@@ -221,7 +211,7 @@ function result{T}(dlmstore::DLMStore{T})
     cells = dlmstore.data
     sbuff = dlmstore.sbuff
 
-    if (lastcol < ncols) || (lastrow < nrows)
+    if (nrows > 0) && ((lastcol < ncols) || (lastrow < nrows))
         while lastrow <= nrows
             (lastcol == ncols) && (lastcol = 0; lastrow += 1)
             for cidx in (lastcol+1):ncols
@@ -244,7 +234,7 @@ end
 
 
 function readdlm_string(sbuff::ByteString, dlm::Char, T::Type, eol::Char, auto::Bool, optsd::Dict)
-    ign_empty = (dlm == invalid_dlm)
+    ign_empty = (dlm == invalid_dlm(Char))
     quotes = get(optsd, :quotes, true)
     comments = get(optsd, :comments, true)
     comment_char = get(optsd, :comment_char, '#')
@@ -258,7 +248,7 @@ function readdlm_string(sbuff::ByteString, dlm::Char, T::Type, eol::Char, auto::
 
     skipblanks = get(optsd, :skipblanks, true)
 
-    offset_handler = (dims == nothing) ? DLMOffsets(sbuff) : DLMStore(T, dims, has_header, sbuff, auto, eol)
+    offset_handler = (dims === nothing) ? DLMOffsets(sbuff) : DLMStore(T, dims, has_header, sbuff, auto, eol)
 
     for retry in 1:2
         try
@@ -272,7 +262,7 @@ function readdlm_string(sbuff::ByteString, dlm::Char, T::Type, eol::Char, auto::
             else
                 rethrow(ex)
             end
-            offset_handler = (dims == nothing) ? DLMOffsets(sbuff) : DLMStore(T, dims, has_header, sbuff, auto, eol)
+            offset_handler = (dims === nothing) ? DLMOffsets(sbuff) : DLMStore(T, dims, has_header, sbuff, auto, eol)
         end
     end
 
@@ -289,7 +279,7 @@ const valid_opts = [:header, :has_header, :ignore_invalid_chars, :use_mmap, :quo
 const valid_opt_types = [Bool, Bool, Bool, Bool, Bool, Bool, NTuple{2,Integer}, Char, Integer, Bool]
 const deprecated_opts = Dict(:has_header => :header)
 function val_opts(opts)
-    d = Dict{Symbol,Union(Bool,NTuple{2,Integer},Char,Integer)}()
+    d = Dict{Symbol,Union{Bool,NTuple{2,Integer},Char,Integer}}()
     for (opt_name, opt_val) in opts
         !in(opt_name, valid_opts) && throw(ArgumentError("unknown option $opt_name"))
         opt_typ = valid_opt_types[findfirst(valid_opts, opt_name)]
@@ -370,7 +360,7 @@ colval{T<:Char, S<:ByteString}(sbuff::S, startpos::Int, endpos::Int, cells::Arra
 colval{S<:ByteString}(sbuff::S, startpos::Int, endpos::Int, cells::Array, row::Int, col::Int) = true
 
 dlm_parse(s::ASCIIString, eol::Char, dlm::Char, qchar::Char, cchar::Char, ign_adj_dlm::Bool, allow_quote::Bool, allow_comments::Bool, skipstart::Int, skipblanks::Bool, dh::DLMHandler) =  begin
-    dlm_parse(s.data, UInt32(eol)%UInt8, UInt32(dlm)%UInt8, UInt32(qchar)%UInt8, UInt32(cchar)%UInt8,
+    dlm_parse(s.data, reinterpret(UInt32,eol)%UInt8, reinterpret(UInt32,dlm)%UInt8, reinterpret(UInt32,qchar)%UInt8, reinterpret(UInt32,cchar)%UInt8,
               ign_adj_dlm, allow_quote, allow_comments, skipstart, skipblanks, dh)
 end
 
@@ -378,7 +368,7 @@ function dlm_parse{T,D}(dbuff::T, eol::D, dlm::D, qchar::D, cchar::D, ign_adj_dl
     all_ascii = (D <: UInt8) || (isascii(eol) && isascii(dlm) && (!allow_quote || isascii(qchar)) && (!allow_comments || isascii(cchar)))
     (T <: UTF8String) && all_ascii && (return dlm_parse(dbuff.data, eol%UInt8, dlm%UInt8, qchar%UInt8, cchar%UInt8, ign_adj_dlm, allow_quote, allow_comments, skipstart, skipblanks, dh))
     ncols = nrows = col = 0
-    is_default_dlm = (dlm == UInt32(invalid_dlm) % D)
+    is_default_dlm = (dlm == invalid_dlm(D))
     error_str = ""
     # 0: begin field, 1: quoted field, 2: unquoted field, 3: second quote (could either be end of field or escape character), 4: comment, 5: skipstart
     state = (skipstart > 0) ? 5 : 0
@@ -535,7 +525,7 @@ readcsv(io; opts...)          = readdlm(io, ','; opts...)
 readcsv(io, T::Type; opts...) = readdlm(io, ',', T; opts...)
 
 # todo: keyword argument for # of digits to print
-writedlm_cell(io::IO, elt::FloatingPoint, dlm, quotes) = print_shortest(io, elt)
+writedlm_cell(io::IO, elt::AbstractFloat, dlm, quotes) = print_shortest(io, elt)
 function writedlm_cell{T}(io::IO, elt::AbstractString, dlm::T, quotes::Bool)
     if quotes && !isempty(elt) && (('"' in elt) || ('\n' in elt) || ((T <: Char) ? (dlm in elt) : contains(elt, dlm)))
         print(io, '"', replace(elt, r"\"", "\"\""), '"')
@@ -562,19 +552,6 @@ function writedlm(io::IO, a::AbstractVecOrMat, dlm; opts...)
 end
 
 writedlm{T}(io::IO, a::AbstractArray{T,0}, dlm; opts...) = writedlm(io, reshape(a,1), dlm; opts...)
-
-#=
-function writedlm_ndarray(io::IO, a::AbstractArray, dlm; opts...)
-    tail = size(a)[3:end]
-    function print_slice(idxs...)
-        writedlm(io, sub(a, 1:size(a,1), 1:size(a,2), idxs...), dlm; opts...)
-        if idxs != tail
-            print(io, "\n")
-        end
-    end
-    cartesianmap(print_slice, tail)
-end
-=#
 
 function writedlm(io::IO, itr, dlm; opts...)
     optsd = val_opts(opts)

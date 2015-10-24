@@ -79,7 +79,6 @@ for a in vals, b in vals
     @test isequal(a,b) == (hash(a)==hash(b))
 end
 
-@test hash(RopeString("1","2")) == hash("12")
 @test hash(SubString("--hello--",3,7)) == hash("hello")
 @test hash(:(X.x)) == hash(:(X.x))
 @test hash(:(X.x)) != hash(:(X.y))
@@ -91,3 +90,7 @@ x = sprand(10, 10, 0.5)
 x[1] = 1
 x.nzval[1] = 0
 @test hash(x) == hash(full(x))
+
+let a = QuoteNode(1), b = QuoteNode(1.0)
+    @test (hash(a)==hash(b)) == (a==b)
+end

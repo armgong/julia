@@ -52,6 +52,7 @@ show(io::IO, b::AbstractIOBuffer) = print(io, "IOBuffer(data=UInt8[...], ",
                                       "ptr=",      b.ptr, ", ",
                                       "mark=",     b.mark, ")")
 
+read!(from::AbstractIOBuffer, a::Vector{UInt8}) = read_sub(from, a, 1, length(a))
 read!(from::AbstractIOBuffer, a::Array) = read_sub(from, a, 1, length(a))
 
 function read_sub{T}(from::AbstractIOBuffer, a::AbstractArray{T}, offs, nel)
@@ -80,13 +81,15 @@ function read_sub{T}(from::AbstractIOBuffer, a::AbstractArray{T}, offs, nel)
     return a
 end
 
-function read(from::AbstractIOBuffer, ::Type{UInt8})
+@inline function read(from::AbstractIOBuffer, ::Type{UInt8})
+    ptr = from.ptr
+    size = from.size
     from.readable || throw(ArgumentError("read failed, IOBuffer is not readable"))
-    if from.ptr > from.size
+    if ptr > size
         throw(EOFError())
     end
-    byte = from.data[from.ptr]
-    from.ptr += 1
+    @inbounds byte = from.data[ptr]
+    from.ptr = ptr + 1
     return byte
 end
 
@@ -293,13 +296,11 @@ function write_sub{T}(to::AbstractIOBuffer, a::AbstractArray{T}, offs, nel)
     local written::Int
     if isbits(T) && isa(a,Array)
         nb = nel * sizeof(T)
-        ensureroom(to, nb)
+        ensureroom(to, Int(nb))
         ptr = (to.append ? to.size+1 : to.ptr)
         written = min(nb, length(to.data) - ptr + 1)
-        copy!(to.data, ptr,
-              pointer_to_array(convert(Ptr{UInt8},pointer(a)), sizeof(a)), # reinterpret(UInt8,a) but without setting the shared data property on a
-              1 + (offs - 1) * sizeof(T),
-              written)
+        unsafe_copy!(pointer(to.data, ptr),
+                     convert(Ptr{UInt8}, pointer(a, offs)), written)
         to.size = max(to.size, ptr - 1 + written)
         if !to.append to.ptr += written end
     else
@@ -343,7 +344,8 @@ readbytes(io::AbstractIOBuffer, nb) = read!(io, Array(UInt8, min(nb, nb_availabl
 function search(buf::IOBuffer, delim::UInt8)
     p = pointer(buf.data, buf.ptr)
     q = ccall(:memchr,Ptr{UInt8},(Ptr{UInt8},Int32,Csize_t),p,delim,nb_available(buf))
-    nb = (q == C_NULL ? 0 : q-p+1)
+    nb::Int = (q == C_NULL ? 0 : q-p+1)
+    return nb
 end
 
 function search(buf::AbstractIOBuffer, delim::UInt8)

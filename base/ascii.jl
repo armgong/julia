@@ -10,7 +10,7 @@
 ## required core functionality ##
 
 endof(s::ASCIIString) = length(s.data)
-getindex(s::ASCIIString, i::Int) = (x=s.data[i]; x < 0x80 ? Char(x) : '\ufffd')
+getindex(s::ASCIIString, i::Int) = (x=s.data[i]; ifelse(x < 0x80, Char(x), '\ufffd'))
 
 ## overload methods for efficiency ##
 
@@ -129,4 +129,6 @@ function convert(::Type{ASCIIString}, a::Array{UInt8,1}, invalids_as::ASCIIStrin
     end
     convert(ASCIIString, a)
 end
+convert(::Type{ASCIIString}, a::Array{UInt8,1}, invalids_as::AbstractString) =
+    convert(ASCIIString, a, ascii(invalids_as))
 convert(::Type{ASCIIString}, s::AbstractString) = ascii(bytestring(s))

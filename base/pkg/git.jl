@@ -21,7 +21,7 @@ function git(d)
 end
 
 cmd(args::Cmd; dir="") = `$(git(dir)) $args`
-run(args::Cmd; dir="", out=STDOUT) = Base.run(pipe(cmd(args,dir=dir), out))
+run(args::Cmd; dir="", out=STDOUT) = Base.run(pipeline(cmd(args,dir=dir), out))
 readall(args::Cmd; dir="") = Base.readall(cmd(args,dir=dir))
 readchomp(args::Cmd; dir="") = Base.readchomp(cmd(args,dir=dir))
 
@@ -111,14 +111,14 @@ const GITHUB_REGEX =
 function set_remote_url(url::AbstractString; remote::AbstractString="origin", dir="")
     run(`config remote.$remote.url $url`, dir=dir)
     m = match(GITHUB_REGEX,url)
-    m == nothing && return
+    m === nothing && return
     push = "git@github.com:$(m.captures[1]).git"
     push != url && run(`config remote.$remote.pushurl $push`, dir=dir)
 end
 
 function normalize_url(url::AbstractString)
     m = match(GITHUB_REGEX,url)
-    m == nothing ? url : "git://github.com/$(m.captures[1]).git"
+    m === nothing ? url : "git://github.com/$(m.captures[1]).git"
 end
 
 end # module

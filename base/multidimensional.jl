@@ -3,7 +3,8 @@
 ### Multidimensional iterators
 module IteratorsMD
 
-import Base: eltype, length, start, done, next, last, getindex, setindex!, linearindexing, min, max, eachindex, ndims
+import Base: eltype, length, start, done, next, last, getindex, setindex!, linearindexing, min, max, eachindex, ndims, iterstate
+importall ..Base.Operators
 import Base: simd_outer_range, simd_inner_length, simd_index, @generated
 import Base: @nref, @ncall, @nif, @nexprs, LinearFast, LinearSlow, to_index
 
@@ -13,12 +14,12 @@ export CartesianIndex, CartesianRange
 linearindexing{A<:BitArray}(::Type{A}) = LinearFast()
 
 # CartesianIndex
-abstract CartesianIndex{N}
-
-@generated function Base.call{N}(::Type{CartesianIndex},index::NTuple{N,Integer})
-    indextype = gen_cartesian(N)
-    return Expr(:call,indextype,[:(to_index(index[$i])) for i=1:N]...)
+immutable CartesianIndex{N}
+    I::NTuple{N,Int}
+    CartesianIndex(index::NTuple{N,Integer}) = new(index)
 end
+
+CartesianIndex{N}(index::NTuple{N,Integer}) = CartesianIndex{N}(index)
 @generated function Base.call{N}(::Type{CartesianIndex{N}},index::Integer...)
     length(index) == N && return :(CartesianIndex(index))
     length(index) > N && throw(DimensionMismatch("Cannot create CartesianIndex{$N} from $(length(index)) indexes"))
@@ -27,33 +28,12 @@ end
 end
 Base.call{M,N}(::Type{CartesianIndex{N}},index::NTuple{M,Integer}) = CartesianIndex{N}(index...)
 
-let implemented = IntSet()
-    global gen_cartesian
-    function gen_cartesian(N::Int)
-        # Create the types
-        indextype = symbol("CartesianIndex_$N")
-        if !in(N,implemented)
-            fnames = [symbol("I_$i") for i = 1:N]
-            fields = [Expr(:(::), fnames[i], :Int) for i = 1:N]
-            extype = Expr(:type, false, Expr(:(<:), indextype, Expr(:curly, :CartesianIndex, N)), Expr(:block, fields...))
-            eval(extype)
-            argsleft = [Expr(:(::), fnames[i], :Integer) for i = 1:N]
-            argsright = [Expr(:call,:to_index,fnames[i]) for i=1:N]
-            exconstructor = Expr(:(=),Expr(:call,:(Base.call),:(::Type{CartesianIndex{$N}}),argsleft...),Expr(:call,indextype,argsright...))
-            eval(exconstructor)
-            push!(implemented,N)
-        end
-        return indextype
-    end
-end
-
 # length
 length{N}(::CartesianIndex{N})=N
 length{N}(::Type{CartesianIndex{N}})=N
-length{I<:CartesianIndex}(::Type{I})=length(super(I))
 
 # indexing
-getindex(index::CartesianIndex, i::Integer) = getfield(index, i)::Int
+getindex(index::CartesianIndex, i::Integer) = index.I[i]
 
 # arithmetic, min/max
 for op in (:+, :-, :min, :max)
@@ -79,6 +59,8 @@ immutable CartesianRange{I<:CartesianIndex}
     stop::I
 end
 
+iterstate{CR<:CartesianRange,CI<:CartesianIndex}(i::Tuple{CR,CI}) = Base._sub2ind(i[1].stop.I, i[2].I)
+
 @generated function CartesianRange{N}(I::CartesianIndex{N})
     startargs = fill(1, N)
     :(CartesianRange($I($(startargs...)), I))
@@ -86,6 +68,7 @@ end
 CartesianRange{N}(sz::NTuple{N,Int}) = CartesianRange(CartesianIndex(sz))
 
 ndims(R::CartesianRange) = length(R.start)
+ndims{I<:CartesianIndex}(::Type{CartesianRange{I}}) = length(I)
 
 @generated function eachindex{T,N}(::LinearSlow, A::AbstractArray{T,N})
     startargs = fill(1, N)
@@ -107,7 +90,6 @@ end
 end
 
 eltype{I}(::Type{CartesianRange{I}}) = I
-eltype{I}(::CartesianRange{I}) = I
 
 @generated function start{I<:CartesianIndex}(iter::CartesianRange{I})
     N = length(I)
@@ -181,8 +163,8 @@ index_lengths_dim(A, dim) = ()
 index_lengths_dim(A, dim, ::Colon) = (trailingsize(A, dim),)
 @inline index_lengths_dim(A, dim, ::Colon, i, I...) = (size(A, dim), index_lengths_dim(A, dim+1, i, I...)...)
 @inline index_lengths_dim(A, dim, ::Real, I...) = (1, index_lengths_dim(A, dim+1, I...)...)
-@inline index_lengths_dim(A, dim, i::AbstractVector{Bool}, I...) = (sum(i), index_lengths_dim(A, dim+1, I...)...)
-@inline index_lengths_dim(A, dim, i::AbstractVector, I...) = (length(i), index_lengths_dim(A, dim+1, I...)...)
+@inline index_lengths_dim(A, dim, i::AbstractArray{Bool}, I...) = (sum(i), index_lengths_dim(A, dim+1, I...)...)
+@inline index_lengths_dim(A, dim, i::AbstractArray, I...) = (length(i), index_lengths_dim(A, dim+1, I...)...)
 
 # shape of array to create for getindex() with indexes I, dropping trailing scalars
 index_shape(A::AbstractArray, I::AbstractArray) = size(I) # Linear index reshape
@@ -201,11 +183,11 @@ index_shape_dim(A, dim, ::Colon) = (trailingsize(A, dim),)
 # ambiguities for AbstractArray subtypes. See the note in abstractarray.jl
 
 # Note that it's most efficient to call checkbounds first, and then to_index
-@inline function _getindex(l::LinearIndexing, A::AbstractArray, I::Union(Real, AbstractArray, Colon)...)
+@inline function _getindex(l::LinearIndexing, A::AbstractArray, I::Union{Real, AbstractArray, Colon}...)
     checkbounds(A, I...)
     _unsafe_getindex(l, A, I...)
 end
-@generated function _unsafe_getindex(l::LinearIndexing, A::AbstractArray, I::Union(Real, AbstractArray, Colon)...)
+@generated function _unsafe_getindex(l::LinearIndexing, A::AbstractArray, I::Union{Real, AbstractArray, Colon}...)
     N = length(I)
     quote
         # This is specifically *not* inlined.
@@ -250,7 +232,7 @@ end
 end
 
 # Fast source - compute the linear index
-@generated function _unsafe_getindex!(dest::AbstractArray, ::LinearFast, src::AbstractArray, I::Union(Real, AbstractVector, Colon)...)
+@generated function _unsafe_getindex!(dest::AbstractArray, ::LinearFast, src::AbstractArray, I::Union{Real, AbstractVector, Colon}...)
     N = length(I)
     quote
         $(Expr(:meta, :inline))
@@ -268,7 +250,7 @@ end
 end
 # Slow source - index with the indices provided.
 # TODO: this may not be the full dimensionality; that case could be optimized
-@generated function _unsafe_getindex!(dest::AbstractArray, ::LinearSlow, src::AbstractArray, I::Union(Real, AbstractVector, Colon)...)
+@generated function _unsafe_getindex!(dest::AbstractArray, ::LinearSlow, src::AbstractArray, I::Union{Real, AbstractVector, Colon}...)
     N = length(I)
     quote
         $(Expr(:meta, :inline))
@@ -297,7 +279,6 @@ _checksize(A::AbstractArray, dim, I::AbstractVector{Bool}) = size(A, dim) == sum
 _checksize(A::AbstractArray, dim, ::Colon) = true
 _checksize(A::AbstractArray, dim, ::Real) = size(A, dim) == 1
 
-@inline unsafe_setindex!{T}(v::Array{T}, x::T, ind::Int) = (@inbounds v[ind] = x; v)
 @inline unsafe_setindex!(v::BitArray, x::Bool, ind::Int) = (Base.unsafe_bitsetindex!(v.chunks, x, ind); v)
 @inline unsafe_setindex!(v::BitArray, x, ind::Real) = (Base.unsafe_bitsetindex!(v.chunks, convert(Bool, x), to_index(ind)); v)
 
@@ -307,19 +288,16 @@ _checksize(A::AbstractArray, dim, ::Real) = size(A, dim) == 1
 # before redispatching to the _unsafe_batchsetindex!
 _iterable(v::AbstractArray) = v
 _iterable(v) = repeated(v)
-@inline function _setindex!(l::LinearIndexing, A::AbstractArray, x, J::Union(Real,AbstractArray,Colon)...)
+@inline function _setindex!(l::LinearIndexing, A::AbstractArray, x, J::Union{Real,AbstractArray,Colon}...)
     checkbounds(A, J...)
     _unsafe_setindex!(l, A, x, J...)
 end
-@inline function _unsafe_setindex!(l::LinearIndexing, A::AbstractArray, x, J::Union(Real,AbstractVector,Colon)...)
-    _unsafe_batchsetindex!(l, A, _iterable(x), to_index(J)...)
+@inline function _unsafe_setindex!(l::LinearIndexing, A::AbstractArray, x, J::Union{Real,AbstractArray,Colon}...)
+    _unsafe_batchsetindex!(l, A, _iterable(x), to_indexes(J...)...)
 end
 
-# While setindex! with one array argument doesn't mean anything special, it is
-# still supported for symmetry with getindex.
-_unsafe_setindex!(l::LinearIndexing, A::AbstractArray, x, I::AbstractArray) = _unsafe_setindex!(l, A, x, vec(I))
 # 1-d logical indexing: override the above to avoid calling find (in to_index)
-function _unsafe_setindex!(::LinearIndexing, A::AbstractArray, x, I::AbstractVector{Bool})
+function _unsafe_setindex!(::LinearIndexing, A::AbstractArray, x, I::AbstractArray{Bool})
     X = _iterable(x)
     Xs = start(X)
     i = 0
@@ -338,7 +316,7 @@ function _unsafe_setindex!(::LinearIndexing, A::AbstractArray, x, I::AbstractVec
 end
 
 # Use iteration over X so we don't need to worry about its storage
-@generated function _unsafe_batchsetindex!(::LinearFast, A::AbstractArray, X, I::Union(Real,AbstractVector,Colon)...)
+@generated function _unsafe_batchsetindex!(::LinearFast, A::AbstractArray, X, I::Union{Real,AbstractArray,Colon}...)
     N = length(I)
     quote
         @nexprs $N d->(I_d = I[d])
@@ -355,7 +333,7 @@ end
         A
     end
 end
-@generated function _unsafe_batchsetindex!(::LinearSlow, A::AbstractArray, X, I::Union(Real,AbstractVector,Colon)...)
+@generated function _unsafe_batchsetindex!(::LinearSlow, A::AbstractArray, X, I::Union{Real,AbstractArray,Colon}...)
     N = length(I)
     quote
         @nexprs $N d->(I_d = I[d])
@@ -387,16 +365,16 @@ function cartindex_exprs(indexes, syms)
     end
     exprs
 end
-@generated function _getindex{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, I::Union(Real,AbstractArray,Colon,CartesianIndex)...)
+@generated function _getindex{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, I::Union{Real,AbstractArray,Colon,CartesianIndex}...)
     :($(Expr(:meta, :inline)); getindex(A, $(cartindex_exprs(I, :I)...)))
 end
-@generated function _unsafe_getindex{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, I::Union(Real,AbstractArray,Colon,CartesianIndex)...)
+@generated function _unsafe_getindex{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, I::Union{Real,AbstractArray,Colon,CartesianIndex}...)
     :($(Expr(:meta, :inline)); unsafe_getindex(A, $(cartindex_exprs(I, :I)...)))
 end
-@generated function _setindex!{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, v, I::Union(Real,AbstractArray,Colon,CartesianIndex)...)
+@generated function _setindex!{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, v, I::Union{Real,AbstractArray,Colon,CartesianIndex}...)
     :($(Expr(:meta, :inline)); setindex!(A, v, $(cartindex_exprs(I, :I)...)))
 end
-@generated function _unsafe_setindex!{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, v, I::Union(Real,AbstractArray,Colon,CartesianIndex)...)
+@generated function _unsafe_setindex!{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, v, I::Union{Real,AbstractArray,Colon,CartesianIndex}...)
     :($(Expr(:meta, :inline)); unsafe_setindex!(A, v, $(cartindex_exprs(I, :I)...)))
 end
 
@@ -440,7 +418,7 @@ end
 # then test whether the corresponding linear index is in linindex.
 # One exception occurs when only a small subset of the total
 # is desired, in which case we fall back to the div-based algorithm.
-#@generated function merge_indexes{T<:Integer}(V, parentindexes::NTuple, parentdims::Dims, linindex::Union(Colon,Range{T}), lindim)
+#@generated function merge_indexes{T<:Integer}(V, parentindexes::NTuple, parentdims::Dims, linindex::Union{Colon,Range{T}}, lindim)
 @generated function merge_indexes_in{TT}(V, parentindexes::TT, parentdims::Dims, linindex, lindim)
     N = length(parentindexes.parameters)   # number of parent axes we're merging
     N > 0 || throw(ArgumentError("cannot merge empty indexes"))
@@ -615,13 +593,13 @@ end
 
 # contiguous multidimensional indexing: if the first dimension is a range,
 # we can get some performance from using copy_chunks!
-@inline function _unsafe_getindex!(X::BitArray, ::LinearFast, B::BitArray, I0::Union(UnitRange{Int}, Colon))
+@inline function _unsafe_getindex!(X::BitArray, ::LinearFast, B::BitArray, I0::Union{UnitRange{Int}, Colon})
     copy_chunks!(X.chunks, 1, B.chunks, first(I0), index_lengths(B, I0)[1])
     return X
 end
 
 # Optimization where the inner dimension is contiguous improves perf dramatically
-@generated function _unsafe_getindex!(X::BitArray, ::LinearFast, B::BitArray, I0::Union(Colon,UnitRange{Int}), I::Union(Int,UnitRange{Int},Colon)...)
+@generated function _unsafe_getindex!(X::BitArray, ::LinearFast, B::BitArray, I0::Union{Colon,UnitRange{Int}}, I::Union{Int,UnitRange{Int},Colon}...)
     N = length(I)
     quote
         $(Expr(:meta, :inline))
@@ -643,7 +621,7 @@ end
 
         storeind = 1
         Xc, Bc = X.chunks, B.chunks
-        @nloops($N, i, d->I_d,
+        @nloops($N, i, d->1:size(X, d+1),
                 d->nothing, # PRE
                 d->(ind += stride_lst_d - gap_lst_d), # POST
                 begin # BODY
@@ -657,7 +635,7 @@ end
 # in the general multidimensional non-scalar case, can we do about 10% better
 # in most cases by manually hoisting the bitarray chunks access out of the loop
 # (This should really be handled by the compiler or with an immutable BitArray)
-@generated function _unsafe_getindex!(X::BitArray, ::LinearFast, B::BitArray, I::Union(Int,AbstractVector{Int},Colon)...)
+@generated function _unsafe_getindex!(X::BitArray, ::LinearFast, B::BitArray, I::Union{Int,AbstractVector{Int},Colon}...)
     N = length(I)
     quote
         $(Expr(:meta, :inline))
@@ -695,7 +673,7 @@ function unsafe_setindex!(B::BitArray, x::Bool, I0::UnitRange{Int})
     return B
 end
 
-@generated function unsafe_setindex!(B::BitArray, X::BitArray, I0::UnitRange{Int}, I::Union(Int,UnitRange{Int})...)
+@generated function unsafe_setindex!(B::BitArray, X::BitArray, I0::UnitRange{Int}, I::Union{Int,UnitRange{Int}}...)
     N = length(I)
     quote
         length(X) == 0 && return B
@@ -726,7 +704,7 @@ end
     end
 end
 
-@generated function unsafe_setindex!(B::BitArray, x::Bool, I0::UnitRange{Int}, I::Union(Int,UnitRange{Int})...)
+@generated function unsafe_setindex!(B::BitArray, x::Bool, I0::UnitRange{Int}, I::Union{Int,UnitRange{Int}}...)
     N = length(I)
     quote
         f0 = first(I0)

@@ -2,7 +2,7 @@
 
 # test core language features
 
-const Bottom = Union()
+const Bottom = Union{}
 
 function testintersect(a, b, result, cmp=is)
     @test cmp(typeintersect(a, b), result)
@@ -28,8 +28,8 @@ isnot(x,y) = !is(x,y)
 @test !(Array{Any,1} <: Array{Int8,1})
 @test Array{Int8,1} <: Array{Int8,1}
 @test !(Type{Bottom} <: Type{Int32})
-@test !(Vector{Float64} <: Vector{Union(Float64,Float32)})
-testintersect(Vector{Float64}, Vector{Union(Float64,Float32)}, Bottom)
+@test !(Vector{Float64} <: Vector{Union{Float64,Float32}})
+testintersect(Vector{Float64}, Vector{Union{Float64,Float32}}, Bottom)
 
 @test !isa(Array,Type{Any})
 @test Type{Complex} <: DataType
@@ -57,8 +57,8 @@ let T = TypeVar(:T,true)
     f47{T}(x::Vector{Vector{T}}) = 0
     @test_throws MethodError f47(Array(Vector,0))
     @test f47(Array(Vector{Int},0)) == 0
-    testintersect(Tuple{T,T}, Tuple{Union(Float64,Int64),Int64}, Tuple{Int64,Int64})
-    testintersect(Tuple{T,T}, Tuple{Int64,Union(Float64,Int64)}, Tuple{Int64,Int64})
+    testintersect(Tuple{T,T}, Tuple{Union{Float64,Int64},Int64}, Tuple{Int64,Int64})
+    testintersect(Tuple{T,T}, Tuple{Int64,Union{Float64,Int64}}, Tuple{Int64,Int64})
 
     TT = TypeVar(:T)
     S = TypeVar(:S,true); N = TypeVar(:N,true); SN = TypeVar(:S,Number,true)
@@ -79,6 +79,7 @@ let T = TypeVar(:T,true)
 
     testintersect(Tuple{Rational{T},T}, Tuple{Rational{Integer},Int}, Tuple{Rational{Integer},Int})
 
+    # issue #1631
     testintersect(Pair{T,Ptr{T}}, Pair{Ptr{S},S}, Bottom)
     testintersect(Tuple{T,Ptr{T}}, Tuple{Ptr{S},S}, Bottom)
 end
@@ -101,11 +102,11 @@ testintersect(Type{Any},Type{Complex}, Bottom)
 testintersect(Type{Any},Type{TypeVar(:T,Real)}, Bottom)
 @test !(Type{Array{Integer}} <: Type{AbstractArray{Integer}})
 @test !(Type{Array{Integer}} <: Type{Array{TypeVar(:T,Integer)}})
-testintersect(Type{Function},UnionType,Bottom)
+testintersect(Type{Function},Union,Bottom)
 testintersect(Type{Int32}, DataType, Type{Int32})
 @test !(Type <: TypeVar)
 testintersect(DataType, Type, Bottom, isnot)
-testintersect(UnionType, Type, Bottom, isnot)
+testintersect(Union, Type, Bottom, isnot)
 testintersect(DataType, Type{Int}, Bottom, isnot)
 testintersect(DataType, Type{TypeVar(:T,Int)}, Bottom, isnot)
 testintersect(DataType, Type{TypeVar(:T,Integer)}, Bottom, isnot)
@@ -114,10 +115,10 @@ testintersect(Tuple{Vararg{Int}}, Tuple{Vararg{Bool}}, Tuple{})
 testintersect(Type{Tuple{Vararg{Int}}}, Type{Tuple{Vararg{Bool}}}, Bottom)
 testintersect(Tuple{Bool,Vararg{Int}}, Tuple{Vararg{Bool}}, Tuple{Bool,})
 
-let T = TypeVar(:T,Union(Float32,Float64))
+let T = TypeVar(:T,Union{Float32,Float64})
     testintersect(AbstractArray, Matrix{T}, Matrix{T})
 end
-let T = TypeVar(:T,Union(Float32,Float64),true)
+let T = TypeVar(:T,Union{Float32,Float64},true)
     testintersect(AbstractArray, Matrix{T}, Matrix{T})
 end
 
@@ -142,14 +143,14 @@ end
 @test !issubtype(Array{Tuple{Int,Int}}, Array{NTuple})
 @test !issubtype(Type{Tuple{Void}}, Tuple{Type{Void}})
 
-# this is fancy: know that any type T<:Number must be either a DataType or a UnionType
-@test Type{TypeVar(:T,Number)} <: Union(DataType,UnionType)
+# this is fancy: know that any type T<:Number must be either a DataType or a Union
+@test Type{TypeVar(:T,Number)} <: Union{DataType,Union}
 @test !(Type{TypeVar(:T,Number)} <: DataType)
-@test !(Type{TypeVar(:T,Tuple)} <: Union(Tuple,UnionType))
-@test Type{TypeVar(:T,Tuple)} <: Union(DataType,UnionType)
+@test !(Type{TypeVar(:T,Tuple)} <: Union{Tuple,Union})
+@test Type{TypeVar(:T,Tuple)} <: Union{DataType,Union}
 
 # issue #2997
-let T = TypeVar(:T,Union(Float64,Array{Float64,1}),true)
+let T = TypeVar(:T,Union{Float64,Array{Float64,1}},true)
     testintersect(T,Real,Float64)
 end
 
@@ -174,6 +175,25 @@ let T = TypeVar(:T, Tuple{Vararg{RangeIndex}}, true)
     @test  args_morespecific(t2, t1)
 end
 
+# issue #11840
+f11840(::Type) = "Type"
+f11840(::DataType) = "DataType"
+@test f11840(Type) == "DataType"
+@test f11840(AbstractVector) == "Type"
+
+g11840(::DataType) = 1
+g11840(::Type) = 2
+@test g11840(Vector.body) == 1
+@test g11840(Vector) == 2
+@test g11840(Vector.body) == 1
+
+h11840(::DataType) = '1'
+h11840(::Type) = '2'
+h11840(::TypeConstructor) = '3'
+@test h11840(Vector) == '3'
+@test h11840(Vector.body) == '1'
+@test h11840(Vector) == '3'
+
 # join
 @test typejoin(Int8,Int16) === Signed
 @test typejoin(Int,AbstractString) === Any
@@ -189,8 +209,8 @@ end
                    Tuple{Int8,Vararg{Signed}})
 @test Base.typeseq(typejoin(Tuple{Int8,UInt8,Vararg{Int}},Tuple{Int8,Vararg{Int8}}),
                    Tuple{Int8,Vararg{Integer}})
-@test Base.typeseq(typejoin(Union(Int,AbstractString),Int), Union(Int,AbstractString))
-@test Base.typeseq(typejoin(Union(Int,AbstractString),Int8), Any)
+@test Base.typeseq(typejoin(Union{Int,AbstractString},Int), Union{Int,AbstractString})
+@test Base.typeseq(typejoin(Union{Int,AbstractString},Int8), Any)
 
 # typejoin associativity
 abstract Foo____{K}
@@ -268,8 +288,9 @@ type FooFoo{A,B} y::FooFoo{A} end
 @test FooFoo{Int} <: FooFoo{Int,AbstractString}.types[1]
 
 
-x = (2,3)
-@test +(x...) == 5
+let x = (2,3)
+    @test +(x...) == 5
+end
 
 # bits types
 if WORD_SIZE == 64
@@ -397,6 +418,30 @@ glotest()
 @test glob_x == 88
 @test loc_x == 10
 
+# issue #7234
+begin
+    glob_x2 = 24
+    f7234() = (glob_x2 += 1)
+end
+@test_throws UndefVarError f7234()
+begin
+    global glob_x2 = 24
+    f7234() = (glob_x2 += 1)
+end
+@test_throws UndefVarError f7234()
+# existing globals can be inherited by non-function blocks
+for i = 1:2
+    glob_x2 += 1
+end
+@test glob_x2 == 26
+# globals declared as such in a non-global scope are inherited
+let
+    global glob_x3 = 11
+    f7234_2() = (glob_x3 += 1)
+    f7234_2()
+end
+@test glob_x3 == 12
+
 # issue #7272
 @test expand(parse("let
               global x = 2
@@ -443,7 +488,7 @@ end
 @test (true ? 1 : false ? 2 : 3) == 1
 
 # issue #7252
-begin
+let
     local a
     1 > 0 ? a=2 : a=3
     @test a == 2
@@ -460,7 +505,7 @@ type UndefField
     UndefField() = new()
 end
 
-begin
+let
     local a
     a = cell(2)
     @test !isdefined(a,1) && !isdefined(a,2)
@@ -483,7 +528,7 @@ begin
     @test_throws TypeError isdefined(2)
 end
 
-begin
+let
     local a
     a = cell(2)
     @test !isassigned(a,1) && !isassigned(a,2)
@@ -506,7 +551,7 @@ Type11167{Float32,5}
 @test !isassigned(Type11167.name.cache, 3)
 
 # dispatch
-begin
+let
     local foo, bar, baz
     foo(x::Tuple{Vararg{Any}})=0
     foo(x::Tuple{Vararg{Integer}})=1
@@ -525,7 +570,7 @@ begin
     @test baz(Rational{Int}) == 2
 end
 
-begin
+let
     local mytype
     function mytype(vec)
         convert(Vector{Tuple{ASCIIString, DataType}}, vec)
@@ -536,7 +581,7 @@ end
 
 type MyArray{N} <: AbstractArray{Int, N}
 end
-begin
+let
     local x
     x = MyArray{1}()
     foob(x::AbstractArray)=0
@@ -544,7 +589,7 @@ begin
     @test foob(x) == 1
 end
 
-begin
+let
     local f, g, a
     f{T}(a::Vector{Vector{T}}) = a
     g{T}(a::Vector{Vector{T}}) = a
@@ -555,7 +600,7 @@ end
 
 type _AA{T}; a::T; end
 typealias _AoA{T} _AA{_AA{T}}
-begin
+let
     local g, a
     g{T}(a::_AA{_AA{T}}) = a
     a = _AA(_AA(1))
@@ -563,7 +608,7 @@ begin
 end
 
 # dispatch using Val{T}. See discussion in #9452 for instances vs types
-begin
+let
     local firstlast
     firstlast(::Type{Val{true}}) = "First"
     firstlast(::Type{Val{false}}) = "Last"
@@ -573,7 +618,7 @@ begin
 end
 
 # x::Vararg{Any} declarations
-begin
+let
     local f1, f2, f3
     f1(x...) = [x...]
     f2(x::Vararg{Any}) = [x...]
@@ -623,7 +668,7 @@ begin
         try
             return 5
         finally
-            glo = 18
+            global glo = 18
         end
     end
     @test retfinally() == 5
@@ -633,9 +678,8 @@ begin
 end
 
 # finalizers
-let
-    A = [1]
-    x = 0
+let A = [1]
+    local x = 0
     finalizer(A, a->(x+=1))
     finalize(A)
     @test x == 1
@@ -647,6 +691,24 @@ end
 # Module() constructor
 @test names(Module(:anonymous), true, true) != [:anonymous]
 @test names(Module(:anonymous, false), true, true) == [:anonymous]
+
+# exception from __init__()
+let didthrow =
+    try
+        include_string(
+            """
+            module TestInitError
+                __init__() = error()
+            end
+            """)
+        false
+    catch ex
+        @test isa(ex, LoadError)
+        @test isa(ex.error, InitError)
+        true
+    end
+    @test didthrow
+end
 
 # issue #7307
 function test7307(a, ret)
@@ -684,7 +746,7 @@ let a = []
 end
 
 # chained and multiple assignment behavior (issue #2913)
-begin
+let
     local x, a, b, c, d, e
     x = (a,b,b,b,e) = (1,2,3,4,5)
     @test x === (1,2,3,4,5)
@@ -710,7 +772,7 @@ begin
 end
 
 # accessing fields by index
-begin
+let
     local z = complex(3, 4)
     v = Int[0,0]
     for i=1:2
@@ -736,15 +798,15 @@ end
 # allow typevar in Union to match as long as the arguments contain
 # sufficient information
 # issue #814
-begin
+let
     local MatOrNot, my_func, M
-    typealias MatOrNot{T} Union(AbstractMatrix{T}, Vector{Union()})
+    typealias MatOrNot{T} Union{AbstractMatrix{T}, Vector{Union{}}}
     my_func{T<:Real}(A::MatOrNot{T}, B::MatOrNot{T}, C::MatOrNot{T}) = 0
     M = [ 2. 1. ; 1. 1. ]
-    @test my_func(Union()[], M, M) == 0
+    @test my_func(Union{}[], M, M) == 0
 end
 
-begin
+let
     local my_func, a, c
     my_func{T}(P::Vector{T}, Q::Vector{T}) = 0
     my_func{T}(x::T, P::Vector{T}) = 1
@@ -757,11 +819,11 @@ begin
     @test my_func(a,c)==1
 end
 
-begin
+let
     local baar, foor, boor
     # issue #1131
     baar(x::DataType) = 0
-    baar(x::UnionType) = 1
+    baar(x::Union) = 1
     baar(x::TypeConstructor) = 2
     @test baar(StridedArray) == 2
     @test baar(StridedArray.body) == 1
@@ -769,12 +831,12 @@ begin
     @test baar(Vector.body) == 0
 
     boor(x) = 0
-    boor(x::UnionType) = 1
+    boor(x::Union) = 1
     @test boor(StridedArray) == 0
     @test boor(StridedArray.body) == 1
 
     # issue #1202
-    foor(x::UnionType) = 1
+    foor(x::Union) = 1
     @test_throws MethodError foor(StridedArray)
     @test foor(StridedArray.body) == 1
     @test_throws MethodError foor(StridedArray)
@@ -782,14 +844,14 @@ end
 
 # issue #1153
 type SI{m, s, kg}
-    value::FloatingPoint
+    value::AbstractFloat
 end
 
 import Base.*
 
 *{m1, m2, s1, s2, kg1, kg2}(x::SI{m1, s1, kg1}, y::SI{m2, s2, kg2}) = SI{m1 + m2, s1 + s2, kg1 + kg2}(x.value * y.value)
 
-begin
+let
     local a,b
     a = SI{0,0,1}(1.0) * SI{1,2,0}(2.0)
     b = SI{0,0,1}(1.0) * SI{1,-2,0}(2.0)
@@ -798,7 +860,7 @@ begin
 end
 
 # pointer arithmetic
-begin
+let
    local a,b,c
    a = C_NULL
    b = C_NULL + 1
@@ -816,7 +878,7 @@ begin
 end
 
 # pull request 1270
-begin
+let
     local a,p, a2,p2
     a = [11,12,13]
     p = pointer(a)
@@ -834,7 +896,7 @@ end
                                      x -> x+1, 314158)) == 314159
 @test unsafe_pointer_to_objref(pointer_from_objref(e+pi)) == e+pi
 
-begin
+let
     local a, aa
     a = [1,2,3]
     aa = pointer_to_array(pointer(a), length(a))
@@ -852,7 +914,7 @@ immutable FooBar
     foo::Int
     bar::Int
 end
-begin
+let
     local X, p
     X = FooBar[ FooBar(3,1), FooBar(4,4) ]
     p = pointer(X)
@@ -862,7 +924,7 @@ begin
 end
 
 # issue #1287, combinations of try, catch, return
-begin
+let
     local f, g
 
     function f()
@@ -886,7 +948,7 @@ end
 type S1442{T}
 end
 
-begin
+let
     local f1442
     f1442(::DataType) = 1
     f1442{T}(::Type{S1442{T}}) = 2
@@ -1010,21 +1072,19 @@ end
 
 # issue #2365
 type B2365{T}
-     v::Union(T, Void)
+     v::Union{T, Void}
 end
 @test B2365{Int}(nothing).v === nothing
 @test B2365{Int}(0).v === 0
 
 # issue #2352
-begin
+let
     local Sum, n
     Sum=0.0; for n=1:2:10000
         Sum += -1/n + 1/(n+1)
     end
     @test Sum < -0.69
 end
-
-include("test_sourcepath.jl")
 
 # issue #2509
 immutable Foo2509; foo::Int; end
@@ -1039,7 +1099,7 @@ immutable Foo2517; end
 
 # issue #1474
 type X1474{a,b} end
-begin
+let
     local Y
     Y{A,B}(::Type{X1474{A,B}}) = 1
     Y{A}(::Type{X1474{A}}) = 2
@@ -1180,7 +1240,7 @@ function foo(x)
     end
     return ret
 end
-let x = Array(Union(Dict{Int64,AbstractString},Array{Int64,3},Number,AbstractString,Void), 3)
+let x = Array(Union{Dict{Int64,AbstractString},Array{Int64,3},Number,AbstractString,Void}, 3)
     x[1] = 1.0
     x[2] = 2.0
     x[3] = 3.0
@@ -1191,7 +1251,7 @@ end
 # issue #4115
 #type Foo4115
 #end
-#typealias Foo4115s NTuple{3,Union(Foo4115,Type{Foo4115})}
+#typealias Foo4115s NTuple{3,Union{Foo4115,Type{Foo4115}}}
 #baz4115(x::Foo4115s) = x
 #@test baz4115(convert(Tuple{Type{Foo4115},Type{Foo4115},Foo4115},
 #                      (Foo4115,Foo4115,Foo4115()))) == (Foo4115,Foo4115,Foo4115())
@@ -1273,10 +1333,10 @@ end
 type A4413 end
 type B4413 end
 type C4413 end
-f4413(::Union(A4413, B4413, C4413)) = "ABC"
-f4413(::Union(A4413, B4413)) = "AB"
-g4413(::Union(A4413, C4413)) = "AC"
-g4413(::Union(A4413, B4413, C4413)) = "ABC"
+f4413(::Union{A4413, B4413, C4413}) = "ABC"
+f4413(::Union{A4413, B4413}) = "AB"
+g4413(::Union{A4413, C4413}) = "AC"
+g4413(::Union{A4413, B4413, C4413}) = "ABC"
 
 @test f4413(A4413()) == "AB" && f4413(B4413()) == "AB"
 @test g4413(A4413()) == "AC" && g4413(C4413()) == "AC"
@@ -1314,8 +1374,8 @@ end
 @test_throws ErrorException f4528(true, Int32(12))
 
 # issue #4518
-f4518(x, y::Union(Int32,Int64)) = 0
-f4518(x::ASCIIString, y::Union(Int32,Int64)) = 1
+f4518(x, y::Union{Int32,Int64}) = 0
+f4518(x::ByteString, y::Union{Int32,Int64}) = 1
 @test f4518("",1) == 1
 
 # issue #4581
@@ -1490,11 +1550,9 @@ f5254(a, b) = 1
 @test f5254(Bottom, 1) == 1
 
 # evaluate arguments left-to-right, including assignments. issue #4990
-let
-    i = 0
+let i = 0, x = 65
     @test (i, i+=1, i+=1) === (0, 1, 2)
     @test i == 2
-    x = 65
     @test [x, x|=0x20] == [65, 97]
 end
 
@@ -1696,8 +1754,8 @@ x6074 = 6074
 @test @X6074() == 6074
 
 # issue #5536
-test5536(a::Union(Real, AbstractArray)...) = "Splatting"
-test5536(a::Union(Real, AbstractArray)) = "Non-splatting"
+test5536(a::Union{Real, AbstractArray}...) = "Splatting"
+test5536(a::Union{Real, AbstractArray}) = "Non-splatting"
 @test test5536(5) == "Non-splatting"
 
 # multiline comments (#6139 and others raised in #6128) and embedded NUL chars (#10994)
@@ -1706,6 +1764,7 @@ test5536(a::Union(Real, AbstractArray)) = "Non-splatting"
 @test_throws LoadError include_string("#= #= #= =# =# =")
 
 # issue #6142
+import Base: +
 type A6142 <: AbstractMatrix{Float64}; end
 +{TJ}(x::A6142, y::UniformScaling{TJ}) = "UniformScaling method called"
 +(x::A6142, y::AbstractArray) = "AbstractArray method called"
@@ -1886,19 +1945,19 @@ end
 # issue #6980
 abstract A6980
 type B6980 <: A6980 end
-f6980(::Union(Int, Float64), ::A6980) = false
-f6980(::Union(Int, Float64), ::B6980) = true
+f6980(::Union{Int, Float64}, ::A6980) = false
+f6980(::Union{Int, Float64}, ::B6980) = true
 @test f6980(1, B6980())
 
 # issue #7049
-typealias Maybe7049{T} Union(T,Void)
-function ttt7049(;init::Maybe7049{Union(AbstractString,Tuple{Int,Char})} = nothing)
+typealias Maybe7049{T} Union{T,Void}
+function ttt7049(;init::Maybe7049{Union{AbstractString,Tuple{Int,Char}}} = nothing)
     string("init=", init)
 end
 @test ttt7049(init="a") == "init=a"
 
 # issue #7074
-let z{T<:Union(Float64,Complex{Float64},Float32,Complex{Float32})}(A::StridedMatrix{T}) = T,
+let z{T<:Union{Float64,Complex{Float64},Float32,Complex{Float32}}}(A::StridedMatrix{T}) = T,
     S = zeros(Complex,2,2)
     @test_throws MethodError z(S)
 end
@@ -2052,10 +2111,10 @@ end
 
 # issue #8851
 abstract AbstractThing{T,N}
-type ConcreteThing{T<:FloatingPoint,N} <: AbstractThing{T,N}
+type ConcreteThing{T<:AbstractFloat,N} <: AbstractThing{T,N}
 end
 
-testintersect(AbstractThing{TypeVar(:T,true),2}, ConcreteThing, ConcreteThing{TypeVar(:T,FloatingPoint),2}, isequal)
+testintersect(AbstractThing{TypeVar(:T,true),2}, ConcreteThing, ConcreteThing{TypeVar(:T,AbstractFloat),2}, isequal)
 
 # issue #8978
 module I8978
@@ -2311,7 +2370,7 @@ f7221(::AbstractVecOrMat) = 3
 arithtype9232{T<:Real}(::Type{T},::Type{T}) = arithtype9232(T)
 result_type9232{T1<:Number,T2<:Number}(::Type{T1}, ::Type{T2}) = arithtype9232(T1, T2)
 # this gave a "type too large", but not reliably
-@test length(code_typed(result_type9232, Tuple{Type{TypeVar(:_, Union(Float32,Float64))}, Type{TypeVar(:T2, Number)}})) == 1
+@test length(code_typed(result_type9232, Tuple{Type{TypeVar(:_, Union{Float32,Float64})}, Type{TypeVar(:T2, Number)}})) == 1
 
 # test functionality of non-power-of-2 bitstype constants
 bitstype 24 Int24
@@ -2329,518 +2388,518 @@ end
 
 # issue #10570
 immutable Array_512_Uint8
-    d1::Uint8
-    d2::Uint8
-    d3::Uint8
-    d4::Uint8
-    d5::Uint8
-    d6::Uint8
-    d7::Uint8
-    d8::Uint8
-    d9::Uint8
-    d10::Uint8
-    d11::Uint8
-    d12::Uint8
-    d13::Uint8
-    d14::Uint8
-    d15::Uint8
-    d16::Uint8
-    d17::Uint8
-    d18::Uint8
-    d19::Uint8
-    d20::Uint8
-    d21::Uint8
-    d22::Uint8
-    d23::Uint8
-    d24::Uint8
-    d25::Uint8
-    d26::Uint8
-    d27::Uint8
-    d28::Uint8
-    d29::Uint8
-    d30::Uint8
-    d31::Uint8
-    d32::Uint8
-    d33::Uint8
-    d34::Uint8
-    d35::Uint8
-    d36::Uint8
-    d37::Uint8
-    d38::Uint8
-    d39::Uint8
-    d40::Uint8
-    d41::Uint8
-    d42::Uint8
-    d43::Uint8
-    d44::Uint8
-    d45::Uint8
-    d46::Uint8
-    d47::Uint8
-    d48::Uint8
-    d49::Uint8
-    d50::Uint8
-    d51::Uint8
-    d52::Uint8
-    d53::Uint8
-    d54::Uint8
-    d55::Uint8
-    d56::Uint8
-    d57::Uint8
-    d58::Uint8
-    d59::Uint8
-    d60::Uint8
-    d61::Uint8
-    d62::Uint8
-    d63::Uint8
-    d64::Uint8
-    d65::Uint8
-    d66::Uint8
-    d67::Uint8
-    d68::Uint8
-    d69::Uint8
-    d70::Uint8
-    d71::Uint8
-    d72::Uint8
-    d73::Uint8
-    d74::Uint8
-    d75::Uint8
-    d76::Uint8
-    d77::Uint8
-    d78::Uint8
-    d79::Uint8
-    d80::Uint8
-    d81::Uint8
-    d82::Uint8
-    d83::Uint8
-    d84::Uint8
-    d85::Uint8
-    d86::Uint8
-    d87::Uint8
-    d88::Uint8
-    d89::Uint8
-    d90::Uint8
-    d91::Uint8
-    d92::Uint8
-    d93::Uint8
-    d94::Uint8
-    d95::Uint8
-    d96::Uint8
-    d97::Uint8
-    d98::Uint8
-    d99::Uint8
-    d100::Uint8
-    d101::Uint8
-    d102::Uint8
-    d103::Uint8
-    d104::Uint8
-    d105::Uint8
-    d106::Uint8
-    d107::Uint8
-    d108::Uint8
-    d109::Uint8
-    d110::Uint8
-    d111::Uint8
-    d112::Uint8
-    d113::Uint8
-    d114::Uint8
-    d115::Uint8
-    d116::Uint8
-    d117::Uint8
-    d118::Uint8
-    d119::Uint8
-    d120::Uint8
-    d121::Uint8
-    d122::Uint8
-    d123::Uint8
-    d124::Uint8
-    d125::Uint8
-    d126::Uint8
-    d127::Uint8
-    d128::Uint8
-    d129::Uint8
-    d130::Uint8
-    d131::Uint8
-    d132::Uint8
-    d133::Uint8
-    d134::Uint8
-    d135::Uint8
-    d136::Uint8
-    d137::Uint8
-    d138::Uint8
-    d139::Uint8
-    d140::Uint8
-    d141::Uint8
-    d142::Uint8
-    d143::Uint8
-    d144::Uint8
-    d145::Uint8
-    d146::Uint8
-    d147::Uint8
-    d148::Uint8
-    d149::Uint8
-    d150::Uint8
-    d151::Uint8
-    d152::Uint8
-    d153::Uint8
-    d154::Uint8
-    d155::Uint8
-    d156::Uint8
-    d157::Uint8
-    d158::Uint8
-    d159::Uint8
-    d160::Uint8
-    d161::Uint8
-    d162::Uint8
-    d163::Uint8
-    d164::Uint8
-    d165::Uint8
-    d166::Uint8
-    d167::Uint8
-    d168::Uint8
-    d169::Uint8
-    d170::Uint8
-    d171::Uint8
-    d172::Uint8
-    d173::Uint8
-    d174::Uint8
-    d175::Uint8
-    d176::Uint8
-    d177::Uint8
-    d178::Uint8
-    d179::Uint8
-    d180::Uint8
-    d181::Uint8
-    d182::Uint8
-    d183::Uint8
-    d184::Uint8
-    d185::Uint8
-    d186::Uint8
-    d187::Uint8
-    d188::Uint8
-    d189::Uint8
-    d190::Uint8
-    d191::Uint8
-    d192::Uint8
-    d193::Uint8
-    d194::Uint8
-    d195::Uint8
-    d196::Uint8
-    d197::Uint8
-    d198::Uint8
-    d199::Uint8
-    d200::Uint8
-    d201::Uint8
-    d202::Uint8
-    d203::Uint8
-    d204::Uint8
-    d205::Uint8
-    d206::Uint8
-    d207::Uint8
-    d208::Uint8
-    d209::Uint8
-    d210::Uint8
-    d211::Uint8
-    d212::Uint8
-    d213::Uint8
-    d214::Uint8
-    d215::Uint8
-    d216::Uint8
-    d217::Uint8
-    d218::Uint8
-    d219::Uint8
-    d220::Uint8
-    d221::Uint8
-    d222::Uint8
-    d223::Uint8
-    d224::Uint8
-    d225::Uint8
-    d226::Uint8
-    d227::Uint8
-    d228::Uint8
-    d229::Uint8
-    d230::Uint8
-    d231::Uint8
-    d232::Uint8
-    d233::Uint8
-    d234::Uint8
-    d235::Uint8
-    d236::Uint8
-    d237::Uint8
-    d238::Uint8
-    d239::Uint8
-    d240::Uint8
-    d241::Uint8
-    d242::Uint8
-    d243::Uint8
-    d244::Uint8
-    d245::Uint8
-    d246::Uint8
-    d247::Uint8
-    d248::Uint8
-    d249::Uint8
-    d250::Uint8
-    d251::Uint8
-    d252::Uint8
-    d253::Uint8
-    d254::Uint8
-    d255::Uint8
-    d256::Uint8
-    d257::Uint8
-    d258::Uint8
-    d259::Uint8
-    d260::Uint8
-    d261::Uint8
-    d262::Uint8
-    d263::Uint8
-    d264::Uint8
-    d265::Uint8
-    d266::Uint8
-    d267::Uint8
-    d268::Uint8
-    d269::Uint8
-    d270::Uint8
-    d271::Uint8
-    d272::Uint8
-    d273::Uint8
-    d274::Uint8
-    d275::Uint8
-    d276::Uint8
-    d277::Uint8
-    d278::Uint8
-    d279::Uint8
-    d280::Uint8
-    d281::Uint8
-    d282::Uint8
-    d283::Uint8
-    d284::Uint8
-    d285::Uint8
-    d286::Uint8
-    d287::Uint8
-    d288::Uint8
-    d289::Uint8
-    d290::Uint8
-    d291::Uint8
-    d292::Uint8
-    d293::Uint8
-    d294::Uint8
-    d295::Uint8
-    d296::Uint8
-    d297::Uint8
-    d298::Uint8
-    d299::Uint8
-    d300::Uint8
-    d301::Uint8
-    d302::Uint8
-    d303::Uint8
-    d304::Uint8
-    d305::Uint8
-    d306::Uint8
-    d307::Uint8
-    d308::Uint8
-    d309::Uint8
-    d310::Uint8
-    d311::Uint8
-    d312::Uint8
-    d313::Uint8
-    d314::Uint8
-    d315::Uint8
-    d316::Uint8
-    d317::Uint8
-    d318::Uint8
-    d319::Uint8
-    d320::Uint8
-    d321::Uint8
-    d322::Uint8
-    d323::Uint8
-    d324::Uint8
-    d325::Uint8
-    d326::Uint8
-    d327::Uint8
-    d328::Uint8
-    d329::Uint8
-    d330::Uint8
-    d331::Uint8
-    d332::Uint8
-    d333::Uint8
-    d334::Uint8
-    d335::Uint8
-    d336::Uint8
-    d337::Uint8
-    d338::Uint8
-    d339::Uint8
-    d340::Uint8
-    d341::Uint8
-    d342::Uint8
-    d343::Uint8
-    d344::Uint8
-    d345::Uint8
-    d346::Uint8
-    d347::Uint8
-    d348::Uint8
-    d349::Uint8
-    d350::Uint8
-    d351::Uint8
-    d352::Uint8
-    d353::Uint8
-    d354::Uint8
-    d355::Uint8
-    d356::Uint8
-    d357::Uint8
-    d358::Uint8
-    d359::Uint8
-    d360::Uint8
-    d361::Uint8
-    d362::Uint8
-    d363::Uint8
-    d364::Uint8
-    d365::Uint8
-    d366::Uint8
-    d367::Uint8
-    d368::Uint8
-    d369::Uint8
-    d370::Uint8
-    d371::Uint8
-    d372::Uint8
-    d373::Uint8
-    d374::Uint8
-    d375::Uint8
-    d376::Uint8
-    d377::Uint8
-    d378::Uint8
-    d379::Uint8
-    d380::Uint8
-    d381::Uint8
-    d382::Uint8
-    d383::Uint8
-    d384::Uint8
-    d385::Uint8
-    d386::Uint8
-    d387::Uint8
-    d388::Uint8
-    d389::Uint8
-    d390::Uint8
-    d391::Uint8
-    d392::Uint8
-    d393::Uint8
-    d394::Uint8
-    d395::Uint8
-    d396::Uint8
-    d397::Uint8
-    d398::Uint8
-    d399::Uint8
-    d400::Uint8
-    d401::Uint8
-    d402::Uint8
-    d403::Uint8
-    d404::Uint8
-    d405::Uint8
-    d406::Uint8
-    d407::Uint8
-    d408::Uint8
-    d409::Uint8
-    d410::Uint8
-    d411::Uint8
-    d412::Uint8
-    d413::Uint8
-    d414::Uint8
-    d415::Uint8
-    d416::Uint8
-    d417::Uint8
-    d418::Uint8
-    d419::Uint8
-    d420::Uint8
-    d421::Uint8
-    d422::Uint8
-    d423::Uint8
-    d424::Uint8
-    d425::Uint8
-    d426::Uint8
-    d427::Uint8
-    d428::Uint8
-    d429::Uint8
-    d430::Uint8
-    d431::Uint8
-    d432::Uint8
-    d433::Uint8
-    d434::Uint8
-    d435::Uint8
-    d436::Uint8
-    d437::Uint8
-    d438::Uint8
-    d439::Uint8
-    d440::Uint8
-    d441::Uint8
-    d442::Uint8
-    d443::Uint8
-    d444::Uint8
-    d445::Uint8
-    d446::Uint8
-    d447::Uint8
-    d448::Uint8
-    d449::Uint8
-    d450::Uint8
-    d451::Uint8
-    d452::Uint8
-    d453::Uint8
-    d454::Uint8
-    d455::Uint8
-    d456::Uint8
-    d457::Uint8
-    d458::Uint8
-    d459::Uint8
-    d460::Uint8
-    d461::Uint8
-    d462::Uint8
-    d463::Uint8
-    d464::Uint8
-    d465::Uint8
-    d466::Uint8
-    d467::Uint8
-    d468::Uint8
-    d469::Uint8
-    d470::Uint8
-    d471::Uint8
-    d472::Uint8
-    d473::Uint8
-    d474::Uint8
-    d475::Uint8
-    d476::Uint8
-    d477::Uint8
-    d478::Uint8
-    d479::Uint8
-    d480::Uint8
-    d481::Uint8
-    d482::Uint8
-    d483::Uint8
-    d484::Uint8
-    d485::Uint8
-    d486::Uint8
-    d487::Uint8
-    d488::Uint8
-    d489::Uint8
-    d490::Uint8
-    d491::Uint8
-    d492::Uint8
-    d493::Uint8
-    d494::Uint8
-    d495::Uint8
-    d496::Uint8
-    d497::Uint8
-    d498::Uint8
-    d499::Uint8
-    d500::Uint8
-    d501::Uint8
-    d502::Uint8
-    d503::Uint8
-    d504::Uint8
-    d505::Uint8
-    d506::Uint8
-    d507::Uint8
-    d508::Uint8
-    d509::Uint8
-    d510::Uint8
-    d511::Uint8
-    d512::Uint8
+    d1::UInt8
+    d2::UInt8
+    d3::UInt8
+    d4::UInt8
+    d5::UInt8
+    d6::UInt8
+    d7::UInt8
+    d8::UInt8
+    d9::UInt8
+    d10::UInt8
+    d11::UInt8
+    d12::UInt8
+    d13::UInt8
+    d14::UInt8
+    d15::UInt8
+    d16::UInt8
+    d17::UInt8
+    d18::UInt8
+    d19::UInt8
+    d20::UInt8
+    d21::UInt8
+    d22::UInt8
+    d23::UInt8
+    d24::UInt8
+    d25::UInt8
+    d26::UInt8
+    d27::UInt8
+    d28::UInt8
+    d29::UInt8
+    d30::UInt8
+    d31::UInt8
+    d32::UInt8
+    d33::UInt8
+    d34::UInt8
+    d35::UInt8
+    d36::UInt8
+    d37::UInt8
+    d38::UInt8
+    d39::UInt8
+    d40::UInt8
+    d41::UInt8
+    d42::UInt8
+    d43::UInt8
+    d44::UInt8
+    d45::UInt8
+    d46::UInt8
+    d47::UInt8
+    d48::UInt8
+    d49::UInt8
+    d50::UInt8
+    d51::UInt8
+    d52::UInt8
+    d53::UInt8
+    d54::UInt8
+    d55::UInt8
+    d56::UInt8
+    d57::UInt8
+    d58::UInt8
+    d59::UInt8
+    d60::UInt8
+    d61::UInt8
+    d62::UInt8
+    d63::UInt8
+    d64::UInt8
+    d65::UInt8
+    d66::UInt8
+    d67::UInt8
+    d68::UInt8
+    d69::UInt8
+    d70::UInt8
+    d71::UInt8
+    d72::UInt8
+    d73::UInt8
+    d74::UInt8
+    d75::UInt8
+    d76::UInt8
+    d77::UInt8
+    d78::UInt8
+    d79::UInt8
+    d80::UInt8
+    d81::UInt8
+    d82::UInt8
+    d83::UInt8
+    d84::UInt8
+    d85::UInt8
+    d86::UInt8
+    d87::UInt8
+    d88::UInt8
+    d89::UInt8
+    d90::UInt8
+    d91::UInt8
+    d92::UInt8
+    d93::UInt8
+    d94::UInt8
+    d95::UInt8
+    d96::UInt8
+    d97::UInt8
+    d98::UInt8
+    d99::UInt8
+    d100::UInt8
+    d101::UInt8
+    d102::UInt8
+    d103::UInt8
+    d104::UInt8
+    d105::UInt8
+    d106::UInt8
+    d107::UInt8
+    d108::UInt8
+    d109::UInt8
+    d110::UInt8
+    d111::UInt8
+    d112::UInt8
+    d113::UInt8
+    d114::UInt8
+    d115::UInt8
+    d116::UInt8
+    d117::UInt8
+    d118::UInt8
+    d119::UInt8
+    d120::UInt8
+    d121::UInt8
+    d122::UInt8
+    d123::UInt8
+    d124::UInt8
+    d125::UInt8
+    d126::UInt8
+    d127::UInt8
+    d128::UInt8
+    d129::UInt8
+    d130::UInt8
+    d131::UInt8
+    d132::UInt8
+    d133::UInt8
+    d134::UInt8
+    d135::UInt8
+    d136::UInt8
+    d137::UInt8
+    d138::UInt8
+    d139::UInt8
+    d140::UInt8
+    d141::UInt8
+    d142::UInt8
+    d143::UInt8
+    d144::UInt8
+    d145::UInt8
+    d146::UInt8
+    d147::UInt8
+    d148::UInt8
+    d149::UInt8
+    d150::UInt8
+    d151::UInt8
+    d152::UInt8
+    d153::UInt8
+    d154::UInt8
+    d155::UInt8
+    d156::UInt8
+    d157::UInt8
+    d158::UInt8
+    d159::UInt8
+    d160::UInt8
+    d161::UInt8
+    d162::UInt8
+    d163::UInt8
+    d164::UInt8
+    d165::UInt8
+    d166::UInt8
+    d167::UInt8
+    d168::UInt8
+    d169::UInt8
+    d170::UInt8
+    d171::UInt8
+    d172::UInt8
+    d173::UInt8
+    d174::UInt8
+    d175::UInt8
+    d176::UInt8
+    d177::UInt8
+    d178::UInt8
+    d179::UInt8
+    d180::UInt8
+    d181::UInt8
+    d182::UInt8
+    d183::UInt8
+    d184::UInt8
+    d185::UInt8
+    d186::UInt8
+    d187::UInt8
+    d188::UInt8
+    d189::UInt8
+    d190::UInt8
+    d191::UInt8
+    d192::UInt8
+    d193::UInt8
+    d194::UInt8
+    d195::UInt8
+    d196::UInt8
+    d197::UInt8
+    d198::UInt8
+    d199::UInt8
+    d200::UInt8
+    d201::UInt8
+    d202::UInt8
+    d203::UInt8
+    d204::UInt8
+    d205::UInt8
+    d206::UInt8
+    d207::UInt8
+    d208::UInt8
+    d209::UInt8
+    d210::UInt8
+    d211::UInt8
+    d212::UInt8
+    d213::UInt8
+    d214::UInt8
+    d215::UInt8
+    d216::UInt8
+    d217::UInt8
+    d218::UInt8
+    d219::UInt8
+    d220::UInt8
+    d221::UInt8
+    d222::UInt8
+    d223::UInt8
+    d224::UInt8
+    d225::UInt8
+    d226::UInt8
+    d227::UInt8
+    d228::UInt8
+    d229::UInt8
+    d230::UInt8
+    d231::UInt8
+    d232::UInt8
+    d233::UInt8
+    d234::UInt8
+    d235::UInt8
+    d236::UInt8
+    d237::UInt8
+    d238::UInt8
+    d239::UInt8
+    d240::UInt8
+    d241::UInt8
+    d242::UInt8
+    d243::UInt8
+    d244::UInt8
+    d245::UInt8
+    d246::UInt8
+    d247::UInt8
+    d248::UInt8
+    d249::UInt8
+    d250::UInt8
+    d251::UInt8
+    d252::UInt8
+    d253::UInt8
+    d254::UInt8
+    d255::UInt8
+    d256::UInt8
+    d257::UInt8
+    d258::UInt8
+    d259::UInt8
+    d260::UInt8
+    d261::UInt8
+    d262::UInt8
+    d263::UInt8
+    d264::UInt8
+    d265::UInt8
+    d266::UInt8
+    d267::UInt8
+    d268::UInt8
+    d269::UInt8
+    d270::UInt8
+    d271::UInt8
+    d272::UInt8
+    d273::UInt8
+    d274::UInt8
+    d275::UInt8
+    d276::UInt8
+    d277::UInt8
+    d278::UInt8
+    d279::UInt8
+    d280::UInt8
+    d281::UInt8
+    d282::UInt8
+    d283::UInt8
+    d284::UInt8
+    d285::UInt8
+    d286::UInt8
+    d287::UInt8
+    d288::UInt8
+    d289::UInt8
+    d290::UInt8
+    d291::UInt8
+    d292::UInt8
+    d293::UInt8
+    d294::UInt8
+    d295::UInt8
+    d296::UInt8
+    d297::UInt8
+    d298::UInt8
+    d299::UInt8
+    d300::UInt8
+    d301::UInt8
+    d302::UInt8
+    d303::UInt8
+    d304::UInt8
+    d305::UInt8
+    d306::UInt8
+    d307::UInt8
+    d308::UInt8
+    d309::UInt8
+    d310::UInt8
+    d311::UInt8
+    d312::UInt8
+    d313::UInt8
+    d314::UInt8
+    d315::UInt8
+    d316::UInt8
+    d317::UInt8
+    d318::UInt8
+    d319::UInt8
+    d320::UInt8
+    d321::UInt8
+    d322::UInt8
+    d323::UInt8
+    d324::UInt8
+    d325::UInt8
+    d326::UInt8
+    d327::UInt8
+    d328::UInt8
+    d329::UInt8
+    d330::UInt8
+    d331::UInt8
+    d332::UInt8
+    d333::UInt8
+    d334::UInt8
+    d335::UInt8
+    d336::UInt8
+    d337::UInt8
+    d338::UInt8
+    d339::UInt8
+    d340::UInt8
+    d341::UInt8
+    d342::UInt8
+    d343::UInt8
+    d344::UInt8
+    d345::UInt8
+    d346::UInt8
+    d347::UInt8
+    d348::UInt8
+    d349::UInt8
+    d350::UInt8
+    d351::UInt8
+    d352::UInt8
+    d353::UInt8
+    d354::UInt8
+    d355::UInt8
+    d356::UInt8
+    d357::UInt8
+    d358::UInt8
+    d359::UInt8
+    d360::UInt8
+    d361::UInt8
+    d362::UInt8
+    d363::UInt8
+    d364::UInt8
+    d365::UInt8
+    d366::UInt8
+    d367::UInt8
+    d368::UInt8
+    d369::UInt8
+    d370::UInt8
+    d371::UInt8
+    d372::UInt8
+    d373::UInt8
+    d374::UInt8
+    d375::UInt8
+    d376::UInt8
+    d377::UInt8
+    d378::UInt8
+    d379::UInt8
+    d380::UInt8
+    d381::UInt8
+    d382::UInt8
+    d383::UInt8
+    d384::UInt8
+    d385::UInt8
+    d386::UInt8
+    d387::UInt8
+    d388::UInt8
+    d389::UInt8
+    d390::UInt8
+    d391::UInt8
+    d392::UInt8
+    d393::UInt8
+    d394::UInt8
+    d395::UInt8
+    d396::UInt8
+    d397::UInt8
+    d398::UInt8
+    d399::UInt8
+    d400::UInt8
+    d401::UInt8
+    d402::UInt8
+    d403::UInt8
+    d404::UInt8
+    d405::UInt8
+    d406::UInt8
+    d407::UInt8
+    d408::UInt8
+    d409::UInt8
+    d410::UInt8
+    d411::UInt8
+    d412::UInt8
+    d413::UInt8
+    d414::UInt8
+    d415::UInt8
+    d416::UInt8
+    d417::UInt8
+    d418::UInt8
+    d419::UInt8
+    d420::UInt8
+    d421::UInt8
+    d422::UInt8
+    d423::UInt8
+    d424::UInt8
+    d425::UInt8
+    d426::UInt8
+    d427::UInt8
+    d428::UInt8
+    d429::UInt8
+    d430::UInt8
+    d431::UInt8
+    d432::UInt8
+    d433::UInt8
+    d434::UInt8
+    d435::UInt8
+    d436::UInt8
+    d437::UInt8
+    d438::UInt8
+    d439::UInt8
+    d440::UInt8
+    d441::UInt8
+    d442::UInt8
+    d443::UInt8
+    d444::UInt8
+    d445::UInt8
+    d446::UInt8
+    d447::UInt8
+    d448::UInt8
+    d449::UInt8
+    d450::UInt8
+    d451::UInt8
+    d452::UInt8
+    d453::UInt8
+    d454::UInt8
+    d455::UInt8
+    d456::UInt8
+    d457::UInt8
+    d458::UInt8
+    d459::UInt8
+    d460::UInt8
+    d461::UInt8
+    d462::UInt8
+    d463::UInt8
+    d464::UInt8
+    d465::UInt8
+    d466::UInt8
+    d467::UInt8
+    d468::UInt8
+    d469::UInt8
+    d470::UInt8
+    d471::UInt8
+    d472::UInt8
+    d473::UInt8
+    d474::UInt8
+    d475::UInt8
+    d476::UInt8
+    d477::UInt8
+    d478::UInt8
+    d479::UInt8
+    d480::UInt8
+    d481::UInt8
+    d482::UInt8
+    d483::UInt8
+    d484::UInt8
+    d485::UInt8
+    d486::UInt8
+    d487::UInt8
+    d488::UInt8
+    d489::UInt8
+    d490::UInt8
+    d491::UInt8
+    d492::UInt8
+    d493::UInt8
+    d494::UInt8
+    d495::UInt8
+    d496::UInt8
+    d497::UInt8
+    d498::UInt8
+    d499::UInt8
+    d500::UInt8
+    d501::UInt8
+    d502::UInt8
+    d503::UInt8
+    d504::UInt8
+    d505::UInt8
+    d506::UInt8
+    d507::UInt8
+    d508::UInt8
+    d509::UInt8
+    d510::UInt8
+    d511::UInt8
+    d512::UInt8
 end
 gc()
 
@@ -2945,7 +3004,7 @@ immutable T11675{T}
     x::T
     T11675() = new()
 end
-let x = T11675{Union()}()
+let x = T11675{Union{}}()
     function f11675(x)
         x.x + 1
     end
@@ -2961,3 +3020,373 @@ end
 @test_throws UndefVarError x7864
 using M7864
 @test x7864 == 1
+
+# issue #11715
+f11715(x) = (x === Tuple{Any})
+@test f11715(Tuple{Any})
+
+# part of #11597
+# make sure invalid, partly-constructed types don't end up in the cache
+abstract C11597{T<:Union{Void, Int}}
+type D11597{T} <: C11597{T} d::T end
+@test_throws TypeError D11597(1.0)
+@test_throws TypeError repr(D11597(1.0))
+
+# issue #11772
+@test_throws UndefRefError (cell(5)...)
+
+# issue #11813
+let a = UInt8[1, 107, 66, 88, 2, 99, 254, 13, 0, 0, 0, 0]
+    u32 = UInt32[0x3]
+    a[9:end] = reinterpret(UInt8, u32)
+    p = pointer(a)
+    @test (Int8(1),(Int8(2),Int32(3))) === unsafe_load(convert(Ptr{Tuple{Int8,Tuple{Int8,Int32}}},p))
+    f11813(p) = (Int8(1),(Int8(2),Int32(3))) === unsafe_load(convert(Ptr{Tuple{Int8,Tuple{Int8,Int32}}},p))
+    @test f11813(p) === true # redundant comparison test seems to make this test more reliable, don't remove
+end
+# issue #13037
+let a = UInt8[0, 0, 0, 0, 0x66, 99, 254, 13, 0, 0, 0, 0]
+    u32 = UInt32[0x3]
+    a[1:4] = reinterpret(UInt8, u32)
+    p = pointer(a)
+    @test ((Int32(3),UInt8(0x66)),Int32(0)) === unsafe_load(convert(Ptr{Tuple{Tuple{Int32,UInt8},Int32}},p))
+    f11813(p) = ((Int32(3),UInt8(0x66)),Int32(0)) === unsafe_load(convert(Ptr{Tuple{Tuple{Int32,UInt8},Int32}},p))
+    @test f11813(p) === true # redundant comparison test seems to make this test more reliable, don't remove
+end
+let a = (1:1000...),
+    b = (1:1000...)
+    @test a == b
+    @test a === b
+    @test (a == b) === true
+    @test (a === b) === true
+end
+
+# issue 11858
+type Foo11858
+    x::Float64
+end
+
+type Bar11858
+    x::Float64
+end
+
+g11858(x::Float64) = x
+f11858(a) = for Baz in a
+    Baz(x) = Baz(float(x))
+end
+f11858(Any[Foo11858, Bar11858, g11858])
+
+@test g11858(1) == 1.0
+@test Foo11858(1).x == 1.0
+@test Bar11858(1).x == 1.0
+
+# issue 11904
+@noinline throw_error() = error()
+foo11904(x::Int) = x
+@inline function foo11904{S}(x::Nullable{S})
+    if isbits(S)
+        Nullable(foo11904(x.value), x.isnull)
+    else
+        throw_error()
+    end
+end
+
+@test !foo11904(Nullable(1)).isnull
+
+# issue 11874
+immutable Foo11874
+   x::Int
+end
+
+function bar11874(x)
+   y::Foo11874
+   y=x
+end
+
+Base.convert(::Type{Foo11874},x::Int) = float(x)
+
+@test_throws TypeError bar11874(1)
+
+# issue #9233
+let
+    try
+        NTuple{Int, 1}
+        @test false
+    catch err
+        @test isa(err, TypeError)
+        @test err.func == :NTuple
+        @test err.expected == Int
+        @test err.got == Int
+    end
+
+    try
+        NTuple{0x1, Int}
+        @test false
+    catch err
+        @test isa(err, TypeError)
+        @test err.func == :NTuple
+        @test err.expected == Int
+        @test err.got == 0x1
+    end
+end
+
+# 11996
+@test_throws ErrorException NTuple{-1, Int}
+@test_throws TypeError Union{Int, 1}
+
+# issue #10930
+@test isa(code_typed(promote,(Any,Any,Vararg{Any})), Array)
+find_tvar10930{T<:Tuple}(sig::Type{T}) = 1
+function find_tvar10930(arg)
+    if arg<:Tuple
+        find_tvar10930(arg[random_var_name])
+    end
+    return 1
+end
+@test find_tvar10930(Vararg{Int}) === 1
+
+# issue #12003
+const DATE12003 = DateTime(1917,1,1)
+failure12003(dt=DATE12003) = Dates.year(dt)
+@test isa(failure12003(), Integer)
+
+# issue #12023 Test error checking in bitstype
+@test_throws ErrorException bitstype 0 SPJa12023
+@test_throws ErrorException bitstype 4294967312 SPJb12023
+@test_throws ErrorException bitstype -4294967280 SPJc12023
+
+# issue #12089
+type A12089{K, N}
+    sz::NTuple{N, Int}
+    A12089(sz::NTuple{N, Int}) = new(sz)
+end
+A12089{-1, 1}((1,))
+
+# issue #12092
+f12092(x::Int, y) = 0
+f12092(x::Int,) = 1
+f12092(x::Int, y::Int...) = 2
+@test f12092(1) == 1
+
+# PR #12058
+let N = TypeVar(:N,true)
+    @test typeintersect(NTuple{N,Int}, NTuple{N,Float64}) === Tuple{}
+end
+
+# issue #12063
+# NOTE: should have > MAX_TUPLETYPE_LEN arguments
+f12063{T}(tt, g, p, c, b, v, cu::T, d::AbstractArray{T, 2}, ve) = 1
+f12063(args...) = 2
+g12063() = f12063(0, 0, 0, 0, 0, 0, 0.0, spzeros(0,0), Int[])
+@test g12063() == 1
+
+# issue #11587
+type Sampler11587{N}
+    clampedpos::Array{Int,2}
+    buf::Array{Float64,N}
+end
+function Sampler11587()
+    a = tuple(Any[32,32]...,)
+    Sampler11587(zeros(Int,a), zeros(Float64,a))
+end
+@test isa(Sampler11587(), Sampler11587{2})
+
+# issue #8010 - error when convert returns wrong type during new()
+immutable Vec8010{T}
+    x::T
+    y::T
+end
+Vec8010(a::AbstractVector) = Vec8010(ntuple(x->a[x],2)...)
+Base.convert{T}(::Type{Vec8010{T}},x::AbstractVector) = Vec8010(x)
+Base.convert(::Type{Void},x::AbstractVector) = Vec8010(x)
+immutable MyType8010
+     m::Vec8010{Float32}
+end
+immutable MyType8010_ghost
+     m::Void
+end
+@test_throws TypeError MyType8010([3.0;4.0])
+@test_throws TypeError MyType8010_ghost([3.0;4.0])
+
+# don't allow redefining types if ninitialized changes
+immutable NInitializedTestType
+    a
+end
+
+@test_throws ErrorException @eval immutable NInitializedTestType
+    a
+    NInitializedTestType() = new()
+end
+
+# issue #12394
+type Empty12394 end
+let x = Array(Empty12394,1), y = [Empty12394()]
+    @test_throws UndefRefError x==y
+    @test_throws UndefRefError y==x
+end
+
+module TestRecursiveConstGlobalStructCtor
+const x = (1,2)
+const y = (x,(3,4))
+f() = (x,y,(5,6))
+end
+@test TestRecursiveConstGlobalStructCtor.f() == ((1,2),((1,2),(3,4)),(5,6))
+
+const const_array_int1 = Array{Int}
+const const_array_int2 = Array{Int}
+test_eq_array_int() = is(const_array_int1, const_array_int2)
+@test test_eq_array_int()
+
+# object_id of haspadding field
+immutable HasPadding
+    x::Bool
+    y::Int
+end
+immutable HasHasPadding
+    x::HasPadding
+end
+hashaspadding = HasHasPadding(HasPadding(true,1))
+hashaspadding2 = HasHasPadding(HasPadding(true,1))
+unsafe_store!(convert(Ptr{UInt8},pointer_from_objref(hashaspadding)), 0x12, 2)
+unsafe_store!(convert(Ptr{UInt8},pointer_from_objref(hashaspadding2)), 0x21, 2)
+@test object_id(hashaspadding) == object_id(hashaspadding2)
+
+# issue #12517
+let x = (1,2)
+    @eval f12517() = Val{$x}
+    @test f12517() === Val{(1,2)}
+end
+
+# issue #12476
+function f12476(a)
+    (k, v) = a
+    v
+end
+@inferred f12476(1.0 => 1)
+
+# don't allow Vararg{} in Union{} type constructor
+@test_throws TypeError Union{Int,Vararg{Int}}
+
+# don't allow Vararg{} in Tuple{} type constructor in non-trailing position
+@test_throws TypeError Tuple{Vararg{Int32},Int64,Float64}
+@test_throws TypeError Tuple{Int64,Vararg{Int32},Float64}
+
+# don't allow non-types in Union
+@test_throws TypeError Union{1}
+@test_throws TypeError Union{Int,0}
+typealias PossiblyInvalidUnion{T} Union{T,Int}
+@test_throws TypeError PossiblyInvalidUnion{1}
+
+# issue #12551 (make sure these don't throw in inference)
+Base.return_types(unsafe_load, (Ptr{nothing},))
+Base.return_types(getindex, (Vector{nothing},))
+
+# issue #12636
+module MyColors
+
+abstract Paint{T}
+immutable RGB{T<:AbstractFloat} <: Paint{T}
+    r::T
+    g::T
+    b::T
+end
+
+myeltype{T}(::Type{Paint{T}}) = T
+myeltype{P<:Paint}(::Type{P}) = myeltype(super(P))
+myeltype(::Type{Any}) = Any
+
+end
+
+@test @inferred(MyColors.myeltype(MyColors.RGB{Float32})) == Float32
+@test @inferred(MyColors.myeltype(MyColors.RGB)) == Any
+
+# issue #12612 (handle the case when `call` is not defined)
+Main.eval(:(type Foo12612 end))
+
+baremodule A12612
+import Main: Foo12612
+f1() = Foo12612()
+f2() = Main.Foo12612()
+end
+
+## Don't panic in type inference if call is not defined
+code_typed(A12612.f1, Tuple{})
+code_typed(A12612.f2, Tuple{})
+@test_throws ErrorException A12612.f1()
+@test_throws ErrorException A12612.f2()
+
+# issue #12569
+@test_throws ArgumentError symbol("x"^10_000_000)
+@test_throws ArgumentError gensym("x"^10_000_000)
+@test symbol("x") === symbol("x")
+@test split(string(gensym("abc")),'#')[3] == "abc"
+
+# meta nodes for optional positional arguments
+@test Base.uncompressed_ast(expand(:(@inline f(p::Int=2) = 3)).args[1].args[3]).args[3].args[1].args[1] === :inline
+
+# issue #12826
+f12826{I<:Integer}(v::Vector{I}) = v[1]
+@test Base.return_types(f12826,Tuple{Array{TypeVar(:I, Integer),1}})[1] == Integer
+
+# issue #13007
+call13007{T,N}(::Type{Array{T,N}}) = 0
+call13007(::Type{Array}) = 1
+@test length(Base._methods(call13007, Tuple{Type{TypeVar(:_,Array)}}, 4)) == 2
+
+# detecting cycles during type intersection, e.g. #1631
+cycle_in_solve_tvar_constraints{S}(::Type{Nullable{S}}, x::S) = 0
+cycle_in_solve_tvar_constraints{T}(::Type{T}, x::Val{T}) = 1
+@test length(methods(cycle_in_solve_tvar_constraints)) == 2
+
+# issue #12967
+foo12967(x, ::ANY) = 1
+typealias TupleType12967{T<:Tuple} Type{T}
+foo12967(x, ::TupleType12967) = 2
+@test foo12967(1, Int) == 1
+@test foo12967(1, Tuple{}) == 2
+
+# issue #13083
+@test Void() === nothing
+
+# issue discovered in #11973
+for j = 1:1
+    x = try
+        error()
+        2
+    catch
+        continue
+    end
+end
+
+# PR 11888
+immutable A11888{T}
+    a::NTuple{16,T}
+end
+
+typealias B11888{T} A11888{A11888{A11888{T}}}
+
+@test sizeof(B11888{B11888{Int64}}) == (1 << 24) * 8
+
+# issue #13175
+immutable EmptyImmutable13175 end
+immutable EmptyIIOtherField13175
+    x::EmptyImmutable13175
+    y::Float64
+end
+@test EmptyIIOtherField13175(EmptyImmutable13175(), 1.0) == EmptyIIOtherField13175(EmptyImmutable13175(), 1.0)
+@test EmptyIIOtherField13175(EmptyImmutable13175(), 1.0) != EmptyIIOtherField13175(EmptyImmutable13175(), 2.0)
+
+# issue #13183
+gg13183{X}(x::X...) = 1==0 ? gg13183(x, x) : 0
+@test gg13183(5) == 0
+
+# issue 8932 (llvm return type legalizer error)
+immutable Vec3_8932
+   x::Float32
+   y::Float32
+   z::Float32
+end
+f8932(a::Vec3_8932, b::Vec3_8932) = Vec3_8932(a.x % b.x, a.y % b.y, a.z % b.z)
+a8932 = Vec3_8932(1,1,1)
+b8932 = Vec3_8932(2,2,2)
+@test f8932(a8932, b8932) == Vec3_8932(1.0, 1.0, 1.0)

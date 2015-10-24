@@ -19,9 +19,9 @@ function typejoin(a::ANY, b::ANY)
     if isa(b,TypeVar)
         return typejoin(a, b.ub)
     end
-    if isa(a,UnionType) || isa(b,UnionType)
-        u = Union(a, b)
-        if !isa(u,UnionType)
+    if isa(a,Union) || isa(b,Union)
+        u = Union{a, b}
+        if !isa(u,Union)
             return u
         end
         return reduce(typejoin, Bottom, u.types)
@@ -178,7 +178,7 @@ muladd(x::Number, y::Number, z::Number) = muladd(promote(x,y,z)...)
 ($)(x::Integer, y::Integer) = ($)(promote(x,y)...)
 
 ==(x::Number, y::Number) = (==)(promote(x,y)...)
-< (x::Real, y::Real)     = (< )(promote(x,y)...)
+<( x::Real, y::Real)     = (< )(promote(x,y)...)
 <=(x::Real, y::Real)     = (<=)(promote(x,y)...)
 
 div(x::Real, y::Real) = div(promote(x,y)...)
@@ -198,6 +198,12 @@ minmax(x::Real, y::Real) = minmax(promote(x, y)...)
 checked_add(x::Integer, y::Integer) = checked_add(promote(x,y)...)
 checked_sub(x::Integer, y::Integer) = checked_sub(promote(x,y)...)
 checked_mul(x::Integer, y::Integer) = checked_mul(promote(x,y)...)
+
+# "Promotion" that takes a Functor into account. You can override this
+# as needed. For example, if you need to provide a custom result type
+# for the multiplication of two types,
+#   promote_op{R<:MyType,S<:MyType}(::MulFun, ::Type{R}, ::Type{S}) = MyType{multype(R,S)}
+promote_op{R,S}(::Any, ::Type{R}, ::Type{S}) = promote_type(R, S)
 
 ## catch-alls to prevent infinite recursion when definitions are missing ##
 

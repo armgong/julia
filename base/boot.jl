@@ -30,7 +30,7 @@
 #    pointerfree::Bool
 #end
 
-#type UnionType <: Type
+#type Union <: Type
 #    types::Tuple
 #end
 
@@ -71,8 +71,8 @@
 #    module::Module
 #end
 
-#type Box{T}
-#    contents::T
+#type Box
+#    contents::Any
 #end
 
 #abstract Ref{T}
@@ -87,6 +87,7 @@
 #end
 
 #immutable LineNumberNode
+#    file::Symbol
 #    line::Int
 #end
 
@@ -126,14 +127,14 @@ import Core.Intrinsics.ccall
 export
     # key types
     Any, DataType, Vararg, ANY, NTuple,
-    Tuple, Type, TypeConstructor, TypeName, TypeVar, Union, UnionType, Void,
+    Tuple, Type, TypeConstructor, TypeName, TypeVar, Union, Void,
     SimpleVector, AbstractArray, DenseArray,
     # special objects
     Box, Function, IntrinsicFunction, LambdaStaticData, Method, MethodTable,
     Module, Symbol, Task, Array, WeakRef,
     # numeric types
     Number, Real, Integer, Bool, Ref, Ptr,
-    FloatingPoint, Float16, Float32, Float64,
+    AbstractFloat, Float16, Float32, Float64,
     Signed, Int, Int8, Int16, Int32, Int64, Int128,
     Unsigned, UInt, UInt8, UInt16, UInt32, UInt64, UInt128,
     # string types
@@ -141,7 +142,7 @@ export
     # errors
     BoundsError, DivideError, DomainError, Exception, InexactError,
     InterruptException, OutOfMemoryError, ReadOnlyMemoryError, OverflowError,
-    StackOverflowError, SegmentationFault, UndefRefError, UndefVarError,
+    StackOverflowError, SegmentationFault, UndefRefError, UndefVarError, TypeError,
     # AST representation
     Expr, GotoNode, LabelNode, LineNumberNode, QuoteNode, SymbolNode, TopNode,
     GlobalRef, NewvarNode, GenSym,
@@ -180,14 +181,14 @@ const (===) = is
 
 abstract Number
 abstract Real     <: Number
-abstract FloatingPoint <: Real
+abstract AbstractFloat <: Real
 abstract Integer  <: Real
 abstract Signed   <: Integer
 abstract Unsigned <: Integer
 
-bitstype 16 Float16 <: FloatingPoint
-bitstype 32 Float32 <: FloatingPoint
-bitstype 64 Float64 <: FloatingPoint
+bitstype 16 Float16 <: AbstractFloat
+bitstype 32 Float32 <: AbstractFloat
+bitstype 64 Float64 <: AbstractFloat
 
 bitstype 8  Bool <: Integer
 bitstype 32 Char
@@ -209,8 +210,9 @@ else
     typealias UInt UInt32
 end
 
-abstract Exception
+abstract AbstractString
 
+abstract Exception
 immutable BoundsError        <: Exception
     a::Any
     i::Any
@@ -231,15 +233,20 @@ immutable UndefVarError      <: Exception
     var::Symbol
 end
 immutable InterruptException <: Exception end
-
-abstract AbstractString
-abstract DirectIndexString <: AbstractString
+type TypeError <: Exception
+    func::Symbol
+    context::AbstractString
+    expected::Type
+    got
+end
 
 type SymbolNode
     name::Symbol
     typ
     SymbolNode(name::Symbol, t::ANY) = new(name, t)
 end
+
+abstract DirectIndexString <: AbstractString
 
 immutable ASCIIString <: DirectIndexString
     data::Array{UInt8,1}
@@ -249,7 +256,7 @@ immutable UTF8String <: AbstractString
     data::Array{UInt8,1}
 end
 
-typealias ByteString Union(ASCIIString,UTF8String)
+typealias ByteString Union{ASCIIString,UTF8String}
 
 include(fname::ByteString) = ccall(:jl_load_, Any, (Any,), fname)
 
@@ -262,30 +269,32 @@ type WeakRef
 end
 
 TypeVar(n::Symbol) =
-    ccall(:jl_new_typevar, Any, (Any, Any, Any), n, Union(), Any)::TypeVar
+    ccall(:jl_new_typevar, Any, (Any, Any, Any), n, Union{}, Any)::TypeVar
 TypeVar(n::Symbol, ub::ANY) =
     (isa(ub,Bool) ?
-     ccall(:jl_new_typevar_, Any, (Any, Any, Any, Any), n, Union(), Any, ub)::TypeVar :
-     ccall(:jl_new_typevar, Any, (Any, Any, Any), n, Union(), ub::Type)::TypeVar)
+     ccall(:jl_new_typevar_, Any, (Any, Any, Any, Any), n, Union{}, Any, ub)::TypeVar :
+     ccall(:jl_new_typevar, Any, (Any, Any, Any), n, Union{}, ub::Type)::TypeVar)
 TypeVar(n::Symbol, lb::ANY, ub::ANY) =
     (isa(ub,Bool) ?
-     ccall(:jl_new_typevar_, Any, (Any, Any, Any, Any), n, Union(), lb::Type, ub)::TypeVar :
+     ccall(:jl_new_typevar_, Any, (Any, Any, Any, Any), n, Union{}, lb::Type, ub)::TypeVar :
      ccall(:jl_new_typevar, Any, (Any, Any, Any), n, lb::Type, ub::Type)::TypeVar)
 TypeVar(n::Symbol, lb::ANY, ub::ANY, b::Bool) =
     ccall(:jl_new_typevar_, Any, (Any, Any, Any, Any), n, lb::Type, ub::Type, b)::TypeVar
 
 TypeConstructor(p::ANY, t::ANY) = ccall(:jl_new_type_constructor, Any, (Any, Any), p::SimpleVector, t::Type)
 
+Void() = nothing
+
 Expr(args::ANY...) = _expr(args...)
 
 _new(typ::Symbol, argty::Symbol) = eval(:(Core.call(::Type{$typ}, n::$argty) = $(Expr(:new, typ, :n))))
-_new(:LineNumberNode, :Int)
 _new(:LabelNode, :Int)
 _new(:GotoNode, :Int)
 _new(:TopNode, :Symbol)
 _new(:NewvarNode, :Symbol)
 _new(:QuoteNode, :ANY)
 _new(:GenSym, :Int)
+eval(:(Core.call(::Type{LineNumberNode}, f::Symbol, l::Int) = $(Expr(:new, :LineNumberNode, :f, :l))))
 eval(:(Core.call(::Type{GlobalRef}, m::Module, s::Symbol) = $(Expr(:new, :GlobalRef, :m, :s))))
 
 Module(name::Symbol=:anonymous, std_imports::Bool=true) = ccall(:jl_f_new_module, Any, (Any, Bool), name, std_imports)::Module

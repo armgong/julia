@@ -37,7 +37,7 @@ In order to build this program you have to put the path to the Julia header into
 
     gcc -o test -I$JULIA_DIR/include/julia -L$JULIA_DIR/usr/lib -ljulia test.c
 
-Alternatively, look at the ``embedding.c`` program in the Julia source tree in the ``examples/`` folder. The file ``ui/repl.c`` program is another simple example of how to set ``jl_compileropts`` options while linking against ``libjulia``.
+Alternatively, look at the ``embedding.c`` program in the Julia source tree in the ``examples/`` folder. The file ``ui/repl.c`` program is another simple example of how to set ``jl_options`` options while linking against ``libjulia``.
 
 The first thing that has to be done before calling any other Julia C function is to initialize Julia. This is done by calling ``jl_init``, which takes as argument a C string (``const char*``) to the location where Julia is installed. When the argument is ``NULL``, Julia tries to determine the install location automatically.
 
@@ -87,7 +87,7 @@ combination of 3 flags::
     /usr/local/julia/share/julia/julia-config.jl
     Usage: julia-config [--cflags|--ldflags|--ldlibs]
 
-If the above example source is saved in the file *embed_exmaple.c*, then the following command will compile it into a running program on Linux and Windows (MSYS2 environment),
+If the above example source is saved in the file *embed_example.c*, then the following command will compile it into a running program on Linux and Windows (MSYS2 environment),
 or if on OS/X, then substitute ``clang`` for ``gcc``.::
 
     /usr/local/julia/share/julia/julia-config.jl --cflags --ldflags --ldlibs | xargs gcc embed_example.c
@@ -172,11 +172,11 @@ Several Julia values can be pushed at once using the ``JL_GC_PUSH2`` , ``JL_GC_P
     // Do something with args (e.g. call jl_... functions)
     JL_GC_POP();
 
-The garbage collector also operates under the assumption that it is aware of every old-generation object pointing to a young-generation one. Any time a pointer is updated breaking that assumption, it must be signaled to the collector with the ``gc_wb`` (write barrier) function like so::
+The garbage collector also operates under the assumption that it is aware of every old-generation object pointing to a young-generation one. Any time a pointer is updated breaking that assumption, it must be signaled to the collector with the ``jl_gc_wb`` (write barrier) function like so::
 
     jl_value_t *parent = some_old_value, *child = some_young_value;
     ((some_specific_type*)parent)->field = child;
-    gc_wb(parent, child);
+    jl_gc_wb(parent, child);
 
 It is in general impossible to predict which values will be old at runtime, so the write barrier must be inserted after all explicit stores. One notable exception is if the ``parent`` object was just allocated and garbage collection was not run since then. Remember that most ``jl_...`` functions can sometimes invoke garbage collection.
 
@@ -186,7 +186,7 @@ The write barrier is also necessary for arrays of pointers when updating their d
     void **data = (void**)jl_array_data(some_array);
     jl_value_t *some_value = ...;
     data[0] = some_value;
-    gc_wb(some_array, some_value);
+    jl_gc_wb(some_array, some_value);
 
 
 Manipulating the Garbage Collector
@@ -194,11 +194,12 @@ Manipulating the Garbage Collector
 
 There are some functions to control the GC. In normal use cases, these should not be necessary.
 
-========================= ==============================================================================
-``void jl_gc_collect()``   Force a GC run
-``void jl_gc_disable()``   Disable the GC
-``void jl_gc_enable()``    Enable the GC
-========================= ==============================================================================
+======================= =====================================================
+``jl_gc_collect()``      Force a GC run
+``jl_gc_enable(0)``      Disable the GC, return previous state as int
+``jl_gc_enable(1)``      Enable the GC,  return previous state as int
+``jl_gc_is_enabled()``   Return current state as int
+======================= =====================================================
 
 Working with Arrays
 ========================

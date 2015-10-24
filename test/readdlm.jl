@@ -1,5 +1,20 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+# countlines
+@test countlines(IOBuffer("\n")) == 1
+@test countlines(IOBuffer("\n"),'\r') == 0
+@test countlines(IOBuffer("\n\n\n\n\n\n\n\n\n\n")) == 10
+@test countlines(IOBuffer("\n \n \n \n \n \n \n \n \n \n")) == 10
+@test countlines(IOBuffer("\r\n \r\n \r\n \r\n \r\n")) == 5
+file = tempname()
+open(file,"w") do f
+    write(f,"Spiffy header\nspectacular first row\neven better 2nd row\nalmost done\n")
+end
+@test countlines(file) == 4
+@test countlines(file,'\r') == 0
+@test countlines(file,'\n') == 4
+rm(file)
+
 isequaldlm(m1, m2, t) = isequal(m1, m2) && (eltype(m1) == eltype(m2) == t)
 
 @test isequaldlm(readdlm(IOBuffer("1\t2\n3\t4\n5\t6\n")), [1. 2; 3 4; 5 6], Float64)
@@ -203,3 +218,13 @@ end
     reshape(Any[1,2000.1,Float64(22222222222222222222222222222222222222),true,0x3,false,10e6,-10.34], 2, 4), Any)
 
 @test isequaldlm(readcsv(IOBuffer("-9223355253176920979,9223355253176920979"), Int64), Int64[-9223355253176920979  9223355253176920979], Int64)
+
+# fix #13028
+for data in ["A B C", "A B C\n"]
+    data,hdr = readdlm(IOBuffer(data), header=true)
+    @test hdr == AbstractString["A" "B" "C"]
+    @test data == Array(Float64, 0, 3)
+end
+
+# fix #13179 parsing unicode lines with default delmiters
+@test isequaldlm(readdlm(IOBuffer("# Should ignore this π\n1\tα\n2\tβ\n")), Any[1 "α"; 2 "β"], Any)

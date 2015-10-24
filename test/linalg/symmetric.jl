@@ -10,10 +10,22 @@ for σ in map(Hermitian, Any[ eye(2), [0 1; 1 0], [0 -im; im 0], [1 0; 0 -1] ])
     @test ishermitian(σ)
 end
 
-# Hermitian matrix exponential
+# Hermitian matrix exponential/log
 let A1 = randn(4,4) + im*randn(4,4)
     A2 = A1 + A1'
-    @test_approx_eq expm(A2) expm(Hermitian(A2))
+    @test expm(A2) ≈ expm(Hermitian(A2))
+    @test logm(A2) ≈ logm(Hermitian(A2))
+    A3 = A1 * A1' # posdef
+    @test expm(A3) ≈ expm(Hermitian(A3))
+    @test logm(A3) ≈ logm(Hermitian(A3))
+end
+
+let A1 = randn(4,4)
+    A3 = A1 * A1'
+    A4 = A1 + A1.'
+    @test expm(A4) ≈ expm(Symmetric(A4))
+    @test logm(A3) ≈ logm(Symmetric(A3))
+    @test logm(A3) ≈ logm(Hermitian(A3))
 end
 
 let n=10
@@ -37,6 +49,9 @@ let n=10
         # full
         @test asym == full(Hermitian(asym))
 
+        #trace
+        @test trace(asym) == trace(Hermitian(asym))
+
         # issym, ishermitian
         if eltya <: Real
             @test issym(Symmetric(asym))
@@ -49,27 +64,52 @@ let n=10
         #transpose, ctranspose
         if eltya <: Real
             @test transpose(Symmetric(asym)) == asym
+        else
+            @test transpose(Hermitian(asym)) == transpose(asym)
         end
+        @test ctranspose(Symmetric(asym)) == Symmetric(conj(asym))
         @test ctranspose(Hermitian(asym)) == asym
+
+        #tril/triu
+        for di in -n:n
+            @test triu(Symmetric(a+a.'),di) == triu(a+a.',di)
+            @test tril(Symmetric(a+a.'),di) == tril(a+a.',di)
+            @test triu(Hermitian(asym),di) == triu(asym,di)
+            @test tril(Hermitian(asym),di) == tril(asym,di)
+            @test triu(Symmetric(a+a.',:L),di) == triu(a+a.',di)
+            @test tril(Symmetric(a+a.',:L),di) == tril(a+a.',di)
+            @test triu(Hermitian(asym,:L),di) == triu(asym,di)
+            @test tril(Hermitian(asym,:L),di) == tril(asym,di)
+        end
 
         eltya == BigFloat && continue # Revisit when implemented in julia
         d, v = eig(asym)
-        @test_approx_eq asym*v[:,1] d[1]*v[:,1]
-        @test_approx_eq v*Diagonal(d)*v' asym
+        @test asym*v[:,1] ≈ d[1]*v[:,1]
+        @test v*Diagonal(d)*v' ≈ asym
         @test isequal(eigvals(asym[1]), eigvals(asym[1:1,1:1]))
-        @test_approx_eq abs(eigfact(Hermitian(asym), 1:2)[:vectors]'v[:,1:2]) eye(eltya, 2)
+        @test abs(eigfact(Hermitian(asym), 1:2)[:vectors]'v[:,1:2]) ≈ eye(eltya, 2)
         eig(Hermitian(asym), 1:2) # same result, but checks that method works
-        @test_approx_eq abs(eigfact(Hermitian(asym), d[1] - 1, (d[2] + d[3])/2)[:vectors]'v[:,1:2]) eye(eltya, 2)
+        @test abs(eigfact(Hermitian(asym), d[1] - 1, (d[2] + d[3])/2)[:vectors]'v[:,1:2]) ≈ eye(eltya, 2)
         eig(Hermitian(asym), d[1] - 1, (d[2] + d[3])/2) # same result, but checks that method works
-        @test_approx_eq eigvals(Hermitian(asym), 1:2) d[1:2]
-        @test_approx_eq eigvals(Hermitian(asym), d[1] - 1, (d[2] + d[3])/2) d[1:2]
-        @test_approx_eq full(eigfact(asym)) asym
+        @test eigvals(Hermitian(asym), 1:2) ≈ d[1:2]
+        @test eigvals(Hermitian(asym), d[1] - 1, (d[2] + d[3])/2) ≈ d[1:2]
+        @test full(eigfact(asym)) ≈ asym
 
         # relation to svdvals
         @test sum(sort(abs(eigvals(Hermitian(asym))))) == sum(sort(svdvals(Hermitian(asym))))
 
         # cond
-        @test_approx_eq cond(Hermitian(asym)) cond(asym)
+        @test cond(Hermitian(asym)) ≈ cond(asym)
+
+        # det
+        @test det(asym) ≈ det(Hermitian(asym, :U))
+        @test det(asym) ≈ det(Hermitian(asym, :L))
+        if eltya <: Real
+            @test det(asym) ≈ det(Symmetric(asym, :U))
+            @test det(asym) ≈ det(Symmetric(asym, :L))
+        end
+        @test det(a + a.') ≈ det(Symmetric(a + a.', :U))
+        @test det(a + a.') ≈ det(Symmetric(a + a.', :L))
 
         # rank
         let A = a[:,1:5]*a[:,1:5]'
@@ -78,37 +118,63 @@ let n=10
 
         # mat * vec
         if eltya <: Complex
-            @test_approx_eq Hermitian(asym)*x+y asym*x+y
+            @test Hermitian(asym)*x+y ≈ asym*x+y
         end
         if eltya <: Real && eltya != Int
-            @test_approx_eq Symmetric(asym)*x+y asym*x+y
+            @test Symmetric(asym)*x+y ≈ asym*x+y
         end
 
+        C = zeros(eltya,n,n)
         # mat * mat
         if eltya <: Complex
-            @test_approx_eq Hermitian(asym) * a asym * a
-            @test_approx_eq a * Hermitian(asym) a * asym
-            @test_approx_eq Hermitian(asym) * Hermitian(asym) asym*asym
+            @test Hermitian(asym) * a ≈ asym * a
+            @test a * Hermitian(asym) ≈ a * asym
+            @test Hermitian(asym) * Hermitian(asym) ≈ asym*asym
             @test_throws DimensionMismatch Hermitian(asym) * ones(eltya,n+1)
+            Base.LinAlg.A_mul_B!(C,a,Hermitian(asym))
+            @test C ≈ a*asym
         end
         if eltya <: Real && eltya != Int
-            @test_approx_eq Symmetric(asym) * Symmetric(asym) asym*asym
-            @test_approx_eq Symmetric(asym) * a asym * a
-            @test_approx_eq a * Symmetric(asym) a * asym
+            @test Symmetric(asym) * Symmetric(asym) ≈ asym*asym
+            @test Symmetric(asym) * a ≈ asym * a
+            @test a * Symmetric(asym) ≈ a * asym
             @test_throws DimensionMismatch Symmetric(asym) * ones(eltya,n+1)
+            Base.LinAlg.A_mul_B!(C,a,Symmetric(asym))
+            @test C ≈ a*asym
         end
 
         # solver
-        @test_approx_eq Hermitian(asym)\x asym\x
+        @test Hermitian(asym)\x ≈ asym\x
         if eltya <: Real
-            @test_approx_eq Symmetric(asym)\x asym\x
+            @test Symmetric(asym)\x ≈ asym\x
         end
 
         #inversion
-        @test_approx_eq inv(Hermitian(asym)) inv(asym)
+        @test inv(Hermitian(asym)) ≈ inv(asym)
         if eltya <: Real && eltya != Int
-            @test_approx_eq inv(Symmetric(asym)) inv(asym)
+            @test inv(Symmetric(asym)) ≈ inv(asym)
         end
+
+        # conversion
+        @test Symmetric(asym) == convert(Symmetric,Symmetric(asym))
+        if eltya <: Real && eltya != Int
+            typs = [Float16,Float32,Float64]
+            for typ in typs
+                @test Symmetric(convert(Matrix{typ},asym)) == convert(Symmetric{typ,Matrix{typ}},Symmetric(asym))
+            end
+        end
+        if eltya <: Complex && eltya != Int
+            typs = [Complex64,Complex128]
+            for typ in typs
+                @test Hermitian(convert(Matrix{typ},asym)) == convert(Hermitian{typ,Matrix{typ}},Hermitian(asym))
+            end
+        end
+
+        #unsafe_getindex
+        if eltya <: Real
+            @test Symmetric(asym)[1:2,1:2] == asym[1:2,1:2]
+        end
+        @test Hermitian(asym)[1:2,1:2] == asym[1:2,1:2]
     end
 end
 

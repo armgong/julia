@@ -4,11 +4,11 @@
 
 typealias Vector{T} Array{T,1}
 typealias Matrix{T} Array{T,2}
-typealias VecOrMat{T} Union(Vector{T}, Matrix{T})
+typealias VecOrMat{T} Union{Vector{T}, Matrix{T}}
 
 typealias DenseVector{T} DenseArray{T,1}
 typealias DenseMatrix{T} DenseArray{T,2}
-typealias DenseVecOrMat{T} Union(DenseVector{T}, DenseMatrix{T})
+typealias DenseVecOrMat{T} Union{DenseVector{T}, DenseMatrix{T}}
 
 call{T}(::Type{Vector{T}}, m::Integer) = Array{T}(m)
 call{T}(::Type{Vector{T}}) = Array{T}(0)
@@ -42,8 +42,8 @@ function call{P<:Ptr,T}(::Type{Ref{P}}, a::Array{T}) # Ref{P<:Ptr}(a::Array)
         return RefArray(ptrs,1,roots)
     end
 end
-cconvert{P<:Ptr,T<:Ptr}(::Union(Type{Ptr{P}},Type{Ref{P}}), a::Array{T}) = a
-cconvert{P<:Ptr}(::Union(Type{Ptr{P}},Type{Ref{P}}), a::Array) = Ref{P}(a)
+cconvert{P<:Ptr,T<:Ptr}(::Union{Type{Ptr{P}},Type{Ref{P}}}, a::Array{T}) = a
+cconvert{P<:Ptr}(::Union{Type{Ptr{P}},Type{Ref{P}}}, a::Array) = Ref{P}(a)
 
 size(a::Array, d) = arraysize(a, d)
 size(a::Vector) = (arraysize(a,1),)
@@ -177,46 +177,15 @@ function getindex(::Type{Any}, vals::ANY...)
     return a
 end
 
-if _oldstyle_array_vcat_
-# T[a:b] and T[a:s:b] also construct typed ranges
-function getindex{T<:Union(Char,Number)}(::Type{T}, r::Range)
-    depwarn("T[a:b] concatenation is deprecated; use T[a:b;] instead", :getindex)
-    copy!(Array(T,length(r)), r)
-end
-
-function getindex{T<:Union(Char,Number)}(::Type{T}, r1::Range, rs::Range...)
-    depwarn("T[a:b,...] concatenation is deprecated; use T[a:b;...] instead", :getindex)
-    a = Array(T,length(r1)+sum(length,rs))
-    o = 1
-    copy!(a, o, r1)
-    o += length(r1)
-    for r in rs
-        copy!(a, o, r)
-        o += length(r)
-    end
-    return a
-end
-end #_oldstyle_array_vcat_
-
-function fill!(a::Union(Array{UInt8}, Array{Int8}), x::Integer)
+function fill!(a::Union{Array{UInt8}, Array{Int8}}, x::Integer)
     ccall(:memset, Ptr{Void}, (Ptr{Void}, Cint, Csize_t), a, x, length(a))
     return a
 end
 
-function fill!{T<:Union(Integer,FloatingPoint)}(a::Array{T}, x)
-    # note: checking bit pattern
-    xT = convert(T,x)
-    if isbits(T) && nfields(T)==0 &&
-        ((sizeof(T)==1 && reinterpret(UInt8, xT) == 0) ||
-         (sizeof(T)==2 && reinterpret(UInt16, xT) == 0) ||
-         (sizeof(T)==4 && reinterpret(UInt32, xT) == 0) ||
-         (sizeof(T)==8 && reinterpret(UInt64, xT) == 0))
-        ccall(:memset, Ptr{Void}, (Ptr{Void}, Cint, Csize_t),
-              a, 0, length(a)*sizeof(T))
-    else
-        for i in eachindex(a)
-            @inbounds a[i] = xT
-        end
+function fill!{T<:Union{Integer,AbstractFloat}}(a::Array{T}, x)
+    xT = convert(T, x)
+    for i in eachindex(a)
+        @inbounds a[i] = xT
     end
     return a
 end
@@ -262,6 +231,11 @@ convert{T,n,S}(::Type{Array{T,n}}, x::Array{S,n}) = copy!(similar(x,T), x)
 
 promote_rule{T,n,S}(::Type{Array{T,n}}, ::Type{Array{S,n}}) = Array{promote_type(T,S),n}
 
+"""
+    collect(element_type, collection)
+
+Return an array of type `Array{element_type,1}` of all items in a collection.
+"""
 function collect{T}(::Type{T}, itr)
     if applicable(length, itr)
         # when length() isn't defined this branch might pollute the
@@ -280,6 +254,11 @@ function collect{T}(::Type{T}, itr)
     return a
 end
 
+"""
+    collect(collection)
+
+Return an array of all items in a collection. For associative collections, returns Pair{KeyType, ValType}.
+"""
 collect(itr) = collect(eltype(itr), itr)
 
 ## Iteration ##
@@ -289,8 +268,11 @@ done(a::Array,i) = (i > length(a))
 
 ## Indexing: getindex ##
 
-getindex(A::Array, i1::Int) = arrayref(A, i1)
-unsafe_getindex(A::Array, i1::Int) = @inbounds return arrayref(A, i1)
+# This is more complicated than it needs to be in order to get Win64 through bootstrap
+getindex(A::Array, i1::Real) = arrayref(A, to_index(i1))
+getindex(A::Array, i1::Real, i2::Real, I::Real...) = arrayref(A, to_index(i1), to_index(i2), to_indexes(I...)...)
+
+unsafe_getindex(A::Array, i1::Real, I::Real...) = @inbounds return arrayref(A, to_index(i1), to_indexes(I...)...)
 
 # Faster contiguous indexing using copy! for UnitRange and Colon
 getindex(A::Array, I::UnitRange{Int}) = (checkbounds(A, I); unsafe_getindex(A, I))
@@ -318,7 +300,10 @@ function getindex{T<:Real}(A::Array, I::Range{T})
 end
 
 ## Indexing: setindex! ##
-setindex!{T}(A::Array{T}, x, i0::Real) = arrayset(A, convert(T,x), to_index(i0))
+setindex!{T}(A::Array{T}, x, i1::Real) = arrayset(A, convert(T,x)::T, to_index(i1))
+setindex!{T}(A::Array{T}, x, i1::Real, i2::Real, I::Real...) = arrayset(A, convert(T,x)::T, to_index(i1), to_index(i2), to_indexes(I...)...)
+
+unsafe_setindex!{T}(A::Array{T}, x, i1::Real, I::Real...) = @inbounds return arrayset(A, convert(T,x)::T, to_index(i1), to_indexes(I...)...)
 
 # These are redundant with the abstract fallbacks but needed for bootstrap
 function setindex!(A::Array, x, I::AbstractVector{Int})
@@ -652,8 +637,14 @@ reverseind(a::AbstractVector, i::Integer) = length(a) + 1 - i
 reverse(v::StridedVector) = (n=length(v); [ v[n-i+1] for i=1:n ])
 reverse(v::StridedVector, s, n=length(v)) = reverse!(copy(v), s, n)
 function reverse!(v::StridedVector, s=1, n=length(v))
+    if n <= s  # empty case; ok
+    elseif !(1 ≤ s ≤ endof(v))
+        throw(BoundsError(v, s))
+    elseif !(1 ≤ n ≤ endof(v))
+        throw(BoundsError(v, n))
+    end
     r = n
-    for i=s:div(s+n-1,2)
+    @inbounds for i in s:div(s+n-1, 2)
         v[i], v[r] = v[r], v[i]
         r -= 1
     end
@@ -826,32 +817,36 @@ function findmax(a)
     if isempty(a)
         throw(ArgumentError("collection must be non-empty"))
     end
-    m = a[1]
-    mi = 1
-    for i=2:length(a)
-        ai = a[i]
+    i = start(a)
+    mi = i
+    m, i = next(a, i)
+    while !done(a, i)
+        iold = i
+        ai, i = next(a, i)
         if ai > m || m!=m
             m = ai
-            mi = i
+            mi = iold
         end
     end
-    return (m, mi)
+    return (m, iterstate(mi))
 end
 
 function findmin(a)
     if isempty(a)
         throw(ArgumentError("collection must be non-empty"))
     end
-    m = a[1]
-    mi = 1
-    for i=2:length(a)
-        ai = a[i]
+    i = start(a)
+    mi = i
+    m, i = next(a, i)
+    while !done(a, i)
+        iold = i
+        ai, i = next(a, i)
         if ai < m || m!=m
             m = ai
-            mi = i
+            mi = iold
         end
     end
-    return (m, mi)
+    return (m, iterstate(mi))
 end
 
 indmax(a) = findmax(a)[2]

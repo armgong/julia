@@ -1,7 +1,9 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-tc{N}(r1::NTuple{N}, r2::NTuple{N}) = all(map(x->tc(x...), [zip(r1,r2)...]))
-tc{N}(r1::BitArray{N}, r2::Union(BitArray{N},Array{Bool,N})) = true
+using Base.Test
+
+tc{N}(r1::NTuple{N}, r2::NTuple{N}) = all(x->tc(x...), [zip(r1,r2)...])
+tc{N}(r1::BitArray{N}, r2::Union{BitArray{N},Array{Bool,N}}) = true
 tc{T}(r1::T, r2::T) = true
 tc(r1,r2) = false
 
@@ -27,6 +29,9 @@ let t0 = time()
         t0 = t1
     end
 end
+
+# empty bitvector
+@test BitVector() == BitVector(0)
 
 # vectors size
 v1 = 260
@@ -74,6 +79,8 @@ for (sz,T) in allsizes
     b2 = similar(b1)
     @check_bit_operation copy!(b2, b1) T
 end
+
+@test_throws ArgumentError size(trues(5),0)
 
 timesofar("utils")
 
@@ -165,18 +172,23 @@ function gen_getindex_data()
     produce((m1, m2, Bool))
     m1, m2 = rand_m1m2()
     produce((m1, 1:m2, BitMatrix))
+    produce((m1, :, BitMatrix))
     m1, m2 = rand_m1m2()
     produce((m1, randperm(m2), BitMatrix))
     m1, m2 = rand_m1m2()
     produce((1:m1, m2, BitVector))
+    produce((:, m2, BitVector))
     m1, m2 = rand_m1m2()
     produce((1:m1, 1:m2, BitMatrix))
+    produce((:, :, BitMatrix))
     m1, m2 = rand_m1m2()
     produce((1:m1, randperm(m2), BitMatrix))
+    produce((:, randperm(m2), BitMatrix))
     m1, m2 = rand_m1m2()
     produce((randperm(m1), m2, BitVector))
     m1, m2 = rand_m1m2()
     produce((randperm(m1), 1:m2, BitMatrix))
+    produce((randperm(m1), :, BitMatrix))
     m1, m2 = rand_m1m2()
     produce((randperm(m1), randperm(m2), BitMatrix))
 end
@@ -192,24 +204,29 @@ function gen_setindex_data()
     produce((rand(Bool), m1, m2))
     m1, m2 = rand_m1m2()
     produce((rand(Bool), m1, 1:m2))
+    produce((rand(Bool), m1, :))
     produce((bitrand(m2), m1, 1:m2))
     m1, m2 = rand_m1m2()
     produce((rand(Bool), m1, randperm(m2)))
     produce((bitrand(m2), m1, randperm(m2)))
     m1, m2 = rand_m1m2()
     produce((rand(Bool), 1:m1, m2))
+    produce((rand(Bool), :, m2))
     produce((bitrand(m1), 1:m1, m2))
     m1, m2 = rand_m1m2()
     produce((rand(Bool), 1:m1, 1:m2))
+    produce((rand(Bool), :, :))
     produce((bitrand(m1, m2), 1:m1, 1:m2))
     m1, m2 = rand_m1m2()
     produce((rand(Bool), 1:m1, randperm(m2)))
+    produce((rand(Bool), :, randperm(m2)))
     produce((bitrand(m1, m2), 1:m1, randperm(m2)))
     m1, m2 = rand_m1m2()
     produce((rand(Bool), randperm(m1), m2))
     produce((bitrand(m1), randperm(m1), m2))
     m1, m2 = rand_m1m2()
     produce((rand(Bool), randperm(m1), 1:m2))
+    produce((rand(Bool), randperm(m1), :))
     produce((bitrand(m1,m2), randperm(m1), 1:m2))
     m1, m2 = rand_m1m2()
     produce((rand(Bool), randperm(m1), randperm(m2)))
@@ -296,6 +313,7 @@ for m1 = 0 : v1
         i1 = bitunpack(b1)
         i2 = bitunpack(b2)
         @test isequal(bitunpack(append!(b1, b2)), append!(i1, i2))
+        @test isequal(bitunpack(append!(b1, i2)), append!(i1, b2))
     end
 end
 
@@ -306,6 +324,7 @@ for m1 = 0 : v1
         i1 = bitunpack(b1)
         i2 = bitunpack(b2)
         @test isequal(bitunpack(prepend!(b1, b2)), prepend!(i1, i2))
+        @test isequal(bitunpack(prepend!(b1, i2)), prepend!(i1, b2))
     end
 end
 
@@ -381,6 +400,9 @@ for m = v1 : -1 : 1
     @test isequal(bitunpack(b1), i1)
 end
 @test length(b1) == 0
+b1 = bitrand(v1)
+@test_throws ArgumentError deleteat!(b1,[1 1 2])
+@test_throws BoundsError deleteat!(b1,[1 length(b1)+1])
 
 b1 = bitrand(v1)
 i1 = bitunpack(b1)
@@ -539,10 +561,15 @@ b2 = bitrand(n1, n2)
 @check_bit_operation (.*)(b1, b2) BitMatrix
 @check_bit_operation (./)(b1, b2) Matrix{Float64}
 @check_bit_operation (.^)(b1, b2) BitMatrix
+@check_bit_operation (/)(b1,1) Matrix{Float64}
 
 b2 = trues(n1, n2)
 @check_bit_operation div(b1, b2) BitMatrix
 @check_bit_operation mod(b1, b2) BitMatrix
+@check_bit_operation div(b1,bitunpack(b2)) BitMatrix
+@check_bit_operation mod(b1,bitunpack(b2)) BitMatrix
+@check_bit_operation div(bitunpack(b1),b2) BitMatrix
+@check_bit_operation mod(bitunpack(b1),b2) BitMatrix
 
 while true
     global b1
@@ -668,24 +695,39 @@ f2 = Float64(i2)
 ci2 = complex(i2)
 cu2 = complex(u2)
 cf2 = complex(f2)
+b2 = bitunpack(bitrand(n1,n2))
 
 @check_bit_operation (&)(b1, true)   BitMatrix
 @check_bit_operation (&)(b1, false)  BitMatrix
+@check_bit_operation (&)(true, b1)   BitMatrix
+@check_bit_operation (&)(false, b1)  BitMatrix
 @check_bit_operation (|)(b1, true)   BitMatrix
 @check_bit_operation (|)(b1, false)  BitMatrix
+@check_bit_operation (|)(true, b1)   BitMatrix
+@check_bit_operation (|)(false, b1)  BitMatrix
 @check_bit_operation ($)(b1, true)   BitMatrix
 @check_bit_operation ($)(b1, false)  BitMatrix
+@check_bit_operation ($)(true, b1)   BitMatrix
+@check_bit_operation ($)(false, b1)  BitMatrix
 @check_bit_operation (.+)(b1, true)   Matrix{Int}
 @check_bit_operation (.+)(b1, false)  Matrix{Int}
 @check_bit_operation (.-)(b1, true)   Matrix{Int}
 @check_bit_operation (.-)(b1, false)  Matrix{Int}
 @check_bit_operation (.*)(b1, true)  BitMatrix
 @check_bit_operation (.*)(b1, false) BitMatrix
+@check_bit_operation (.*)(true, b1)  BitMatrix
+@check_bit_operation (.*)(false, b1) BitMatrix
 @check_bit_operation (./)(b1, true)  Matrix{Float64}
 @check_bit_operation (./)(b1, false) Matrix{Float64}
 @check_bit_operation div(b1, true)   BitMatrix
 @check_bit_operation mod(b1, true)   BitMatrix
 
+@check_bit_operation (&)(b1, b2)  BitMatrix
+@check_bit_operation (|)(b1, b2)  BitMatrix
+@check_bit_operation ($)(b1, b2)  BitMatrix
+@check_bit_operation (&)(b2, b1)  BitMatrix
+@check_bit_operation (|)(b2, b1)  BitMatrix
+@check_bit_operation ($)(b2, b1)  BitMatrix
 @check_bit_operation (&)(b1, i2)  Matrix{Int}
 @check_bit_operation (|)(b1, i2)  Matrix{Int}
 @check_bit_operation ($)(b1, i2)  Matrix{Int}
@@ -740,6 +782,7 @@ cf2 = complex(f2)
 @check_bit_operation (.^)(b1, 0.0im) Matrix{Complex128}
 @check_bit_operation (.^)(b1, 0x0im) Matrix{Complex128}
 @check_bit_operation (.^)(b1, 0im)   Matrix{Complex128}
+@test_throws DomainError (.^)(b1, -1)
 
 b1 = trues(n1, n2)
 @check_bit_operation (.^)(b1, -1.0im) Matrix{Complex128}
@@ -771,6 +814,7 @@ for d = 1 : 4
     #end
     @check_bit_operation flipdim(b1, d) BitArray{4}
 end
+@check_bit_operation flipdim(b1, 5) BitArray{4}
 
 b1 = bitrand(n1, n2)
 for k = 1 : 4
@@ -1083,6 +1127,8 @@ b2 = bitrand(v1)
 for m = 1 : v1 - 1
     @check_bit_operation vcat(b1[1:m], b1[m+1:end]) BitVector
 end
+@test_throws DimensionMismatch hcat(b1,trues(n1+1))
+@test_throws DimensionMismatch hcat(hcat(b1, b2),trues(n1+1))
 
 b1 = bitrand(n1, n2)
 b2 = bitrand(n1)
@@ -1090,6 +1136,7 @@ b3 = bitrand(n1, n2)
 b4 = bitrand(1, n2)
 @check_bit_operation hcat(b1, b2, b3) BitMatrix
 @check_bit_operation vcat(b1, b4, b3) BitMatrix
+@test_throws DimensionMismatch vcat(b1, b4, trues(n1,n2+1))
 
 b1 = bitrand(s1, s2, s3, s4)
 b2 = bitrand(s1, s3, s3, s4)
@@ -1155,6 +1202,7 @@ b1 = triu(bitrand(n2, n1))
 b1 = bitrand(n1,n1)
 b1 |= b1.'
 @check_bit_operation issym(b1) Bool
+@check_bit_operation ishermitian(b1) Bool
 
 b1 = bitrand(n1)
 b2 = bitrand(n2)
@@ -1222,6 +1270,12 @@ A = bitrand(10,10)
 uA = bitunpack(A)
 @test svd(A) == svd(uA)
 @test qr(A) == qr(uA)
+
+#gradient
+A = bitrand(10)
+fA = bitunpack(A)
+@test gradient(A) == gradient(fA)
+@test gradient(A,1.0) == gradient(fA,1.0)
 
 #diag and diagm
 

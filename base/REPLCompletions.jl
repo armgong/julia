@@ -26,7 +26,7 @@ function complete_symbol(sym, ffunc)
 
     mod = context_module
     lookup_module = true
-    t = Union()
+    t = Union{}
     for name in strs[1:(end-1)]
         s = symbol(name)
         if lookup_module
@@ -152,14 +152,17 @@ end
 # Determines whether method_complete should be tried. It should only be done if
 # the string endswiths ',' or '(' when disregarding whitespace_chars
 function should_method_complete(s::AbstractString)
+    method_complete = false
     for c in reverse(s)
         if c in [',', '(']
-            return true
+            method_complete = true
+            break
         elseif !(c in whitespace_chars)
-            return false
+            method_complete = false
+            break
         end
     end
-    false
+    method_complete
 end
 
 # Returns a range that includes the method name in front of the first non
@@ -219,11 +222,6 @@ get_value(sym::Symbol, fn) = isdefined(fn, sym) ? (fn.(sym), true) : (nothing, f
 get_value(sym::QuoteNode, fn) = isdefined(fn, sym.value) ? (fn.(sym.value), true) : (nothing, false)
 get_value(sym, fn) = sym, true
 
-# Takes the argument of a function call and determine the type of signature of the method.
-# If the function gets called with a val::DataType then it returns Type{val} else typeof(val)
-method_type_of_arg(val::DataType) = Type{val}
-method_type_of_arg(val) = typeof(val)
-
 # Method completion on function call expression that look like :(max(1))
 function complete_methods(ex_org::Expr)
     args_ex = DataType[]
@@ -231,13 +229,13 @@ function complete_methods(ex_org::Expr)
     (!found || (found && !isgeneric(func))) && return UTF8String[]
     for ex in ex_org.args[2:end]
         val, found = get_value(ex, Main)
-        found ? push!(args_ex, method_type_of_arg(val)) : push!(args_ex, Any)
+        found ? push!(args_ex, Base.typesof(val).parameters[1]) : push!(args_ex, Any)
     end
     out = UTF8String[]
     t_in = Tuple{args_ex...} # Input types
     for method in methods(func)
         # Check if the method's type signature intersects the input types
-        typeintersect(Tuple{method.sig.parameters[1 : min(length(args_ex), end)]...}, t_in) != Union() &&
+        typeintersect(Tuple{method.sig.parameters[1 : min(length(args_ex), end)]...}, t_in) != Union{} &&
             push!(out,string(method))
     end
     return out
@@ -391,7 +389,7 @@ function shell_completions(string, pos)
     # Now look at the last thing we parsed
     isempty(args.args[end].args) && return UTF8String[], 0:-1, false
     arg = args.args[end].args[end]
-    if all(map(s -> isa(s, AbstractString), args.args[end].args))
+    if all(s -> isa(s, AbstractString), args.args[end].args)
         # Treat this as a path (perhaps give a list of commands in the future as well?)
         return complete_path(join(args.args[end].args), pos)
     elseif isexpr(arg, :escape) && (isexpr(arg.args[1], :incomplete) || isexpr(arg.args[1], :error))

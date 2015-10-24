@@ -108,50 +108,36 @@ rm(c_tmpdir, recursive=true)
 #######################################################################
 # This section tests file watchers.                                   #
 #######################################################################
-function test_file_poll(channel,timeout_s)
-    rc = poll_file(file, round(Int,timeout_s/10), timeout_s)
+function test_file_poll(channel,interval,timeout_s)
+    rc = poll_file(file, interval, timeout_s)
     put!(channel,rc)
 end
 
 function test_timeout(tval)
     tic()
-    channel = RemoteRef()
-    @async test_file_poll(channel,tval)
+    channel = Channel(1)
+    @async test_file_poll(channel, 10, tval)
     tr = take!(channel)
     t_elapsed = toq()
-    @test !tr
+    @test !ispath(tr[1]) && !ispath(tr[2])
     @test tval <= t_elapsed
 end
 
 function test_touch(slval)
     tval = slval*1.1
-    channel = RemoteRef()
-    @async test_file_poll(channel, tval)
-    sleep(tval/10)  # ~ one poll period
+    channel = Channel(1)
+    @async test_file_poll(channel, tval/3, tval)
+    sleep(tval/3)  # one poll period
     f = open(file,"a")
     write(f,"Hello World\n")
     close(f)
     tr = take!(channel)
-    @test tr
+    @test ispath(tr[1]) && ispath(tr[2])
 end
 
-
-function test_monitor(slval)
-    FsMonitorPassed = false
-    fm = FileMonitor(file) do args...
-        FsMonitorPassed = true
-    end
-    sleep(slval/2)
-    f = open(file,"a")
-    write(f,"Hello World\n")
-    close(f)
-    sleep(slval)
-    @test FsMonitorPassed
-    close(fm)
-end
 
 function test_monitor_wait(tval)
-    fm = watch_file(file)
+    fm = FileMonitor(file)
     @async begin
         sleep(tval)
         f = open(file,"a")
@@ -163,106 +149,28 @@ function test_monitor_wait(tval)
     @test events.changed
 end
 
-function test_monitor_wait_poll(tval)
-    fm = watch_file(file, poll=true)
+function test_monitor_wait_poll()
+    pfw = PollingFileWatcher(file, 5.007)
     @async begin
-        sleep(tval)
+        sleep(2.5)
         f = open(file,"a")
         write(f,"Hello World\n")
         close(f)
     end
-    fname, events = wait(fm)
-    @test fname == basename(file)
-    @test events.writable
+    (old, new) = wait(pfw)
+    @test new.mtime - old.mtime > 2.5 - 1.5 # mtime may only have second-level accuracy (plus add some hysteresis)
 end
 
-# Commented out the tests below due to issues 3015, 3016 and 3020
 test_timeout(0.1)
 test_timeout(1)
-# the 0.1 second tests are too optimistic
-#test_touch(0.1)
-test_touch(2)
-#test_monitor(0.1)
-test_monitor(2)
+test_touch(6)
 test_monitor_wait(0.1)
-test_monitor_wait_poll(0.5)
+test_monitor_wait(0.1)
+test_monitor_wait_poll()
+test_monitor_wait_poll()
 
-##########
-#  mmap  #
-##########
-
-s = open(file, "w")
-write(s, "Hello World\n")
-close(s)
-s = open(file, "r")
-@test isreadonly(s) == true
-c = mmap_array(UInt8, (11,), s)
-@test c == "Hello World".data
-c = mmap_array(UInt8, (UInt16(11),), s)
-@test c == "Hello World".data
-@test_throws ArgumentError mmap_array(UInt8, (Int16(-11),), s)
-@test_throws ArgumentError mmap_array(UInt8, (typemax(UInt),), s)
-close(s)
-s = open(file, "r+")
-@test isreadonly(s) == false
-c = mmap_array(UInt8, (11,), s)
-c[5] = UInt8('x')
-Libc.msync(c)
-close(s)
-s = open(file, "r")
-c = mmap_array(UInt8, (11,), s)
-@test_throws ReadOnlyMemoryError c[5] = UInt8('x')
-str = readline(s)
-close(s)
-@test startswith(str, "Hellx World")
-c=nothing; gc(); gc(); # cause munmap finalizer to run & free resources
-
-s = open(file, "w")
-write(s, [0xffffffffffffffff,
-          0xffffffffffffffff,
-          0xffffffffffffffff,
-          0x000000001fffffff])
-close(s)
-s = open(file, "r")
-@test isreadonly(s)
-b = mmap_bitarray((17,13), s)
-@test b == trues(17,13)
-@test_throws ArgumentError mmap_bitarray((7,3), s)
-close(s)
-s = open(file, "r+")
-b = mmap_bitarray((17,19), s)
-rand!(b)
-Libc.msync(b)
-b0 = copy(b)
-close(s)
-s = open(file, "r")
-@test isreadonly(s)
-b = mmap_bitarray((17,19), s)
-@test b == b0
-close(s)
-b=nothing; b0=nothing; gc(); gc(); # cause munmap finalizer to run & free resources
-
-# mmap with an offset
-A = rand(1:20, 500, 300)
-fname = tempname()
-s = open(fname, "w+")
-write(s, size(A,1))
-write(s, size(A,2))
-write(s, A)
-close(s)
-s = open(fname)
-m = read(s, Int)
-n = read(s, Int)
-A2 = mmap_array(Int, (m,n), s)
-@test A == A2
-seek(s, 0)
-A3 = mmap_array(Int, (m,n), s, convert(FileOffset,2*sizeof(Int)))
-@test A == A3
-A4 = mmap_array(Int, (m,150), s, convert(FileOffset,(2+150*m)*sizeof(Int)))
-@test A[:, 151:end] == A4
-close(s)
-A2=nothing; A3=nothing; A4=nothing; gc(); gc(); # cause munmap finalizer to run & free resources
-rm(fname)
+@test_throws Base.UVError watch_file("nonexistantfile", 10)
+@test_throws Base.UVError poll_file("nonexistantfile", 2, 10)
 
 ##############
 # mark/reset #
@@ -927,12 +835,12 @@ close(f)
 f = open(file, "r")
 test_LibcFILE(convert(Libc.FILE, f))
 close(f)
-@unix_only f = RawFD(ccall(:open, Cint, (Ptr{Uint8}, Cint), file, Base.FS.JL_O_RDONLY))
-@windows_only f = RawFD(ccall(:_open, Cint, (Ptr{Uint8}, Cint), file, Base.FS.JL_O_RDONLY))
+@unix_only f = RawFD(ccall(:open, Cint, (Ptr{UInt8}, Cint), file, Base.FS.JL_O_RDONLY))
+@windows_only f = RawFD(ccall(:_open, Cint, (Ptr{UInt8}, Cint), file, Base.FS.JL_O_RDONLY))
 test_LibcFILE(Libc.FILE(f,Libc.modestr(true,false)))
 
 # issue #10994: pathnames cannot contain embedded NUL chars
-for f in (mkdir, cd, Base.FS.unlink, readlink, rm, touch, readdir, mkpath, stat, lstat, ctime, mtime, filemode, filesize, uperm, gperm, operm, touch, isblockdev, ischardev, isdir, isexecutable, isfifo, isfile, islink, ispath, isreadable, issetgid, issetuid, issocket, issticky, iswritable, realpath, watch_file)
+for f in (mkdir, cd, Base.FS.unlink, readlink, rm, touch, readdir, mkpath, stat, lstat, ctime, mtime, filemode, filesize, uperm, gperm, operm, touch, isblockdev, ischardev, isdir, isexecutable, isfifo, isfile, islink, ispath, isreadable, issetgid, issetuid, issocket, issticky, iswritable, realpath, watch_file, poll_file)
     @test_throws ArgumentError f("adir\0bad")
 end
 @test_throws ArgumentError chmod("ba\0d", 0o222)
@@ -966,3 +874,51 @@ rm(dir)
 # The following fail on Windows with "stat: operation not permitted (EPERM)"
 @unix_only @test !ispath(file)
 @unix_only @test !ispath(dir)
+
+# issue #9687
+let n = tempname()
+    w = open(n, "a")
+    io = open(n)
+    write(w, "A"); flush(w)
+    @test readbytes(io) == UInt8[0x41]
+    @test readbytes(io) == UInt8[]
+    write(w, "A"); flush(w)
+    @test readbytes(io) == UInt8[0x41]
+    close(io); close(w)
+    rm(n)
+end
+
+#issue #12992
+function test_12992()
+    pfw = PollingFileWatcher(@__FILE__, 0.01)
+    close(pfw)
+    pfw = PollingFileWatcher(@__FILE__, 0.01)
+    close(pfw)
+    pfw = PollingFileWatcher(@__FILE__, 0.01)
+    close(pfw)
+    gc()
+    gc()
+end
+
+# Make sure multiple close is fine
+function test2_12992()
+    pfw = PollingFileWatcher(@__FILE__, 0.01)
+    close(pfw)
+    close(pfw)
+    pfw = PollingFileWatcher(@__FILE__, 0.01)
+    close(pfw)
+    close(pfw)
+    pfw = PollingFileWatcher(@__FILE__, 0.01)
+    close(pfw)
+    close(pfw)
+    gc()
+    gc()
+end
+
+test_12992()
+test_12992()
+test_12992()
+
+test2_12992()
+test2_12992()
+test2_12992()

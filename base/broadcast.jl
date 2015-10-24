@@ -6,8 +6,7 @@ using ..Cartesian
 import Base.promote_eltype
 import Base.@get!
 import Base.num_bit_chunks, Base._msk_end, Base.unsafe_bitgetindex
-import Base.(.+), Base.(.-), Base.(.*), Base.(./), Base.(.\), Base.(.//)
-import Base.(.==), Base.(.<), Base.(.!=), Base.(.<=)
+import Base: .+, .-, .*, ./, .\, .//, .==, .<, .!=, .<=, .%, .<<, .>>, .^
 export broadcast, broadcast!, broadcast_function, broadcast!_function, bitbroadcast
 export broadcast_getindex, broadcast_setindex!
 
@@ -22,13 +21,13 @@ longer_tuple(x::Tuple, retx::Tuple, y::Tuple, rety::Tuple) =
     longer_tuple(droparg1(x...), retx, droparg1(y...), rety)
 longer_tuple(x::Tuple, y::Tuple) = longer_tuple(x, x, y, y)
 
-longer_size(x::Union(AbstractArray,Number)) = size(x)
-longer_size(x::Union(AbstractArray,Number), y::Union(AbstractArray,Number)...) =
+longer_size(x::Union{AbstractArray,Number}) = size(x)
+longer_size(x::Union{AbstractArray,Number}, y::Union{AbstractArray,Number}...) =
     longer_tuple(size(x), longer_size(y...))
 
 # Calculate the broadcast shape of the arguments, or error if incompatible
 broadcast_shape() = ()
-function broadcast_shape(As::Union(AbstractArray,Number)...)
+function broadcast_shape(As::Union{AbstractArray,Number}...)
     sz = longer_size(As...)
     nd = length(sz)
     bshape = ones(Int, nd)
@@ -48,7 +47,7 @@ function broadcast_shape(As::Union(AbstractArray,Number)...)
 end
 
 # Check that all arguments are broadcast compatible with shape
-function check_broadcast_shape(shape::Dims, As::Union(AbstractArray,Number)...)
+function check_broadcast_shape(shape::Dims, As::Union{AbstractArray,Number}...)
     for A in As
         if ndims(A) > length(shape)
             throw(DimensionMismatch("cannot broadcast array to have fewer dimensions"))
@@ -68,7 +67,7 @@ end
 # B must have already been set to the appropriate size.
 
 # version using cartesian indexing
-function gen_broadcast_body_cartesian(nd::Int, narrays::Int, f::Function)
+function gen_broadcast_body_cartesian(nd::Int, narrays::Int, f)
     F = Expr(:quote, f)
     quote
         @assert ndims(B) == $nd
@@ -83,7 +82,7 @@ function gen_broadcast_body_cartesian(nd::Int, narrays::Int, f::Function)
 end
 
 # version using start/next for iterating over the arguments
-function gen_broadcast_body_iter(nd::Int, narrays::Int, f::Function)
+function gen_broadcast_body_iter(nd::Int, narrays::Int, f)
     F = Expr(:quote, f)
     quote
         @assert ndims(B) == $nd
@@ -122,7 +121,7 @@ function dumpbitcache(Bc::Vector{UInt64}, bind::Int, C::Vector{Bool})
 end
 
 # using cartesian indexing
-function gen_broadcast_body_cartesian_tobitarray(nd::Int, narrays::Int, f::Function)
+function gen_broadcast_body_cartesian_tobitarray(nd::Int, narrays::Int, f)
     F = Expr(:quote, f)
     quote
         @assert ndims(B) == $nd
@@ -151,7 +150,7 @@ function gen_broadcast_body_cartesian_tobitarray(nd::Int, narrays::Int, f::Funct
 end
 
 # using start/next
-function gen_broadcast_body_iter_tobitarray(nd::Int, narrays::Int, f::Function)
+function gen_broadcast_body_iter_tobitarray(nd::Int, narrays::Int, f)
     F = Expr(:quote, f)
     quote
         @assert ndims(B) == $nd
@@ -182,10 +181,10 @@ function gen_broadcast_body_iter_tobitarray(nd::Int, narrays::Int, f::Function)
     end
 end
 
-function gen_broadcast_function(genbody::Function, nd::Int, narrays::Int, f::Function)
+function gen_broadcast_function(genbody::Function, nd::Int, narrays::Int, f)
     As = [symbol("A_"*string(i)) for i = 1:narrays]
     body = genbody(nd, narrays, f)
-    @eval begin
+    @eval let
         local _F_
         function _F_(B, $(As...))
             $body
@@ -194,10 +193,10 @@ function gen_broadcast_function(genbody::Function, nd::Int, narrays::Int, f::Fun
     end
 end
 
-function gen_broadcast_function_tobitarray(genbody::Function, nd::Int, narrays::Int, f::Function)
+function gen_broadcast_function_tobitarray(genbody::Function, nd::Int, narrays::Int, f)
     As = [symbol("A_"*string(i)) for i = 1:narrays]
     body = genbody(nd, narrays, f)
-    @eval begin
+    @eval let
         local _F_
         function _F_(B::BitArray, $(As...))
             $body
@@ -207,23 +206,23 @@ function gen_broadcast_function_tobitarray(genbody::Function, nd::Int, narrays::
 end
 
 for (Bsig, Asig, gbf, gbb) in
-    ((BitArray                          , Union(Array,BitArray,Number)                   ,
+    ((BitArray                          , Union{Array,BitArray,Number}                   ,
       :gen_broadcast_function_tobitarray, :gen_broadcast_body_iter_tobitarray     ),
-     (Any                               , Union(Array,BitArray,Number)                   ,
+     (Any                               , Union{Array,BitArray,Number}                   ,
       :gen_broadcast_function           , :gen_broadcast_body_iter                ),
      (BitArray                          , Any                                     ,
       :gen_broadcast_function_tobitarray, :gen_broadcast_body_cartesian_tobitarray),
      (Any                               , Any                                     ,
       :gen_broadcast_function           , :gen_broadcast_body_cartesian           ))
 
-    @eval let cache = Dict{Function,Dict{Int,Dict{Int,Function}}}()
+    @eval let cache = Dict{Any,Dict{Int,Dict{Int,Any}}}()
         global broadcast!
-        function broadcast!(f::Function, B::$Bsig, As::$Asig...)
+        function broadcast!(f, B::$Bsig, As::$Asig...)
             nd = ndims(B)
             narrays = length(As)
 
-            cache_f    = @get! cache      f       Dict{Int,Dict{Int,Function}}()
-            cache_f_na = @get! cache_f    narrays Dict{Int,Function}()
+            cache_f    = @get! cache      f       Dict{Int,Dict{Int,Any}}()
+            cache_f_na = @get! cache_f    narrays Dict{Int,Any}()
             func       = @get! cache_f_na nd      $gbf($gbb, nd, narrays, f)
 
             func(B, As...)
@@ -233,12 +232,12 @@ for (Bsig, Asig, gbf, gbb) in
 end
 
 
-broadcast(f::Function, As...) = broadcast!(f, Array(promote_eltype(As...), broadcast_shape(As...)), As...)
+broadcast(f, As...) = broadcast!(f, Array(promote_eltype(As...), broadcast_shape(As...)), As...)
 
-bitbroadcast(f::Function, As...) = broadcast!(f, BitArray(broadcast_shape(As...)), As...)
+bitbroadcast(f, As...) = broadcast!(f, BitArray(broadcast_shape(As...)), As...)
 
-broadcast!_function(f::Function) = (B, As...) -> broadcast!(f, B, As...)
-broadcast_function(f::Function) = (As...) -> broadcast(f, As...)
+broadcast!_function(f) = (B, As...) -> broadcast!(f, B, As...)
+broadcast_function(f) = (As...) -> broadcast(f, As...)
 
 broadcast_getindex(src::AbstractArray, I::AbstractArray...) = broadcast_getindex!(Array(eltype(src), broadcast_shape(I...)), src, I...)
 @generated function broadcast_getindex!(dest::AbstractArray, src::AbstractArray, I::AbstractArray...)
@@ -318,8 +317,8 @@ function .\(A::AbstractArray, B::AbstractArray)
     broadcast!(\, Array(type_div(eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
 end
 
-typealias RatIntT{T<:Integer} Union(Type{Rational{T}},Type{T})
-typealias CRatIntT{T<:Integer} Union(Type{Complex{Rational{T}}},Type{Complex{T}},Type{Rational{T}},Type{T})
+typealias RatIntT{T<:Integer} Union{Type{Rational{T}},Type{T}}
+typealias CRatIntT{T<:Integer} Union{Type{Complex{Rational{T}}},Type{Complex{T}},Type{Rational{T}},Type{T}}
 type_rdiv{T<:Integer,S<:Integer}(::RatIntT{T}, ::RatIntT{S}) =
     Rational{promote_type(T,S)}
 type_rdiv{T<:Integer,S<:Integer}(::CRatIntT{T}, ::CRatIntT{S}) =

@@ -4,7 +4,7 @@
 
 module PCRE
 
-include("pcre_h.jl")
+include(string(length(Core.ARGS)>=2?Core.ARGS[2]:"","pcre_h.jl"))  # include($BUILDROOT/base/pcre_h.jl)
 
 const PCRE_LIB = "libpcre2-8"
 
@@ -12,15 +12,20 @@ global JIT_STACK = C_NULL
 global MATCH_CONTEXT = C_NULL
 
 function __init__()
-    JIT_STACK_START_SIZE = 32768
-    JIT_STACK_MAX_SIZE = 1048576
-    global JIT_STACK = ccall((:pcre2_jit_stack_create_8, PCRE_LIB), Ptr{Void},
-                             (Cint, Cint, Ptr{Void}),
-                             JIT_STACK_START_SIZE, JIT_STACK_MAX_SIZE, C_NULL)
-    global MATCH_CONTEXT = ccall((:pcre2_match_context_create_8, PCRE_LIB),
-                                 Ptr{Void}, (Ptr{Void},), C_NULL)
-    ccall((:pcre2_jit_stack_assign_8, PCRE_LIB), Void,
-          (Ptr{Void}, Ptr{Void}, Ptr{Void}), MATCH_CONTEXT, C_NULL, JIT_STACK)
+    try
+        JIT_STACK_START_SIZE = 32768
+        JIT_STACK_MAX_SIZE = 1048576
+        global JIT_STACK = ccall((:pcre2_jit_stack_create_8, PCRE_LIB), Ptr{Void},
+                                 (Cint, Cint, Ptr{Void}),
+                                 JIT_STACK_START_SIZE, JIT_STACK_MAX_SIZE, C_NULL)
+        global MATCH_CONTEXT = ccall((:pcre2_match_context_create_8, PCRE_LIB),
+                                     Ptr{Void}, (Ptr{Void},), C_NULL)
+        ccall((:pcre2_jit_stack_assign_8, PCRE_LIB), Void,
+              (Ptr{Void}, Ptr{Void}, Ptr{Void}), MATCH_CONTEXT, C_NULL, JIT_STACK)
+    catch ex
+        Base.showerror_nostdio(ex,
+            "WARNING: Error during initialization of module PCRE")
+    end
 end
 
 # supported options for different use cases
@@ -138,6 +143,42 @@ end
 function substring_number_from_name(re, name)
   ccall((:pcre2_substring_number_from_name_8, PCRE_LIB), Cint,
         (Ptr{Void}, Cstring), re, name)
+end
+
+function substring_length_bynumber(match_data, number)
+  s = Ref{Csize_t}()
+  rc = ccall((:pcre2_substring_length_bynumber_8, PCRE_LIB), Cint,
+        (Ptr{Void}, UInt32, Ref{Csize_t}), match_data, number, s)
+  rc < 0 && error("PCRE error: $(err_message(rc))")
+  convert(Int, s[])
+end
+
+function substring_copy_bynumber(match_data, number, buf, buf_size)
+  s = Ref{Csize_t}(buf_size)
+  rc = ccall((:pcre2_substring_copy_bynumber_8, PCRE_LIB), Cint,
+             (Ptr{Void}, UInt32, Ptr{UInt8}, Ref{Csize_t}),
+             match_data, number, buf, s)
+  rc < 0 && error("PCRE error: $(err_message(rc))")
+  convert(Int, s[])
+end
+
+function capture_names(re)
+    name_count = info(re, INFO_NAMECOUNT, UInt32)
+    name_entry_size = info(re, INFO_NAMEENTRYSIZE, UInt32)
+    nametable_ptr = info(re, INFO_NAMETABLE, Ptr{UInt8})
+    names = Dict{Int, ASCIIString}()
+    for i=1:name_count
+        offset = (i-1)*name_entry_size + 1
+        # The capture group index corresponding to name 'i' is stored as a
+        # big-endian 16-bit value.
+        high_byte = UInt16(unsafe_load(nametable_ptr, offset))
+        low_byte = UInt16(unsafe_load(nametable_ptr, offset+1))
+        idx = (high_byte << 8) | low_byte
+        # The capture group name is a null-terminated string located directly
+        # after the index.
+        names[idx] = bytestring(nametable_ptr+offset+1)
+    end
+    names
 end
 
 end # module

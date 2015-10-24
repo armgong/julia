@@ -46,7 +46,14 @@ some noteworthy differences that may trip up Julia users accustomed to MATLAB:
   the syntax ``[a b; c d]`` is used to avoid confusion. In Julia v0.4, the
   concatenation syntax ``[x, [y, z]]`` is deprecated in favor of ``[x; [y, z]]``.
 - In Julia, ``a:b`` and ``a:b:c`` construct :obj:`Range` objects. To construct
-  a full vector like in MATLAB, use :func:`collect(a:b) <collect>`.
+  a full vector like in MATLAB, use :func:`collect(a:b) <collect>`. Generally,
+  there is no need to call ``collect`` though. ``Range`` will act like a normal
+  array in most cases but is more efficient because it lazily computes its
+  values. This pattern of creating specialized objects instead of full arrays
+  is used frequently, and is also seen in functions such as :func:`linspace
+  <linspace>`, or with iterators such as :func:`enumerate <enumerate>`, and
+  :func:`zip <zip>`. The special objects can mostly be used as if they were
+  normal arrays.
 - Functions in Julia return values from their last expression or the ``return``
   keyword instead of listing the names of variables to return in the function
   definition (see :ref:`man-return-keyword` for details).
@@ -100,7 +107,7 @@ and statistical programming. For users coming to Julia from R, these are some
 noteworthy differences:
 
 - Julia's single quotes enclose characters, not strings.
-- Julia can create substrings by indexing into :obj:`String`\ s.  In R, strings
+- Julia can create substrings by indexing into strings. In R, strings
   must be converted into character vectors before creating substrings.
 - In Julia, like Python but unlike R, strings can be created with triple quotes
   ``""" ... """``. This syntax is convenient for constructing strings that
@@ -158,9 +165,8 @@ noteworthy differences:
   an assignment operation: you cannot write ``diag(M) = ones(n)``.
 - Julia discourages populating the main namespace with functions. Most
   statistical functionality for Julia is found in
-  `packages <http://docs.julialang.org/en/latest/packages/packagelist/>`_
-  under the `JuliaStats organization <https://github.com/JuliaStats>`_. For
-  example:
+  `packages <http://pkg.julialang.org/>`_ under the `JuliaStats organization
+  <https://github.com/JuliaStats>`_. For example:
 
   - Functions pertaining to probability distributions are provided by the
     `Distributions package <https://github.com/JuliaStats/Distributions.jl>`_.
@@ -184,8 +190,7 @@ noteworthy differences:
   :func:`vcat` and :func:`hvcat`, not ``c``, ``rbind`` and ``cbind`` like in R.
 - In Julia, a range like ``a:b`` is not shorthand for a vector like in R,
   but is a specialized :obj:`Range` that is used for iteration without high
-  memory overhead. To convert a range into a vector, you need to wrap the range
-  with brackets ``[a:b]``.
+  memory overhead. To convert a range into a vector, use :func:`collect(a:b) <collect>`.
 - Julia's :func:`max` and :func:`min` are the equivalent of ``pmax`` and
   ``pmin`` respectively in R, but both arguments need to have the same
   dimensions.  While :func:`maximum` and :func:`minimum` replace ``max`` and
@@ -280,20 +285,19 @@ Noteworthy differences from C/C++
   There are no numeric literal suffixes, such as ``L``, ``LL``, ``U``, ``UL``, ``ULL`` to indicate unsigned
   and/or signed vs. unsigned.
   Decimal literals are always signed, and hexadecimal literals (which start with ``0x`` like C/C++),
-  are unsigned (except if they are >128 bits, in which case they become signed ``BigInt`` type).
+  are unsigned.
   Hexadecimal literals also, unlike C/C++/Java and unlike decimal literals in Julia,
   have a type based on the *length* of the literal, including leading 0s.  For example,
   ``0x0`` and ``0x00`` have type UInt8, ``0x000`` and ``0x0000`` have type ``UInt16``, then
-  literals with 5 to 8 hex digits have type ``UInt32``, 9 to 16 hex digits type ``UInt64``, and more than
-  16 hex digits end up a signed ``BigInt`` type.  This needs to be taken into account when defining
+  literals with 5 to 8 hex digits have type ``UInt32``, 9 to 16 hex digits type ``UInt64`` and 17 to 32 hex digits type ``UInt128``.
+  This needs to be taken into account when defining
   hexadecimal masks, for example ``~0xf == 0xf0`` is very different from ``~0x000f == 0xfff0``.
   64 bit ``Float64`` and 32 bit ``Float32`` bit literals are expressed as ``1.0`` and ``1.0f0`` respectively.
   Floating point literals are rounded (and not promoted to the ``BigFloat`` type) if they can not be exactly
   represented.  Floating point literals are closer in behavior to C/C++.
-  Octal (prefixed with ``0o``) and binary (prefixed with ``0b``) literals are also treated as unsigned
-  (with the same current exception that they become signed ``BigInt`` type if they can't fit in a ``UInt128``).
+  Octal (prefixed with ``0o``) and binary (prefixed with ``0b``) literals are also treated as unsigned.
 - String literals can be delimited with either ``"``  or ``"""``, ``"""`` delimited literals can contain ``"``
-  characters without quoting it like ``"\\\""``
+  characters without quoting it like ``"\""``
   String literals can have values of other variables or expressions interpolated into them,
   indicated by ``$variablename`` or ``$(expression)``, which evaluates the variable name or the expression in the context of the function.
 - ``//`` indicates a ``Rational`` number, and not a single-line comment (which is # in Julia)

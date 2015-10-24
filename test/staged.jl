@@ -128,3 +128,26 @@ f10502() = ()
 # One-line @generated functions
 @generated oneliner(x,y) = :($x, x, $y, y)
 @test oneliner(1, 2.) == (Int, 1, Float64, 2.)
+
+# issue #11982
+@generated function f11982(T)
+    string(T.parameters[1])
+end
+@test f11982(Float32) == "Float32"
+@test f11982(Int32) == "Int32"
+
+# @generated functions that throw (shouldn't segfault or throw)
+module TestGeneratedThrow
+    using Base.Test
+
+    @generated function bar(x)
+        error("I'm not happy with type $x")
+    end
+
+    foo() = (bar(rand() > 0.5 ? 1 : 1.0); error("foo"))
+    function __init__()
+        code_typed(foo,(); optimize = false)
+        @test isa(Core.Inference.inference_stack,Core.Inference.EmptyCallStack)
+        cfunction(foo,Void,())
+    end
+end

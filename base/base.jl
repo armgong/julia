@@ -11,13 +11,6 @@ type SystemError <: Exception
     SystemError(p::AbstractString) = new(p, Libc.errno())
 end
 
-type TypeError <: Exception
-    func::Symbol
-    context::AbstractString
-    expected::Type
-    got
-end
-
 type ParseError <: Exception
     msg::AbstractString
 end
@@ -32,12 +25,6 @@ end
 
 type KeyError <: Exception
     key
-end
-
-type LoadError <: Exception
-    file::AbstractString
-    line::Int
-    error
 end
 
 type MethodError <: Exception
@@ -59,6 +46,21 @@ type AssertionError <: Exception
     AssertionError(msg) = new(msg)
 end
 
+#Generic wrapping of arbitrary exceptions
+#Subtypes should put the exception in an 'error' field
+abstract WrappedException <: Exception
+
+type LoadError <: WrappedException
+    file::AbstractString
+    line::Int
+    error
+end
+
+type InitError <: WrappedException
+    mod::Symbol
+    error
+end
+
 ccall(:jl_get_system_hooks, Void, ())
 
 
@@ -66,7 +68,7 @@ ccall(:jl_get_system_hooks, Void, ())
 ==(w::WeakRef, v) = isequal(w.value, v)
 ==(w, v::WeakRef) = isequal(w, v.value)
 
-function finalizer(o::ANY, f::Union(Function,Ptr))
+function finalizer(o::ANY, f::Union{Function,Ptr})
     if isimmutable(o)
         error("objects of type ", typeof(o), " cannot be finalized")
     end

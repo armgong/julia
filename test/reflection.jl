@@ -131,7 +131,6 @@ not_const = 1
 
 ## find bindings tests
 @test ccall(:jl_get_module_of_binding, Any, (Any, Any), Base, :sin)==Base
-@test_throws UndefVarError ccall(:jl_get_module_of_binding, Any, (Any, Any), Base, :sdi597sl3)
 
 module TestMod7648
 using Base.Test
@@ -184,8 +183,10 @@ let
     @test isgeneric(foo7648)
     @test Base.function_name(foo7648)==:foo7648
     @test Base.function_module(foo7648, (Any,))==TestMod7648
-    @test functionloc(foo7648, (Any,))[1] == abspath(joinpath(dirname(@__FILE__), "reflection.jl"))
+    @test basename(functionloc(foo7648, (Any,))[1]) == "reflection.jl"
     @test TestMod7648.TestModSub9475.foo7648.env.defs==@which foo7648(5)
     @test TestMod7648==@which foo7648
     @test TestMod7648.TestModSub9475==@which a9475
 end
+
+@test_throws ArgumentError which(is, Tuple{Int, Int})

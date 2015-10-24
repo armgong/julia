@@ -40,6 +40,14 @@ a[2,2] = 4
 b = a'
 @test a[1,1] == 1. && a[1,2] == 2. && a[2,1] == 3. && a[2,2] == 4.
 @test b[1,1] == 1. && b[2,1] == 2. && b[1,2] == 3. && b[2,2] == 4.
+a[[1 2 3 4]] = 0
+@test a == zeros(2,2)
+a[[1 2], [1 2]] = 1
+@test a == ones(2,2)
+a[[1 2], 1] = 0
+@test a[1,1] == 0. && a[1,2] == 1. && a[2,1] == 0. && a[2,2] == 1.
+a[:, [1 2]] = 2
+@test a == 2ones(2,2)
 
 a = Array(Float64, 2, 2, 2, 2, 2)
 a[1,1,1,1,1] = 10
@@ -128,7 +136,7 @@ b = [4, 6, 2, -7, 1]
 ind = findin(a, b)
 @test ind == [3,4]
 
-rt = Base.return_types(setindex!, Tuple{Array{Int32, 3}, UInt8, Vector{Int}, Float64, UnitRange{Int}})
+rt = Base.return_types(setindex!, Tuple{Array{Int32, 3}, UInt8, Vector{Int}, Int16, UnitRange{Int}})
 @test length(rt) == 1 && rt[1] == Array{Int32, 3}
 
 # construction
@@ -383,7 +391,7 @@ for i = 1 : 3
     @test isequal(a', permutedims(a, [2, 1]))
 end
 
-begin
+let
     local A, A1, A2, A3, v, v2, cv, cv2, c, R, T
     A = ones(Int,2,3,4)
     A1 = reshape(repmat([1,2],1,12),2,3,4)
@@ -642,7 +650,7 @@ B = cat(3, 1, 2, 3)
 @test isequal(symdiff(Int64[]), Int64[])
 
 # mapslices
-begin
+let
     local a,h,i
     a = rand(5,5)
     h = mapslices(v -> hist(v,0:0.1:1)[2], a, 1)
@@ -725,7 +733,7 @@ a[a] = [4,5,6]
 @test lexcmp([1, 1], [1]) == 1
 
 # sort on arrays
-begin
+let
     local a = rand(3,3)
 
     asr = sortrows(a)
@@ -753,6 +761,23 @@ begin
     @test issorted(as[1,:])
     @test issorted(as[2,:])
     @test issorted(as[3,:])
+
+    local b = rand(21,21,2)
+
+    bs = sort(b, 1)
+    for i in 1:21
+        @test issorted(bs[:,i,1])
+        @test issorted(bs[:,i,2])
+    end
+
+    bs = sort(b, 2)
+    for i in 1:21
+        @test issorted(bs[i,:,1])
+        @test issorted(bs[i,:,2])
+    end
+
+    bs = sort(b, 3)
+    @test all(bs[:,:,1] .<= bs[:,:,2])
 end
 
 # fill
@@ -765,7 +790,7 @@ fill!(S, 3)
 @test A == [1 1 3; 2 2 3; 1 1 1]
 rt = Base.return_types(fill!, Tuple{Array{Int32, 3}, UInt8})
 @test length(rt) == 1 && rt[1] == Array{Int32, 3}
-A = Array(Union(UInt8,Int8), 3)
+A = Array(Union{UInt8,Int8}, 3)
 fill!(A, UInt8(3))
 @test A == [0x03, 0x03, 0x03]
 # Issue #9964
@@ -824,9 +849,13 @@ end
 @test reverse(1:10,1,4) == [4,3,2,1,5,6,7,8,9,10]
 @test reverse(1:10,3,6) == [1,2,6,5,4,3,7,8,9,10]
 @test reverse(1:10,6,10) == [1,2,3,4,5,10,9,8,7,6]
+@test reverse!([1:10;]) == [10,9,8,7,6,5,4,3,2,1]
 @test reverse!([1:10;],1,4) == [4,3,2,1,5,6,7,8,9,10]
 @test reverse!([1:10;],3,6) == [1,2,6,5,4,3,7,8,9,10]
 @test reverse!([1:10;],6,10) == [1,2,3,4,5,10,9,8,7,6]
+@test reverse!([1:10;], 11) == [1:10;]
+@test_throws BoundsError reverse!([1:10;], 1, 11)
+@test reverse!(Any[]) == Any[]
 
 # flipdim
 @test isequal(flipdim([2,3,1], 1), [1,3,2])
@@ -886,8 +915,8 @@ for N = 1:Nmax
     @test Base.return_types(getindex, Tuple{Array{Float32, N}, args...}) == [Array{Float32, N}]
     @test Base.return_types(getindex, Tuple{BitArray{N}, args...}) == Any[BitArray{N}]
     @test Base.return_types(setindex!, Tuple{Array{Float32, N}, Array{Int, 1}, args...}) == [Array{Float32, N}]
-    # Indexing with (UnitRange, UnitRange, Float64)
-    args = ntuple(d->d<N ? UnitRange{Int} : Float64, N)
+    # Indexing with (UnitRange, UnitRange, Int)
+    args = ntuple(d->d<N ? UnitRange{Int} : Int, N)
     N > 1 && @test Base.return_types(getindex, Tuple{Array{Float32, N}, args...}) == [Array{Float32, N-1}]
     N > 1 && @test Base.return_types(getindex, Tuple{BitArray{N}, args...}) == [BitArray{N-1}]
     N > 1 && @test Base.return_types(setindex!, Tuple{Array{Float32, N}, Array{Int, 1}, args...}) == [Array{Float32, N}]
@@ -1200,3 +1229,114 @@ b = rand(6,7)
 @test_throws BoundsError copy!(a,b)
 @test_throws ArgumentError copy!(a,2:3,1:3,b,1:5,2:7)
 @test_throws ArgumentError Base.copy_transpose!(a,2:3,1:3,b,1:5,2:7)
+
+# return type declarations (promote_op)
+module RetTypeDecl
+    using Base.Test
+    import Base: +, *, .*
+
+    immutable MeterUnits{T,P} <: Number
+        val::T
+    end
+    MeterUnits{T}(val::T, pow::Int) = MeterUnits{T,pow}(val)
+
+    m  = MeterUnits(1.0, 1)   # 1.0 meter, i.e. units of length
+    m2 = MeterUnits(1.0, 2)   # 1.0 meter^2, i.e. units of area
+
+    (+){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,1}(x.val+y.val)
+    (*){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,2}(x.val*y.val)
+    (.*){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,2}(x.val*y.val)
+
+    Base.promote_op{R,S}(::Base.AddFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),1}
+    Base.promote_op{R,S}(::Base.MulFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
+    Base.promote_op{R,S}(::Base.DotMulFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
+
+    @test @inferred(m+[m,m]) == [m+m,m+m]
+    @test @inferred([m,m]+m) == [m+m,m+m]
+    @test @inferred(m.*[m,m]) == [m2,m2]
+    @test @inferred([m,m].*m) == [m2,m2]
+end
+
+# range, range ops
+A = 1:5
+B = 1.5:5.5
+@test A + B == 2.5:2.0:10.5
+
+#slice dim error
+A = zeros(5,5)
+@test_throws ArgumentError slicedim(A,0,1)
+
+###
+### LinearSlow workout
+###
+immutable LinSlowMatrix{T} <: DenseArray{T,2}
+    data::Matrix{T}
+end
+
+# This is the default, but just to be sure
+Base.linearindexing{A<:LinSlowMatrix}(::Type{A}) = Base.LinearSlow()
+
+Base.size(A::LinSlowMatrix) = size(A.data)
+
+Base.getindex(A::LinSlowMatrix, i::Integer) = error("Not defined")
+Base.getindex(A::LinSlowMatrix, i::Integer, j::Integer) = A.data[i,j]
+
+Base.setindex!(A::LinSlowMatrix, v, i::Integer) = error("Not defined")
+Base.setindex!(A::LinSlowMatrix, v, i::Integer, j::Integer) = A.data[i,j] = v
+
+A = rand(3,5)
+B = LinSlowMatrix(A)
+
+@test A == B
+@test B == A
+@test isequal(A, B)
+@test isequal(B, A)
+
+for (a,b) in zip(A, B)
+    @test a == b
+end
+
+C = copy(B)
+@test A == C
+@test B == C
+
+@test vec(A) == vec(B)
+@test minimum(A) == minimum(B)
+@test maximum(A) == maximum(B)
+
+a, ai = findmin(A)
+b, bi = findmin(B)
+@test a == b
+@test ai == bi
+
+a, ai = findmax(A)
+b, bi = findmax(B)
+@test a == b
+@test ai == bi
+
+fill!(B, 2)
+@test all(x->x==2, B)
+
+i,j = findn(B)
+iall = (1:size(A,1)).*ones(Int,size(A,2))'
+jall = ones(Int,size(A,1)).*(1:size(A,2))'
+@test vec(i) == vec(iall)
+@test vec(j) == vec(jall)
+
+copy!(B, A)
+
+@test cat(1, A, B) == cat(1, A, A)
+@test cat(2, A, B) == cat(2, A, A)
+
+@test cumsum(A, 1) == cumsum(B, 1)
+@test cumsum(A, 2) == cumsum(B, 2)
+
+@test mapslices(v->sort(v), A, 1) == mapslices(v->sort(v), B, 1)
+@test mapslices(v->sort(v), A, 2) == mapslices(v->sort(v), B, 2)
+
+@test flipdim(A, 1) == flipdim(B, 1)
+@test flipdim(A, 2) == flipdim(B, 2)
+
+@test A + 1 == B + 1
+@test 2*A == 2*B
+@test A/3 == B/3

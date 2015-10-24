@@ -291,9 +291,39 @@ jl_value_t *jl_readuntil(ios_t *s, uint8_t delim)
     return (jl_value_t*)a;
 }
 
-void jl_free2(void *p, void *hint)
+static void NORETURN throw_eof_error(void)
 {
-    free(p);
+    jl_datatype_t *eof_error = (jl_datatype_t*)jl_get_global(jl_base_module, jl_symbol("EOFError"));
+    assert(eof_error != NULL);
+    jl_exceptionf(eof_error, "");
+}
+
+DLLEXPORT uint64_t jl_ios_get_nbyte_int(ios_t *s, const size_t n)
+{
+    assert(n <= 8);
+    size_t ret = ios_readprep(s, n);
+    if (ret < n)
+        throw_eof_error();
+    uint64_t x = 0;
+    uint8_t *buf = (uint8_t*)&s->buf[s->bpos];
+    if (n == 8) {
+        // expecting loop unrolling optimization
+        for (size_t i = 0; i < 8; i++)
+            x |= (uint64_t)buf[i] << (i << 3);
+    }
+    else if (n >= 4) {
+        // expecting loop unrolling optimization
+        for (size_t i = 0; i < 4; i++)
+            x |= (uint64_t)buf[i] << (i << 3);
+        for (size_t i = 4; i < n; i++)
+            x |= (uint64_t)buf[i] << (i << 3);
+    }
+    else {
+        for (size_t i = 0; i < n; i++)
+            x |= (uint64_t)buf[i] << (i << 3);
+    }
+    s->bpos += n;
+    return x;
 }
 
 // -- syscall utilities --
@@ -435,41 +465,72 @@ DLLEXPORT void jl_cpuid(int32_t CPUInfo[4], int32_t InfoType)
 // -- set/clear the FZ/DAZ flags on x86 & x86-64 --
 #ifdef __SSE__
 
-DLLEXPORT uint8_t jl_zero_subnormals(uint8_t isZero)
+// Cache of information recovered from jl_cpuid.
+// In a multithreaded environment, there will be races on subnormal_flags,
+// but they are harmless idempotent races.  If we ever embrace C11, then
+// subnormal_flags should be declared atomic.
+static volatile int32_t subnormal_flags = 1;
+
+static int32_t get_subnormal_flags()
 {
-    uint32_t flags = 0x00000000;
-    int32_t info[4];
-
-    jl_cpuid(info, 0);
-    if (info[0] >= 1) {
-        jl_cpuid(info, 0x00000001);
-        if ((info[3] & ((int)1 << 26)) != 0) {
-            // SSE2 supports both FZ and DAZ
-            flags = 0x00008040;
+    uint32_t f = subnormal_flags;
+    if (f & 1) {
+        // CPU capabilities not yet inspected.
+        f = 0;
+        int32_t info[4];
+        jl_cpuid(info, 0);
+        if (info[0] >= 1) {
+            jl_cpuid(info, 0x00000001);
+            if (info[3] & (1 << 26)) {
+                // SSE2 supports both FZ and DAZ
+                f = 0x00008040;
+            }
+            else if (info[3] & (1 << 25)) {
+                // SSE supports only the FZ flag
+                f = 0x00008000;
+            }
         }
-        else if ((info[3] & ((int)1 << 25)) != 0) {
-            // SSE supports only the FZ flag
-            flags = 0x00008000;
-        }
+        subnormal_flags = f;
     }
+    return f;
+}
 
+// Returns non-zero if subnormals go to 0; zero otherwise.
+DLLEXPORT int32_t jl_get_zero_subnormals(int8_t isZero)
+{
+    uint32_t flags = get_subnormal_flags();
+    return _mm_getcsr() & flags;
+}
+
+// Return zero on success, non-zero on failure.
+DLLEXPORT int32_t jl_set_zero_subnormals(int8_t isZero)
+{
+    uint32_t flags = get_subnormal_flags();
     if (flags) {
-        if (isZero) {
-            _mm_setcsr(_mm_getcsr() | flags);
-        }
-        else {
-            _mm_setcsr(_mm_getcsr() & ~flags);
-        }
-        return 1;
+        uint32_t state = _mm_getcsr();
+        if (isZero)
+            state |= flags;
+        else
+            state &= ~flags;
+        _mm_setcsr(state);
+        return 0;
     }
-    return 0;
+    else {
+        // Report a failure only if user is trying to enable FTZ/DAZ.
+        return isZero;
+    }
 }
 
 #else
 
-DLLEXPORT uint8_t jl_zero_subnormals(uint8_t isZero)
+DLLEXPORT int32_t jl_get_zero_subnormals(int8_t isZero)
 {
     return 0;
+}
+
+DLLEXPORT int32_t jl_set_zero_subnormals(int8_t isZero)
+{
+    return isZero;
 }
 
 #endif
@@ -553,7 +614,7 @@ DLLEXPORT size_t jl_get_field_offset(jl_datatype_t *ty, int field)
 {
     if (field > jl_datatype_nfields(ty))
         jl_error("This type does not have that many fields");
-    return ty->fields[field].offset;
+    return jl_field_offset(ty, field);
 }
 
 DLLEXPORT size_t jl_get_alignment(jl_datatype_t *ty)
@@ -635,7 +696,7 @@ static BOOL CALLBACK jl_EnumerateLoadedModulesProc64(
 )
 {
     jl_array_grow_end((jl_array_t*)a, 1);
-    //XXX: change to jl_arrayset if array storage allocation for Array{String,1} changes:
+    //XXX: change to jl_arrayset if array storage allocation for Array{ByteString,1} changes:
     jl_value_t *v = jl_cstr_to_string(ModuleName);
     jl_cellset(a, jl_array_dim0(a)-1, v);
     return TRUE;
@@ -671,6 +732,14 @@ DLLEXPORT jl_sym_t* jl_get_OS_NAME()
 #warning OS_NAME is Unknown
     return jl_symbol("Unknown");
 #endif
+}
+
+DLLEXPORT jl_sym_t* jl_get_ARCH()
+{
+    static jl_sym_t* ARCH = NULL;
+    if (!ARCH)
+        ARCH = (jl_sym_t*) jl_get_global(jl_base_module, jl_symbol("ARCH"));
+    return ARCH;
 }
 
 #ifdef __cplusplus

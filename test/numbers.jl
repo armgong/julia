@@ -471,6 +471,8 @@ end
 @test signbit(1//0) == 0
 @test signbit(-1//0) == 1
 
+@test copysign(big(1.0),big(-2.0)) == big(-1.0)
+
 @test isnan(1)     == false
 @test isnan(1.0)   == false
 @test isnan(-1.0)  == false
@@ -503,6 +505,7 @@ end
 @test isfinite(-2//3) == true
 @test isfinite(5//0)  == false
 @test isfinite(-3//0) == false
+@test isfinite(pi)    == true
 
 @test isequal(-Inf,-Inf)
 @test isequal(-1.0,-1.0)
@@ -646,7 +649,7 @@ for x=-5:5, y=-5:5
     end
 end
 
-function _cmp_(x::Union(Int64,UInt64), y::Float64)
+function _cmp_(x::Union{Int64,UInt64}, y::Float64)
     if x==Int64(2)^53-2 && y==2.0^53-2; return  0; end
     if x==Int64(2)^53-2 && y==2.0^53-1; return -1; end
     if x==Int64(2)^53-2 && y==2.0^53  ; return -1; end
@@ -1977,7 +1980,7 @@ for f in (trunc, round, floor, ceil)
 
 # primes
 
-@test Base.primes(10000) == [
+@test primes(10000) == primes(2, 10000) == [
     2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37, 41, 43, 47, 53, 59, 61, 67, 71,
     73, 79, 83, 89, 97, 101, 103, 107, 109, 113, 127, 131, 137, 139, 149, 151,
     157, 163, 167, 173, 179, 181, 191, 193, 197, 199, 211, 223, 227, 229, 233,
@@ -2079,6 +2082,11 @@ for f in (trunc, round, floor, ceil)
     9851, 9857, 9859, 9871, 9883, 9887, 9901, 9907, 9923, 9929, 9931, 9941,
     9949, 9967, 9973 ]
 
+for n = 100:100:1000
+    @test primes(n, 10n) == primes(10n)[length(primes(n))+1:end]
+    @test primesmask(n, 10n) == primesmask(10n)[n:end]
+end
+
 for T in [Int,BigInt], n = [1:1000;1000000]
     n = convert(T,n)
     f = factor(n)
@@ -2086,9 +2094,10 @@ for T in [Int,BigInt], n = [1:1000;1000000]
     prime = n!=1 && length(f)==1 && get(f,n,0)==1
     @test isprime(n) == prime
 
-    s = Base.primesmask(n)
+    s = primesmask(n)
     for k = 1:n
         @test s[k] == isprime(k)
+        @test s[k] == primesmask(k, k)[1]
     end
 end
 
@@ -2232,6 +2241,14 @@ for i = -100:100
     @test nextpow2(i) == nextpow2(big(i))
     @test prevpow2(i) == prevpow2(big(i))
 end
+for T in (Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64)
+    @test nextpow2(T(42)) === T(64)
+    @test prevpow2(T(42)) === T(32)
+end
+
+@test  ispow2(64)
+@test !ispow2(42)
+@test !ispow2(~typemax(Int))
 
 @test nextpow(2,1) == 1
 @test prevpow(2,1) == 1
@@ -2408,7 +2425,7 @@ end
 @test bswap(reinterpret(Float32,0x0000c03f)) === 1.5f0
 
 #isreal(x::Real) = true
-for x in [1.23, 7, e, 4//5] #[FP, Int, MathConst, Rat]
+for x in [1.23, 7, e, 4//5] #[FP, Int, Irrational, Rat]
     @test isreal(x) == true
 end
 
@@ -2423,7 +2440,7 @@ for x in [subtypes(Complex); subtypes(Real)]
 end
 
 #getindex(x::Number) = x
-for x in [1.23, 7, e, 4//5] #[FP, Int, MathConst, Rat]
+for x in [1.23, 7, e, 4//5] #[FP, Int, Irrational, Rat]
     @test getindex(x) == x
 end
 
@@ -2454,11 +2471,13 @@ end
 @test in(1+2im, 1+2im) == true #Imag
 @test in(3, 3.0) == true #mixed
 
-#map(f::Callable, x::Number) = f(x)
+#map(f::Callable, x::Number, ys::Number...) = f(x)
 @test map(sin, 3) == sin(3)
 @test map(cos, 3) == cos(3)
 @test map(tan, 3) == tan(3)
 @test map(log, 3) == log(3)
+@test map(copysign, 1.0, -2.0) == -1.0
+@test map(muladd, 2, 3, 4) == 10
 
 @test_throws InexactError convert(UInt8, big(300))
 
@@ -2501,3 +2520,7 @@ for (d,B) in ((4//2+1im,Rational{BigInt}),(3.0+1im,BigFloat),(2+1im,BigInt))
     @test typeof(big([d])) == Vector{Complex{B}}
     @test big([d]) == [d]
 end
+
+# issue #12536
+@test Rational{Int16}(1,2) === Rational(Int16(1),Int16(2))
+@test Rational{Int16}(500000,1000000) === Rational(Int16(1),Int16(2))

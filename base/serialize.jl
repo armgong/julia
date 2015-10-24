@@ -13,7 +13,7 @@ export serialize, deserialize
 const TAGS = Any[
     Symbol, Int8, UInt8, Int16, UInt16, Int32, UInt32,
     Int64, UInt64, Int128, UInt128, Float32, Float64, Char, Ptr,
-    DataType, UnionType, Function,
+    DataType, Union, Function,
     Tuple, Array, Expr,
     #LongSymbol, LongTuple, LongExpr,
     Symbol, Tuple, Expr,  # dummy entries, intentionally shadowed by earlier ones
@@ -209,7 +209,8 @@ end
 function serialize(s::SerializationState, r::Regex)
     serialize_type(s, typeof(r))
     serialize(s, r.pattern)
-    serialize(s, r.options)
+    serialize(s, r.compile_options)
+    serialize(s, r.match_options)
 end
 
 function serialize(s::SerializationState, n::BigInt)
@@ -223,7 +224,7 @@ function serialize(s::SerializationState, n::BigFloat)
 end
 
 function serialize(s::SerializationState, ex::Expr)
-    serialize_cycle(s, e) && return
+    serialize_cycle(s, ex) && return
     l = length(ex.args)
     if l <= 255
         writetag(s.io, EXPR_TAG)
@@ -264,8 +265,6 @@ function serialize(s::SerializationState, m::Module)
 end
 
 function serialize(s::SerializationState, f::Function)
-    serialize_cycle(s, f) && return
-    writetag(s.io, FUNCTION_TAG)
     name = false
     if isgeneric(f)
         name = f.env.name
@@ -274,6 +273,7 @@ function serialize(s::SerializationState, f::Function)
     end
     if isa(name,Symbol)
         if isdefined(Base,name) && is(f,getfield(Base,name))
+            writetag(s.io, FUNCTION_TAG)
             write(s.io, UInt8(0))
             serialize(s, name)
             return
@@ -287,18 +287,23 @@ function serialize(s::SerializationState, f::Function)
         if mod !== ()
             if isdefined(mod,name) && is(f,getfield(mod,name))
                 # toplevel named func
+                writetag(s.io, FUNCTION_TAG)
                 write(s.io, UInt8(2))
                 serialize(s, mod)
                 serialize(s, name)
                 return
             end
         end
+        serialize_cycle(s, f) && return
+        writetag(s.io, FUNCTION_TAG)
         write(s.io, UInt8(3))
         serialize(s, f.env)
     else
+        serialize_cycle(s, f) && return
+        writetag(s.io, FUNCTION_TAG)
+        write(s.io, UInt8(1))
         linfo = f.code
         @assert isa(linfo,LambdaStaticData)
-        write(s.io, UInt8(1))
         serialize(s, linfo)
         serialize(s, f.env)
     end
@@ -506,24 +511,31 @@ function deserialize(s::SerializationState, ::Type{Function})
     if b==0
         name = deserialize(s)::Symbol
         if !isdefined(Base,name)
-            return (args...)->error("function $name not defined on process $(myid())")
+            f = (args...)->error("function $name not defined on process $(myid())")
+        else
+            f = getfield(Base,name)::Function
         end
-        return getfield(Base,name)::Function
     elseif b==2
         mod = deserialize(s)::Module
         name = deserialize(s)::Symbol
         if !isdefined(mod,name)
-            return (args...)->error("function $name not defined on process $(myid())")
+            f = (args...)->error("function $name not defined on process $(myid())")
+        else
+            f = getfield(mod,name)::Function
         end
-        return getfield(mod,name)::Function
     elseif b==3
-        env = deserialize(s)
-        return ccall(:jl_new_gf_internal, Any, (Any,), env)::Function
+        f = ccall(:jl_new_gf_internal, Any, (Any,), nothing)::Function
+        deserialize_cycle(s, f)
+        f.env = deserialize(s)
+    else
+        f = ccall(:jl_new_closure, Any, (Ptr{Void}, Ptr{Void}, Any),
+                  cglobal(:jl_trampoline), C_NULL, nothing)::Function
+        deserialize_cycle(s, f)
+        f.code = li = deserialize(s)
+        f.fptr = ccall(:jl_linfo_fptr, Ptr{Void}, (Any,), li)
+        f.env = deserialize(s)
     end
-    linfo = deserialize(s)
-    f = ccall(:jl_new_closure, Any, (Ptr{Void}, Ptr{Void}, Any), C_NULL, C_NULL, linfo)::Function
-    deserialize_cycle(s, f)
-    f.env = deserialize(s)
+
     return f
 end
 
@@ -533,7 +545,7 @@ function deserialize(s::SerializationState, ::Type{LambdaStaticData})
         linfo = known_lambda_data[lnumber]::LambdaStaticData
         makenew = false
     else
-        linfo = ccall(:jl_new_lambda_info, Any, (Ptr{Void}, Ptr{Void}), C_NULL, C_NULL)::LambdaStaticData
+        linfo = ccall(:jl_new_lambda_info, Any, (Ptr{Void}, Ptr{Void}, Ptr{Void}), C_NULL, C_NULL, C_NULL)::LambdaStaticData
         makenew = true
     end
     deserialize_cycle(s, linfo)
@@ -613,9 +625,9 @@ function deserialize_expr(s::SerializationState, len)
     e
 end
 
-function deserialize(s::SerializationState, ::Type{UnionType})
+function deserialize(s::SerializationState, ::Type{Union})
     types = deserialize(s)
-    Union(types...)
+    Union{types...}
 end
 
 function deserialize_datatype(s::SerializationState)
@@ -698,7 +710,7 @@ function deserialize{K,V}(s::SerializationState, T::Type{Dict{K,V}})
     return t
 end
 
-deserialize(s::SerializationState, ::Type{BigFloat}) = BigFloat(deserialize(s))
+deserialize(s::SerializationState, ::Type{BigFloat}) = parse(BigFloat, deserialize(s))
 
 deserialize(s::SerializationState, ::Type{BigInt}) = get(GMP.tryparse_internal(BigInt, deserialize(s), 62, true))
 
@@ -706,8 +718,9 @@ deserialize(s::SerializationState, ::Type{BigInt}) = get(GMP.tryparse_internal(B
 
 function deserialize(s::SerializationState, t::Type{Regex})
     pattern = deserialize(s)
-    options = deserialize(s)
-    Regex(pattern, options)
+    compile_options = deserialize(s)
+    match_options = deserialize(s)
+    Regex(pattern, compile_options, match_options)
 end
 
 end

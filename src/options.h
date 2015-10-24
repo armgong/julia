@@ -3,20 +3,13 @@
 #ifndef JL_OPTIONS_H
 #define JL_OPTIONS_H
 
+// Options in here are NOT allowed to affect the jlapi, since that would require this header to be installed
+
 // Build-time options for debugging, tweaking, and selecting alternative
 // implementations of core features.
+//
 
 // object layout options ------------------------------------------------------
-
-#ifdef _P64
-// a risky way to save 8 bytes per tuple, by storing the length in the
-// top bits of the type tag. only possible on 64-bit.
-//#define OVERLAP_TUPLE_LEN
-#endif
-
-// if this is not defined, only individual dimension sizes are
-// stored and not total length, to save space.
-#define STORE_ARRAY_LEN
 
 // how much space we're willing to waste if an array outgrows its
 // original object
@@ -35,9 +28,6 @@
 
 // GC options -----------------------------------------------------------------
 
-// only one GC is supported at this time
-#define JL_GC_MARKSWEEP
-
 // debugging options
 
 // with MEMDEBUG, every object is allocated explicitly with malloc, and
@@ -47,7 +37,15 @@
 
 // GC_VERIFY force a full verification gc along with every quick gc to ensure no
 // reachable memory is freed
-//#define GC_VERIFY
+#ifndef GC_VERIFY
+#ifdef GC_DEBUG_ENV
+#define GC_VERIFY
+#else
+// It is recommanded to use the WITH_GC_VERIFY make option to turn on this
+// option. Keep the document here before a better build system is ready.
+// #define GC_VERIFY
+#endif
+#endif
 
 // SEGV_EXCEPTION turns segmentation faults into catchable julia exceptions.
 // This is not recommended, as the memory state after such an exception should
@@ -57,7 +55,7 @@
 // profiling options
 
 // GC_FINAL_STATS prints total GC stats at exit
-//#define GC_FINAL_STATS
+// #define GC_FINAL_STATS
 
 // MEMPROFILE prints pool summary statistics after every GC
 //#define MEMPROFILE

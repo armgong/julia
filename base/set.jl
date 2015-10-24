@@ -29,7 +29,7 @@ in(x, s::Set) = haskey(s.dict, x)
 push!(s::Set, x) = (s.dict[x] = nothing; s)
 pop!(s::Set, x) = (pop!(s.dict, x); x)
 pop!(s::Set, x, deflt) = pop!(s.dict, x, deflt) == deflt ? deflt : x
-pop!(s::Set) = (val = s.dict.keys[start(s.dict)]; delete!(s.dict, val); val)
+pop!(s::Set) = (idx = start(s.dict); val = s.dict.keys[idx]; _delete!(s.dict, idx); val)
 delete!(s::Set, x) = (delete!(s.dict, x); s)
 
 copy(s::Set) = union!(similar(s), s)
@@ -88,7 +88,7 @@ end
 setdiff!(s::Set, xs) = (for x=xs; delete!(s,x); end; s)
 
 ==(l::Set, r::Set) = (length(l) == length(r)) && (l <= r)
-< (l::Set, r::Set) = (length(l) < length(r)) && (l <= r)
+<( l::Set, r::Set) = (length(l) < length(r)) && (l <= r)
 <=(l::Set, r::Set) = issubset(l, r)
 
 function issubset(l, r)

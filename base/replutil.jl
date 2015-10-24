@@ -35,8 +35,16 @@ end
 
 writemime(io::IO, ::MIME"text/plain", t::Associative) =
     showdict(io, t, limit=true)
-writemime(io::IO, ::MIME"text/plain", t::Union(KeyIterator, ValueIterator)) =
+writemime(io::IO, ::MIME"text/plain", t::Union{KeyIterator, ValueIterator}) =
     showkv(io, t, limit=true)
+
+function writemime(io::IO, ::MIME"text/plain", t::Task)
+    show(io, t)
+    if t.state == :failed
+        println(io)
+        showerror(io, CapturedException(t.result, t.backtrace))
+    end
+end
 
 
 # showing exception objects as descriptive error messages
@@ -93,17 +101,24 @@ function showerror(io::IO, ex::LoadError, bt; backtrace=true)
 end
 showerror(io::IO, ex::LoadError) = showerror(io, ex, [])
 
+function showerror(io::IO, ex::InitError, bt; backtrace=true)
+    print(io, "InitError: ")
+    showerror(io, ex.error, bt, backtrace=backtrace)
+    print(io, "\nduring initialization of module $(ex.mod)")
+end
+showerror(io::IO, ex::InitError) = showerror(io, ex, [])
+
 function showerror(io::IO, ex::DomainError, bt; backtrace=true)
     print(io, "DomainError:")
     for b in bt
         code = ccall(:jl_lookup_code_address, Any, (Ptr{Void}, Cint), b-1, true)
-        if length(code) == 5 && !code[4]  # code[4] == fromC
+        if length(code) == 7 && !code[6]  # code[6] == fromC
             if code[1] in (:log, :log2, :log10, :sqrt) # TODO add :besselj, :besseli, :bessely, :besselk
-                println(io,"\n$(code[1]) will only return a complex result if called with a complex argument.")
-                print(io, "try $(code[1]) (complex(x))")
-            elseif (code[1] == :^ && code[2] == symbol("intfuncs.jl")) || code[1] == :power_by_squaring
-                println(io, "\nCannot raise an integer x to a negative power -n. Make x a float by adding")
-                print(io, "a zero decimal (e.g. 2.0^-n instead of 2^-n), or write 1/x^n, float(x)^-n, or (x//1)^-n")
+                print(io,"\n$(code[1]) will only return a complex result if called with a complex argument. Try $(code[1])(complex(x)).")
+            elseif (code[1] == :^ && code[2] == symbol("intfuncs.jl")) || code[1] == :power_by_squaring #3024
+                print(io, "\nCannot raise an integer x to a negative power -n. \nMake x a float by adding a zero decimal (e.g. 2.0^-n instead of 2^-n), or write 1/x^n, float(x)^-n, or (x//1)^-n.")
+            elseif code[1] == :^ && (code[2] == symbol("promotion.jl") || code[2] == symbol("math.jl"))
+                print(io, "\nExponentiation yielding a complex result requires a complex argument.\nReplace x^y with (x+0im)^y, Complex(x)^y, or similar.")
             end
             break
         end
@@ -125,6 +140,8 @@ showerror(io::IO, ex::ArgumentError) = print(io, "ArgumentError: $(ex.msg)")
 showerror(io::IO, ex::AssertionError) = print(io, "AssertionError: $(ex.msg)")
 
 function showerror(io::IO, ex::MethodError)
+    # ex.args is a tuple type if it was thrown from `invoke` and is
+    # a tuple of the arguments otherwise.
     is_arg_types = isa(ex.args, DataType)
     arg_types = is_arg_types ? ex.args : typesof(ex.args...)
     arg_types_param::SimpleVector = arg_types.parameters
@@ -164,21 +181,33 @@ function showerror(io::IO, ex::MethodError)
             push!(vec_args, isrow ? vec(arg) : arg)
         end
         if hasrows && applicable(f, vec_args...)
-            print(io, "\n\nYou might have used a 2d row vector where a 1d column vector was required.")
-            print(io, "\nNote the difference between 1d column vector [1,2,3] and 2d row vector [1 2 3].")
-            print(io, "\nYou can convert to a column vector with the vec() function.")
+            print(io, "\n\nYou might have used a 2d row vector where a 1d column vector was required.",
+                      "\nNote the difference between 1d column vector [1,2,3] and 2d row vector [1 2 3].",
+                      "\nYou can convert to a column vector with the vec() function.")
         end
     end
     # Give a helpful error message if the user likely called a type constructor
     # and sees a no method error for convert
-    if (f == Base.convert && !isempty(arg_types_param) &&
-        isa(arg_types_param[1], Type))
+    if (f == Base.convert && !isempty(arg_types_param) && !is_arg_types &&
+        isa(arg_types_param[1], DataType) &&
+        arg_types_param[1].name === Type.name)
         construct_type = arg_types_param[1].parameters[1]
         println(io)
-        print(io, "This may have arisen from a call to the constructor $construct_type(...),")
-        print(io, "\nsince type constructors fall back to convert methods.")
+        print(io, "This may have arisen from a call to the constructor $construct_type(...),",
+                  "\nsince type constructors fall back to convert methods.")
     end
     show_method_candidates(io, ex)
+end
+
+#Show an error by directly calling jl_printf.
+#Useful in Base submodule __init__ functions where STDERR isn't defined yet.
+function showerror_nostdio(err, msg::AbstractString)
+    stderr_stream = ccall(:jl_stderr_stream, Ptr{Void}, ())
+    ccall(:jl_printf, UInt, (Ptr{Void},Cstring), stderr_stream, msg)
+    ccall(:jl_printf, UInt, (Ptr{Void},Cstring), stderr_stream, ":\n")
+    ccall(:jl_static_show, UInt, (Ptr{Void},Ptr{Void}), stderr_stream,
+          pointer_from_objref(err))
+    ccall(:jl_printf, UInt, (Ptr{Void},Cstring), stderr_stream, "\n")
 end
 
 const UNSHOWN_METHODS = ObjectIdDict(
@@ -241,10 +270,10 @@ function show_method_candidates(io::IO, ex::MethodError)
                 t_in = typeintersect(Tuple{sig[1:i]...}, Tuple{t_i[1:j]...})
                 # If the function is one of the special cased then it should break the loop if
                 # the type of the first argument is not matched.
-                t_in === Union() && special && i == 1 && break
+                t_in === Union{} && special && i == 1 && break
                 if use_constructor_syntax && i == 1
                     right_matches += i
-                elseif t_in === Union()
+                elseif t_in === Union{}
                     if Base.have_color
                         Base.with_output_color(:red, buf) do buf
                             print(buf, "::$sigstr")
@@ -318,9 +347,20 @@ function show_method_candidates(io::IO, ex::MethodError)
     end
 end
 
-function show_trace_entry(io, fname, file, line, n)
+function show_trace_entry(io, fname, file, line, inlinedat_file, inlinedat_line, n)
     print(io, "\n")
-    print(io, " in ", fname, " at ", file)
+    # if we have inlining information, we print the `file`:`line` first,
+    # then show the inlining info, because the inlining location
+    # corresponds to `fname`.
+    if (inlinedat_file != symbol(""))
+        # align the location text
+        print(io, " [inlined code] from ")
+    else
+        print(io, " in ", fname, " at ")
+    end
+
+    print(io, file)
+
     if line >= 1
         try
             print(io, ":", line)
@@ -328,8 +368,14 @@ function show_trace_entry(io, fname, file, line, n)
             print(io, '?') #for when dec is not yet defined
         end
     end
+
     if n > 1
         print(io, " (repeats ", n, " times)")
+    end
+
+    if (inlinedat_file != symbol(""))
+        print(io, "\n in ", fname, " at ")
+        print(io, inlinedat_file, ":", inlinedat_line)
     end
 end
 
@@ -337,17 +383,31 @@ function show_backtrace(io::IO, t, set=1:typemax(Int))
     # we may not declare :eval_user_input
     # directly so that we get a compile error
     # in case its name changes in the future
-    show_backtrace(io, try
-                         symbol(string(eval_user_input))
-                       catch
-                         :(:) #for when client.jl is not yet defined
-                       end, t, set)
+    show_backtrace(io,
+                    try
+                        eval_user_input.env.name
+                    catch
+                        :(:) #for when client.jl is not yet defined
+                    end, t, set)
 end
 
-# show the backtrace, up to (but not including) top_function
 function show_backtrace(io::IO, top_function::Symbol, t, set)
+    process_entry(lastname, lastfile, lastline, last_inlinedat_file, last_inlinedat_line, n) =
+        show_trace_entry(io, lastname, lastfile, lastline, last_inlinedat_file, last_inlinedat_line, n)
+    process_backtrace(process_entry, top_function, t, set)
+end
+
+function show_backtrace(io::IO, top_function::Symbol, t::Vector{Any}, set)
+    for entry in t
+        show_trace_entry(io, entry...)
+    end
+end
+
+# process the backtrace, up to (but not including) top_function
+function process_backtrace(process_func::Function, top_function::Symbol, t, set)
     n = 1
-    lastfile = ""; lastline = -11; lastname = symbol("#")
+    lastfile = ""; lastline = -11; lastname = symbol("#");
+    last_inlinedat_file = ""; last_inlinedat_line = -1
     local fname, file, line
     count = 0
     for i = 1:length(t)
@@ -355,23 +415,26 @@ function show_backtrace(io::IO, top_function::Symbol, t, set)
         if lkup === nothing
             continue
         end
-        fname, file, line, fromC = lkup
+        fname, file, line, inlinedat_file, inlinedat_line, fromC = lkup
+
         if fromC; continue; end
         if i == 1 && fname == :error; continue; end
         if fname == top_function; break; end
         count += 1
         if !in(count, set); continue; end
+
         if file != lastfile || line != lastline || fname != lastname
             if lastline != -11
-                show_trace_entry(io, lastname, lastfile, lastline, n)
+                process_func(lastname, lastfile, lastline, last_inlinedat_file, last_inlinedat_line, n)
             end
             n = 1
-            lastfile = file; lastline = line; lastname = fname
+            lastfile = file; lastline = line; lastname = fname;
+            last_inlinedat_file = inlinedat_file; last_inlinedat_line = inlinedat_line;
         else
             n += 1
         end
     end
     if n > 1 || lastline != -11
-        show_trace_entry(io, lastname, lastfile, lastline, n)
+        process_func(lastname, lastfile, lastline, last_inlinedat_file, last_inlinedat_line, n)
     end
 end

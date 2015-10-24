@@ -12,7 +12,10 @@ attention to their array implementation at the expense of other
 containers. Julia does not treat arrays in any special way. The array
 library is implemented almost completely in Julia itself, and derives
 its performance from the compiler, just like any other code written in
-Julia.
+Julia. As such, it's also possible to define custom array types by
+inheriting from ``AbstractArray.`` See the :ref:`manual section on the
+AbstractArray interface <man-interfaces-abstractarray>` for more details
+on implementing a custom array type.
 
 An array is a collection of objects stored in a multi-dimensional
 grid.  In the most general case, an array may contain objects of type
@@ -85,7 +88,7 @@ Function                                            Description
 :func:`reinterpret(type, A) <reinterpret>`          an array with the same binary data as the given array, but with the
                                                     specified element type
 :func:`rand(dims) <rand>`                           `:obj:`Array` of ``Float64``\ s with random, iid[#]_ and uniformly
-                                                    distributed values in the half-open interval [0, 1)
+                                                    distributed values in the half-open interval :math:`[0, 1)`
 :func:`randn(dims) <randn>`                         `:obj:`Array` of ``Float64``\ s with random, iid and standard normally
                                                     distributed random values
 :func:`eye(n) <eye>`                                ``n``-by-``n`` identity matrix
@@ -430,9 +433,9 @@ the name of the function to vectorize. Here is a simple example:
 
     julia> methods(square)
     # 4 methods for generic function "square":
-    square{T<:Number}(::AbstractArray{T<:Number,1}) at operators.jl:359
-    square{T<:Number}(::AbstractArray{T<:Number,2}) at operators.jl:360
-    square{T<:Number}(::AbstractArray{T<:Number,N}) at operators.jl:362
+    square{T<:Number}(::AbstractArray{T<:Number,1}) at operators.jl:374
+    square{T<:Number}(::AbstractArray{T<:Number,2}) at operators.jl:375
+    square{T<:Number}(::AbstractArray{T<:Number,N}) at operators.jl:377
     square(x) at none:1
 
     julia> square([1 2 4; 5 6 7])
@@ -517,7 +520,7 @@ expecting this memory layout.  Subtypes should provide a method
 :func:`stride(A,k) <stride>` that returns the "stride" of dimension ``k``:
 increasing the index of dimension ``k`` by ``1`` should increase the
 index ``i`` of :func:`getindex(A,i) <getindex>` by :func:`stride(A,k) <stride>`.  If a
-pointer conversion method :func:`convert(Ptr{T}, A) <convert>` is provided, the
+pointer conversion method :func:`Base.unsafe_convert(Ptr{T}, A) <unsafe_convert>` is provided, the
 memory layout should correspond in the same way to these strides.
 
 The :obj:`Array` type is a specific instance of :obj:`DenseArray`
@@ -585,7 +588,7 @@ stride parameters.
 Sparse Matrices
 ===============
 
-`Sparse matrices <http://en.wikipedia.org/wiki/Sparse_matrix>`_ are
+`Sparse matrices <https://en.wikipedia.org/wiki/Sparse_matrix>`_ are
 matrices that contain enough zeros that storing them in a special data
 structure leads to savings in space and execution time. Sparse
 matrices may be used when operations on the sparse representation of a
@@ -597,7 +600,7 @@ Compressed Sparse Column (CSC) Storage
 
 In Julia, sparse matrices are stored in the `Compressed Sparse Column
 (CSC) format
-<http://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_column_.28CSC_or_CCS.29>`_.
+<https://en.wikipedia.org/wiki/Sparse_matrix#Compressed_sparse_column_.28CSC_or_CCS.29>`_.
 Julia sparse matrices have the type ``SparseMatrixCSC{Tv,Ti}``, where ``Tv``
 is the type of the nonzero values, and ``Ti`` is the integer type for
 storing column pointers and row indices.::
@@ -748,7 +751,7 @@ reference.
 | :func:`sprand(m,n,d) <sprand>`         | :func:`rand(m,n) <rand>`         | Creates a *m*-by-*n* random matrix (of     |
 |                                        |                                  | density *d*) with iid non-zero elements    |
 |                                        |                                  | distributed uniformly on the               |
-|                                        |                                  | half-open interval [0, 1).                 |
+|                                        |                                  | half-open interval :math:`[0, 1)`.         |
 +----------------------------------------+----------------------------------+--------------------------------------------+
 | :func:`sprandn(m,n,d) <sprandn>`       | :func:`randn(m,n) <randn>`       | Creates a *m*-by-*n* random matrix (of     |
 |                                        |                                  | density *d*) with iid non-zero elements    |

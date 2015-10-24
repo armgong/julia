@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-let exename = joinpath(JULIA_HOME, Base.julia_exename())
+let exename = `$(joinpath(JULIA_HOME, Base.julia_exename())) --precompiled=yes`
     # --version
     let v = split(readall(`$exename -v`), "julia version ")[end]
         @test Base.VERSION_STRING == chomp(v)
@@ -8,8 +8,10 @@ let exename = joinpath(JULIA_HOME, Base.julia_exename())
     @test readall(`$exename -v`) == readall(`$exename --version`)
 
     # --help
-    @test startswith(readall(`$exename -h`), "julia [options] [program] [args...]")
-    @test startswith(readall(`$exename --help`), "julia [options] [program] [args...]")
+    let header = "julia [switches] -- [programfile] [args...]"
+        @test startswith(readall(`$exename -h`), header)
+        @test startswith(readall(`$exename --help`), header)
+    end
 
     # --quiet
     # This flag is indirectly tested in test/repl.jl
@@ -141,6 +143,14 @@ let exename = joinpath(JULIA_HOME, Base.julia_exename())
     @test readchomp(`$exename --depwarn=no -E "Base.syntax_deprecation_warnings(true)"`) == "false"
     @test readchomp(`$exename --depwarn=yes -E "Base.syntax_deprecation_warnings(false)"`) == "true"
     @test !success(`$exename --depwarn=false`)
+    # test deprecated syntax
+    @test !success(`$exename -e "foo (x::Int) = x * x" --depwarn=error`)
+    # test deprecated method
+    @test !success(`$exename -e "
+        foo() = :foo; bar() = :bar
+        @deprecate foo() bar()
+        foo()
+    " --depwarn=error`)
 
     # --inline
     @test readchomp(`$exename -E "Bool(Base.JLOptions().can_inline)"`) == "true"
@@ -182,4 +192,10 @@ let exename = joinpath(JULIA_HOME, Base.julia_exename())
 
     # issue #10562
     @test readchomp(`$exename -e 'println(ARGS);' ''`) == "UTF8String[\"\"]"
+
+    # issue #12679
+    @test readchomp(pipeline(ignorestatus(`$exename -f --compile=yes -foo`),stderr=`cat`)) == "ERROR: unknown option `-o`"
+    @test readchomp(pipeline(ignorestatus(`$exename -f -p`),stderr=`cat`)) == "ERROR: option `-p/--procs` is missing an argument"
+    @test readchomp(pipeline(ignorestatus(`$exename -f --inline`),stderr=`cat`)) == "ERROR: option `--inline` is missing an argument"
+    @test readchomp(pipeline(ignorestatus(`$exename -f -e "@show ARGS" -now -- julia RUN.jl`),stderr=`cat`)) == "ERROR: unknown option `-n`"
 end

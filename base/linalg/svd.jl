@@ -1,13 +1,13 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
 # Singular Value Decomposition
-immutable SVD{T<:BlasFloat,Tr,M<:AbstractArray} <: Factorization{T}
+immutable SVD{T,Tr,M<:AbstractArray} <: Factorization{T}
     U::M
     S::Vector{Tr}
     Vt::M
     SVD(U::AbstractArray{T}, S::Vector{Tr}, Vt::AbstractArray{T}) = new(U, S, Vt)
 end
-SVD{T<:BlasFloat,Tr}(U::AbstractArray{T}, S::Vector{Tr}, Vt::AbstractArray{T}) = SVD{T,Tr,typeof(U)}(U, S, Vt)
+SVD{T,Tr}(U::AbstractArray{T}, S::Vector{Tr}, Vt::AbstractArray{T}) = SVD{T,Tr,typeof(U)}(U, S, Vt)
 
 function svdfact!{T<:BlasFloat}(A::StridedMatrix{T}; thin::Bool=true)
     m,n = size(A)
@@ -25,7 +25,7 @@ end
 svdfact(x::Number; thin::Bool=true) = SVD(x == 0 ? fill(one(x), 1, 1) : fill(x/abs(x), 1, 1), [abs(x)], fill(one(x), 1, 1))
 svdfact(x::Integer; thin::Bool=true) = svdfact(float(x), thin=thin)
 
-function svd(A::Union(Number, AbstractArray); thin::Bool=true)
+function svd(A::Union{Number, AbstractArray}; thin::Bool=true)
     F = svdfact(A, thin=thin)
     F.U, F.S, F.Vt'
 end
@@ -50,10 +50,11 @@ function svdvals{T}(A::AbstractMatrix{T})
     S = promote_type(Float32, typeof(one(T)/norm(one(T))))
     svdvals!(copy_oftype(A, S))
 end
-svdvals(x::Number) = [abs(x)]
+svdvals(x::Number) = abs(x)
+svdvals{T, Tr}(S::SVD{T, Tr}) = (S[:S])::Vector{Tr}
 
 # SVD least squares
-function \{T<:BlasFloat}(A::SVD{T}, B::StridedVecOrMat{T})
+function A_ldiv_B!{T<:BlasFloat}(A::SVD{T}, B::StridedVecOrMat{T})
     n = length(A.S)
     Sinv = zeros(T, n)
     k = length(find(A.S .> eps(real(float(one(T))))*maximum(A.S)))

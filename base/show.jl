@@ -4,7 +4,8 @@ show(x) = show(STDOUT::IO, x)
 
 print(io::IO, s::Symbol) = (write(io,s);nothing)
 
-function show(io::IO, x::ANY)
+show(io::IO, x::ANY) = show_default(io, x)
+function show_default(io::IO, x::ANY)
     t = typeof(x)::DataType
     show(io, t)
     print(io, '(')
@@ -12,7 +13,7 @@ function show(io::IO, x::ANY)
     if nf != 0 || t.size==0
         recorded = false
         shown_set = get(task_local_storage(), :SHOWNSET, nothing)
-        if shown_set == nothing
+        if shown_set === nothing
             shown_set = ObjectIdDict()
             task_local_storage(:SHOWNSET, shown_set)
         end
@@ -53,9 +54,26 @@ function show(io::IO, x::ANY)
     print(io,')')
 end
 
+# Check if a particular symbol is exported from a standard library module
+function is_exported_from_stdlib(name::Symbol, mod::Module)
+    if (mod === Base || mod === Core) && isexported(mod, name)
+        return true
+    end
+    parent = module_parent(mod)
+    if parent !== mod && isdefined(mod, name) && isdefined(parent, name) &&
+       getfield(mod, name) === getfield(parent, name)
+        return is_exported_from_stdlib(name, parent)
+    end
+    return false
+end
+
 function show(io::IO, f::Function)
     if isgeneric(f)
-        print(io, f.env.name)
+        if !isdefined(f.env, :module) || is_exported_from_stdlib(f.env.name, f.env.module) || f.env.module === Main
+            print(io, f.env.name)
+        else
+            print(io, f.env.module, ".", f.env.name)
+        end
     elseif isdefined(f, :env) && isa(f.env,Symbol)
         print(io, f.env)
     else
@@ -67,12 +85,21 @@ function show(io::IO, x::IntrinsicFunction)
     print(io, "(intrinsic function #", box(Int32,unbox(IntrinsicFunction,x)), ")")
 end
 
-function show(io::IO, x::UnionType)
+function show(io::IO, x::Union)
     print(io, "Union")
-    show_delim_array(io, x.types, '(', ',', ')', false)
+    sorted_types = sort!(collect(x.types); by=string)
+    show_comma_array(io, sorted_types, '{', '}')
 end
 
 show(io::IO, x::TypeConstructor) = show(io, x.body)
+
+function show_type_parameter(io::IO, p::ANY)
+    if p === ByteString
+        print(io, "ByteString")
+    else
+        show(io, p)
+    end
+end
 
 function show(io::IO, x::DataType)
     show(io, x.name)
@@ -80,7 +107,7 @@ function show(io::IO, x::DataType)
         print(io, '{')
         n = length(x.parameters)
         for i = 1:n
-            show(io, x.parameters[i])
+            show_type_parameter(io, x.parameters[i])
             i < n && print(io, ',')
         end
         print(io, '}')
@@ -104,9 +131,7 @@ macro show(exs...)
 end
 
 function show(io::IO, tn::TypeName)
-    if (tn.module == Core && tn.name in names(Core)) ||
-            (tn.module == Base && tn.name in names(Base)) ||
-            tn.module == Main
+    if is_exported_from_stdlib(tn.name, tn.module) || tn.module === Main
         print(io, tn.name)
     else
         print(io, tn.module, '.', tn.name)
@@ -122,6 +147,11 @@ print(io::IO, n::Unsigned) = print(io, dec(n))
 show{T}(io::IO, p::Ptr{T}) = print(io, typeof(p), " @0x$(hex(UInt(p), WORD_SIZE>>2))")
 
 function show(io::IO, p::Pair)
+    if typeof(p.first) != typeof(p).parameters[1] ||
+       typeof(p.second) != typeof(p).parameters[2]
+        return show_default(io, p)
+    end
+
     isa(p.first,Pair) && print(io, "(")
     show(io, p.first)
     isa(p.first,Pair) && print(io, ")")
@@ -252,13 +282,13 @@ show(io::IO, s::Symbol) = show_unquoted_quote_expr(io, s, 0, 0)
 #   eval(parse("Set{Int64}([2,3,1])”) # ==> An actual set
 # While this isn’t true of ALL show methods, it is of all ASTs.
 
-typealias ExprNode Union(Expr, QuoteNode, SymbolNode, LineNumberNode,
-                         LabelNode, GotoNode, TopNode)
+typealias ExprNode Union{Expr, QuoteNode, SymbolNode, LineNumberNode,
+                         LabelNode, GotoNode, TopNode, GlobalRef}
 # Operators have precedence levels from 1-N, and show_unquoted defaults to a
 # precedence level of 0 (the fourth argument). The top-level print and show
 # methods use a precedence of -1 to specially allow space-separated macro syntax
-print        (io::IO, ex::ExprNode)    = (show_unquoted(io, ex, 0, -1); nothing)
-show         (io::IO, ex::ExprNode)    = show_unquoted_quote_expr(io, ex, 0, -1)
+print(        io::IO, ex::ExprNode)    = (show_unquoted(io, ex, 0, -1); nothing)
+show(         io::IO, ex::ExprNode)    = show_unquoted_quote_expr(io, ex, 0, -1)
 show_unquoted(io::IO, ex)              = show_unquoted(io, ex, 0, 0)
 show_unquoted(io::IO, ex, indent::Int) = show_unquoted(io, ex, indent, 0)
 show_unquoted(io::IO, ex, ::Int,::Int) = show(io, ex)
@@ -268,10 +298,11 @@ show_unquoted(io::IO, ex, ::Int,::Int) = show(io, ex)
 const indent_width = 4
 const quoted_syms = Set{Symbol}([:(:),:(::),:(:=),:(=),:(==),:(!=),:(===),:(!==),:(=>),:(>=),:(<=)])
 const uni_ops = Set{Symbol}([:(+), :(-), :(!), :(¬), :(~), :(<:), :(>:), :(√), :(∛), :(∜)])
-const expr_infix_wide = Set([:(=), :(+=), :(-=), :(*=), :(/=), :(\=), :(&=),
-    :(|=), :($=), :(>>>=), :(>>=), :(<<=), :(&&), :(||), :(<:), :(=>)])
-const expr_infix = Set([:(:), :(->), symbol("::")])
+const expr_infix_wide = Set{Symbol}([:(=), :(+=), :(-=), :(*=), :(/=), :(\=), :(&=),
+    :(|=), :($=), :(>>>=), :(>>=), :(<<=), :(&&), :(||), :(<:), :(=>), :(÷=)])
+const expr_infix = Set{Symbol}([:(:), :(->), symbol("::")])
 const expr_infix_any = union(expr_infix, expr_infix_wide)
+const all_ops = union(quoted_syms, uni_ops, expr_infix_any)
 const expr_calls  = Dict(:call =>('(',')'), :calldecl =>('(',')'), :ref =>('[',']'), :curly =>('{','}'))
 const expr_parens = Dict(:tuple=>('(',')'), :vcat=>('[',']'), :cell1d=>("Any[","]"),
                          :hcat =>('[',']'), :row =>('[',']'), :vect=>('[',']'))
@@ -302,7 +333,6 @@ is_expr(ex, head::Symbol)         = (isa(ex, Expr) && (ex.head == head))
 is_expr(ex, head::Symbol, n::Int) = is_expr(ex, head) && length(ex.args) == n
 
 is_linenumber(ex::LineNumberNode) = true
-is_linenumber(ex::Expr)           = is(ex.head, :line)
 is_linenumber(ex)                 = false
 
 is_quoted(ex)            = false
@@ -315,8 +345,6 @@ unquoted(ex::Expr)       = ex.args[1]
 ## AST printing helpers ##
 
 const indent_width = 4
-may_show_expr_type_emphasize = false
-show_expr_type_emphasize = false
 
 function show_expr_type(io::IO, ty)
     if is(ty, Function)
@@ -324,7 +352,8 @@ function show_expr_type(io::IO, ty)
     elseif is(ty, IntrinsicFunction)
         print(io, "::I")
     else
-        if show_expr_type_emphasize::Bool && !isleaftype(ty)
+        emph = get(task_local_storage(), :TYPEEMPHASIZE, false)::Bool
+        if emph && !isleaftype(ty)
             emphasize(io, "::$ty")
         else
             if !is(ty, Any)
@@ -336,8 +365,7 @@ end
 
 emphasize(io, str::AbstractString) = have_color ? print_with_color(:red, io, str) : print(io, uppercase(str))
 
-show_linenumber(io::IO, line)       = print(io," # line ",line,':')
-show_linenumber(io::IO, line, file) = print(io," # ",file,", line ",line,':')
+show_linenumber(io::IO, file, line) = print(io," # ", file,", line ",line,':')
 
 # show a block, e g if/for/etc
 function show_block(io::IO, head, args::Vector, body, indent::Int)
@@ -406,10 +434,11 @@ end
 ## AST printing ##
 
 show_unquoted(io::IO, sym::Symbol, ::Int, ::Int)        = print(io, sym)
-show_unquoted(io::IO, ex::LineNumberNode, ::Int, ::Int) = show_linenumber(io, ex.line)
+show_unquoted(io::IO, ex::LineNumberNode, ::Int, ::Int) = show_linenumber(io, ex.file, ex.line)
 show_unquoted(io::IO, ex::LabelNode, ::Int, ::Int)      = print(io, ex.label, ": ")
 show_unquoted(io::IO, ex::GotoNode, ::Int, ::Int)       = print(io, "goto ", ex.label)
 show_unquoted(io::IO, ex::TopNode, ::Int, ::Int)        = print(io,"top(",ex.name,')')
+show_unquoted(io::IO, ex::GlobalRef, ::Int, ::Int)      = print(io, ex.mod, '.', ex.name)
 
 function show_unquoted(io::IO, ex::SymbolNode, ::Int, ::Int)
     print(io, ex.name)
@@ -451,9 +480,7 @@ end
 function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     head, args, nargs = ex.head, ex.args, length(ex.args)
     show_type = true
-    global show_expr_type_emphasize
-    state = show_expr_type_emphasize::Bool
-
+    emphstate = get(task_local_storage(), :TYPEEMPHASIZE, false)
     # dot (i.e. "x.y")
     if is(head, :(.))
         show_unquoted(io, args[1], indent + indent_width)
@@ -494,16 +521,20 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     # function call
     elseif head == :call && nargs >= 1
         func = args[1]
-        func_prec = operator_precedence(func)
+        fname = isa(func,GlobalRef) ? func.name : func
+        func_prec = operator_precedence(fname)
+        if func_prec > 0 || fname in uni_ops
+            func = fname
+        end
         func_args = args[2:end]
 
         if in(ex.args[1], (:box, TopNode(:box), :throw)) || ismodulecall(ex)
-            show_expr_type_emphasize::Bool = show_type = false
+            show_type = task_local_storage(:TYPEEMPHASIZE, false)
         end
 
         # scalar multiplication (i.e. "100x")
-        if (func == :(*) && length(func_args)==2 &&
-            isa(func_args[1], Real) && isa(func_args[2], Symbol))
+        if (func == :(*) &&
+            length(func_args)==2 && isa(func_args[1], Real) && isa(func_args[2], Symbol))
             if func_prec <= prec
                 show_enclosed_list(io, '(', func_args, "", ')', indent, func_prec)
             else
@@ -513,7 +544,7 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         # unary operator (i.e. "!z")
         elseif isa(func,Symbol) && func in uni_ops && length(func_args) == 1
             show_unquoted(io, func, indent)
-            if isa(func_args[1], Expr) || length(func_args) > 1
+            if isa(func_args[1], Expr) || func_args[1] in all_ops
                 show_enclosed_list(io, '(', func_args, ",", ')', indent, func_prec)
             else
                 show_unquoted(io, func_args[1])
@@ -586,15 +617,21 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
 
     # block with argument
     elseif head in (:for,:while,:function,:if) && nargs==2
-        show_block(io, head, args[1], args[2], indent); print(io, "end")
+        show_block(io, head, args[1], args[2], indent)
+        print(io, "end")
 
     elseif is(head, :module) && nargs==3 && isa(args[1],Bool)
-        show_block(io, args[1] ? :module : :baremodule, args[2], args[3], indent); print(io, "end")
+        show_block(io, args[1] ? :module : :baremodule, args[2], args[3], indent)
+        print(io, "end")
 
     # type declaration
     elseif is(head, :type) && nargs==3
         show_block(io, args[1] ? :type : :immutable, args[2], args[3], indent)
         print(io, "end")
+
+    elseif is(head, :bitstype) && nargs == 2
+        print(io, "bitstype ")
+        show_list(io, args, ' ', indent)
 
     # empty return (i.e. "function f() return end")
     elseif is(head, :return) && nargs == 1 && is(args[1], nothing)
@@ -627,10 +664,6 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     elseif is(head, :typealias) && nargs == 2
         print(io, "typealias ")
         show_list(io, args, ' ', indent)
-
-    elseif is(head, :line) && 1 <= nargs <= 2
-        show_type = false
-        show_linenumber(io, args...)
 
     elseif is(head, :if) && nargs == 3     # if/else
         show_block(io, "if",   args[1], args[2], indent)
@@ -716,7 +749,9 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     # print anything else as "Expr(head, args...)"
     else
         show_type = false
-        show_expr_type_emphasize::Bool = may_show_expr_type_emphasize::Bool && in(ex.head, (:lambda, :method))
+        emph = get(task_local_storage(), :TYPEEMPHASIZE, false)::Bool &&
+               (ex.head === :lambda || ex.head == :method)
+        task_local_storage(:TYPEEMPHASIZE, emph)
         print(io, "\$(Expr(")
         show(io, ex.head)
         for arg in args
@@ -725,16 +760,14 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         end
         print(io, "))")
     end
-
-    if ex.head in (:(=), :boundscheck, :gotoifnot, :return)
+    if (ex.head == :(=) ||
+        ex.head == :boundscheck ||
+        ex.head == :gotoifnot ||
+        ex.head == :return)
         show_type = false
     end
-
-    if show_type
-        show_expr_type(io, ex.typ)
-    end
-
-    show_expr_type_emphasize::Bool = state
+    show_type && show_expr_type(io, ex.typ)
+    task_local_storage(:TYPEEMPHASIZE, emphstate)
 end
 
 function ismodulecall(ex::Expr)
@@ -812,7 +845,7 @@ xdump(fn::Function, io::IO, x::Array, n::Int, indent) =
                 show(io, x); println(io))
 
 # Types
-xdump(fn::Function, io::IO, x::UnionType, n::Int, indent) = println(io, x)
+xdump(fn::Function, io::IO, x::Union, n::Int, indent) = println(io, x)
 function xdump(fn::Function, io::IO, x::DataType, n::Int, indent)
     println(io, x, "::", typeof(x), " ", " <: ", super(x))
     fields = fieldnames(x)
@@ -857,7 +890,7 @@ function dumptype(io::IO, x, n::Int, indent)
                                 length(t.parameters) > 0 ? "{$targs}" : "",
                                 " = ", t)
                     end
-                elseif isa(t, UnionType)
+                elseif isa(t, Union)
                     if any(tt -> string(x.name) == typargs(tt), t.types)
                         println(io, indent, "  ", s, " = ", t)
                     end
@@ -887,6 +920,7 @@ xdump(fn::Function, io::IO, args...) = throw(ArgumentError("invalid arguments to
 xdump(fn::Function, args...) = xdump(fn, STDOUT::IO, args...)
 xdump(io::IO, args...) = xdump(xdump, io, args...)
 xdump(args...) = with_output_limit(()->xdump(xdump, STDOUT::IO, args...), true)
+xdump(arg::IO) = xdump(xdump, STDOUT::IO, arg)
 
 # Here are methods specifically for dump:
 dump(io::IO, x, n::Int) = dump(io, x, n, "")
@@ -896,6 +930,7 @@ dump(io::IO, x::AbstractString, n::Int, indent) =
                 show(io, x); println(io))
 dump(io::IO, x, n::Int, indent) = xdump(dump, io, x, n, indent)
 dump(io::IO, args...) = throw(ArgumentError("invalid arguments to dump"))
+dump(arg::IO) = xdump(dump, STDOUT::IO, arg)
 dump(args...) = with_output_limit(()->dump(STDOUT::IO, args...), true)
 
 function dump(io::IO, x::Dict, n::Int, indent)
@@ -926,17 +961,17 @@ alignment(x::Number) = (length(sprint(showcompact_lim, x)), 0)
 alignment(x::Integer) = (length(sprint(showcompact_lim, x)), 0)
 function alignment(x::Real)
     m = match(r"^(.*?)((?:[\.eE].*)?)$", sprint(showcompact_lim, x))
-    m == nothing ? (length(sprint(showcompact_lim, x)), 0) :
+    m === nothing ? (length(sprint(showcompact_lim, x)), 0) :
                    (length(m.captures[1]), length(m.captures[2]))
 end
 function alignment(x::Complex)
     m = match(r"^(.*[\+\-])(.*)$", sprint(showcompact_lim, x))
-    m == nothing ? (length(sprint(showcompact_lim, x)), 0) :
+    m === nothing ? (length(sprint(showcompact_lim, x)), 0) :
                    (length(m.captures[1]), length(m.captures[2]))
 end
 function alignment(x::Rational)
     m = match(r"^(.*?/)(/.*)$", sprint(showcompact_lim, x))
-    m == nothing ? (length(sprint(showcompact_lim, x)), 0) :
+    m === nothing ? (length(sprint(showcompact_lim, x)), 0) :
                    (length(m.captures[1]), length(m.captures[2]))
 end
 
@@ -948,7 +983,7 @@ function alignment(
     rows::AbstractVector, cols::AbstractVector,
     cols_if_complete::Integer, cols_otherwise::Integer, sep::Integer
 )
-    a = []
+    a = Tuple{Int, Int}[]
     for j in cols
         l = r = 0
         for i in rows
@@ -1106,7 +1141,8 @@ function show_nd(io::IO, a::AbstractArray, limit, print_matrix, label_slices)
     end
     tail = size(a)[3:end]
     nd = ndims(a)-2
-    function print_slice(idxs...)
+    for I in CartesianRange(tail)
+        idxs = I.I
         if limit
             for i = 1:nd
                 ii = idxs[i]
@@ -1115,15 +1151,15 @@ function show_nd(io::IO, a::AbstractArray, limit, print_matrix, label_slices)
                         for j=i+1:nd
                             szj = size(a,j+2)
                             if szj>10 && 3 < idxs[j] <= szj-3
-                                return
+                                @goto skip
                             end
                         end
                         #println(io, idxs)
                         print(io, "...\n\n")
-                        return
+                        @goto skip
                     end
                     if 3 < ii <= size(a,i+2)-3
-                        return
+                        @goto skip
                     end
                 end
             end
@@ -1136,21 +1172,9 @@ function show_nd(io::IO, a::AbstractArray, limit, print_matrix, label_slices)
         slice = sub(a, 1:size(a,1), 1:size(a,2), idxs...)
         print_matrix(io, slice)
         print(io, idxs == tail ? "" : "\n\n")
-    end
-    cartesianmap(print_slice, tail)
-end
-
-function whos(m::Module, pattern::Regex)
-    for v in sort(names(m))
-        s = string(v)
-        if isdefined(m,v) && ismatch(pattern, s)
-            println(rpad(s, 30), summary(eval(m,v)))
-        end
+        @label skip
     end
 end
-whos() = whos(r"")
-whos(m::Module) = whos(m, r"")
-whos(pat::Regex) = whos(current_module(), pat)
 
 # global flag for limiting output
 # TODO: this should be replaced with a better mechanism. currently it is only

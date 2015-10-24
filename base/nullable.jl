@@ -4,9 +4,11 @@ immutable NullException <: Exception
 end
 
 Nullable{T}(value::T, isnull::Bool=false) = Nullable{T}(value, isnull)
-Nullable() = Nullable{Union()}()
+Nullable() = Nullable{Union{}}()
 
 eltype{T}(::Type{Nullable{T}}) = T
+
+convert{T}(::Type{Nullable{T}}, x::Nullable{T}) = x
 
 function convert{T}(::Type{Nullable{T}}, x::Nullable)
     return isnull(x) ? Nullable{T}() : Nullable{T}(convert(T, get(x)))
@@ -15,7 +17,7 @@ end
 convert{T}(::Type{Nullable{T}}, x::T) = Nullable{T}(x)
 
 convert{T}(::Type{Nullable{T}}, ::Void) = Nullable{T}()
-convert(   ::Type{Nullable   }, ::Void) = Nullable{Union()}()
+convert(   ::Type{Nullable   }, ::Void) = Nullable{Union{}}()
 
 function show{T}(io::IO, x::Nullable{T})
     if x.isnull
@@ -27,7 +29,13 @@ end
 
 get(x::Nullable) = x.isnull ? throw(NullException()) : x.value
 
-get{T}(x::Nullable{T}, y) = x.isnull ? convert(T, y) : x.value
+@inline function get{T}(x::Nullable{T}, y)
+    if isbits(T)
+        ifelse(x.isnull, convert(T, y), x.value)
+    else
+        x.isnull ? convert(T, y) : x.value
+    end
+end
 
 isnull(x::Nullable) = x.isnull
 

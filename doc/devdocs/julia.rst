@@ -11,6 +11,7 @@
 
    init
    eval
+   ast
    types
    object
    cartesian
@@ -19,3 +20,4 @@
    sysimg
    llvm
    stdio
+   promote-op

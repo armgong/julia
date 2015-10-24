@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 static uint8_t flisp_system_image[] = {
-#include "julia_flisp.boot.inc"
+#include <julia_flisp.boot.inc>
 };
 
 static fltype_t *jvtype=NULL;
@@ -116,6 +116,7 @@ static builtinspec_t julia_flisp_ast_ext[] = {
 };
 
 extern int jl_parse_depwarn(int warn);
+extern int jl_parse_deperror(int err);
 
 void jl_init_frontend(void)
 {
@@ -123,7 +124,7 @@ void jl_init_frontend(void)
 
     if (fl_load_system_image_str((char*)flisp_system_image,
                                  sizeof(flisp_system_image))) {
-        jl_error("fatal error loading system image\n");
+        jl_error("fatal error loading system image");
     }
 
     fl_applyn(0, symbol_value(symbol("__init_globals")));
@@ -140,8 +141,10 @@ void jl_init_frontend(void)
 
     // Enable / disable syntax deprecation warnings
     // Disable in imaging mode to avoid i/o errors (#10727)
-    if (jl_options.build_path != NULL)
+    if (jl_generating_output())
         jl_parse_depwarn(0);
+    else if (jl_options.depwarn == JL_OPTIONS_DEPWARN_ERROR)
+        jl_parse_deperror(1);
     else
         jl_parse_depwarn((int)jl_options.depwarn);
 }
@@ -195,11 +198,11 @@ static jl_value_t *full_list_of_lists(value_t e, int expronly)
     return (jl_value_t*)ar;
 }
 
+static jl_value_t *resolve_globals(jl_value_t *expr, jl_lambda_info_t *lam);
+
 static jl_value_t *scm_to_julia(value_t e, int expronly)
 {
-#ifdef JL_GC_MARKSWEEP
     int en = jl_gc_enable(0);
-#endif
     jl_value_t *v;
     JL_TRY {
         v = scm_to_julia_(e, expronly);
@@ -210,9 +213,7 @@ static jl_value_t *scm_to_julia(value_t e, int expronly)
         jl_cellset(ex->args, 0, jl_cstr_to_string("invalid AST"));
         v = (jl_value_t*)ex;
     }
-#ifdef JL_GC_MARKSWEEP
     jl_gc_enable(en);
-#endif
     return v;
 }
 
@@ -318,35 +319,59 @@ static jl_value_t *scm_to_julia_(value_t e, int eo)
                     jl_cellset(ex->args, i, scm_to_julia_(car_(e), eo));
                     e = cdr_(e);
                 }
-                return (jl_value_t*)jl_new_lambda_info((jl_value_t*)ex, jl_emptysvec);
+                jl_lambda_info_t *nli = jl_new_lambda_info((jl_value_t*)ex, jl_emptysvec, jl_current_module);
+                resolve_globals(nli->ast, nli);
+                return (jl_value_t*)nli;
             }
 
             e = cdr_(e);
             if (!eo) {
-                if (sym == line_sym && n==1) {
-                    return jl_new_struct(jl_linenumbernode_type,
-                                         scm_to_julia_(car_(e),0));
+                if (sym == line_sym && n==2) {
+                    // NOTE: n==3 case exists: '(line, linenum, filename, funcname) passes
+                    //       the original name through to keyword-arg specializations.
+                    //       See 'line handling in julia-syntax.scm:keywords-method-def-expr
+                    jl_value_t *filename = NULL, *linenum = NULL;
+                    JL_GC_PUSH2(&filename, &linenum);
+                    filename = scm_to_julia_(car_(cdr_(e)),0);
+                    linenum  = scm_to_julia_(car_(e),0);
+                    jl_value_t *temp = jl_new_struct(jl_linenumbernode_type,
+                                                     filename, linenum);
+                    JL_GC_POP();
+                    return temp;
                 }
+                jl_value_t *scmv = NULL, *temp = NULL;
+                JL_GC_PUSH1(&scmv);
                 if (sym == label_sym) {
-                    return jl_new_struct(jl_labelnode_type,
-                                         scm_to_julia_(car_(e),0));
+                    scmv = scm_to_julia_(car_(e),0);
+                    temp = jl_new_struct(jl_labelnode_type, scmv);
+                    JL_GC_POP();
+                    return temp;
                 }
                 if (sym == goto_sym) {
-                    return jl_new_struct(jl_gotonode_type,
-                                         scm_to_julia_(car_(e),0));
+                    scmv = scm_to_julia_(car_(e),0);
+                    temp = jl_new_struct(jl_gotonode_type, scmv);
+                    JL_GC_POP();
+                    return temp;
                 }
                 if (sym == inert_sym || (sym == quote_sym && (!iscons(car_(e))))) {
-                    return jl_new_struct(jl_quotenode_type,
-                                         scm_to_julia_(car_(e),0));
+                    scmv = scm_to_julia_(car_(e),0);
+                    temp = jl_new_struct(jl_quotenode_type, scmv);
+                    JL_GC_POP();
+                    return temp;
                 }
                 if (sym == top_sym) {
-                    return jl_new_struct(jl_topnode_type,
-                                         scm_to_julia_(car_(e),0));
+                    scmv = scm_to_julia_(car_(e),0);
+                    temp = jl_new_struct(jl_topnode_type, scmv);
+                    JL_GC_POP();
+                    return temp;
                 }
                 if (sym == newvar_sym) {
-                    return jl_new_struct(jl_newvarnode_type,
-                                         scm_to_julia_(car_(e),0));
+                    scmv = scm_to_julia_(car_(e),0);
+                    temp = jl_new_struct(jl_newvarnode_type, scmv);
+                    JL_GC_POP();
+                    return temp;
                 }
+                JL_GC_POP();
             }
             else if (sym == inert_sym && !iscons(car_(e))) {
                 sym = quote_sym;
@@ -456,8 +481,14 @@ static value_t julia_to_scm_(jl_value_t *v)
         fl_free_gc_handles(1);
         return scmv;
     }
-    if (jl_typeis(v, jl_linenumbernode_type))
-        return julia_to_list2((jl_value_t*)line_sym, jl_fieldref(v,0));
+    if (jl_typeis(v, jl_linenumbernode_type)) {
+        value_t args = julia_to_list2(jl_fieldref(v,1), jl_fieldref(v,0));
+        fl_gc_handle(&args);
+        value_t hd = julia_to_scm_((jl_value_t*)line_sym);
+        value_t scmv = fl_cons(hd, args);
+        fl_free_gc_handles(1);
+        return scmv;
+    }
     if (jl_typeis(v, jl_labelnode_type))
         return julia_to_list2((jl_value_t*)label_sym, jl_fieldref(v,0));
     if (jl_typeis(v, jl_gotonode_type))
@@ -523,7 +554,15 @@ void jl_stop_parsing(void)
 
 DLLEXPORT int jl_parse_depwarn(int warn)
 {
-    value_t prev = fl_applyn(1, symbol_value(symbol("jl-parser-depwarn")), warn? FL_T : FL_F);
+    value_t prev = fl_applyn(1, symbol_value(symbol("jl-parser-depwarn")),
+                             warn ? FL_T : FL_F);
+    return prev == FL_T ? 1 : 0;
+}
+
+int jl_parse_deperror(int err)
+{
+    value_t prev = fl_applyn(1, symbol_value(symbol("jl-parser-deperror")),
+                             err ? FL_T : FL_F);
     return prev == FL_T ? 1 : 0;
 }
 
@@ -628,7 +667,7 @@ jl_lambda_info_t *jl_wrap_expr(jl_value_t *expr)
         expr = (jl_value_t*)bo;
     }
     jl_cellset(le->args, 2, expr);
-    jl_lambda_info_t *li = jl_new_lambda_info((jl_value_t*)le, jl_emptysvec);
+    jl_lambda_info_t *li = jl_new_lambda_info((jl_value_t*)le, jl_emptysvec, jl_current_module);
     JL_GC_POP();
     return li;
 }
@@ -770,7 +809,7 @@ static jl_value_t *copy_ast(jl_value_t *expr, jl_svec_t *sp, int do_sp)
         // of a top-level thunk that gets type inferred.
         li->def = li;
         li->ast = jl_prepare_ast(li, li->sparams);
-        gc_wb(li, li->ast);
+        jl_gc_wb(li, li->ast);
         JL_GC_POP();
         return (jl_value_t*)li;
     }
@@ -821,7 +860,7 @@ DLLEXPORT jl_value_t *jl_copy_ast(jl_value_t *expr)
         ne = jl_exprn(e->head, l);
         if (l == 0) {
             ne->args = jl_alloc_cell_1d(0);
-            gc_wb(ne, ne->args);
+            jl_gc_wb(ne, ne->args);
         }
         else {
             for(i=0; i < l; i++) {
@@ -962,6 +1001,89 @@ jl_value_t *skip_meta(jl_array_t *body)
         && jl_array_len(body) > 1)
         body1 = jl_cellref(body,1);
     return body1;
+}
+
+int jl_in_vinfo_array(jl_array_t *a, jl_sym_t *v)
+{
+    size_t i, l=jl_array_len(a);
+    for(i=0; i<l; i++) {
+        if (jl_cellref(jl_cellref(a,i),0) == (jl_value_t*)v)
+            return 1;
+    }
+    return 0;
+}
+
+int jl_in_sym_array(jl_array_t *a, jl_sym_t *v)
+{
+    size_t i, l=jl_array_len(a);
+    for(i=0; i<l; i++) {
+        if (jl_cellref(a,i) == (jl_value_t*)v)
+            return 1;
+    }
+    return 0;
+}
+
+int jl_local_in_ast(jl_expr_t *ast, jl_sym_t *sym)
+{
+    return jl_in_vinfo_array(jl_lam_vinfo(ast), sym) ||
+        jl_in_vinfo_array(jl_lam_capt(ast), sym) ||
+        jl_in_sym_array(jl_lam_staticparams(ast), sym);
+}
+
+JL_CALLABLE(jl_f_get_field);
+
+static jl_value_t *resolve_globals(jl_value_t *expr, jl_lambda_info_t *lam)
+{
+    if (jl_is_symbol(expr)) {
+        if (lam->module == NULL)
+            return expr;
+        if (!jl_local_in_ast((jl_expr_t*)lam->ast, (jl_sym_t*)expr))
+            return jl_module_globalref(lam->module, (jl_sym_t*)expr);
+    }
+    else if (jl_is_lambda_info(expr)) {
+        jl_lambda_info_t *l = (jl_lambda_info_t*)expr;
+        (void)resolve_globals(l->ast, l);
+    }
+    else if (jl_is_expr(expr)) {
+        jl_expr_t *e = (jl_expr_t*)expr;
+        if (e->head == lambda_sym) {
+            (void)resolve_globals(jl_exprarg(e,2), lam);
+        }
+        else if (jl_is_toplevel_only_expr(expr) || e->head == const_sym || e->head == copyast_sym ||
+                 e->head == global_sym || e->head == quote_sym || e->head == inert_sym ||
+                 e->head == line_sym || e->head == meta_sym) {
+        }
+        else {
+            if (e->head == call_sym && jl_expr_nargs(e) == 3 && jl_is_quotenode(jl_exprarg(e,2)) &&
+                lam->module != NULL) {
+                // replace getfield(module_expr, :sym) with GlobalRef
+                jl_value_t *s = jl_fieldref(jl_exprarg(e,2),0);
+                jl_value_t *fe = jl_exprarg(e,0);
+                if (jl_is_symbol(s) && jl_is_topnode(fe)) {
+                    jl_value_t *f = jl_static_eval(fe, NULL, lam->module,
+                                                   NULL, (jl_expr_t*)lam->ast, 0, 0);
+                    if (f && jl_is_func(f) && ((jl_function_t*)f)->fptr == &jl_f_get_field) {
+                        jl_value_t *me = jl_exprarg(e,1);
+                        if (jl_is_topnode(me) ||
+                            (jl_is_symbol(me) && jl_binding_resolved_p(lam->module,(jl_sym_t*)me))) {
+                            jl_value_t *m = jl_static_eval(me, NULL, lam->module,
+                                                           NULL, (jl_expr_t*)lam->ast, 0, 0);
+                            if (m && jl_is_module(m))
+                                return jl_module_globalref((jl_module_t*)m, (jl_sym_t*)s);
+                        }
+                    }
+                }
+            }
+            size_t i = 0;
+            if (e->head == method_sym || e->head == abstracttype_sym || e->head == compositetype_sym ||
+                e->head == bitstype_sym || e->head == macro_sym || e->head == module_sym)
+                i++;
+            for(; i < jl_array_len(e->args); i++) {
+                jl_exprargset(e, i, resolve_globals(jl_exprarg(e,i), lam));
+            }
+        }
+    }
+    return expr;
 }
 
 #ifdef __cplusplus

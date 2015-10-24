@@ -79,6 +79,7 @@
 #endif
 
 #include "julia.h"
+#include "julia_internal.h"
 
 using namespace llvm;
 
@@ -203,9 +204,6 @@ const char *SymbolLookup(void *DisInfo,
     return NULL;
 }
 
-extern "C" void jl_getFunctionInfo
-  (const char **name, size_t *line, const char **filename, uintptr_t pointer,
-   int *fromC, int skipC);
 int OpInfoLookup(void *DisInfo, uint64_t PC,
                  uint64_t Offset, uint64_t Size,
                  int TagType, void *TagBuf)
@@ -229,11 +227,15 @@ int OpInfoLookup(void *DisInfo, uint64_t PC,
     default: return 0;          // Cannot handle input address size
     }
     int skipC = 0;
-    const char *name;
+    char *name;
+    char *filename;
     size_t line;
-    const char *filename;
+    char *inlinedat_file;
+    size_t inlinedat_line;
     int fromC;
-    jl_getFunctionInfo(&name, &line, &filename, pointer, &fromC, skipC);
+    jl_getFunctionInfo(&name, &filename, &line, &inlinedat_file, &inlinedat_line, pointer, &fromC, skipC, 1);
+    free(filename);
+    free(inlinedat_file);
     if (!name)
         return 0;               // Did not find symbolic information
     // Describe the symbol
@@ -324,7 +326,8 @@ void jl_dump_asm_internal(uintptr_t Fptr, size_t Fsize, size_t slide,
     OwningPtr<MCDisassembler> DisAsm(TheTarget->createMCDisassembler(*STI));
 #endif
     if (!DisAsm) {
-        jl_printf(JL_STDERR, "error: no disassembler for target", TripleName.c_str(), "\n");
+        jl_printf(JL_STDERR, "ERROR: no disassembler for target %s\n",
+                  TripleName.c_str());
         return;
     }
 
@@ -516,7 +519,7 @@ void jl_dump_asm_internal(uintptr_t Fptr, size_t Fsize, size_t slide,
             switch (S) {
             case MCDisassembler::Fail:
                 if (pass != 0)
-#if defined(_CPU_PPC_) || defined(_CPU_PPC64_)
+#if defined(_CPU_PPC_) || defined(_CPU_PPC64_) || defined(_CPU_ARM_)
                     stream << "\t.long " << format_hex(*(uint32_t*)(Fptr+Index), 10) << "\n";
 #elif defined(_CPU_X86_) || defined(_CPU_X86_64_)
                     SrcMgr.PrintMessage(SMLoc::getFromPointer((const char*)(Fptr + Index)),
@@ -526,7 +529,7 @@ void jl_dump_asm_internal(uintptr_t Fptr, size_t Fsize, size_t slide,
                     stream << "\t.byte " << format_hex(*(uint8_t*)(Fptr+Index), 4) << "\n";
 #endif
                 if (insSize == 0) // skip illegible bytes
-#if defined(_CPU_PPC_) || defined(_CPU_PPC64_)
+#if defined(_CPU_PPC_) || defined(_CPU_PPC64_) || defined(_CPU_ARM_)
                     insSize = 4; // instructions are always 4 bytes
 #else
                     insSize = 1; // attempt to slide 1 byte forward

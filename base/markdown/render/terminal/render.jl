@@ -92,7 +92,7 @@ function terminline(io::IO, content::Vector)
     end
 end
 
-function terminline(io::IO, md::String)
+function terminline(io::IO, md::AbstractString)
     print(io, md)
 end
 
@@ -102,6 +102,10 @@ end
 
 function terminline(io::IO, md::Italic)
     with_output_format(:underline, terminline, io, md.text)
+end
+
+function terminline(io::IO, md::LineBreak)
+    println(io)
 end
 
 function terminline(io::IO, md::Image)

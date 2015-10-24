@@ -14,6 +14,8 @@ Hi! Thanks for checking out Julia. If you have questions or problems, the [Julia
 
 * Learn to use [git](http://git-scm.com), the version control system used by GitHub and the Julia project. Try a tutorial such as the one [provided by GitHub](http://try.GitHub.io/levels/1/challenges/1).
 
+* Respect our [community standards](http://julialang.org/community/standards/).
+
 * Relax and have fun.
 
 ## How to file a bug report
@@ -52,28 +54,23 @@ There are never enough tests. Track [code coverage at Coveralls](https://coveral
 
 2. Browse through the source files and find some untested functionality (highlighted in red) that you think you might be able to write a test for.
 
-3. Write a test that exercises this functionality---you can add your test to one of the existing files, or start a new one, whichever seems most appropriate to you. If you're adding a new test file, make sure you include it in the list of tests in `test/choosetests.jl`. http://julia.readthedocs.org/en/latest/stdlib/test/ may be helpful in explaining how the testing infrastructure works. Submit the test as a pull request (see [CONTRIBUTING.md](https://github.com/JuliaLang/julia/blob/master/CONTRIBUTING.md)).
+3. Write a test that exercises this functionality---you can add your test to one of the existing files, or start a new one, whichever seems most appropriate to you. If you're adding a new test file, make sure you include it in the list of tests in `test/choosetests.jl`. http://julia.readthedocs.org/en/latest/stdlib/test/ may be helpful in explaining how the testing infrastructure works.
 
-[Issue 9493](https://github.com/JuliaLang/julia/issues/9493) has a more detailed discussion on code coverage.
+4. Run `make test-all` to rebuild Julia and run your new test(s). If you had to fix a bug or add functionality in `base`, this will ensure that your test passes and that you have not introduced extraneous whitespace.
+
+5. Submit the test as a pull request (PR).
+
+* Code for the buildbot configuration is maintained at: https://github.com/staticfloat/julia-buildbot
+* You can see the current buildbot setup at: http://buildbot.e.ip.saba.us:8010/builders
+* [Issue 9493](https://github.com/JuliaLang/julia/issues/9493) and [issue 11885](https://github.com/JuliaLang/julia/issues/11885) have more detailed discussion on code coverage.
+
+Coveralls shows functionality that still needs "proof of concept" tests. These are important, as are tests for tricky edge cases, such as converting between integer types when the number to convert is near the maximum of the range of one of the integer types. Even if a function already has some coverage on Coveralls, it may still benefit from tests for edge cases.
 
 ### Improving documentation
 
 *By contributing documentation to Julia, you are agreeing to release it under the [MIT License](https://github.com/JuliaLang/julia/tree/master/LICENSE.md).*
 
-Julia's documentation is stored in the `doc` directory, and like everything else can be modified using `git`. However, for small changes one can also use GitHub's web interface:
-
-- Navigate to https://github.com/JuliaLang/julia
-- Click `doc`
-- If you want to modify an entry in the help for Julia's standard library, click `stdlib`
-- Pick the file you want to edit (for example, `base.rst`)
-- Select the `master` branch (if not browsing it already)
-- Click "Edit"
-- Click on the icon that looks like a fullscreen symbol ("Zen" mode)
-- Search for the function you want to change
-- Make your changes
-- Exit Zen mode
-- Provide a title, and optionally a longer description of your change
-- Submit your change
+Julia's documentation is stored in the `doc` directory, and like everything else can be modified using `git`.
 
 Julia's documentation is built with [Sphinx](http://sphinx-doc.org/contents.html), which supports (and Julia's docs rely heavily on) [ReST directives](http://docutils.sourceforge.net/docs/ref/rst/directives.html). To build the documentation locally, run
 
@@ -85,11 +82,23 @@ or
 
 from Julia's root directory. Sometimes errors only show up in one of them, so if you're preparing a pull request it is nice if you've checked both formats before you submit.
 
+Existing docstrings now live primarily in `base/docs/helpdb.jl`.
+It is a goal over time to move the docstrings inline to their respective method definitions.
+If you want to edit the body of a method docstring, run the `doc/genstdlib.jl` script to regenerate the restructured text files **after** you have already rebuilt Julia.
+If you want to edit an existing docstring signature, you **first** have to change the signature in the `doc/stdlib` `..function` or `..data` definition (not the auto-generated content) and *then*
+edit the helpdb.jl or inline method docstrings.  The existing signatures in the `doc/stdlib/*.rst` files are pattern matched to base docstrings and the new content overwrites the content in `doc/stdlib/`.
+The signature definitions **must** be in sync or else the pattern match will fail and documentation will be lost in the result.
+To add entirely new methods to the `stdlib` documentation, first add the signature in the appropriate `doc/stdlib/*.rst` file before writing the docstring, rebuilding Julia, and re-running `doc/genstdlib.jl`.
+
+It is encouraged to write all new docstrings in Markdown markup.  If you need to write a more complicated docstring that contains cross-references or citations it can be written in a restructured text codeblock.
+Many of the existing docstrings are currently restructured text codeblocks and these will be transitioned to Markdown over time.  RST codeblocks are delineated with the triple-quote (\`\`\`rst  \`\`\`) Makdown codeblock syntax.
+The content of the codeblock is spliced directly into the final restructured text document unmodified.
+
 ### Contributing to core functionality or base libraries
 
 *By contributing code to Julia, you are agreeing to release it under the [MIT License](https://github.com/JuliaLang/julia/tree/master/LICENSE.md).*
 
-The Julia community uses [GitHub issues](https://github.com/JuliaLang/julia/issues) to track and discuss problems, feature requests, and pull requests. You can make pull requests for incomplete features to get code review. The convention is to prefix the pull request title with "WIP:" for Work In Progress, or "RFC:" for Request for Comments when work is completed and ready for merging. This will prevent accidental merging of work that is in progress.
+The Julia community uses [GitHub issues](https://github.com/JuliaLang/julia/issues) to track and discuss problems, feature requests, and pull requests (PR). You can make pull requests for incomplete features to get code review. The convention is to prefix the pull request title with "WIP:" for Work In Progress, or "RFC:" for Request for Comments when work is completed and ready for merging. This will prevent accidental merging of work that is in progress.
 
 Note: These instructions are for adding to or improving functionality in the base library. Before getting started, it can be helpful to discuss the proposed changes or additions on the mailing list or in a GitHub issue---it's possible your proposed change belongs in a package rather than the core language. Also, keep in mind that changing stuff in the base can potentially break a lot of things. Finally, because of the time required to build Julia, note that it's usually faster to develop your code in stand-alone files, get it working, and then migrate it into the base libraries.
 
@@ -143,7 +152,6 @@ Make sure that [Travis](http://www.travis-ci.org) greenlights the pull request w
  - Try to [squash](http://gitready.com/advanced/2009/02/10/squashing-commits-with-rebase.html) together small commits that make repeated changes to the same section of code so your pull request is easier to review, and Julia's history won't have any broken intermediate commits. A reasonable number of separate well-factored commits is fine, especially for larger changes.
  - If any conflicts arise due to changes in Julia's `master`, prefer updating your pull request branch with `git rebase` versus `git merge` or `git pull`, since the latter will introduce merge commits that clutter the git history with noise that makes your changes more difficult to review.
  - If you see any unrelated changes to submodules like `deps/libuv`, `deps/openlibm`, etc., try running `git submodule update` first.
- - Avoid committing changes to auto-generated files such as `doc/helpdb.jl`, which is a frequent source of conflicts and can be re-generated later.
  - Descriptive commit messages are good.
  - Using `git add -p` or `git add -i` can be useful to avoid accidentally committing unrelated changes.
  - GitHub does not send notifications when you push a new commit to a pull request, so please add a comment to the pull request thread to let reviewers know when you've made changes.

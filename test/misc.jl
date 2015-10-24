@@ -92,7 +92,8 @@ end
 # if the second argument is an expression, c
 let deepthought(x, y) = 42
     try
-        @assert 1 == 2 string("the answer to the ultimate question: ", deepthought(6,9))
+        @assert 1 == 2 string("the answer to the ultimate question: ",
+                              deepthought(6, 9))
     catch ex
         @test isa(ex, AssertionError)
         @test ex.msg == "the answer to the ultimate question: 42"
@@ -122,7 +123,7 @@ immutable NoMethodHasThisType end
 
 # PR #10984
 # Disable on windows because of issue (missing flush) when redirecting STDERR.
-@unix_only let
+let
     redir_err = "redirect_stderr(STDOUT)"
     exename = joinpath(JULIA_HOME, Base.julia_exename())
     script = "$redir_err; f(a::Number, b...) = 1;f(a, b::Number) = 1"
@@ -141,4 +142,53 @@ let l = ReentrantLock()
     lock(l)
     unlock(l)
     @test_throws ErrorException unlock(l)
+end
+
+# timing macros
+
+# test that they don't introduce global vars
+global v11801, t11801, names_before_timing
+names_before_timing = names(current_module(), true)
+
+let t = @elapsed 1+1
+    @test isa(t, Real) && t >= 0
+end
+
+let
+    val, t = @timed sin(1)
+    @test val == sin(1)
+    @test isa(t, Real) && t >= 0
+end
+
+# problem after #11801 - at global scope
+t11801 = @elapsed 1+1
+@test isa(t11801,Real) && t11801 >= 0
+v11801, t11801 = @timed sin(1)
+@test v11801 == sin(1)
+@test isa(t11801,Real) && t11801 >= 0
+
+@test names(current_module(), true) == names_before_timing
+
+# interactive utilities
+
+import Base.summarysize
+@test summarysize(Core) > summarysize(Core.Inference) > Core.sizeof(Core)
+@test summarysize(Base) > 10_000*sizeof(Int)
+module _test_whos_
+export x
+x = 1.0
+end
+@test sprint(whos, Main, r"^$") == ""
+let v = sprint(whos, _test_whos_)
+    @test contains(v, "x      8 bytes  Float64 : 1.0")
+end
+
+# issue #13021
+let ex = try
+    Main.x13021 = 0
+    nothing
+catch ex
+    ex
+end
+    @test isa(ex, ErrorException) && ex.msg == "cannot assign variables in other modules"
 end

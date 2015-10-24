@@ -11,8 +11,21 @@ cd `dirname "$0"`/../..
 # Stop on error
 set -e
 
-# Fail fast on AppVeyor if there are newer pending commits in this PR
 curlflags="curl --retry 10 -k -L -y 5"
+checksum_download() {
+  # checksum_download filename url
+  f=$1
+  url=$2
+  if [ -e "$f" ]; then
+    deps/jlchecksum "$f" 2> /dev/null && return
+    echo "Checksum for '$f' changed, download again." >&2
+  fi
+  echo "Downloading '$f'"
+  $curlflags -O "$url"
+  deps/jlchecksum "$f"
+}
+
+# Fail fast on AppVeyor if there are newer pending commits in this PR
 if [ -n "$APPVEYOR_PULL_REQUEST_NUMBER" ]; then
   # download a handy cli json parser
   if ! [ -e jq.exe ]; then
@@ -40,11 +53,13 @@ echo "" > get-deps.log
 if [ "$ARCH" = x86_64 ]; then
   bits=64
   archsuffix=64
+  exc=seh
   echo "override MARCH = x86-64" >> Make.user
   echo 'USE_BLAS64 = 1' >> Make.user
 else
   bits=32
   archsuffix=86
+  exc=sjlj
   echo "override MARCH = i686" >> Make.user
   echo "override JULIA_CPU_TARGET = pentium4" >> Make.user
 fi
@@ -95,20 +110,18 @@ done
 for i in share/julia/base/pcre_h.jl; do
   $SEVENZIP e -y julia-installer.exe "\$_OUTDIR/$i" -obase >> get-deps.log
 done
+echo "override PCRE_INCL_PATH =" >> Make.user
 # suppress "bash.exe: warning: could not find /tmp, please create!"
 mkdir -p usr/Git/tmp
 # Remove libjulia.dll if it was copied from downloaded binary
 rm -f usr/bin/libjulia.dll
 rm -f usr/bin/libjulia-debug.dll
 
-mingw=http://sourceforge.net/projects/mingw
 if [ -z "$USEMSVC" ]; then
   if [ -z "`which ${CROSS_COMPILE}gcc 2>/dev/null`" ]; then
-    f=mingw-w$bits-bin-$ARCH-20140102.7z
-    if ! [ -e $f ]; then
-      echo "Downloading $f"
-      $curlflags -O $mingw-w64-dgn/files/mingw-w64/$f
-    fi
+    f=$ARCH-4.9.2-release-win32-$exc-rt_v4-rev3.7z
+    checksum_download \
+        "$f" "https://bintray.com/artifact/download/tkelman/generic/$f"
     echo "Extracting $f"
     $SEVENZIP x -y $f >> get-deps.log
     export PATH=$PATH:$PWD/mingw$bits/bin
@@ -137,10 +150,8 @@ else
   f=llvm-3.3-$ARCH-msvc12-juliadeps.7z
 fi
 
-if ! [ -e $f ]; then
-  echo "Downloading $f"
-  $curlflags -O http://sourceforge.net/projects/juliadeps-win/files/$f
-fi
+checksum_download \
+    "$f" "https://bintray.com/artifact/download/tkelman/generic/$f"
 echo "Extracting $f"
 $SEVENZIP x -y $f >> get-deps.log
 echo 'override LLVM_CONFIG = $(JULIAHOME)/usr/bin/llvm-config' >> Make.user
@@ -161,7 +172,7 @@ if [ -z "`which make 2>/dev/null`" ]; then
   f="/make/make-3.81-2/make-3.81-2-msys-1.0.11-bin.tar"
   if ! [ -e `basename $f.lzma` ]; then
     echo "Downloading `basename $f`"
-    $curlflags -O $mingw/files/MSYS/Base$f.lzma
+    $curlflags -O http://sourceforge.net/projects/mingw/files/MSYS/Base$f.lzma
   fi
   $SEVENZIP x -y `basename $f.lzma` >> get-deps.log
   tar -xf `basename $f`
@@ -178,6 +189,7 @@ echo 'LIBBLAS = -L$(JULIAHOME)/usr/bin -lopenblas' >> Make.user
 echo 'LIBBLASNAME = libopenblas' >> Make.user
 echo 'override LIBLAPACK = $(LIBBLAS)' >> Make.user
 echo 'override LIBLAPACKNAME = $(LIBBLASNAME)' >> Make.user
+echo 'JULIA_SYSIMG_BUILD_FLAGS=--output-ji ../usr/lib/julia/sys.ji' >> Make.user
 
 # Remaining dependencies:
 # libuv since its static lib is no longer included in the binaries
@@ -206,11 +218,11 @@ if [ -n "$USEMSVC" ]; then
   echo 'override STAGE1_DEPS += dsfmt' >> Make.user
 else
   echo 'override STAGE1_DEPS += openlibm' >> Make.user
+  make check-whitespace
   make VERBOSE=1 -C base version_git.jl.phony
   echo 'NO_GIT = 1' >> Make.user
 fi
 
-make check-whitespace
 cat Make.user
 make VERBOSE=1
 #make debug

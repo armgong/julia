@@ -42,7 +42,7 @@ sometimes implied rather than explicitly written as an
 argument. [#]_ Using all of a function's arguments to
 choose which method should be invoked, rather than just the first, is
 known as `multiple dispatch
-<http://en.wikipedia.org/wiki/Multiple_dispatch>`_. Multiple
+<https://en.wikipedia.org/wiki/Multiple_dispatch>`_. Multiple
 dispatch is particularly useful for mathematical code, where it makes
 little sense to artificially deem the operations to "belong" to one
 argument more than any of the others: does the addition operation in
@@ -57,7 +57,7 @@ for structuring and organizing programs.
   implicitly passed to the method via the ``this`` keyword, rather then as an
   explicit method argument. When the current ``this`` object is the receiver of a
   method call, it can be omitted altogether, writing just ``meth(arg1,arg2)``,
-  with this implied as the receiving object.
+  with ``this`` implied as the receiving object.
 
 
 Defining Methods
@@ -196,8 +196,8 @@ methods. To find out what the signatures of those methods are, use the
 
     julia> methods(f)
     # 2 methods for generic function "f":
-    f(x::Float64,y::Float64) at none:1
-    f(x::Number,y::Number) at none:1
+    f(x::Float64, y::Float64) at none:1
+    f(x::Number, y::Number) at none:1
 
 which shows that ``f`` has two methods, one taking two :obj:`Float64`
 arguments and one taking arguments of type :obj:`Number`. It also
@@ -229,7 +229,7 @@ Julia language. Core operations typically have dozens of methods::
     # 139 methods for generic function "+":
     +(x::Bool) at bool.jl:33
     +(x::Bool,y::Bool) at bool.jl:36
-    +(y::FloatingPoint,x::Bool) at bool.jl:46
+    +(y::AbstractFloat,x::Bool) at bool.jl:46
     +(x::Int64,y::Int64) at int.jl:14
     +(x::Int8,y::Int8) at int.jl:14
     +(x::UInt8,y::UInt8) at int.jl:14
@@ -251,41 +251,41 @@ Julia language. Core operations typically have dozens of methods::
     +(a::Base.GMP.BigInt,b::Base.GMP.BigInt,c::Base.GMP.BigInt) at gmp.jl:266
     +(a::Base.GMP.BigInt,b::Base.GMP.BigInt,c::Base.GMP.BigInt,d::Base.GMP.BigInt) at gmp.jl:272
     +(a::Base.GMP.BigInt,b::Base.GMP.BigInt,c::Base.GMP.BigInt,d::Base.GMP.BigInt,e::Base.GMP.BigInt) at gmp.jl:279
-    +(x::Base.GMP.BigInt,c::Union(UInt32,UInt16,UInt8,UInt64)) at gmp.jl:291
-    +(c::Union(UInt32,UInt16,UInt8,UInt64),x::Base.GMP.BigInt) at gmp.jl:295
-    +(x::Base.GMP.BigInt,c::Union(Int16,Int32,Int8,Int64)) at gmp.jl:307
-    +(c::Union(Int16,Int32,Int8,Int64),x::Base.GMP.BigInt) at gmp.jl:308
+    +(x::Base.GMP.BigInt,c::Union{UInt32,UInt16,UInt8,UInt64}) at gmp.jl:291
+    +(c::Union{UInt32,UInt16,UInt8,UInt64},x::Base.GMP.BigInt) at gmp.jl:295
+    +(x::Base.GMP.BigInt,c::Union{Int16,Int32,Int8,Int64}) at gmp.jl:307
+    +(c::Union{Int16,Int32,Int8,Int64},x::Base.GMP.BigInt) at gmp.jl:308
     +(x::Base.MPFR.BigFloat,y::Base.MPFR.BigFloat) at mpfr.jl:206
-    +(x::Base.MPFR.BigFloat,c::Union(UInt32,UInt16,UInt8,UInt64)) at mpfr.jl:213
-    +(c::Union(UInt32,UInt16,UInt8,UInt64),x::Base.MPFR.BigFloat) at mpfr.jl:217
-    +(x::Base.MPFR.BigFloat,c::Union(Int16,Int32,Int8,Int64)) at mpfr.jl:221
-    +(c::Union(Int16,Int32,Int8,Int64),x::Base.MPFR.BigFloat) at mpfr.jl:225
-    +(x::Base.MPFR.BigFloat,c::Union(Float16,Float64,Float32)) at mpfr.jl:229
-    +(c::Union(Float16,Float64,Float32),x::Base.MPFR.BigFloat) at mpfr.jl:233
+    +(x::Base.MPFR.BigFloat,c::Union{UInt32,UInt16,UInt8,UInt64}) at mpfr.jl:213
+    +(c::Union{UInt32,UInt16,UInt8,UInt64},x::Base.MPFR.BigFloat) at mpfr.jl:217
+    +(x::Base.MPFR.BigFloat,c::Union{Int16,Int32,Int8,Int64}) at mpfr.jl:221
+    +(c::Union{Int16,Int32,Int8,Int64},x::Base.MPFR.BigFloat) at mpfr.jl:225
+    +(x::Base.MPFR.BigFloat,c::Union{Float16,Float64,Float32}) at mpfr.jl:229
+    +(c::Union{Float16,Float64,Float32},x::Base.MPFR.BigFloat) at mpfr.jl:233
     +(x::Base.MPFR.BigFloat,c::Base.GMP.BigInt) at mpfr.jl:237
     +(c::Base.GMP.BigInt,x::Base.MPFR.BigFloat) at mpfr.jl:241
     +(a::Base.MPFR.BigFloat,b::Base.MPFR.BigFloat,c::Base.MPFR.BigFloat) at mpfr.jl:318
     +(a::Base.MPFR.BigFloat,b::Base.MPFR.BigFloat,c::Base.MPFR.BigFloat,d::Base.MPFR.BigFloat) at mpfr.jl:324
     +(a::Base.MPFR.BigFloat,b::Base.MPFR.BigFloat,c::Base.MPFR.BigFloat,d::Base.MPFR.BigFloat,e::Base.MPFR.BigFloat) at mpfr.jl:331
-    +(x::MathConst{sym},y::MathConst{sym}) at constants.jl:71
+    +(x::Irrational{sym},y::Irrational{sym}) at constants.jl:71
     +{T<:Number}(x::T<:Number,y::T<:Number) at promotion.jl:205
-    +{T<:FloatingPoint}(x::Bool,y::T<:FloatingPoint) at bool.jl:43
+    +{T<:AbstractFloat}(x::Bool,y::T<:AbstractFloat) at bool.jl:43
     +(x::Number,y::Number) at promotion.jl:167
     +(x::Integer,y::Ptr{T}) at pointer.jl:70
     +(x::Bool,A::AbstractArray{Bool,N}) at array.jl:829
     +(x::Integer,y::Char) at char.jl:41
     +(x::Number) at operators.jl:72
     +(r1::OrdinalRange{T,S},r2::OrdinalRange{T,S}) at operators.jl:325
-    +{T<:FloatingPoint}(r1::FloatRange{T<:FloatingPoint},r2::FloatRange{T<:FloatingPoint}) at operators.jl:331
-    +(r1::FloatRange{T<:FloatingPoint},r2::FloatRange{T<:FloatingPoint}) at operators.jl:348
-    +(r1::FloatRange{T<:FloatingPoint},r2::OrdinalRange{T,S}) at operators.jl:349
-    +(r1::OrdinalRange{T,S},r2::FloatRange{T<:FloatingPoint}) at operators.jl:350
+    +{T<:AbstractFloat}(r1::FloatRange{T<:AbstractFloat},r2::FloatRange{T<:AbstractFloat}) at operators.jl:331
+    +(r1::FloatRange{T<:AbstractFloat},r2::FloatRange{T<:AbstractFloat}) at operators.jl:348
+    +(r1::FloatRange{T<:AbstractFloat},r2::OrdinalRange{T,S}) at operators.jl:349
+    +(r1::OrdinalRange{T,S},r2::FloatRange{T<:AbstractFloat}) at operators.jl:350
     +(x::Ptr{T},y::Integer) at pointer.jl:68
     +{S,T}(A::Range{S},B::Range{T}) at array.jl:773
     +{S,T}(A::Range{S},B::AbstractArray{T,N}) at array.jl:791
     +(A::AbstractArray{Bool,N},x::Bool) at array.jl:828
     +(A::BitArray{N},B::BitArray{N}) at bitarray.jl:926
-    +(A::Union(DenseArray{Bool,N},SubArray{Bool,N,A<:DenseArray{T,N},I<:Tuple{Vararg{Union(Colon,Range{Int64},Int64)}},LD}),B::Union(DenseArray{Bool,N},SubArray{Bool,N,A<:DenseArray{T,N},I<:Tuple{Vararg{Union(Colon,Range{Int64},Int64)}},LD})) at array.jl:859
+    +(A::Union{DenseArray{Bool,N},SubArray{Bool,N,A<:DenseArray{T,N},I<:Tuple{Vararg{Union{Colon,Range{Int64},Int64}}},LD}},B::Union{DenseArray{Bool,N},SubArray{Bool,N,A<:DenseArray{T,N},I<:Tuple{Vararg{Union{Colon,Range{Int64},Int64}}},LD}}) at array.jl:859
     +(A::Base.LinAlg.SymTridiagonal{T},B::Base.LinAlg.SymTridiagonal{T}) at linalg/tridiag.jl:59
     +(A::Base.LinAlg.Tridiagonal{T},B::Base.LinAlg.Tridiagonal{T}) at linalg/tridiag.jl:254
     +(A::Base.LinAlg.Tridiagonal{T},B::Base.LinAlg.SymTridiagonal{T}) at linalg/special.jl:113
@@ -323,7 +323,7 @@ Julia language. Core operations typically have dozens of methods::
     +{Tv1,Ti1,Tv2,Ti2}(A_1::Base.SparseMatrix.SparseMatrixCSC{Tv1,Ti1},A_2::Base.SparseMatrix.SparseMatrixCSC{Tv2,Ti2}) at sparse/sparsematrix.jl:873
     +(A::Base.SparseMatrix.SparseMatrixCSC{Tv,Ti<:Integer},B::Array{T,N}) at sparse/sparsematrix.jl:885
     +(A::Array{T,N},B::Base.SparseMatrix.SparseMatrixCSC{Tv,Ti<:Integer}) at sparse/sparsematrix.jl:887
-    +{P<:Base.Dates.Period}(Y::Union(SubArray{P<:Base.Dates.Period,N,A<:DenseArray{T,N},I<:Tuple{Vararg{Union(Colon,Range{Int64},Int64)}},LD},DenseArray{P<:Base.Dates.Period,N}),x::P<:Base.Dates.Period) at dates/periods.jl:50
+    +{P<:Base.Dates.Period}(Y::Union{SubArray{P<:Base.Dates.Period,N,A<:DenseArray{T,N},I<:Tuple{Vararg{Union{Colon,Range{Int64},Int64}}},LD},DenseArray{P<:Base.Dates.Period,N}},x::P<:Base.Dates.Period) at dates/periods.jl:50
     +{T<:Base.Dates.TimeType}(r::Range{T<:Base.Dates.TimeType},x::Base.Dates.Period) at dates/ranges.jl:39
     +{T<:Number}(x::AbstractArray{T<:Number,N}) at abstractarray.jl:442
     +{S,T}(A::AbstractArray{S,N},B::Range{T}) at array.jl:782
@@ -344,7 +344,7 @@ Julia language. Core operations typically have dozens of methods::
     +(a::Base.Pkg.Resolve.VersionWeights.VersionWeight,b::Base.Pkg.Resolve.VersionWeights.VersionWeight) at pkg/resolve/versionweight.jl:183
     +(a::Base.Pkg.Resolve.MaxSum.FieldValues.FieldValue,b::Base.Pkg.Resolve.MaxSum.FieldValues.FieldValue) at pkg/resolve/fieldvalue.jl:43
     +{P<:Base.Dates.Period}(x::P<:Base.Dates.Period,y::P<:Base.Dates.Period) at dates/periods.jl:43
-    +{P<:Base.Dates.Period}(x::P<:Base.Dates.Period,Y::Union(SubArray{P<:Base.Dates.Period,N,A<:DenseArray{T,N},I<:Tuple{Vararg{Union(Colon,Range{Int64},Int64)}},LD},DenseArray{P<:Base.Dates.Period,N})) at dates/periods.jl:49
+    +{P<:Base.Dates.Period}(x::P<:Base.Dates.Period,Y::Union{SubArray{P<:Base.Dates.Period,N,A<:DenseArray{T,N},I<:Tuple{Vararg{Union{Colon,Range{Int64},Int64}}},LD},DenseArray{P<:Base.Dates.Period,N}}) at dates/periods.jl:49
     +(x::Base.Dates.Period,y::Base.Dates.Period) at dates/periods.jl:196
     +(x::Base.Dates.CompoundPeriod,y::Base.Dates.Period) at dates/periods.jl:197
     +(y::Base.Dates.Period,x::Base.Dates.CompoundPeriod) at dates/periods.jl:198
@@ -384,7 +384,7 @@ arguments:
     julia> g(x::Float64, y) = 2x + y;
 
     julia> g(x, y::Float64) = x + 2y;
-    Warning: New definition
+    WARNING: New definition
         g(Any, Float64) at none:1
     is ambiguous with:
         g(Float64, Any) at none:1.

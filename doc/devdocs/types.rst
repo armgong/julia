@@ -8,7 +8,7 @@ If you've used Julia for a while, you understand the fundamental role
 that types play.  Here we try to get under the hood, focusing
 particularly on :ref:`parametric types <man-parametric-types>`.
 
-Types and sets (and ``Any`` and ``Union()``/``Bottom``)
+Types and sets (and ``Any`` and ``Union{}``/``Bottom``)
 -------------------------------------------------------
 
 It's perhaps easiest to conceive of Julia's type system in terms of
@@ -18,7 +18,7 @@ concrete types.  ``Any`` is a type that describes the entire universe
 of possible types; ``Integer`` is a subset of ``Any`` that includes
 ``Int``, ``Int8``, and other concrete types.  Internally, Julia also
 makes heavy use of another type known as ``Bottom``, or equivalently,
-``Union()``.  This corresponds to the empty set.
+``Union{}``.  This corresponds to the empty set.
 
 Julia's types support the standard operations of set theory: you can
 ask whether ``T1`` is a "subset" (subtype) of ``T2`` with ``T1 <:
@@ -29,28 +29,28 @@ union with ``typejoin``:
 .. doctest::
 
     julia> typeintersect(Int, Float64)
-    Union()
+    Union{}
 
-    julia> Union(Int, Float64)
-    Union(Int64,Float64)
+    julia> Union{Int, Float64}
+    Union{Float64,Int64}
 
     julia> typejoin(Int, Float64)
     Real
 
-    julia> typeintersect(Signed, Union(UInt8, Int8))
+    julia> typeintersect(Signed, Union{UInt8, Int8})
     Int8
 
-    julia> Union(Signed, Union(UInt8, Int8))
-    Union(Signed,UInt8)
+    julia> Union{Signed, Union{UInt8, Int8}}
+    Union{Signed,UInt8}
 
-    julia> typejoin(Signed, Union(UInt8, Int8))
+    julia> typejoin(Signed, Union{UInt8, Int8})
     Integer
 
     julia> typeintersect(Tuple{Integer,Float64}, Tuple{Int,Real})
     Tuple{Int64,Float64}
 
-    julia> Union(Tuple{Integer,Float64}, Tuple{Int,Real})
-    Union(Tuple{Integer,Float64},Tuple{Int64,Real})
+    julia> Union{Tuple{Integer,Float64}, Tuple{Int,Real}}
+    Union{Tuple{Int64,Real},Tuple{Integer,Float64}}
 
     julia> typejoin(Tuple{Integer,Float64}, Tuple{Int,Real})
     Tuple{Integer,Real}
@@ -58,7 +58,7 @@ union with ``typejoin``:
 While these operations may seem abstract, they lie at the heart of
 Julia.  For example, method dispatch is implemented by stepping
 through the items in a method list until reaching one for which
-``typeintersect(args, sig)`` is not ``Union()``.  (Here, ``args`` is a
+``typeintersect(args, sig)`` is not ``Union{}``.  (Here, ``args`` is a
 tuple-type describing the types of the arguments, and ``sig`` is a
 tuple-type specifying the types in the function's signature.)  For
 this algorithm to work, it's important that methods be sorted by their
@@ -107,7 +107,7 @@ parameters:
    julia> xdump(T)
    TypeVar
      name: Symbol T
-     lb: Union()
+     lb: Union{}
      ub: Any::DataType  <: Any
      bound: Bool false
 
@@ -117,7 +117,7 @@ A :obj:`TypeVar` is one of Julia's built-in types---it's defined in
 printed when showing the object.  ``lb`` and ``ub`` stand for "lower
 bound" and "upper bound," respectively: these are the sets that
 constrain what types the TypeVar may represent.  In this case, ``T``\ 's
-lower bound is ``Union()`` (i.e., ``Bottom`` or the empty set); in
+lower bound is ``Union{}`` (i.e., ``Bottom`` or the empty set); in
 other words, this :obj:`TypeVar` is not constrained from below.  The
 upper bound is ``Any``, so neither is it constrained from above.
 
@@ -139,7 +139,7 @@ one can extract the underlying :obj:`TypeVar`:
 
    TypeVar
      name: Symbol S
-     lb: Union()
+     lb: Union{}
      ub: Integer::DataType  <: Real
      bound: Bool true
 
@@ -172,14 +172,14 @@ parameters. For example:
    julia> xdump(p1[1].parameters[1])
    TypeVar
      name: Symbol T
-     lb: Union()
+     lb: Union{}
      ub: Any::DataType  <: Any
      bound: Bool false
 
    julia> xdump(p3[1].parameters[1])
    TypeVar
      name: Symbol T
-     lb: Union()
+     lb: Union{}
      ub: Real::DataType  <: Number
      bound: Bool true
 
@@ -215,11 +215,11 @@ a lot about how Julia does dispatch:
 
    julia> methods(candid)
    # 1 method for generic function "candid":
-   candid{T}(A::Array{T,N},x::T) at none:1
+   candid{T}(A::Array{T,N}, x::T) at none:1
 
    julia> methods(sneaky)
    # 1 method for generic function "sneaky":
-   sneaky{T}(A::Array{T,N},x::T) at none:1
+   sneaky{T}(A::Array{T,N}, x::T) at none:1
 
 These therefore print identically, but they have very different behavior:
 
@@ -242,12 +242,13 @@ bound :obj:`TypeVar` objects with a hash (``#T`` instead of ``T``):
    julia> jl_(x) = ccall(:jl_, Void, (Any,), x)
    jl_ (generic function with 1 method)
 
-::
+.. doctest::
+
    julia> jl_(start(methods(candid)))
-   Method(sig=Tuple{Array{＃T<:Any, N<:Any}, ＃T<:Any}, va=false, isstaged=false, tvars=＃T<:Any, func=＃<function>, invokes=nothing, next=nothing)
+   Method(sig=Tuple{Array{#T<:Any, N<:Any}, #T<:Any}, va=false, isstaged=false, tvars=#T<:Any, func=#<function>, invokes=nothing, next=nothing)
 
    julia> jl_(start(methods(sneaky)))
-   Method(sig=Tuple{Array{＃T<:Any, N<:Any}, T<:Any}, va=false, isstaged=false, tvars=＃T<:Any, func=＃<function>, invokes=nothing, next=nothing)
+   Method(sig=Tuple{Array{#T<:Any, N<:Any}, T<:Any}, va=false, isstaged=false, tvars=#T<:Any, func=#<function>, invokes=nothing, next=nothing)
 
 Even though both print as ``T``, in ``sneaky`` the second ``T`` is
 not bound, and hence it isn't constrained to be the same type as the
@@ -262,7 +263,7 @@ Some :obj:`TypeVar` interactions depend on the ``bound`` state, even when there 
 
    # These would be the same no matter whether we used S or T
    julia> Array{Array{S}} <: Array{Array}
-   false
+   true
 
    julia> Array{Array{S}} <: Array{Array{S}}
    true
@@ -319,8 +320,8 @@ the type, which is an object of type :obj:`TypeName`:
      cache: SimpleVector
        length: Int64 135
      linearcache: SimpleVector
-       length: Int64 12
-     uid: Int64 35
+       length: Int64 18
+     uid: Int64 37
 
 In this case, the relevant field is ``primary``, which holds a
 reference to the "primary" instance of the type::
@@ -358,14 +359,15 @@ type:
    julia> MyType.name.cache
    svec(MyType{Float32,5},MyType{Int64,2},Evaluation succeeded, but an error occurred while showing value of type SimpleVector:
    ERROR: UndefRefError: access to undefined reference
-    in getindex at /Users/jiahao/local/src/julia/usr/lib/julia/sys.dylib
-    in show_delim_array at show.jl:195
-    in show at show.jl:223
-    in anonymous at show.jl:1243
-    in with_output_limit at ./show.jl:1220
-    in showlimited at show.jl:1242
+    in getindex at ./essentials.jl:211
+    in show_delim_array at show.jl:229
+    in show at show.jl:257
+    in anonymous at show.jl:1278
+    in with_output_limit at ./show.jl:1255
+    in showlimited at show.jl:1277
     in display at multimedia.jl:120
-    in display at multimedia.jl:151
+    [inlined code] from multimedia.jl:151
+    in display at multimedia.jl:162
 
 (The error is triggered because the cache is pre-allocated to have
 length 8, but only the first two entries are populated.)
@@ -422,7 +424,7 @@ from a bound :obj:`TypeVar`
    T
 
    julia> typeintersect(Tuple{Vararg{T}}, Tuple{Int,Float64})
-   Union()
+   Union{}
 
 Finally, it's worth noting that ``Tuple{}`` is distinct
 
@@ -435,7 +437,7 @@ Finally, it's worth noting that ``Tuple{}`` is distinct
    svec()
 
    julia> typeintersect(Tuple{}, Tuple{Int})
-   Union()
+   Union{}
 
 What is the "primary" tuple-type?
 ::
@@ -552,7 +554,7 @@ finish and keep progressing, you'll eventually get to
 ``solve_tvar_constraints``.  Roughly speaking, ``eqc`` defines ``T =
 Int64``, but ``env`` defines it as ``Int8``; this conflict is detected
 in ``solve_tvar_constraints`` and the resulting return is
-``jl_bottom_type``, aka ``Union()``.
+``jl_bottom_type``, aka ``Union{}``.
 
 
 Subtyping and method sorting
@@ -563,7 +565,7 @@ Armed with this knowledge, you may find yourself surprised by the following:
 .. doctest::
 
    julia> typeintersect(Tuple{Array{Int},Float64}, Tuple{Array{T},T})
-   Union()
+   Union{}
 
    julia> Tuple{Array{Int},Float64} <: Tuple{Array{T},T}
    true
@@ -596,9 +598,9 @@ comparing type parameters and otherwise is 0.
 
 The rules for these are somewhat different. ``subtype`` is sensitive
 to the number arguments, but ``type_morespecific`` may not be. In
-particular, ``Tuple{Int,FloatingPoint}`` is more specific than
+particular, ``Tuple{Int,AbstractFloat}`` is more specific than
 ``Tuple{Integer}``, even though it is not a subtype.  (Of
-``Tuple{Int,FloatingPoint}`` and ``Tuple{Integer,Float64}``, neither
+``Tuple{Int,AbstractFloat}`` and ``Tuple{Integer,Float64}``, neither
 is more specific than the other.)  Likewise, ``Tuple{Int,Vararg{Int}}``
 is not a subtype of ``Tuple{Integer}``, but it is considered
 more specific. However, ``morespecific`` does get a bonus for length:

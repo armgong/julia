@@ -26,7 +26,7 @@ function init_sysinfo()
         haskey(ENV,"JULIA_CPU_CORES") ? parse(Int,ENV["JULIA_CPU_CORES"]) :
                                         Int(ccall(:jl_cpu_cores, Int32, ()))
     global const SC_CLK_TCK = ccall(:jl_SC_CLK_TCK, Clong, ())
-    global const cpu_name = ccall(:jl_get_cpu_name, ByteString, ())
+    global const cpu_name = ccall(:jl_get_cpu_name, Any, ())::ByteString
 end
 
 type UV_cpu_info_t
@@ -136,8 +136,8 @@ free_memory() = ccall(:uv_get_free_memory, UInt64, ())
 total_memory() = ccall(:uv_get_total_memory, UInt64, ())
 
 function get_process_title()
-    buf = zeros(Uint8, 512)
-    err = ccall(:uv_get_process_title, Cint, (Ptr{Uint8}, Cint), buf, 512)
+    buf = zeros(UInt8, 512)
+    err = ccall(:uv_get_process_title, Cint, (Ptr{UInt8}, Cint), buf, 512)
     uv_error("get_process_title", err)
     return bytestring(pointer(buf))
 end

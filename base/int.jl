@@ -11,7 +11,10 @@ const IntTypes = (Int8, UInt8, Int16, UInt16, Int32, UInt32,
 for T in IntTypes
     @eval begin
         -(x::$T) = box($T,neg_int(unbox($T,x)))
-        +(x::$T, y::$T) = box($T, add_int(unbox($T,x),unbox($T,y)))
+
+        if !($T === Int)  # don't overwrite definition from line 8
+            +(x::$T, y::$T) = box($T, add_int(unbox($T,x),unbox($T,y)))
+        end
         -(x::$T, y::$T) = box($T, sub_int(unbox($T,x),unbox($T,y)))
         *(x::$T, y::$T) = box($T, mul_int(unbox($T,x),unbox($T,y)))
     end
@@ -68,15 +71,19 @@ cld(x::Unsigned, y::Signed) = div(x,y)+(!signbit(y)&(rem(x,y)!=0))
 
 # Don't promote integers for div/rem/mod since there no danger of overflow,
 # while there is a substantial performance penalty to 64-bit promotion.
-typealias Signed64 Union(Int8,Int16,Int32,Int64)
-typealias Unsigned64 Union(UInt8,UInt16,UInt32,UInt64)
-typealias Integer64 Union(Signed64,Unsigned64)
+const Signed64Types = (Int8,Int16,Int32,Int64)
+const Unsigned64Types = (UInt8,UInt16,UInt32,UInt64)
+typealias Integer64 Union{Signed64Types...,Unsigned64Types...}
 
-div{T<:Signed64}  (x::T, y::T) = box(T,sdiv_int(unbox(T,x),unbox(T,y)))
-div{T<:Unsigned64}(x::T, y::T) = box(T,udiv_int(unbox(T,x),unbox(T,y)))
-rem{T<:Signed64}  (x::T, y::T) = box(T,srem_int(unbox(T,x),unbox(T,y)))
-rem{T<:Unsigned64}(x::T, y::T) = box(T,urem_int(unbox(T,x),unbox(T,y)))
-mod{T<:Signed64}  (x::T, y::T) = box(T,smod_int(unbox(T,x),unbox(T,y)))
+for T in Signed64Types
+    @eval div(x::$T, y::$T) = box($T,sdiv_int(unbox($T,x),unbox($T,y)))
+    @eval rem(x::$T, y::$T) = box($T,srem_int(unbox($T,x),unbox($T,y)))
+    @eval mod(x::$T, y::$T) = box($T,smod_int(unbox($T,x),unbox($T,y)))
+end
+for T in Unsigned64Types
+    @eval div(x::$T, y::$T) = box($T,udiv_int(unbox($T,x),unbox($T,y)))
+    @eval rem(x::$T, y::$T) = box($T,urem_int(unbox($T,x),unbox($T,y)))
+end
 
 mod{T<:Unsigned}(x::T, y::T) = rem(x,y)
 
@@ -95,14 +102,6 @@ for T in IntTypes
         (&)(x::$T, y::$T) = box($T,and_int(unbox($T,x),unbox($T,y)))
         (|)(x::$T, y::$T) = box($T, or_int(unbox($T,x),unbox($T,y)))
         ($)(x::$T, y::$T) = box($T,xor_int(unbox($T,x),unbox($T,y)))
-
-        <<(x::$T,  y::Int) = box($T, shl_int(unbox($T,x),unbox(Int,y)))
-        >>>(x::$T, y::Int) = box($T,lshr_int(unbox($T,x),unbox(Int,y)))
-    end
-    if issubtype(T,Unsigned)
-        @eval >>(x::$T, y::Int) = box($T,lshr_int(unbox($T,x),unbox(Int,y)))
-    else
-        @eval >>(x::$T, y::Int) = box($T,ashr_int(unbox($T,x),unbox(Int,y)))
     end
     for S in IntTypes
         (S === Int128 || S === UInt128) && continue
@@ -136,15 +135,17 @@ for T in IntTypes
         trailing_zeros(x::$T) = Int(box($T,cttz_int(unbox($T,x))))
     end
 end
-count_zeros  (x::Integer) = count_ones(~x)
-leading_ones (x::Integer) = leading_zeros(~x)
+count_zeros(  x::Integer) = count_ones(~x)
+leading_ones( x::Integer) = leading_zeros(~x)
 trailing_ones(x::Integer) = trailing_zeros(~x)
 
 ## integer comparisons ##
 
 for T in IntTypes
     if issubtype(T,Signed)
-        @eval <( x::$T, y::$T) = slt_int(unbox($T,x),unbox($T,y))
+        if !(T === Int)  # don't overwrite definition from line 9
+            @eval <( x::$T, y::$T) = slt_int(unbox($T,x),unbox($T,y))
+        end
         @eval <=(x::$T, y::$T) = sle_int(unbox($T,x),unbox($T,y))
     else
         @eval <( x::$T, y::$T) = ult_int(unbox($T,x),unbox($T,y))
@@ -154,14 +155,14 @@ end
 
 ==(x::Signed,   y::Unsigned) = (x >= 0) & (unsigned(x) == y)
 ==(x::Unsigned, y::Signed  ) = (y >= 0) & (x == unsigned(y))
-< (x::Signed,   y::Unsigned) = (x <  0) | (unsigned(x) <  y)
-< (x::Unsigned, y::Signed  ) = (y >  0) & (x <  unsigned(y))
+<( x::Signed,   y::Unsigned) = (x <  0) | (unsigned(x) <  y)
+<( x::Unsigned, y::Signed  ) = (y >  0) & (x <  unsigned(y))
 <=(x::Signed,   y::Unsigned) = (x <= 0) | (unsigned(x) <= y)
 <=(x::Unsigned, y::Signed  ) = (y >= 0) & (x <= unsigned(y))
 
 ## integer conversions ##
 
-for to in tuple(IntTypes...,Char), from in tuple(IntTypes...,Char,Bool)
+for to in tuple(IntTypes...), from in tuple(IntTypes...,Bool)
     if !(to === from)
         if to.size < from.size
             if issubtype(to, Signed)
@@ -232,7 +233,6 @@ convert(::Type{Signed}, x::UInt64 ) = convert(Int64,x)
 convert(::Type{Signed}, x::UInt128) = convert(Int128,x)
 convert(::Type{Signed}, x::Float32) = convert(Int,x)
 convert(::Type{Signed}, x::Float64) = convert(Int,x)
-convert(::Type{Signed}, x::Char)    = convert(Int,x)
 convert(::Type{Signed}, x::Bool)    = convert(Int,x)
 
 convert(::Type{Unsigned}, x::Int8   ) = convert(UInt8,x)
@@ -242,11 +242,10 @@ convert(::Type{Unsigned}, x::Int64  ) = convert(UInt64,x)
 convert(::Type{Unsigned}, x::Int128 ) = convert(UInt128,x)
 convert(::Type{Unsigned}, x::Float32) = convert(UInt,x)
 convert(::Type{Unsigned}, x::Float64) = convert(UInt,x)
-convert(::Type{Unsigned}, x::Char)    = convert(UInt,x)
 convert(::Type{Unsigned}, x::Bool)    = convert(UInt,x)
 
 convert(::Type{Integer}, x::Integer) = x
-convert(::Type{Integer}, x::Union(Real,Char)) = convert(Signed,x)
+convert(::Type{Integer}, x::Real) = convert(Signed,x)
 
 round(x::Integer) = x
 trunc(x::Integer) = x
@@ -273,7 +272,8 @@ macro big_str(s)
     !isnull(n) && return get(n)
     n = tryparse(BigFloat,s)
     !isnull(n) && return get(n)
-    throw(ArgumentError("invalid number format $(repr(s)) for BigInt or BigFloat"))
+    message = "invalid number format $s for BigInt or BigFloat"
+    :(throw(ArgumentError($message)))
 end
 
 ## system word size ##
@@ -446,10 +446,10 @@ if WORD_SIZE == 32
 
     mod(x::Int128, y::Int128) = Int128(mod(BigInt(x),BigInt(y)))
 
-    << (x::Int128,  y::Int) = y == 0 ? x : box(Int128,shl_int(unbox(Int128,x),unbox(Int,y)))
-    << (x::UInt128, y::Int) = y == 0 ? x : box(UInt128,shl_int(unbox(UInt128,x),unbox(Int,y)))
-    >> (x::Int128,  y::Int) = y == 0 ? x : box(Int128,ashr_int(unbox(Int128,x),unbox(Int,y)))
-    >> (x::UInt128, y::Int) = y == 0 ? x : box(UInt128,lshr_int(unbox(UInt128,x),unbox(Int,y)))
+    <<( x::Int128,  y::Int) = y == 0 ? x : box(Int128,shl_int(unbox(Int128,x),unbox(Int,y)))
+    <<( x::UInt128, y::Int) = y == 0 ? x : box(UInt128,shl_int(unbox(UInt128,x),unbox(Int,y)))
+    >>( x::Int128,  y::Int) = y == 0 ? x : box(Int128,ashr_int(unbox(Int128,x),unbox(Int,y)))
+    >>( x::UInt128, y::Int) = y == 0 ? x : box(UInt128,lshr_int(unbox(UInt128,x),unbox(Int,y)))
     >>>(x::Int128,  y::Int) = y == 0 ? x : box(Int128,lshr_int(unbox(Int128,x),unbox(Int,y)))
     >>>(x::UInt128, y::Int) = y == 0 ? x : box(UInt128,lshr_int(unbox(UInt128,x),unbox(Int,y)))
 else

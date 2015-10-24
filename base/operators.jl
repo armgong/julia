@@ -11,13 +11,13 @@ super(T::DataType) = T.super
 ==(x,y) = x === y
 
 isequal(x, y) = x == y
-isequal(x::FloatingPoint, y::FloatingPoint) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
-isequal(x::Real,          y::FloatingPoint) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
-isequal(x::FloatingPoint, y::Real         ) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
+isequal(x::AbstractFloat, y::AbstractFloat) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
+isequal(x::Real,          y::AbstractFloat) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
+isequal(x::AbstractFloat, y::Real         ) = (isnan(x) & isnan(y)) | (signbit(x) == signbit(y)) & (x == y)
 
-isless(x::FloatingPoint, y::FloatingPoint) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
-isless(x::Real,          y::FloatingPoint) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
-isless(x::FloatingPoint, y::Real         ) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
+isless(x::AbstractFloat, y::AbstractFloat) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
+isless(x::Real,          y::AbstractFloat) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
+isless(x::AbstractFloat, y::Real         ) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
 
 =={T}(::Type{T}, ::Type{T}) = true  # encourage more specialization on types (see #11425)
 ==(T::Type, S::Type)        = typeseq(T, S)
@@ -59,14 +59,14 @@ min(x,y) = ifelse(y < x, y, x)
 minmax(x,y) = y < x ? (y, x) : (x, y)
 
 scalarmax(x,y) = max(x,y)
-scalarmax(x::AbstractArray, y::AbstractArray) = error("ordering is not well-defined for arrays")
-scalarmax(x               , y::AbstractArray) = error("ordering is not well-defined for arrays")
-scalarmax(x::AbstractArray, y               ) = error("ordering is not well-defined for arrays")
+scalarmax(x::AbstractArray, y::AbstractArray) = throw(ArgumentError("ordering is not well-defined for arrays"))
+scalarmax(x               , y::AbstractArray) = throw(ArgumentError("ordering is not well-defined for arrays"))
+scalarmax(x::AbstractArray, y               ) = throw(ArgumentError("ordering is not well-defined for arrays"))
 
 scalarmin(x,y) = min(x,y)
-scalarmin(x::AbstractArray, y::AbstractArray) = error("ordering is not well-defined for arrays")
-scalarmin(x               , y::AbstractArray) = error("ordering is not well-defined for arrays")
-scalarmin(x::AbstractArray, y               ) = error("ordering is not well-defined for arrays")
+scalarmin(x::AbstractArray, y::AbstractArray) = throw(ArgumentError("ordering is not well-defined for arrays"))
+scalarmin(x               , y::AbstractArray) = throw(ArgumentError("ordering is not well-defined for arrays"))
+scalarmin(x::AbstractArray, y               ) = throw(ArgumentError("ordering is not well-defined for arrays"))
 
 ## definitions providing basic traits of arithmetic operators ##
 
@@ -76,20 +76,38 @@ scalarmin(x::AbstractArray, y               ) = error("ordering is not well-defi
 (|)(x::Integer) = x
 ($)(x::Integer) = x
 
-for op = (:+, :*, :&, :|, :$, :min, :max, :kron)
+# foldl for argument lists. expand recursively up to a point, then
+# switch to a loop. this allows small cases like `a+b+c+d` to be inlined
+# efficiently, without a major slowdown for `+(x...)` when `x` is big.
+afoldl(op,a) = a
+afoldl(op,a,b) = op(a,b)
+afoldl(op,a,b,c...) = afoldl(op, op(a,b), c...)
+function afoldl(op,a,b,c,d,e,f,g,h,i,j,k,l,m,n,o,p,qs...)
+    y = op(op(op(op(op(op(op(op(op(op(op(op(op(op(op(a,b),c),d),e),f),g),h),i),j),k),l),m),n),o),p)
+    for x in qs; y = op(y,x); end
+    y
+end
+
+immutable ElementwiseMaxFun end
+call(::ElementwiseMaxFun, x, y) = max(x,y)
+
+immutable ElementwiseMinFun end
+call(::ElementwiseMinFun, x, y) = min(x, y)
+
+for (op,F) in ((:+,:(AddFun())), (:*,:(MulFun())), (:&,:(AndFun())), (:|,:(OrFun())),
+               (:$,:(XorFun())), (:min,:(ElementwiseMinFun())), (:max,:(ElementwiseMaxFun())), (:kron,:kron))
     @eval begin
         # note: these definitions must not cause a dispatch loop when +(a,b) is
         # not defined, and must only try to call 2-argument definitions, so
         # that defining +(a,b) is sufficient for full functionality.
-        ($op)(a, b, c)        = ($op)(($op)(a,b),c)
-        ($op)(a, b, c, xs...) = ($op)(($op)(($op)(a,b),c), xs...)
+        ($op)(a, b, c, xs...) = afoldl($F, ($op)(($op)(a,b),c), xs...)
         # a further concern is that it's easy for a type like (Int,Int...)
         # to match many definitions, so we need to keep the number of
         # definitions down to avoid losing type information.
     end
 end
 
-\(x::Number,y::Number) = y/x
+\(x,y) = (y'/x')'
 
 # .<op> defaults to <op>
 ./(x::Number,y::Number) = x/y
@@ -103,7 +121,7 @@ end
 
 .==(x::Number,y::Number) = x == y
 .!=(x::Number,y::Number) = x != y
-.< (x::Real,y::Real) = x < y
+.<( x::Real,y::Real) = x < y
 .<=(x::Real,y::Real) = x <= y
 const .≤ = .<=
 const .≠ = .!=
@@ -142,26 +160,26 @@ ctranspose(x) = conj(transpose(x))
 conj(x) = x
 
 # transposed multiply
-Ac_mul_B (a,b) = ctranspose(a)*b
-A_mul_Bc (a,b) = a*ctranspose(b)
+Ac_mul_B(a,b)  = ctranspose(a)*b
+A_mul_Bc(a,b)  = a*ctranspose(b)
 Ac_mul_Bc(a,b) = ctranspose(a)*ctranspose(b)
-At_mul_B (a,b) = transpose(a)*b
-A_mul_Bt (a,b) = a*transpose(b)
+At_mul_B(a,b)  = transpose(a)*b
+A_mul_Bt(a,b)  = a*transpose(b)
 At_mul_Bt(a,b) = transpose(a)*transpose(b)
 
 # transposed divide
-Ac_rdiv_B (a,b) = ctranspose(a)/b
-A_rdiv_Bc (a,b) = a/ctranspose(b)
+Ac_rdiv_B(a,b)  = ctranspose(a)/b
+A_rdiv_Bc(a,b)  = a/ctranspose(b)
 Ac_rdiv_Bc(a,b) = ctranspose(a)/ctranspose(b)
-At_rdiv_B (a,b) = transpose(a)/b
-A_rdiv_Bt (a,b) = a/transpose(b)
+At_rdiv_B(a,b)  = transpose(a)/b
+A_rdiv_Bt(a,b)  = a/transpose(b)
 At_rdiv_Bt(a,b) = transpose(a)/transpose(b)
 
-Ac_ldiv_B (a,b) = ctranspose(a)\b
-A_ldiv_Bc (a,b) = a\ctranspose(b)
+Ac_ldiv_B(a,b)  = ctranspose(a)\b
+A_ldiv_Bc(a,b)  = a\ctranspose(b)
 Ac_ldiv_Bc(a,b) = ctranspose(a)\ctranspose(b)
-At_ldiv_B (a,b) = transpose(a)\b
-A_ldiv_Bt (a,b) = a\transpose(b)
+At_ldiv_B(a,b)  = transpose(a)\b
+A_ldiv_Bt(a,b)  = a\transpose(b)
 At_ldiv_Bt(a,b) = At_ldiv_B(a,transpose(b))
 Ac_ldiv_Bt(a,b) = Ac_ldiv_B(a,transpose(b))
 
@@ -173,11 +191,11 @@ eltype(t::DataType) = eltype(super(t))
 eltype(x) = eltype(typeof(x))
 
 # copying immutable things
-copy(x::Union(Symbol,Number,AbstractString,Function,Tuple,LambdaStaticData,
-              TopNode,QuoteNode,DataType,UnionType)) = x
+copy(x::Union{Symbol,Number,AbstractString,Function,Tuple,LambdaStaticData,
+              TopNode,QuoteNode,DataType,Union}) = x
 
 # function pipelining
-|>(x, f::Callable) = f(x)
+|>(x, f) = f(x)
 
 # array shape rules
 
@@ -291,42 +309,34 @@ function setindex_shape_check{T}(X::AbstractArray{T,2}, i::Int, j::Int)
 end
 setindex_shape_check(X, I::Int...) = nothing # Non-arrays broadcast to all idxs
 
-# convert to integer index
+# convert to a supported index type (Array, Colon, or Int)
 to_index(i::Int) = i
 to_index(i::Integer) = convert(Int,i)::Int
-to_index(r::UnitRange{Int}) = r
-to_index(r::Range{Int}) = r
-to_index(I::UnitRange{Bool}) = find(I)
-to_index(I::Range{Bool}) = find(I)
-to_index{T<:Integer}(r::UnitRange{T}) = to_index(first(r)):to_index(last(r))
-to_index{T<:Integer}(r::StepRange{T}) = to_index(first(r)):to_index(step(r)):to_index(last(r))
 to_index(c::Colon) = c
 to_index(I::AbstractArray{Bool}) = find(I)
-to_index(A::AbstractArray{Int}) = A
-to_index{T<:Integer}(A::AbstractArray{T}) = [to_index(x) for x in A]
-to_index(i1, i2)         = to_index(i1), to_index(i2)
-to_index(i1, i2, i3)     = to_index(i1), to_index(i2), to_index(i3)
-to_index(i1, i2, i3, i4) = to_index(i1), to_index(i2), to_index(i3), to_index(i4)
-to_index(I...) = to_index(I)
-to_index(I::Tuple{Any,})            = (to_index(I[1]), )
-to_index(I::Tuple{Any,Any,})        = (to_index(I[1]), to_index(I[2]))
-to_index(I::Tuple{Any,Any,Any})     = (to_index(I[1]), to_index(I[2]), to_index(I[3]))
-to_index(I::Tuple{Any,Any,Any,Any}) = (to_index(I[1]), to_index(I[2]), to_index(I[3]), to_index(I[4]))
-to_index(I::Tuple) = map(to_index, I)
-to_index(i) = error("invalid index: $i")
+to_index(A::AbstractArray) = A
+to_index{T<:AbstractArray}(A::AbstractArray{T}) = throw(ArgumentError("invalid index: $A"))
+to_index(A::AbstractArray{Colon}) = throw(ArgumentError("invalid index: $A"))
+to_index(i) = throw(ArgumentError("invalid index: $i"))
+
+to_indexes() = ()
+to_indexes(i1) = (to_index(i1),)
+to_indexes(i1, I...) = (to_index(i1), to_indexes(I...)...)
 
 # Addition/subtraction of ranges
 for f in (:+, :-)
     @eval begin
         function $f(r1::OrdinalRange, r2::OrdinalRange)
             r1l = length(r1)
-            r1l == length(r2) || error("argument dimensions must match")
+            (r1l == length(r2) ||
+             throw(DimensionMismatch("argument dimensions must match")))
             range($f(r1.start,r2.start), $f(step(r1),step(r2)), r1l)
         end
 
-        function $f{T<:FloatingPoint}(r1::FloatRange{T}, r2::FloatRange{T})
+        function $f{T<:AbstractFloat}(r1::FloatRange{T}, r2::FloatRange{T})
             len = r1.len
-            len == r2.len || error("argument dimensions must match")
+            (len == r2.len ||
+             throw(DimensionMismatch("argument dimensions must match")))
             divisor1, divisor2 = r1.divisor, r2.divisor
             if divisor1 == divisor2
                 FloatRange{T}($f(r1.start,r2.start), $f(r1.step,r2.step),
@@ -342,9 +352,23 @@ for f in (:+, :-)
             end
         end
 
-        $f(r1::FloatRange, r2::FloatRange) = $f(promote(r1,r2)...)
-        $f(r1::FloatRange, r2::OrdinalRange) = $f(promote(r1,r2)...)
-        $f(r1::OrdinalRange, r2::FloatRange) = $f(promote(r1,r2)...)
+        function $f{T<:AbstractFloat}(r1::LinSpace{T}, r2::LinSpace{T})
+            len = r1.len
+            (len == r2.len ||
+             throw(DimensionMismatch("argument dimensions must match")))
+            divisor1, divisor2 = r1.divisor, r2.divisor
+            if divisor1 == divisor2
+                LinSpace{T}($f(r1.start, r2.start), $f(r1.stop, r2.stop),
+                            len, divisor1)
+            else
+                linspace(convert(T, $f(first(r1), first(r2))),
+                         convert(T, $f(last(r1), last(r2))), len)
+            end
+        end
+
+        $f(r1::Union{FloatRange, OrdinalRange, LinSpace},
+           r2::Union{FloatRange, OrdinalRange, LinSpace}) =
+               $f(promote(r1, r2)...)
     end
 end
 
@@ -422,6 +446,8 @@ isless(p::Pair, q::Pair) = ifelse(!isequal(p.first,q.first), isless(p.first,q.fi
 getindex(p::Pair,i::Int) = getfield(p,i)
 getindex(p::Pair,i::Real) = getfield(p, convert(Int, i))
 reverse(p::Pair) = Pair(p.second, p.first)
+
+endof(p::Pair) = 2
 
 # some operators not defined yet
 global //, >:, <|, hcat, hvcat, ⋅, ×, ∈, ∉, ∋, ∌, ⊆, ⊈, ⊊, ∩, ∪, √, ∛

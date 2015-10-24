@@ -58,8 +58,13 @@ else
     bitstype 32 Cwstring
 end
 
-convert{T<:Union(Int8,UInt8)}(::Type{Cstring}, p::Ptr{T}) = box(Cstring, unbox(Ptr{T}, p))
+convert{T<:Union{Int8,UInt8}}(::Type{Cstring}, p::Ptr{T}) = box(Cstring, unbox(Ptr{T}, p))
 convert(::Type{Cwstring}, p::Ptr{Cwchar_t}) = box(Cwstring, unbox(Ptr{Cwchar_t}, p))
+convert{T<:Union{Int8,UInt8}}(::Type{Ptr{T}}, p::Cstring) = box(Ptr{T}, unbox(Cstring, p))
+convert(::Type{Ptr{Cwchar_t}}, p::Cwstring) = box(Ptr{Cwchar_t}, unbox(Cwstring, p))
+
+# here, not in pointer.jl, to avoid bootstrapping problems in coreimg.jl
+pointer_to_string(p::Cstring, own::Bool=false) = pointer_to_string(convert(Ptr{UInt8}, p), own)
 
 # convert strings to ByteString etc. to pass as pointers
 cconvert(::Type{Cstring}, s::AbstractString) = bytestring(s)
@@ -91,11 +96,11 @@ sigatomic_end() = ccall(:jl_sigatomic_end, Void, ())
 disable_sigint(f::Function) = try sigatomic_begin(); f(); finally sigatomic_end(); end
 reenable_sigint(f::Function) = try sigatomic_end(); f(); finally sigatomic_begin(); end
 
-function ccallable(f::Function, rt::Type, argt::Type, name::Union(AbstractString,Symbol)=string(f))
+function ccallable(f::Function, rt::Type, argt::Type, name::Union{AbstractString,Symbol}=string(f))
     ccall(:jl_extern_c, Void, (Any, Any, Any, Cstring), f, rt, argt, name)
 end
 
-function ccallable(f::Function, argt::Type, name::Union(AbstractString,Symbol)=string(f))
+function ccallable(f::Function, argt::Type, name::Union{AbstractString,Symbol}=string(f))
     ccall(:jl_extern_c, Void, (Any, Ptr{Void}, Any, Cstring), f, C_NULL, argt, name)
 end
 
@@ -113,7 +118,7 @@ macro ccallable(def)
             end
             return quote
                 $(esc(def))
-                ccallable($(esc(name)), $(Expr(:tuple, map(esc, at)...)))
+                ccallable($(esc(name)), $(Expr(:curly, :Tuple, map(esc, at)...)))
             end
         end
     end

@@ -32,6 +32,8 @@ BitArray(dims::Int...) = BitArray(dims)
 typealias BitVector BitArray{1}
 typealias BitMatrix BitArray{2}
 
+call(::Type{BitVector}) = BitArray{1}(0)
+
 ## utility functions ##
 
 length(B::BitArray) = B.len
@@ -717,7 +719,7 @@ end
 
 const _default_bit_splice = BitVector(0)
 
-function splice!(B::BitVector, r::Union(UnitRange{Int}, Integer), ins::AbstractArray = _default_bit_splice)
+function splice!(B::BitVector, r::Union{UnitRange{Int}, Integer}, ins::AbstractArray = _default_bit_splice)
     n = length(B)
     i_f = first(r)
     i_l = last(r)
@@ -758,7 +760,7 @@ function splice!(B::BitVector, r::Union(UnitRange{Int}, Integer), ins::AbstractA
     return v
 end
 
-function splice!(B::BitVector, r::Union(UnitRange{Int}, Integer), ins)
+function splice!(B::BitVector, r::Union{UnitRange{Int}, Integer}, ins)
     Bins = BitArray(length(ins))
     i = 1
     for x in ins
@@ -853,21 +855,23 @@ for f in (:+, :-)
         return r
     end
 end
-for f in (:.+, :.-),
-    (arg1, arg2, T, fargs) in ((:(B::BitArray), :(x::Bool)    , Int                                   , :(b, x)),
-                               (:(B::BitArray), :(x::Number)  , :(promote_array_type(typeof(x), Bool)), :(b, x)),
-                               (:(x::Bool)    , :(B::BitArray), Int                                   , :(x, b)),
-                               (:(x::Number)  , :(B::BitArray), :(promote_array_type(typeof(x), Bool)), :(x, b)))
-    @eval function ($f)($arg1, $arg2)
-        r = Array($T, size(B))
-        bi = start(B)
-        ri = 1
-        while !done(B, bi)
-            b, bi = next(B, bi)
-            @inbounds r[ri] = ($f)($fargs...)
-            ri += 1
+for (f,F) in ((:.+, DotAddFun()),
+              (:.-, DotSubFun()))
+    for (arg1, arg2, T, fargs) in ((:(B::BitArray), :(x::Bool)    , Int                                   , :(b, x)),
+                                   (:(B::BitArray), :(x::Number)  , :(promote_array_type($F, typeof(x), Bool)), :(b, x)),
+                                   (:(x::Bool)    , :(B::BitArray), Int                                   , :(x, b)),
+                                   (:(x::Number)  , :(B::BitArray), :(promote_array_type($F, typeof(x), Bool)), :(x, b)))
+        @eval function ($f)($arg1, $arg2)
+            r = Array($T, size(B))
+            bi = start(B)
+            ri = 1
+            while !done(B, bi)
+                b, bi = next(B, bi)
+                @inbounds r[ri] = ($f)($fargs...)
+                ri += 1
+            end
+            return r
         end
-        return r
     end
 end
 
@@ -895,7 +899,7 @@ function div(x::Bool, B::BitArray)
 end
 function div(x::Number, B::BitArray)
     all(B) || throw(DivideError())
-    pt = promote_array_type(typeof(x), Bool)
+    pt = promote_array_type(IDivFun(), typeof(x), Bool)
     y = div(x, true)
     reshape(pt[ y for i = 1:length(B) ], size(B))
 end
@@ -916,15 +920,16 @@ function mod(x::Bool, B::BitArray)
 end
 function mod(x::Number, B::BitArray)
     all(B) || throw(DivideError())
-    pt = promote_array_type(typeof(x), Bool)
+    pt = promote_array_type(ModFun(), typeof(x), Bool)
     y = mod(x, true)
     reshape(pt[ y for i = 1:length(B) ], size(B))
 end
 
-for f in (:div, :mod)
+for (f,F) in ((:div, IDivFun()),
+              (:mod, ModFun()))
     @eval begin
         function ($f)(B::BitArray, x::Number)
-            F = Array(promote_array_type(typeof(x), Bool), size(B))
+            F = Array(promote_array_type($F, typeof(x), Bool), size(B))
             for i = 1:length(F)
                 F[i] = ($f)(B[i], x)
             end
@@ -1009,9 +1014,9 @@ function (.^){T<:Number}(B::BitArray, x::T)
         catch err
             uerr = err
         end
-        if zerr == nothing && uerr == nothing
+        if zerr === nothing && uerr === nothing
             t = promote_type(typeof(z), typeof(u))
-        elseif zerr == nothing
+        elseif zerr === nothing
             t = typeof(z)
         else
             t = typeof(u)
@@ -1019,13 +1024,13 @@ function (.^){T<:Number}(B::BitArray, x::T)
         F = Array(t, size(B))
         for i = 1:length(B)
             if B[i]
-                if uerr == nothing
+                if uerr === nothing
                     F[i] = u
                 else
                     throw(uerr)
                 end
             else
-                if zerr == nothing
+                if zerr === nothing
                     F[i] = z
                 else
                     throw(zerr)
@@ -1146,31 +1151,57 @@ function reverse_bits(src::UInt64)
 end
 
 function reverse!(B::BitVector)
+    # Basic idea: each chunk is divided into two blocks of size k = n % 64, and
+    # h = 64 - k. Walk from either end (with indexes i and j) reversing chunks
+    # and seperately ORing their two blocks into place.
+    #
+    #           chunk 3                  chunk 2                  chunk 1
+    # ┌───────────────┬───────┐┌───────────────┬───────┐┌───────────────┬───────┐
+    # │000000000000000│   E   ││       D       │   C   ││       B       │   A   │
+    # └───────────────┴───────┘└───────────────┴───────┘└───────────────┴───────┘
+    #                     k            h           k            h            k
+    # yielding;
+    # ┌───────────────┬───────┐┌───────────────┬───────┐┌───────────────┬───────┐
+    # │000000000000000│  A'   ││      B'       │  C'   ││      D'       │  E'   │
+    # └───────────────┴───────┘└───────────────┴───────┘└───────────────┴───────┘
+
     n = length(B)
-    n == 0 && return B
-
-    pnc = length(B.chunks) & 1
-    hnc = (length(B.chunks) >>> 1)
-
-    aux_chunks = Array(UInt64, 1)
-
-    for i = 1:hnc
-        j = ((i - 1) << 6)
-        aux_chunks[1] = reverse_bits(B.chunks[i])
-        copy_chunks!(B.chunks, j+1, B.chunks, n-63-j, 64)
-        B.chunks[i] = reverse_bits(B.chunks[i])
-        copy_chunks!(B.chunks, n-63-j, aux_chunks, 1, 64)
+    if n == 0
+        return B
     end
 
-    pnc == 0 && return B
+    k = _mod64(n+63) + 1
+    h = 64 - k
 
-    i = hnc + 1
-    j = hnc << 6
-    l = _mod64(n+63) + 1
+    i, j = 0, length(B.chunks)
+    u = UInt64(0)
+    v = reverse_bits(B.chunks[j])
+    B.chunks[j] = 0
+    @inbounds while true
+        i += 1
+        if i == j
+            break
+        end
+        u = reverse_bits(B.chunks[i])
+        B.chunks[i] = 0
+        B.chunks[j] |= u >>> h
+        B.chunks[i] |= v >>> h
 
-    aux_chunks[1] = reverse_bits(B.chunks[i] & _msk_end(l))
-    aux_chunks[1] >>>= (64 - l)
-    copy_chunks!(B.chunks, j+1, aux_chunks, 1, l)
+        j -= 1
+        if i == j
+            break
+        end
+        v = reverse_bits(B.chunks[j])
+        B.chunks[j] = 0
+        B.chunks[i] |= v << k
+        B.chunks[j] |= u << k
+    end
+
+    if isodd(length(B.chunks))
+        B.chunks[i] |= v >>> h
+    else
+        B.chunks[i] |= u << k
+    end
 
     return B
 end
@@ -1618,7 +1649,7 @@ ctranspose(B::BitArray) = transpose(B)
 
 ## Permute array dims ##
 
-function permutedims(B::Union(BitArray,StridedArray), perm)
+function permutedims(B::Union{BitArray,StridedArray}, perm)
     dimsB = size(B)
     ndimsB = length(dimsB)
     (ndimsB == length(perm) && isperm(perm)) || throw(ArgumentError("no valid permutation of dimensions"))
@@ -1658,7 +1689,7 @@ function vcat(V::BitVector...)
     return B
 end
 
-function hcat(A::Union(BitMatrix,BitVector)...)
+function hcat(A::Union{BitMatrix,BitVector}...)
     nargs = length(A)
     nrows = size(A[1], 1)
     ncols = 0
@@ -1708,7 +1739,7 @@ function vcat(A::BitMatrix...)
 end
 
 # general case, specialized for BitArrays and Integers
-function cat(catdim::Integer, X::Union(BitArray, Integer)...)
+function cat(catdim::Integer, X::Union{BitArray, Integer}...)
     nargs = length(X)
     # using integers results in conversion to Array{Int}
     # (except in the all-Bool case)

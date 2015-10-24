@@ -53,10 +53,10 @@
 
 ## eltype ##
 @test eltype((1,2,3)) === Int
-@test eltype((1.0,2.0,3.0)) <: FloatingPoint
+@test eltype((1.0,2.0,3.0)) <: AbstractFloat
 @test eltype((true, false)) === Bool
 @test eltype((1,2.0, false)) === Any
-@test eltype(()) === Union()
+@test eltype(()) === Union{}
 
 
 ## mapping ##
@@ -124,14 +124,33 @@ foo(x, y, z) = x + y + z
 @test prod((1,2,3)) === 6
 
 @test all(()) === true
+@test all((false)) === false
+@test all((true)) === true
 @test all((true, true)) === true
 @test all((true, false)) === false
 @test all((false, false)) === false
 
 @test any(()) === false
+@test any((true)) === true
+@test any((false)) === false
 @test any((true, true)) === true
 @test any((true, false)) === true
 @test any((false, false)) === false
+@test any((false,false,false)) === false
+@test any((true,false,false)) === true
+@test any((false,true,false)) === true
+@test any((false,false,true)) === true
+@test any((true,true,false)) === true
+@test any((true,false,true)) === true
+@test any((true,true,false)) === true
+@test any((true,true,true)) === true
 
+@test @inferred(ntuple(Base.Abs2Fun(), Val{0})) == ()
 @test @inferred(ntuple(Base.Abs2Fun(), Val{2})) == (1, 4)
+@test @inferred(ntuple(Base.Abs2Fun(), Val{3})) == (1, 4, 9)
+@test @inferred(ntuple(Base.Abs2Fun(), Val{4})) == (1, 4, 9, 16)
+@test @inferred(ntuple(Base.Abs2Fun(), Val{5})) == (1, 4, 9, 16, 25)
 @test @inferred(ntuple(Base.Abs2Fun(), Val{6})) == (1, 4, 9, 16, 25, 36)
+
+# issue #12854
+@test_throws TypeError ntuple(identity, Val{1:2})

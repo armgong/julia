@@ -33,6 +33,9 @@ for Tv in (Float64, Complex128)
         @test_approx_eq x float([1:5;])
 
         @test norm(A'*x-b,1) < eps(1e4)
+
+        # Element promotion and type inference
+        @inferred lua\ones(Int, size(A, 2))
     end
 end
 
@@ -55,4 +58,4 @@ end
 
 #4523 - complex sparse \
 x = speye(2) + im * speye(2)
-@test_approx_eq ((lufact(x) \ ones(2)) * x) (complex(ones(2)))
+@test_approx_eq (x*(lufact(x) \ ones(2))) ones(2)

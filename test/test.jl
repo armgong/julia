@@ -1,5 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+using Base.Test
+
 # test file to test testing
 
 # Test @test
@@ -16,81 +18,87 @@ a[1,1,1,1,1] = 10
 
 @test rand() != rand()
 
+sprint(show, @test true)
+sprint(show, @test 10 == 2*5)
+sprint(show, @test !false)
 
-# Test with_handler
-successflag = false
-failureflag = false
-errorflag = false
-test_handler(r::Test.Success) = !successflag
-test_handler(r::Test.Failure) = !failureflag
-test_handler(r::Test.Error) = !errorflag
+OLD_STDOUT = STDOUT
+catch_out = IOStream("")
+rd, wr = redirect_stdout()
 
-Test.with_handler(test_handler) do
+@testset "no errors" begin
     @test true
-    @test successflag
-    @test !failureflag
-    @test !errorflag
-    successflag = false
-    @test false
-    @test !successflag
-    @test failureflag
-    @test !errorflag
-    failureflag = false
-    @test error("throw error")
-    @test !successflag
-    @test !failureflag
-    @test errorflag
+    @test 1 == 1
 end
 
-# Test evaluation of comparison tests
-i7586_1() = 1
-i7586_2() = 7
-i7586_3() = 9
+try
 
-comparison_flags_s = [false,false,false]
-comparison_flags_f = [false,false,false]
-function test_handler2(r::Test.Success)
-    comparison_flags_s[1] = (r.resultexpr.args[1] == 1)
-    comparison_flags_s[2] = (r.resultexpr.args[3] == 7)
-    comparison_flags_s[3] = (r.resultexpr.args[5] == 9)
+@testset "outer" begin
+    @testset "inner1" begin
+        @test true
+        @test false
+        @test 1 == 1
+        @test 2 == :foo
+        @test 3 == 3
+        @testset "d" begin
+            @test 4 == 4
+        end
+        @testset begin
+            @test :blank != :notblank
+        end
+    end
+    @testset "inner1" begin
+        @test 1 == 1
+        @test 2 == 2
+        @test 3 == :bar
+        @test 4 == 4
+        @test_throws ErrorException 1+1
+        @test_throws ErrorException error()
+        @testset "errrrr" begin
+            @test "not bool"
+            @test error()
+        end
+    end
+
+    @testset "loop with desc" begin
+        @testloop "loop1 $T" for T in (Float32, Float64)
+            @test 1 == T(1)
+        end
+    end
+    @testset "loops without desc" begin
+        @testloop for T in (Float32, Float64)
+            @test 1 == T(1)
+        end
+        @testloop for T in (Float32, Float64), S in (Int32,Int64)
+            @test S(1) == T(1)
+        end
+    end
+    srand(123)
+    @testset "some loops fail" begin
+        @testloop for i in 1:5
+            @test i <= rand(1:10)
+        end
+    end
 end
+    # These lines shouldn't be called
+    redirect_stdout(OLD_STDOUT)
+    error("No exception was thrown!")
+catch ex
+    redirect_stdout(OLD_STDOUT)
 
-function test_handler2(r::Test.Failure)
-    comparison_flags_f[1] = (r.resultexpr.args[1] == 1)
-    comparison_flags_f[2] = (r.resultexpr.args[3] == 7)
-    comparison_flags_f[3] = (r.resultexpr.args[5] == 10)
+    @test isa(ex, Test.TestSetException)
+    @test ex.pass  == 21
+    @test ex.fail  == 5
+    @test ex.error == 2
 end
-
-Test.with_handler(test_handler2) do
-    @test i7586_1() <= i7586_2() <= i7586_3()
-    @test i7586_1() >= i7586_2() >= 10
-end
-@test all(comparison_flags_s)
-@test all(comparison_flags_f)
-
-# Test @test_throws
-domainerror_thrower() = throw(DomainError())
-boundserror_thrower() = throw(BoundsError())
-error_thrower() = error("An error happened")
-@test_throws DomainError domainerror_thrower()
-@test_throws BoundsError boundserror_thrower()
-
-failureflag = false
-successflag = false
-Test.with_handler(test_handler) do
-    @test_throws DomainError boundserror_thrower()
-    @test failureflag
-    @test_throws DomainError domainerror_thrower()
-    @test successflag
-end
-
 
 # Test @test_approx_eq
 # TODO
 @test isapprox(.1+.1+.1, .3)
 @test !isapprox(.1+.1+.1, .4)
 
+@test_throws ErrorException Test.test_approx_eq(ones(10),ones(11),1e-8,"a","b")
+@test_throws ErrorException Test.test_approx_eq(ones(10),zeros(10),1e-8,"a","b")
 
 # Test @test_approx_eq_eps
 # TODO
-

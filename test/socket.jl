@@ -64,24 +64,32 @@ end
 @test repr(ip"2001:db8:0:0:1:0:0:1") == "ip\"2001:db8::1:0:0:1\""
 @test repr(ip"2001:0:0:1:0:0:0:1") == "ip\"2001:0:0:1::1\""
 
-port = RemoteRef()
-c = Base.Condition()
+port = Channel(1)
 defaultport = rand(2000:4000)
 tsk = @async begin
     p, s = listenany(defaultport)
     put!(port, p)
-    Base.notify(c)
     sock = accept(s)
+    # test write call
     write(sock,"Hello World\n")
+
+    # test "locked" println to a socket
+    @sync begin
+        for i in 1:100
+            @async println(sock, "a", 1)
+        end
+    end
     close(s)
     close(sock)
 end
-wait(c)
-@test readall(connect(fetch(port))) == "Hello World\n"
+wait(port)
+@test readall(connect(fetch(port))) == "Hello World\n" * ("a1\n"^100)
 wait(tsk)
 
 socketname = (@windows ? "\\\\.\\pipe\\uv-test" : "testsocket") * "-" * randstring(6)
 @unix_only isfile(socketname) && Base.FS.unlink(socketname)
+
+c=Base.Condition()
 for T in (ASCIIString, UTF8String, UTF16String) # test for issue #9435
     tsk = @async begin
         s = listen(T(socketname))
@@ -107,7 +115,7 @@ end
 @test_throws ArgumentError connect(ip"0:0:0:0:0:ffff:127.0.0.1", typemax(UInt16)+1)
 
 p, server = listenany(defaultport)
-r = RemoteRef()
+r = Channel(1)
 tsk = @async begin
     put!(r, :start)
     @test_throws Base.UVError accept(server)

@@ -2,9 +2,9 @@
 
 abstract IO
 
-typealias Callable Union(Function,DataType)
+typealias Callable Union{Function,DataType}
 
-const Bottom = Union()
+const Bottom = Union{}
 
 # The real @inline macro is not available until after array.jl, so this
 # internal macro splices the meta Expr directly into the function body.
@@ -30,6 +30,7 @@ call(T::Type{SegmentationFault}) = Core.call(T)
 call(T::Type{UndefRefError}) = Core.call(T)
 call(T::Type{UndefVarError}, var::Symbol) = Core.call(T, var)
 call(T::Type{InterruptException}) = Core.call(T)
+call(T::Type{TypeError}, func::Symbol, context::AbstractString, expected::Type, got) = Core.call(T, func, context, expected, got)
 call(T::Type{SymbolNode}, name::Symbol, t::ANY) = Core.call(T, name, t)
 call(T::Type{GlobalRef}, modu, name::Symbol) = Core.call(T, modu, name)
 call(T::Type{ASCIIString}, d::Array{UInt8,1}) = Core.call(T, d)
@@ -37,20 +38,20 @@ call(T::Type{UTF8String}, d::Array{UInt8,1}) = Core.call(T, d)
 call(T::Type{TypeVar}, args...) = Core.call(T, args...)
 call(T::Type{TypeConstructor}, args...) = Core.call(T, args...)
 call(T::Type{Expr}, args::ANY...) = _expr(args...)
-call(T::Type{LineNumberNode}, n::Int) = Core.call(T, n)
+call(T::Type{LineNumberNode}, f::Symbol, n::Int) = Core.call(T, f, n)
 call(T::Type{LabelNode}, n::Int) = Core.call(T, n)
 call(T::Type{GotoNode}, n::Int) = Core.call(T, n)
 call(T::Type{QuoteNode}, x::ANY) = Core.call(T, x)
 call(T::Type{NewvarNode}, s::Symbol) = Core.call(T, s)
 call(T::Type{TopNode}, s::Symbol) = Core.call(T, s)
 call(T::Type{Module}, args...) = Core.call(T, args...)
-call(T::Type{Task}, f::ANY) = Core.call(T, f)
+call(T::Type{Task}, f::Function) = Core.call(T, f)
 call(T::Type{GenSym}, n::Int) = Core.call(T, n)
 call(T::Type{WeakRef}) = Core.call(T)
 call(T::Type{WeakRef}, v::ANY) = Core.call(T, v)
+call(T::Type{Void}) = Core.call(Void)
 
-# The specialization for 1 arg is important
-# when running with --inline=no, see #11158
+# The specialization for 1 arg is important when running with --inline=no, see #11158
 call{T}(::Type{T}, arg) = convert(T, arg)::T
 call{T}(::Type{T}, args...) = convert(T, args...)::T
 
@@ -93,6 +94,7 @@ tail(x::Tuple) = argtail(x...)
 
 convert{T<:Tuple{Any,Vararg{Any}}}(::Type{T}, x::Tuple{Any, Vararg{Any}}) =
     tuple(convert(tuple_type_head(T),x[1]), convert(tuple_type_tail(T), tail(x))...)
+convert{T<:Tuple{Any,Vararg{Any}}}(::Type{T}, x::T) = x
 
 oftype(x,c) = convert(typeof(x),c)
 
@@ -135,7 +137,7 @@ function append_any(xs...)
 end
 
 # simple Array{Any} operations needed for bootstrap
-setindex!(A::Array{Any}, x::ANY, i::Real) = arrayset(A, x, to_index(i))
+setindex!(A::Array{Any}, x::ANY, i::Int) = arrayset(A, x, i)
 
 function length_checked_equal(args...)
     n = length(args[1])

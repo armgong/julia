@@ -34,15 +34,17 @@ macro test_repr(x)
         # strings get converted to string Exprs by the first show().
         # This could produce a few false positives, but until string
         # interpolation works we don't really have a choice.
-        local x1 = parse($x)
-        local x2 = eval(parse(repr(x1)))
-        local x3 = eval(parse(repr(x2)))
-        x3 == x1 ? nothing : error(string(
-            "repr test failed:",
-            "\noriginal: ", $x,
-            "\n\nparsed: ", x2, "\n", sprint(dump, x2),
-            "\n\nreparsed: ", x3, "\n", sprint(dump, x3)
-        ))
+        let
+            local x1 = parse($x)
+            local x2 = eval(parse(repr(x1)))
+            local x3 = eval(parse(repr(x2)))
+            x3 == x1 ? nothing : error(string(
+                "repr test failed:",
+                "\noriginal: ", $x,
+                "\n\nparsed: ", x2, "\n", sprint(dump, x2),
+                "\n\nreparsed: ", x3, "\n", sprint(dump, x3)
+                ))
+        end
     end
 end
 
@@ -164,6 +166,9 @@ end"""
 @test sprint(show, :+) == ":+"
 @test sprint(show, :end) == ":end"
 
+# issue #12477
+@test sprint(show, Union{Int64,Int32,Int16,Int8,Float64}) == "Union{Float64,Int16,Int32,Int64,Int8}"
+
 # Function and array reference precedence
 @test_repr "([2] + 3)[1]"
 @test_repr "foo.bar[1]"
@@ -261,3 +266,39 @@ end
 @test_repr "1 => 2 => 3"
 @test_repr "1 => (2 => 3)"
 @test_repr "(1 => 2) => 3"
+
+# pr 12008
+@test_repr "bitstype A B"
+@test_repr "bitstype 100 B"
+@test repr(:(bitstype A B)) == ":(bitstype A B)"
+@test repr(:(bitstype 100 B)) == ":(bitstype 100 B)"
+
+oldout = STDOUT
+try
+    rd, wr = redirect_stdout()
+    @test dump(STDERR) == nothing
+    @test xdump(STDERR) == nothing
+finally
+    redirect_stdout(oldout)
+end
+
+# issue #12960
+type T12960 end
+let
+    A = speye(3)
+    B = similar(A, T12960)
+    @test sprint(show, B)  == "\n\t[1, 1]  =  #undef\n\t[2, 2]  =  #undef\n\t[3, 3]  =  #undef"
+    @test sprint(print, B) == "\n\t[1, 1]  =  #undef\n\t[2, 2]  =  #undef\n\t[3, 3]  =  #undef"
+    B[1,2] = T12960()
+    @test sprint(show, B)  == "\n\t[1, 1]  =  #undef\n\t[1, 2]  =  T12960()\n\t[2, 2]  =  #undef\n\t[3, 3]  =  #undef"
+    @test sprint(print, B) == "\n\t[1, 1]  =  #undef\n\t[1, 2]  =  T12960()\n\t[2, 2]  =  #undef\n\t[3, 3]  =  #undef"
+end
+
+# issue #13127
+function f13127()
+    buf = IOBuffer()
+    f() = 1
+    show(buf, f)
+    takebuf_string(buf)
+end
+@test f13127() == "f"

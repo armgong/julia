@@ -1,5 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+using Base.Test
+
 # check sparse matrix construction
 @test isequal(full(sparse(complex(ones(5,5),ones(5,5)))), complex(ones(5,5),ones(5,5)))
 
@@ -93,7 +95,10 @@ for i = 1:5
     α = rand(Complex128)
     β = rand(Complex128)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs(A_mul_B!(similar(b), a, b) - full(a)*b)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
+    @test (maximum(abs(A_mul_B!(similar(c), a, c) - full(a)*c)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -108,6 +113,7 @@ for i = 1:5
     b = randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -116,6 +122,7 @@ for i = 1:5
     b = randn(5,3) + im*randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -125,6 +132,7 @@ for i = 1:5
     b = randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -133,6 +141,7 @@ for i = 1:5
     b = randn(5,3) + im*randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -142,6 +151,7 @@ for i = 1:5
     b = randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -150,6 +160,7 @@ for i = 1:5
     b = randn(5,3) + im*randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -159,6 +170,7 @@ for i = 1:5
     b = randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -166,6 +178,7 @@ for i = 1:5
     b = randn(5,3) + im*randn(5,3)
     @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
     @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
     @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
     @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
     @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
@@ -260,9 +273,13 @@ end
 rowval = Int32[1,2,2,3,4,5,1,4,6,1,7,2,5,8,6,9,3,4,6,8,10,3,5,7,8,10,11]
 colval = Int32[1,2,3,3,4,5,6,6,6,7,7,8,8,8,9,9,10,10,10,10,10,11,11,11,11,11,11]
 A = sparse(rowval, colval, ones(length(rowval)))
-P,post = Base.LinAlg.etree(A, true)
+p = etree(A)
+P,post = etree(A, true)
+@test P == p
 @test P == Int32[6,3,8,6,8,7,9,10,10,11,0]
 @test post == Int32[2,3,5,8,1,4,6,7,9,10,11]
+@test isperm(post)
+
 
 # issue #4986, reinterpret
 sfe22 = speye(Float64, 2)
@@ -270,7 +287,7 @@ mfe22 = eye(Float64, 2)
 @test reinterpret(Int64, sfe22) == reinterpret(Int64, mfe22)
 
 # issue #5190
-@test_throws DimensionMismatch sparsevec([3,5,7],[0.1,0.0,3.2],4)
+@test_throws ArgumentError sparsevec([3,5,7],[0.1,0.0,3.2],4)
 
 # issue #5169
 @test nnz(sparse([1,1],[1,2],[0.0,-0.0])) == 0
@@ -578,17 +595,17 @@ let A = Array(Int,0,0), S = sparse(A)
 end
 
 # issue #8225
-@test_throws BoundsError sparse([0],[-1],[1.0],2,2)
+@test_throws ArgumentError sparse([0],[-1],[1.0],2,2)
 
 # issue #8363
-@test_throws BoundsError sparsevec(Dict(-1=>1,1=>2))
+@test_throws ArgumentError sparsevec(Dict(-1=>1,1=>2))
 
 # issue #8976
 @test conj(sparse([1im])) == sparse(conj([1im]))
 @test conj!(sparse([1im])) == sparse(conj!([1im]))
 
 # issue #9525
-@test_throws BoundsError sparse([3], [5], 1.0, 3, 3)
+@test_throws ArgumentError sparse([3], [5], 1.0, 3, 3)
 
 #findn
 b = findn( speye(4) )
@@ -831,6 +848,8 @@ let  A = sprand(10,10,0.3), B = sprand(10,10,0.3), CF = rand(10,10), AF = full(A
     @test A .- 3 == AF .- 3
     @test 3 .- A == 3 .- AF
     @test A .- B == AF .- BF
+    @test A - AF == zeros(AF)
+    @test AF - A == zeros(AF)
     @test A[1,:] .- B == AF[1,:] .- BF
     @test A[:,1] .- B == AF[:,1] .- BF
     @test A .- B[1,:] == AF .-  BF[1,:]
@@ -839,6 +858,7 @@ let  A = sprand(10,10,0.3), B = sprand(10,10,0.3), CF = rand(10,10), AF = full(A
     @test A .+ 3 == AF .+ 3
     @test 3 .+ A == 3 .+ AF
     @test A .+ B == AF .+ BF
+    @test A + AF == AF + A
     @test (A .< B) == (AF .< BF)
     @test (A .!= B) == (AF .!= BF)
 
@@ -854,6 +874,7 @@ let  A = sprand(10,10,0.3), B = sprand(10,10,0.3), CF = rand(10,10), AF = full(A
     @test BF .\ C == BF .\ CF
 
     @test A .^ 3 == AF .^ 3
+    @test 3 .^ A == 3 .^ AF
     @test A .^ BF[:,1] == AF .^ BF[:,1]
     @test BF[:,1] .^ A == BF[:,1] .^ AF
 end
@@ -863,6 +884,7 @@ A = sprandbool(5,5,0.2)
 @test_throws ArgumentError reinterpret(Complex128,A,(5,5))
 @test_throws DimensionMismatch reinterpret(Int8,A,(20,))
 @test_throws DimensionMismatch reshape(A,(20,2))
+@test_throws ArgumentError squeeze(A,(1,1))
 
 # test similar with type conversion
 A = speye(5)
@@ -874,6 +896,8 @@ A = speye(5)
 @test convert(Matrix,A) == full(A)
 
 # test float
+A = sprandbool(5,5,0.0)
+@test eltype(float(A)) == Float64  # issue #11658
 A = sprandbool(5,5,0.2)
 @test float(A) == float(full(A))
 
@@ -892,7 +916,6 @@ A = sparse(ones(5,5))
 @test_throws DimensionMismatch one(sprand(5,6,0.2))
 
 #istriu/istril
-
 A = sparse(triu(rand(5,5)))
 @test istriu(A)
 @test !istriu(sparse(ones(5,5)))
@@ -900,23 +923,31 @@ A = sparse(tril(rand(5,5)))
 @test istril(A)
 @test !istril(sparse(ones(5,5)))
 
-#trace
+# symperm
+srand(1234321)
+A = triu(sprand(10,10,0.2))       # symperm operates on upper triangle
+perm = randperm(10)
+@test symperm(A,perm).colptr == [1,2,3,3,3,4,5,5,7,9,10]
 
+# droptol
+@test Base.droptol!(A,0.01).colptr == [1,1,1,2,2,3,4,6,6,7,9]
+
+#trace
 @test_throws DimensionMismatch trace(sparse(ones(5,6)))
 @test trace(speye(5)) == 5
 
 #diagm on a matrix
-
 @test_throws DimensionMismatch diagm(sparse(ones(5,2)))
 @test_throws DimensionMismatch diagm(sparse(ones(2,5)))
 @test diagm(sparse(ones(1,5))) == speye(5)
 
 # triu/tril
-
 A = sprand(5,5,0.2)
 AF = full(A)
 @test full(triu(A,1)) == triu(AF,1)
 @test full(tril(A,1)) == tril(AF,1)
+@test full(triu!(copy(A), 2)) == triu(AF,2)
+@test full(tril!(copy(A), 2)) == tril(AF,2)
 @test_throws BoundsError tril(A,6)
 @test_throws BoundsError tril(A,-6)
 @test_throws BoundsError triu(A,6)
@@ -993,3 +1024,117 @@ A1[2:5,1] = 1
 nonzeros(A1)[2:5]=0
 @test A1==A2
 @test sparse([1,1,0])!=sparse([0,1,1])
+
+# UniformScaling
+A = sprandn(10,10,0.5)
+@test A + I == full(A) + I
+@test I + A == I + full(A)
+@test A - I == full(A) - I
+@test I - A == I - full(A)
+
+# Test error path if triplet vectors are not all the same length (#12177)
+@test_throws ArgumentError sparse([1,2,3], [1,2], [1,2,3], 3, 3)
+@test_throws ArgumentError sparse([1,2,3], [1,2,3], [1,2], 3, 3)
+
+#Issue 12118: sparse matrices are closed under +, -, min, max
+let
+    A12118 = sparse([1,2,3,4,5], [1,2,3,4,5], [1,2,3,4,5])
+    B12118 = sparse([1,2,4,5],   [1,2,3,5],   [2,1,-1,-2])
+
+    @test A12118 + B12118 == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], [3,3,3,-1,4,3])
+    @test typeof(A12118 + B12118) == SparseMatrixCSC{Int,Int}
+
+    @test A12118 - B12118 == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], [-1,1,3,1,4,7])
+    @test typeof(A12118 - B12118) == SparseMatrixCSC{Int,Int}
+
+    @test max(A12118, B12118) == sparse([1,2,3,4,5], [1,2,3,4,5], [2,2,3,4,5])
+    @test typeof(max(A12118, B12118)) == SparseMatrixCSC{Int,Int}
+
+    @test min(A12118, B12118) == sparse([1,2,4,5], [1,2,3,5], [1,1,-1,-2])
+    @test typeof(min(A12118, B12118)) == SparseMatrixCSC{Int,Int}
+end
+
+# test sparse matrix norms
+Ac = sprandn(10,10,.1) + im* sprandn(10,10,.1)
+Ar = sprandn(10,10,.1)
+Ai = ceil(Int,Ar*100)
+@test_approx_eq norm(Ac,1)     norm(full(Ac),1)
+@test_approx_eq norm(Ac,Inf)   norm(full(Ac),Inf)
+@test_approx_eq vecnorm(Ac)    vecnorm(full(Ac))
+@test_approx_eq norm(Ar,1)     norm(full(Ar),1)
+@test_approx_eq norm(Ar,Inf)   norm(full(Ar),Inf)
+@test_approx_eq vecnorm(Ar)    vecnorm(full(Ar))
+@test_approx_eq norm(Ai,1)     norm(full(Ai),1)
+@test_approx_eq norm(Ai,Inf)   norm(full(Ai),Inf)
+@test_approx_eq vecnorm(Ai)    vecnorm(full(Ai))
+
+# test sparse matrix cond
+A = sparse([1.0])
+Ac = sprandn(20,20,.5) + im* sprandn(20,20,.5)
+Ar = sprandn(20,20,.5)
+@test cond(A,1) == 1.0
+@test_approx_eq_eps cond(Ar,1) cond(full(Ar),1) 1e-4
+@test_approx_eq_eps cond(Ac,1) cond(full(Ac),1) 1e-4
+@test_approx_eq_eps cond(Ar,Inf) cond(full(Ar),Inf) 1e-4
+@test_approx_eq_eps cond(Ac,Inf) cond(full(Ac),Inf) 1e-4
+@test_throws ArgumentError cond(A,2)
+@test_throws ArgumentError cond(A,3)
+let Arect = spzeros(10, 6)
+    @test_throws DimensionMismatch cond(Arect, 1)
+    @test_throws ArgumentError cond(Arect,2)
+    @test_throws DimensionMismatch cond(Arect, Inf)
+end
+
+# test sparse matrix normestinv
+Ac = sprandn(20,20,.5) + im* sprandn(20,20,.5)
+Aci = ceil(Int64,100*sprand(20,20,.5))+ im*ceil(Int64,sprand(20,20,.5))
+Ar = sprandn(20,20,.5)
+Ari = ceil(Int64,100*Ar)
+@test_approx_eq_eps Base.SparseMatrix.normestinv(Ac,3) norm(inv(full(Ac)),1) 1e-4
+@test_approx_eq_eps Base.SparseMatrix.normestinv(Aci,3) norm(inv(full(Aci)),1) 1e-4
+@test_approx_eq_eps Base.SparseMatrix.normestinv(Ar) norm(inv(full(Ar)),1) 1e-4
+@test_throws ArgumentError Base.SparseMatrix.normestinv(Ac,0)
+@test_throws ArgumentError Base.SparseMatrix.normestinv(Ac,21)
+@test_throws DimensionMismatch Base.SparseMatrix.normestinv(sprand(3,5,.9))
+
+@test_throws ErrorException transpose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
+@test_throws ErrorException ctranspose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
+
+# csc_permute
+A = sprand(10,10,0.2)
+p = randperm(10)
+q = randperm(10)
+@test Base.SparseMatrix.csc_permute(A, invperm(p), q) == full(A)[p, q]
+
+# issue #13008
+@test_throws ArgumentError sparse(collect(1:100), collect(1:100), fill(5,100), 5, 5)
+@test_throws ArgumentError sparse(Int[], collect(1:5), collect(1:5))
+
+# issue #13024
+let
+    A13024 = sparse([1,2,3,4,5], [1,2,3,4,5], fill(true,5))
+    B13024 = sparse([1,2,4,5],   [1,2,3,5],   fill(true,4))
+
+    @test A13024 & B13024 == sparse([1,2,5], [1,2,5], fill(true,3))
+    @test typeof(A13024 & B13024) == SparseMatrixCSC{Bool,Int}
+
+    @test A13024 | B13024 == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], fill(true,6))
+    @test typeof(A13024 | B13024) == SparseMatrixCSC{Bool,Int}
+
+    @test A13024 $ B13024 == sparse([3,4,4], [3,3,4], fill(true,3), 5, 5)
+    @test typeof(A13024 $ B13024) == SparseMatrixCSC{Bool,Int}
+
+    @test max(A13024, B13024) == sparse([1,2,3,4,4,5], [1,2,3,3,4,5], fill(true,6))
+    @test typeof(max(A13024, B13024)) == SparseMatrixCSC{Bool,Int}
+
+    @test min(A13024, B13024) == sparse([1,2,5], [1,2,5], fill(true,3))
+    @test typeof(min(A13024, B13024)) == SparseMatrixCSC{Bool,Int}
+
+    for op in (+, -, &, |, $, max, min)
+        @test op(A13024, B13024) == op(full(A13024), full(B13024))
+    end
+end
+
+let A = 2. * speye(5,5)
+    @test full(spones(A)) == eye(full(A))
+end

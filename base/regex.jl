@@ -16,7 +16,6 @@ type Regex
     ovec::Vector{Csize_t}
     match_data::Ptr{Void}
 
-
     function Regex(pattern::AbstractString, compile_options::Integer,
                    match_options::Integer)
         pattern = bytestring(pattern)
@@ -89,18 +88,23 @@ end
 
 immutable RegexMatch
     match::SubString{UTF8String}
-    captures::Vector{Union(Void,SubString{UTF8String})}
+    captures::Vector{Union{Void,SubString{UTF8String}}}
     offset::Int
     offsets::Vector{Int}
+    regex::Regex
 end
 
 function show(io::IO, m::RegexMatch)
     print(io, "RegexMatch(")
     show(io, m.match)
+    idx_to_capture_name = PCRE.capture_names(m.regex.regex)
     if !isempty(m.captures)
         print(io, ", ")
         for i = 1:length(m.captures)
-            print(io, i, "=")
+            # If the capture group is named, show the name.
+            # Otherwise show its index.
+            capture_name = get(idx_to_capture_name, i, i)
+            print(io, capture_name, "=")
             show(io, m.captures[i])
             if i < length(m.captures)
                 print(io, ", ")
@@ -109,6 +113,15 @@ function show(io::IO, m::RegexMatch)
     end
     print(io, ")")
 end
+
+# Capture group extraction
+getindex(m::RegexMatch, idx::Integer) = m.captures[idx]
+function getindex(m::RegexMatch, name::Symbol)
+    idx = PCRE.substring_number_from_name(m.regex.regex, name)
+    idx <= 0 && error("no capture group named $name found in regex")
+    m[idx]
+end
+getindex(m::RegexMatch, name::AbstractString) = m[Symbol(name)]
 
 function ismatch(r::Regex, s::AbstractString, offset::Integer=0)
     compile(r)
@@ -124,7 +137,7 @@ end
 
 call(r::Regex, s) = ismatch(r, s)
 
-function match(re::Regex, str::UTF8String, idx::Integer, add_opts::UInt32=UInt32(0))
+function match(re::Regex, str::Union{SubString{UTF8String}, UTF8String}, idx::Integer, add_opts::UInt32=UInt32(0))
     compile(re)
     opts = re.match_options | add_opts
     if !PCRE.exec(re.regex, str, idx-1, opts, re.match_data)
@@ -133,14 +146,16 @@ function match(re::Regex, str::UTF8String, idx::Integer, add_opts::UInt32=UInt32
     ovec = re.ovec
     n = div(length(ovec),2) - 1
     mat = SubString(str, ovec[1]+1, ovec[2])
-    cap = Union(Void,SubString{UTF8String})[
+    cap = Union{Void,SubString{UTF8String}}[
             ovec[2i+1] == PCRE.UNSET ? nothing : SubString(str, ovec[2i+1]+1, ovec[2i+2]) for i=1:n ]
     off = Int[ ovec[2i+1]+1 for i=1:n ]
-    RegexMatch(mat, cap, ovec[1]+1, off)
+    RegexMatch(mat, cap, ovec[1]+1, off, re)
 end
 
-match(re::Regex, str::Union(ByteString,SubString), idx::Integer, add_opts::UInt32=UInt32(0)) =
-    match(re, utf8(str), idx, add_opts)
+_utf8(str) = utf8(str)
+_utf8(str::SubString{ASCIIString}) = convert(SubString{UTF8String}, str)
+match{T<:ByteString}(re::Regex, str::Union{T,SubString{T}}, idx::Integer, add_opts::UInt32=UInt32(0)) =
+    match(re, _utf8(str), idx, add_opts)
 
 match(r::Regex, s::AbstractString) = match(r, s, start(s))
 match(r::Regex, s::AbstractString, i::Integer) =
@@ -180,10 +195,10 @@ function matchall(re::Regex, str::UTF8String, overlap::Bool=false)
     matches
 end
 
-matchall(re::Regex, str::Union(ByteString,SubString), overlap::Bool=false) =
+matchall(re::Regex, str::Union{ByteString,SubString}, overlap::Bool=false) =
     matchall(re, utf8(str), overlap)
 
-function search(str::Union(ByteString,SubString), re::Regex, idx::Integer)
+function search(str::Union{ByteString,SubString}, re::Regex, idx::Integer)
     if idx > nextind(str,endof(str))
         throw(BoundsError())
     end
@@ -195,6 +210,89 @@ end
 search(s::AbstractString, r::Regex, idx::Integer) =
     throw(ArgumentError("regex search is only available for bytestrings; use bytestring(s) to convert"))
 search(s::AbstractString, r::Regex) = search(s,r,start(s))
+
+immutable SubstitutionString{T<:AbstractString} <: AbstractString
+    string::T
+end
+
+endof(s::SubstitutionString) = endof(s.string)
+next(s::SubstitutionString, idx::Int) = next(s.string, idx)
+function show(io::IO, s::SubstitutionString)
+    print(io, "s")
+    show(io, s.string)
+end
+
+macro s_str(string) SubstitutionString(string) end
+
+replace_err(repl) = error("Bad replacement string: $repl")
+
+function _write_capture(io, re, group)
+    len = PCRE.substring_length_bynumber(re.match_data, group)
+    ensureroom(io, len+1)
+    PCRE.substring_copy_bynumber(re.match_data, group,
+        pointer(io.data, io.ptr), len+1)
+    io.ptr += len
+    io.size = max(io.size, io.ptr - 1)
+end
+
+function _replace(io, repl_s::SubstitutionString, str, r, re)
+    const SUB_CHAR = '\\'
+    const GROUP_CHAR = 'g'
+    const LBRACKET = '<'
+    const RBRACKET = '>'
+    repl = repl_s.string
+    i = start(repl)
+    e = endof(repl)
+    while i <= e
+        if repl[i] == SUB_CHAR
+            next_i = nextind(repl, i)
+            next_i > e && replace_err(repl)
+            if repl[next_i] == SUB_CHAR
+                write(io, SUB_CHAR)
+                i = nextind(repl, next_i)
+            elseif isnumber(repl[next_i])
+                group = parse(Int, repl[next_i])
+                i = nextind(repl, next_i)
+                while i <= e
+                    if isnumber(repl[i])
+                        group = 10group + parse(Int, repl[i])
+                        i = nextind(repl, i)
+                    else
+                        break
+                    end
+                end
+                _write_capture(io, re, group)
+            elseif repl[next_i] == GROUP_CHAR
+                i = nextind(repl, next_i)
+                if i > e || repl[i] != LBRACKET
+                    replace_err(repl)
+                end
+                i = nextind(repl, i)
+                i > e && replace_err(repl)
+                groupstart = i
+                while repl[i] != RBRACKET
+                    i = nextind(repl, i)
+                    i > e && replace_err(repl)
+                end
+                #  TODO: avoid this allocation
+                groupname = SubString(repl, groupstart, prevind(repl, i))
+                if isnumber(groupname)
+                    _write_capture(io, re, parse(Int, groupname))
+                else
+                    group = PCRE.substring_number_from_name(re.regex, groupname)
+                    group < 0 && replace_err("Group $groupname not found in regex $re")
+                    _write_capture(io, re, group)
+                end
+                i = nextind(repl, i)
+            else
+                replace_err(repl)
+            end
+        else
+            write(io, repl[i])
+            i = nextind(repl, i)
+        end
+    end
+end
 
 immutable RegexMatchIterator
     regex::Regex
@@ -208,7 +306,7 @@ end
 compile(itr::RegexMatchIterator) = (compile(itr.regex); itr)
 eltype(::Type{RegexMatchIterator}) = RegexMatch
 start(itr::RegexMatchIterator) = match(itr.regex, itr.string, 1, UInt32(0))
-done(itr::RegexMatchIterator, prev_match) = (prev_match == nothing)
+done(itr::RegexMatchIterator, prev_match) = (prev_match === nothing)
 
 # Assumes prev_match is not nothing
 function next(itr::RegexMatchIterator, prev_match)
@@ -249,3 +347,18 @@ function eachmatch(re::Regex, str::AbstractString, ovr::Bool=false)
 end
 
 eachmatch(re::Regex, str::AbstractString) = RegexMatchIterator(re,str)
+
+## comparison ##
+
+function ==(a::Regex, b::Regex)
+    a.pattern == b.pattern && a.compile_options == b.compile_options && a.match_options == b.match_options
+end
+
+## hash ##
+const hashre_seed = UInt === UInt64 ? 0x67e195eb8555e72d : 0xe32373e4
+function hash(r::Regex, h::UInt)
+    h += hashre_seed
+    h = hash(r.pattern, h)
+    h = hash(r.compile_options, h)
+    h = hash(r.match_options, h)
+end

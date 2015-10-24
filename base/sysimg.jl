@@ -1,7 +1,6 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
 import Core.Intrinsics.ccall
-ccall(:jl_new_main_module, Any, ())
 
 baremodule Base
 
@@ -29,11 +28,9 @@ end
 
 ## Load essential files and libraries
 include("essentials.jl")
+include("docs/bootstrap.jl")
 include("base.jl")
 include("reflection.jl")
-include("build_h.jl")
-include("version_git.jl")
-include("c.jl")
 include("options.jl")
 
 # core operations & types
@@ -50,6 +47,7 @@ include("int.jl")
 include("operators.jl")
 include("pointer.jl")
 include("refpointer.jl")
+include("functors.jl")
 
 # array structures
 include("abstractarray.jl")
@@ -71,7 +69,6 @@ include("simdloop.jl")
 importall .SimdLoop
 
 # map-reduce operators
-include("functors.jl")
 include("reduce.jl")
 
 ## core structures
@@ -81,21 +78,20 @@ include("dict.jl")
 include("set.jl")
 include("iterator.jl")
 
-# For OS specific stuff in I/O
+# For OS specific stuff
+include(UTF8String(vcat(length(Core.ARGS)>=2?Core.ARGS[2].data:"".data, "build_h.jl".data))) # include($BUILDROOT/base/build_h.jl)
+include(UTF8String(vcat(length(Core.ARGS)>=2?Core.ARGS[2].data:"".data, "version_git.jl".data))) # include($BUILDROOT/base/version_git.jl)
+include("c.jl")
 include("osutils.jl")
 
 # strings & printing
-include("utferror.jl")
-include("utftypes.jl")
 include("char.jl")
 include("ascii.jl")
-include("utf8.jl")
-include("utf16.jl")
-include("utf32.jl")
 include("iobuffer.jl")
 include("string.jl")
-include("utf8proc.jl")
-importall .UTF8proc
+include("unicode.jl")
+include("parse.jl")
+include("shell.jl")
 include("regex.jl")
 include("base64.jl")
 importall .Base64
@@ -106,7 +102,7 @@ include("iostream.jl")
 
 # system & environment
 include("libc.jl")
-using .Libc: getpid, gethostname, time, msync
+using .Libc: getpid, gethostname, time
 include("libdl.jl")
 using .Libdl: DL_LOAD_PATH
 include("env.jl")
@@ -128,7 +124,6 @@ importall .FS
 include("process.jl")
 include("multimedia.jl")
 importall .Multimedia
-ccall(:jl_get_uv_hooks, Void, ()) # TODO: should put this in _init
 include("grisu.jl")
 import .Grisu.print_shortest
 include("file.jl")
@@ -149,9 +144,8 @@ include("multidimensional.jl")
 
 include("primes.jl")
 
-begin
-    SOURCE_PATH = ""
-    include = function(path)
+let SOURCE_PATH = ""
+    global include = function(path)
         prev = SOURCE_PATH
         path = joinpath(dirname(prev),path)
         SOURCE_PATH = path
@@ -181,7 +175,7 @@ importall .GMP
 include("mpfr.jl")
 importall .MPFR
 big(n::Integer) = convert(BigInt,n)
-big(x::FloatingPoint) = convert(BigFloat,x)
+big(x::AbstractFloat) = convert(BigFloat,x)
 big(q::Rational) = big(num(q))//big(den(q))
 
 include("combinatorics.jl")
@@ -208,6 +202,7 @@ importall .Enums
 # concurrency and parallelism
 include("serialize.jl")
 importall .Serializer
+include("channels.jl")
 include("multi.jl")
 include("managers.jl")
 
@@ -219,6 +214,7 @@ include("poll.jl")
 
 # memory-mapped and shared arrays
 include("mmap.jl")
+import .Mmap
 include("sharedarray.jl")
 
 # utilities - timing, help, edit
@@ -229,10 +225,7 @@ include("interactiveutil.jl")
 include("replutil.jl")
 include("test.jl")
 include("i18n.jl")
-include("help.jl")
 using .I18n
-using .Help
-push!(I18n.CALLBACKS, Help.clear_cache)
 
 # frontend
 include("Terminals.jl")
@@ -241,10 +234,10 @@ include("REPLCompletions.jl")
 include("REPL.jl")
 include("client.jl")
 
-# Documentation
+# Documentation
 
 include("markdown/Markdown.jl")
-include("docs.jl")
+include("docs/Docs.jl")
 using .Docs
 using .Markdown
 
@@ -266,19 +259,18 @@ include("statistics.jl")
 include("sparse.jl")
 importall .SparseMatrix
 
+# irrational mathematical constants
+include("irrationals.jl")
+
 # signal processing
-if USE_GPL_LIBS
-    include("fftw.jl")
-    include("dsp.jl")
-    importall .DSP
-end
+include("dft.jl")
+importall .DFT
+include("dsp.jl")
+importall .DSP
 
 # system information
 include("sysinfo.jl")
 import .Sys.CPU_CORES
-
-# mathematical constants
-include("constants.jl")
 
 # Numerical integration
 include("quadgk.jl")
@@ -304,21 +296,20 @@ import .Dates: Date, DateTime, now
 include("deprecated.jl")
 
 # Some basic documentation
-include("basedocs.jl")
+include("docs/helpdb.jl")
+include("docs/basedocs.jl")
 
 function __init__()
     # Base library init
     reinit_stdio()
     Multimedia.reinit_displays() # since Multimedia.displays uses STDOUT as fallback
-    fdwatcher_init()
     early_init()
     init_load_path()
     init_parallel()
 end
 
-include("precompile.jl")
-
 include = include_from_node1
+include("precompile.jl")
 
 end # baremodule Base
 
