@@ -19,21 +19,23 @@ const text_colors = AnyDict(
 )
 
 have_color = false
-@unix_only default_color_answer = text_colors[:bold]
-@unix_only default_color_input = text_colors[:bold]
-@windows_only default_color_answer = text_colors[:normal]
-@windows_only default_color_input = text_colors[:normal]
+default_color_warn = :red
+default_color_info = :blue
+@unix_only default_color_input = :bold
+@unix_only default_color_answer = :bold
+@windows_only default_color_input = :normal
+@windows_only default_color_answer = :normal
 color_normal = text_colors[:normal]
 
-function answer_color()
-    c = symbol(get(ENV, "JULIA_ANSWER_COLOR", ""))
-    return get(text_colors, c, default_color_answer)
+function repl_color(key, default)
+    c = symbol(get(ENV, key, ""))
+    haskey(text_colors, c) ? c : default
 end
 
-function input_color()
-    c = symbol(get(ENV, "JULIA_INPUT_COLOR", ""))
-    return get(text_colors, c, default_color_input)
-end
+warn_color()   = repl_color("JULIA_WARN_COLOR", default_color_warn)
+info_color()   = repl_color("JULIA_INFO_COLOR", default_color_info)
+input_color()  = text_colors[repl_color("JULIA_INPUT_COLOR", default_color_input)]
+answer_color() = text_colors[repl_color("JULIA_ANSWER_COLOR", default_color_answer)]
 
 exit(n) = ccall(:jl_exit, Void, (Int32,), n)
 exit() = exit(0)
@@ -243,7 +245,7 @@ function process_options(opts::JLOptions, args::Vector{UTF8String})
         # load file immediately on all processors
         if opts.load != C_NULL
             @sync for p in procs()
-                @async remotecall_fetch(p, include, bytestring(opts.load))
+                @async remotecall_fetch(include, p, bytestring(opts.load))
             end
         end
         # eval expression

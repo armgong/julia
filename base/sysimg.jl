@@ -234,13 +234,6 @@ include("REPLCompletions.jl")
 include("REPL.jl")
 include("client.jl")
 
-# Documentation
-
-include("markdown/Markdown.jl")
-include("docs/Docs.jl")
-using .Docs
-using .Markdown
-
 # misc useful functions & macros
 include("util.jl")
 
@@ -254,10 +247,6 @@ importall .Broadcast
 
 # statistics
 include("statistics.jl")
-
-# sparse matrices and sparse linear algebra
-include("sparse.jl")
-importall .SparseMatrix
 
 # irrational mathematical constants
 include("irrationals.jl")
@@ -280,6 +269,9 @@ importall .QuadGK
 include("fastmath.jl")
 importall .FastMath
 
+# libgit2 support
+include("libgit2.jl")
+
 # package manager
 include("pkg.jl")
 const Git = Pkg.Git
@@ -291,6 +283,17 @@ importall .Profile
 # dates
 include("Dates.jl")
 import .Dates: Date, DateTime, now
+
+# sparse matrices, vectors, and sparse linear algebra
+include("sparse.jl")
+importall .SparseArrays
+
+# Documentation
+
+include("markdown/Markdown.jl")
+include("docs/Docs.jl")
+using .Docs
+using .Markdown
 
 # deprecated functions
 include("deprecated.jl")

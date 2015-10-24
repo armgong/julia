@@ -137,12 +137,12 @@ keywords[:local] = doc"""
   `local` introduces a new local variable. For example:
 
       function foo(n)
-        x = 0
-        for i = 1:n
-          local x
-          x = i
-        end
-        x
+          x = 0
+          for i = 1:n
+              local x
+              x = i
+          end
+          x
       end
 
       julia> foo(10)
@@ -501,6 +501,22 @@ keywords[:ccall] = doc"""
   in a call to `convert(ArgumentType, ArgumentValue)`.
   """
 
+keywords[:llvmcall] = doc"""
+      llvmcall(IR::String, ReturnType, (ArgumentType1, ...), ArgumentValue1, ...)
+
+  Call LLVM IR string in the first argument. Similar to an LLVM function `define`
+  block, arguments are available as consecutive unnamed SSA variables (%0, %1, etc.).
+
+  Note that the argument type tuple must be a literal tuple, and not a tuple-valued variable or expression.
+
+  Each `ArgumentValue` to `llvmcall` will be converted to the corresponding `ArgumentType`,
+  by automatic insertion of calls to `unsafe_convert(ArgumentType, cconvert(ArgumentType, ArgumentValue))`.
+  (see also the documentation for each of these functions for further details).
+  In most cases, this simply results in a call to `convert(ArgumentType, ArgumentValue)`.
+
+  See `test/llvmcall.jl` for usage examples.
+  """
+
 keywords[:begin] = doc"""
   `begin...end` denotes a block of code.
 
@@ -580,12 +596,12 @@ Construct a regex, such as `r"^[a-z]*$"`. The regex also accepts
 one or more flags, listed after the ending quote, to change its
 behaviour:
 
-  • `i` enables case-insensitive matching
-  • `m` treats the `^` and `$` tokens as matching the start and
-    and end of individual lines, as opposed to the whole string.
-  • `s` allows the `.` modifier to match newlines.
-  • `x` enables "comment mode": whitespace is enabled except when
-    escaped with `\`, and `#` is treated as starting a comment.
+• `i` enables case-insensitive matching
+• `m` treats the `^` and `$` tokens as matching the start and
+  end of individual lines, as opposed to the whole string.
+• `s` allows the `.` modifier to match newlines.
+• `x` enables "comment mode": whitespace is enabled except when
+  escaped with `\`, and `#` is treated as starting a comment.
 
 For example, this regex has all three flags enabled:
 

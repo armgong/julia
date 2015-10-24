@@ -14,6 +14,9 @@ end
 macro _noinline_meta()
     Expr(:meta, :noinline)
 end
+macro _pure_meta()
+    Expr(:meta, :pure)
+end
 
 
 # constructors for Core types in boot.jl
@@ -74,7 +77,8 @@ macro generated(f)
 end
 
 
-@generated function tuple_type_head{T<:Tuple}(::Type{T})
+function tuple_type_head{T<:Tuple}(::Type{T})
+    @_pure_meta
     T.parameters[1]
 end
 
@@ -82,7 +86,8 @@ isvarargtype(t::ANY) = isa(t,DataType)&&is((t::DataType).name,Vararg.name)
 isvatuple(t::DataType) = (n = length(t.parameters); n > 0 && isvarargtype(t.parameters[n]))
 unwrapva(t::ANY) = isvarargtype(t) ? t.parameters[1] : t
 
-@generated function tuple_type_tail{T<:Tuple}(::Type{T})
+function tuple_type_tail{T<:Tuple}(::Type{T})
+    @_pure_meta
     if isvatuple(T) && length(T.parameters) == 1
         return T
     end
@@ -111,7 +116,7 @@ cconvert{P<:Ptr}(::Type{P}, x) = x # but defer the conversion to Ptr to unsafe_c
 unsafe_convert{T}(::Type{T}, x::T) = x # unsafe_convert (like convert) defaults to assuming the convert occurred
 unsafe_convert{P<:Ptr}(::Type{P}, x::Ptr) = convert(P, x)
 
-reinterpret{T,S}(::Type{T}, x::S) = box(T,unbox(S,x))
+reinterpret{T}(::Type{T}, x) = box(T, x)
 
 sizeof(x) = Core.sizeof(x)
 

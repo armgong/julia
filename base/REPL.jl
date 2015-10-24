@@ -57,7 +57,7 @@ function eval_user_input(ast::ANY, backend::REPLBackend)
                 ans = backend.ans
                 # note: value wrapped in a non-syntax value to avoid evaluating
                 # possibly-invalid syntax (issue #6763).
-                eval(Main, :(ans = $(Any[ans])[1]))
+                eval(Main, :(ans = $(getindex)($(Any[ans]), 1)))
                 backend.in_eval = true
                 value = eval(Main, ast)
                 backend.in_eval = false
@@ -733,6 +733,7 @@ function setup_interface(repl::LineEditREPL; hascolor = repl.hascolor, extra_rep
         on_done = respond(repl, julia_prompt) do line
             Expr(:call, :(Base.repl_cmd), macroexpand(Expr(:macrocall, symbol("@cmd"),line)), outstream(repl))
         end)
+
 
     ################################# Stage II #############################
 

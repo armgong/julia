@@ -12,6 +12,16 @@
 # Based on Direct Methods for Sparse Linear Systems, T. A. Davis, SIAM, Philadelphia, Sept. 2006.
 # Section 2.4: Triplet form
 # http://www.cise.ufl.edu/research/sparse/CSparse/
+
+"""
+    sparse(I,J,V,[m,n,combine])
+
+Create a sparse matrix `S` of dimensions `m x n` such that `S[I[k], J[k]] = V[k]`.
+The `combine` function is used to combine duplicates. If `m` and `n` are not
+specified, they are set to `maximum(I)` and `maximum(J)` respectively. If the
+`combine` function is not supplied, duplicates are added by default. All elements
+of `I` must satisfy `1 <= I[k] <= m`, and all elements of `J` must satisfy `1 <= J[k] <= n`.
+"""
 function sparse{Tv,Ti<:Integer}(I::AbstractVector{Ti},
                                 J::AbstractVector{Ti},
                                 V::AbstractVector{Tv},
@@ -195,6 +205,13 @@ end
 # A root node is indicated by 0. This tree may actually be a forest in that
 # there may be more than one root, indicating complete separability.
 # A trivial example is speye(n, n) in which every node is a root.
+
+"""
+    etree(A[, post])
+
+Compute the elimination tree of a symmetric sparse matrix `A` from `triu(A)`
+and, optionally, its post-ordering permutation.
+"""
 function etree{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, postorder::Bool)
     m,n = size(A)
     Ap = A.colptr
@@ -296,8 +313,17 @@ function csc_permute{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, pinv::Vector{Ti}, q::Vect
     (C.').' # double transpose to order the columns
 end
 
+
 # based on cs_symperm p. 21, "Direct Methods for Sparse Linear Systems"
 # form A[p,p] for a symmetric A stored in the upper triangle
+doc"""
+    symperm(A, p)
+
+Return the symmetric permutation of `A`, which is `A[p,p]`. `A` should be
+symmetric, sparse, and only contain nonzeros in the upper triangular part of the
+matrix is stored. This algorithm ignores the lower triangular part of the
+matrix. Only the upper triangular part of the result is returned.
+"""
 function symperm{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, pinv::Vector{Ti})
     m, n = size(A)
     if m != n

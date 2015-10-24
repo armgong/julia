@@ -221,6 +221,12 @@ Iterable Collections
 
    Returns an array containing only the unique elements of the iterable ``itr``\ , in the order that the first of each set of equivalent elements originally appears. If ``dim`` is specified, returns unique regions of the array ``itr`` along ``dim``\ .
 
+.. function:: unique(f, itr)
+
+   .. Docstring generated from Julia source
+
+   Returns an array containing one value from ``itr`` for each unique value produced by ``f`` applied to elements of ``itr``\ .
+
 .. function:: reduce(op, v0, itr)
 
    .. Docstring generated from Julia source
@@ -346,6 +352,18 @@ Iterable Collections
    .. Docstring generated from Julia source
 
    For an array input, returns the value and index of the minimum over the given dimensions.
+
+.. function:: findmax!(rval, rind, A, [init=true]) -> (maxval, index)
+
+   .. Docstring generated from Julia source
+
+   Find the maximum of ``A`` and the corresponding linear index along singleton dimensions of ``rval`` and ``rind``\ , and store the results in ``rval`` and ``rind``\ .
+
+.. function:: findmin!(rval, rind, A, [init=true]) -> (minval, index)
+
+   .. Docstring generated from Julia source
+
+   Find the minimum of ``A`` and the corresponding linear index along singleton dimensions of ``rval`` and ``rind``\ , and store the results in ``rval`` and ``rind``\ .
 
 .. function:: maxabs(itr)
 
@@ -1335,7 +1353,7 @@ changed efficiently.
 :obj:`PriorityQueue` also behaves similarly to a :obj:`Dict` in that keys can be
 inserted and priorities accessed or changed using indexing notation.
 
-  .. doctest::
+.. doctest::
 
     julia> # Julia code
            pq = Collections.PriorityQueue();

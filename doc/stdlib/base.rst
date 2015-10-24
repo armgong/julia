@@ -306,7 +306,7 @@ All Objects
 
    Get a unique integer id for ``x``\ . ``object_id(x)==object_id(y)`` if and only if ``is(x,y)``\ .
 
-.. function:: hash(x[, h])
+.. function:: hash(x[, h::UInt])
 
    .. Docstring generated from Julia source
 
@@ -630,8 +630,8 @@ Generic Functions
 
    .. doctest::
 
-   	julia> method_exists(length, Tuple{Array})
-   	true
+      julia> method_exists(length, Tuple{Array})
+      true
 
 .. function:: applicable(f, args...) -> Bool
 
@@ -872,9 +872,9 @@ System
 
    **Examples**:
 
-     * ``run(pipeline(`ls`, `grep xyz`))``
-     * ``run(pipeline(`ls`, "out.txt"))``
-     * ``run(pipeline("out.txt", `grep xyz`))``
+   * ``run(pipeline(`ls`, `grep xyz`))``
+   * ``run(pipeline(`ls`, "out.txt"))``
+   * ``run(pipeline("out.txt", `grep xyz`))``
 
 .. function:: pipeline(command; stdin, stdout, stderr, append=false)
 
@@ -884,8 +884,8 @@ System
 
    **Examples**:
 
-     * ``run(pipeline(`dothings`, stdout="out.txt", stderr="errs.txt"))``
-     * ``run(pipeline(`update`, stdout="log.txt", append=true))``
+   * ``run(pipeline(`dothings`, stdout="out.txt", stderr="errs.txt"))``
+   * ``run(pipeline(`update`, stdout="log.txt", append=true))``
 
 .. function:: gethostname() -> AbstractString
 
@@ -893,11 +893,11 @@ System
 
    Get the local machine's host name.
 
-.. function:: getipaddr() -> AbstractString
+.. function:: getipaddr() -> IPAddr
 
    .. Docstring generated from Julia source
 
-   Get the IP address of the local machine, as a string of the form "x.x.x.x".
+   Get the IP address of the local machine.
 
 .. function:: getpid() -> Int32
 
@@ -1371,7 +1371,7 @@ Internals
 
    .. Docstring generated from Julia source
 
-   Prints the native assembly instructions generated for running the method matching the given generic function and type signature to STDOUT.
+   Prints the native assembly instructions generated for running the method matching the given generic function and type signature to ``STDOUT``\ .
 
 .. function:: @code_native
 

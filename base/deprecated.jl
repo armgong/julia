@@ -160,6 +160,7 @@ end
 
 @deprecate_binding String AbstractString
 
+# 13221 - when removing Uint deprecation, remove hack in jl_binding_deprecation_warning
 @deprecate_binding Uint    UInt
 @deprecate_binding Uint8   UInt8
 @deprecate_binding Uint16  UInt16
@@ -833,3 +834,32 @@ end
 # 12839
 const AsyncStream = IO
 deprecate(:AsyncStream)
+
+for f in (:remotecall, :remotecall_fetch, :remotecall_wait)
+    @eval begin
+        @deprecate ($f)(w::LocalProcess, f::Function, args...)    ($f)(f, w::LocalProcess, args...)
+        @deprecate ($f)(w::Worker, f::Function, args...)          ($f)(f, w::Worker, args...)
+        @deprecate ($f)(id::Integer, f::Function, args...)        ($f)(f, id::Integer, args...)
+    end
+end
+
+#13465
+@deprecate cov(x::AbstractVector; corrected=true, mean=Base.mean(x)) covm(x, mean, corrected)
+@deprecate cov(X::AbstractMatrix; vardim=1, corrected=true, mean=Base.mean(X, vardim)) covm(X, mean, vardim, corrected)
+@deprecate cov(x::AbstractVector, y::AbstractVector; corrected=true, mean=(Base.mean(x), Base.mean(y))) covm(x, mean[1], y, mean[2], corrected)
+@deprecate cov(X::AbstractVecOrMat, Y::AbstractVecOrMat; vardim=1, corrected=true, mean=(Base.mean(X, vardim), Base.mean(Y, vardim))) covm(X, mean[1], Y, mean[2], vardim, corrected)
+
+@deprecate cor(x::AbstractVector; mean=Base.mean(x)) corm(x, mean)
+@deprecate cor(X::AbstractMatrix; vardim=1, mean=Base.mean(X, vardim)) corm(X, mean, vardim)
+@deprecate cor(x::AbstractVector, y::AbstractVector; mean=(Base.mean(x), Base.mean(y))) corm(x, mean[1], y, mean[2])
+@deprecate cor(X::AbstractVecOrMat, Y::AbstractVecOrMat; vardim=1, mean=(Base.mean(X, vardim), Base.mean(Y, vardim))) corm(X, mean[1], Y, mean[2], vardim)
+
+@deprecate_binding SparseMatrix SparseArrays
+
+#13496
+@deprecate A_ldiv_B!(A::SparseMatrixCSC, B::StridedVecOrMat) A_ldiv_B!(factorize(A), B)
+
+@deprecate chol(A::Number, ::Type{Val{:U}})         chol(A)
+@deprecate chol(A::AbstractMatrix, ::Type{Val{:U}}) chol(A)
+@deprecate chol(A::Number, ::Type{Val{:L}})         ctranspose(chol(A))
+@deprecate chol(A::AbstractMatrix, ::Type{Val{:L}}) ctranspose(chol(A))

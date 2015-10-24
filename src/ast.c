@@ -482,6 +482,8 @@ static value_t julia_to_scm_(jl_value_t *v)
         return scmv;
     }
     if (jl_typeis(v, jl_linenumbernode_type)) {
+        // GC Note: jl_fieldref(v, 1) allocates but neither jl_fieldref(v, 0)
+        //          or julia_to_list2 should allocate here
         value_t args = julia_to_list2(jl_fieldref(v,1), jl_fieldref(v,0));
         fl_gc_handle(&args);
         value_t hd = julia_to_scm_((jl_value_t*)line_sym);
@@ -489,6 +491,9 @@ static value_t julia_to_scm_(jl_value_t *v)
         fl_free_gc_handles(1);
         return scmv;
     }
+    // GC Note: jl_fieldref(v, 0) allocate for LabelNode, GotoNode
+    //          but we don't need a GC root here because julia_to_list2
+    //          shouldn't allocate in this case.
     if (jl_typeis(v, jl_labelnode_type))
         return julia_to_list2((jl_value_t*)label_sym, jl_fieldref(v,0));
     if (jl_typeis(v, jl_gotonode_type))
@@ -1002,6 +1007,22 @@ jl_value_t *skip_meta(jl_array_t *body)
         body1 = jl_cellref(body,1);
     return body1;
 }
+
+int has_meta(jl_array_t *body, jl_sym_t *sym)
+{
+    size_t i, l = jl_array_len(body);
+    for (i = 0; i < l; i++) {
+        jl_expr_t *stmt = (jl_expr_t*)jl_cellref(body, i);
+        if (jl_is_expr((jl_value_t*)stmt) && stmt->head == meta_sym) {
+            size_t i, l = jl_array_len(stmt->args);
+            for (i = 0; i < l; i++)
+                if (jl_cellref(stmt->args, i) == (jl_value_t*)sym)
+                    return 1;
+        }
+    }
+    return 0;
+}
+
 
 int jl_in_vinfo_array(jl_array_t *a, jl_sym_t *v)
 {

@@ -203,6 +203,7 @@ typedef struct _jl_lambda_info_t {
     jl_sym_t *file;
     int32_t line;
     int8_t inferred;
+    int8_t pure;
 
     // hidden fields:
     // flag telling if inference is running on this function
@@ -492,7 +493,7 @@ extern jl_sym_t *abstracttype_sym; extern jl_sym_t *bitstype_sym;
 extern jl_sym_t *compositetype_sym; extern jl_sym_t *type_goto_sym;
 extern jl_sym_t *global_sym;  extern jl_sym_t *tuple_sym;
 extern jl_sym_t *boundscheck_sym; extern jl_sym_t *copyast_sym;
-extern jl_sym_t *fastmath_sym;
+extern jl_sym_t *fastmath_sym; extern jl_sym_t *pure_sym;
 extern jl_sym_t *simdloop_sym; extern jl_sym_t *meta_sym;
 extern jl_sym_t *arrow_sym; extern jl_sym_t *inert_sym;
 
@@ -679,14 +680,15 @@ STATIC_INLINE jl_value_t *jl_cellset(void *a, size_t i, void *x)
 #define jl_fieldref(s,i) jl_get_nth_field(((jl_value_t*)s),i)
 #define jl_nfields(v)    jl_datatype_nfields(jl_typeof(v))
 
-#define jl_symbolnode_sym(s) ((jl_sym_t*)jl_fieldref(s,0))
-#define jl_symbolnode_type(s) (jl_fieldref(s,1))
-#define jl_linenode_file(x) ((jl_sym_t*)jl_fieldref(x,0))
-#define jl_linenode_line(x) (((ptrint_t*)jl_fieldref(x,1))[0])
+// Not using jl_fieldref to avoid allocations
+#define jl_symbolnode_sym(s) (*(jl_sym_t**)s)
+#define jl_symbolnode_type(s) (((jl_value_t**)s)[1])
+#define jl_linenode_file(x) (*(jl_sym_t**)x)
+#define jl_linenode_line(x) (((ptrint_t*)x)[1])
 #define jl_labelnode_label(x) (((ptrint_t*)x)[0])
 #define jl_gotonode_label(x) (((ptrint_t*)x)[0])
-#define jl_globalref_mod(s) ((jl_module_t*)jl_fieldref(s,0))
-#define jl_globalref_name(s) ((jl_sym_t*)jl_fieldref(s,1))
+#define jl_globalref_mod(s) (*(jl_module_t**)s)
+#define jl_globalref_name(s) (((jl_sym_t**)s)[1])
 
 #define jl_nparams(t)  jl_svec_len(((jl_datatype_t*)(t))->parameters)
 #define jl_tparam0(t)  jl_svecref(((jl_datatype_t*)(t))->parameters, 0)
@@ -1149,8 +1151,6 @@ DLLEXPORT void NORETURN jl_too_many_args(const char *fname, int max);
 DLLEXPORT void NORETURN jl_type_error(const char *fname, jl_value_t *expected, jl_value_t *got);
 DLLEXPORT void NORETURN jl_type_error_rt(const char *fname, const char *context,
                                 jl_value_t *ty, jl_value_t *got);
-DLLEXPORT void NORETURN jl_type_error_rt_line(const char *fname, const char *context,
-                                     jl_value_t *ty, jl_value_t *got, int line);
 DLLEXPORT void NORETURN jl_undefined_var_error(jl_sym_t *var);
 DLLEXPORT void NORETURN jl_bounds_error(jl_value_t *v, jl_value_t *t);
 DLLEXPORT void NORETURN jl_bounds_error_v(jl_value_t *v, jl_value_t **idxs, size_t nidxs);
@@ -1404,7 +1404,6 @@ extern DLLEXPORT JL_THREAD jl_value_t *jl_exception_in_transit;
 DLLEXPORT jl_task_t *jl_new_task(jl_function_t *start, size_t ssize);
 DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg);
 DLLEXPORT void NORETURN jl_throw(jl_value_t *e);
-DLLEXPORT void NORETURN jl_throw_with_superfluous_argument(jl_value_t *e, int);
 DLLEXPORT void NORETURN jl_rethrow(void);
 DLLEXPORT void NORETURN jl_rethrow_other(jl_value_t *e);
 
@@ -1496,10 +1495,6 @@ DLLEXPORT uv_tcp_t *jl_tcp_init(uv_loop_t *loop);
 DLLEXPORT int jl_tcp_bind(uv_tcp_t *handle, uint16_t port, uint32_t host, unsigned int flags);
 
 DLLEXPORT int jl_sizeof_ios_t(void);
-
-#ifdef _OS_WINDOWS_
-DLLEXPORT struct tm* localtime_r(const time_t *t, struct tm *tm);
-#endif
 
 DLLEXPORT jl_array_t *jl_takebuf_array(ios_t *s);
 DLLEXPORT jl_value_t *jl_takebuf_string(ios_t *s);

@@ -346,6 +346,10 @@ void init_stdio()
 char jl_using_intel_jitevents; // Non-zero if running under Intel VTune Amplifier
 #endif
 
+#ifdef JL_USE_OPROFILE_JITEVENTS
+char jl_using_oprofile_jitevents = 0; // Non-zero if running under OProfile
+#endif
+
 int isabspath(const char *in)
 {
 #ifdef _OS_WINDOWS_
@@ -520,6 +524,13 @@ void _julia_init(JL_IMAGE_SEARCH rel)
     }
 #endif
 
+#if defined(JL_USE_OPROFILE_JITEVENTS)
+    const char *jit_profiling = getenv("ENABLE_JITPROFILING");
+    if (jit_profiling && atoi(jit_profiling)) {
+        jl_using_oprofile_jitevents = 1;
+    }
+#endif
+
     jl_gc_init();
     jl_gc_enable(0);
     jl_init_frontend();
@@ -593,7 +604,7 @@ void _julia_init(JL_IMAGE_SEARCH rel)
 
     jl_gc_enable(1);
 
-    if (jl_options.image_file) {
+    if (jl_options.image_file && (!jl_generating_output() || jl_options.incremental)) {
         jl_array_t *temp = jl_module_init_order;
         JL_GC_PUSH1(&temp);
         jl_module_init_order = NULL;
@@ -616,15 +627,29 @@ void jl_compile_all(void);
 
 static void julia_save()
 {
+    if (!jl_generating_output())
+        return;
+
     if (jl_options.compile_enabled == JL_OPTIONS_COMPILE_ALL)
         jl_compile_all();
 
-    if (jl_options.incremental) {
-        jl_array_t *worklist = jl_module_init_order;
-        if (!worklist) {
-            jl_printf(JL_STDERR, "WARNING: incremental output requested, but no modules defined during run\n");
-            return;
+    if (!jl_module_init_order) {
+        jl_printf(JL_STDERR, "WARNING: --output requested, but no modules defined during run\n");
+        return;
+    }
+
+    jl_array_t *worklist = jl_module_init_order;
+    JL_GC_PUSH1(&worklist);
+    jl_module_init_order = jl_alloc_cell_1d(0);
+    int i, l = jl_array_len(worklist);
+    for (i = 0; i < l; i++) {
+        jl_value_t *m = jl_arrayref(worklist, i);
+        if (jl_module_get_initializer((jl_module_t*)m)) {
+            jl_cell_1d_push(jl_module_init_order, m);
         }
+    }
+
+    if (jl_options.incremental) {
         if (jl_options.outputji)
             if (jl_save_incremental(jl_options.outputji, worklist))
                 jl_exit(1);
@@ -657,6 +682,7 @@ static void julia_save()
         if (jl_options.outputo)
             jl_dump_objfile((char*)jl_options.outputo, 0, (const char*)s->buf, s->size);
     }
+    JL_GC_POP();
 }
 
 jl_function_t *jl_typeinf_func=NULL;

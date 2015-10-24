@@ -97,7 +97,7 @@ Tasks
 
    .. Docstring generated from Julia source
 
-   Wrap an expression in a ``Task`` and add it to the scheduler's queue.
+   Wrap an expression in a ``Task`` and add it to the local machine's scheduler queue.
 
 .. function:: @task
 
@@ -137,8 +137,8 @@ Tasks
 
    Other constructors:
 
-     * ``Channel()`` - equivalent to ``Channel{Any}(32)``
-     * ``Channel(sz::Int)`` equivalent to ``Channel{Any}(sz)``
+   * ``Channel()`` - equivalent to ``Channel{Any}(32)``
+   * ``Channel(sz::Int)`` equivalent to ``Channel{Any}(sz)``
 
 General Parallel Computing Support
 ----------------------------------
@@ -264,7 +264,7 @@ General Parallel Computing Support
    If ``err_retry`` is ``true``, it retries a failed application of ``f`` on a different worker.
    If ``err_stop`` is ``true``, it takes precedence over the value of ``err_retry`` and ``pmap`` stops execution on the first error.
 
-.. function:: remotecall(id, func, args...)
+.. function:: remotecall(func, id, args...)
 
    .. Docstring generated from Julia source
 
@@ -276,12 +276,12 @@ General Parallel Computing Support
 
    Block the current task until some event occurs, depending on the type of the argument:
 
-     * ``RemoteRef``\ : Wait for a value to become available for the specified remote reference.
-     * ``Channel``\ : Wait for a value to be appended to the channel.
-     * ``Condition``\ : Wait for ``notify`` on a condition.
-     * ``Process``\ : Wait for a process or process chain to exit. The ``exitcode`` field of a process can be used to determine success or failure.
-     * ``Task``\ : Wait for a ``Task`` to finish, returning its result value. If the task fails with an exception, the exception is propagated (re-thrown in the task that called ``wait``\ ).
-     * ``RawFD``\ : Wait for changes on a file descriptor (see ``poll_fd`` for keyword arguments and return code)
+   * ``RemoteRef``\ : Wait for a value to become available for the specified remote reference.
+   * ``Channel``\ : Wait for a value to be appended to the channel.
+   * ``Condition``\ : Wait for ``notify`` on a condition.
+   * ``Process``\ : Wait for a process or process chain to exit. The ``exitcode`` field of a process can be used to determine success or failure.
+   * ``Task``\ : Wait for a ``Task`` to finish, returning its result value. If the task fails with an exception, the exception is propagated (re-thrown in the task that called ``wait``\ ).
+   * ``RawFD``\ : Wait for changes on a file descriptor (see ``poll_fd`` for keyword arguments and return code)
 
    If no argument is passed, the task blocks for an undefined period. If the task's state is set to ``:waiting``\ , it can only be restarted by an explicit call to ``schedule`` or ``yieldto``\ . If the task's state is ``:runnable``\ , it might be restarted unpredictably.
 
@@ -293,16 +293,16 @@ General Parallel Computing Support
 
    Waits and fetches a value from ``x`` depending on the type of ``x``\ . Does not remove the item fetched:
 
-     * ``RemoteRef``\ : Wait for and get the value of a remote reference. If the remote value is an exception, throws a ``RemoteException`` which captures the remote exception and backtrace.
-     * ``Channel`` : Wait for and get the first available item from the channel.
+   * ``RemoteRef``\ : Wait for and get the value of a remote reference. If the remote value is an exception, throws a ``RemoteException`` which captures the remote exception and backtrace.
+   * ``Channel`` : Wait for and get the first available item from the channel.
 
-.. function:: remotecall_wait(id, func, args...)
+.. function:: remotecall_wait(func, id, args...)
 
    .. Docstring generated from Julia source
 
    Perform ``wait(remotecall(...))`` in one message.
 
-.. function:: remotecall_fetch(id, func, args...)
+.. function:: remotecall_fetch(func, id, args...)
 
    .. Docstring generated from Julia source
 
@@ -343,7 +343,7 @@ General Parallel Computing Support
    .. code-block:: julia
 
        rr = RemoteRef()
-       @async put!(rr, remotecall_fetch(p, long_computation))
+       @async put!(rr, remotecall_fetch(long_computation, p))
        isready(rr)  # will not block
 
 .. function:: close(Channel)
@@ -352,8 +352,8 @@ General Parallel Computing Support
 
    Closes a channel. An exception is thrown by:
 
-     * ``put!`` on a closed channel.
-     * ``take!`` and ``fetch`` on an empty, closed channel.
+   * ``put!`` on a closed channel.
+   * ``take!`` and ``fetch`` on an empty, closed channel.
 
 .. function:: RemoteRef()
 
@@ -401,7 +401,7 @@ General Parallel Computing Support
 
    .. Docstring generated from Julia source
 
-   Wraps an expression in a closure and schedules it to run on the local machine. Also adds it to the set of items that the nearest enclosing ``@sync`` waits for.
+   Like ``@schedule``\ , ``@async`` wraps an expression in a ``Task`` and adds it to the local machine's scheduler queue. Additionally it adds the task to the set of items that the nearest enclosing ``@sync`` waits for. ``@async`` also wraps the expression in a ``let x=x, y=y, ...`` block to create a new scope with copies of all variables referenced in the expression.
 
 .. function:: @sync
 
@@ -470,10 +470,11 @@ Shared Arrays (Experimental, UNIX-only feature)
 
 Cluster Manager Interface
 -------------------------
-    This interface provides a mechanism to launch and manage Julia workers on different cluster environments.
-    LocalManager, for launching additional workers on the same host and SSHManager, for launching on remote
-    hosts via ssh are present in Base. TCP/IP sockets are used to connect and transport messages
-    between processes. It is possible for Cluster Managers to provide a different transport.
+
+This interface provides a mechanism to launch and manage Julia workers on different cluster environments.
+LocalManager, for launching additional workers on the same host and SSHManager, for launching on remote
+hosts via ssh are present in Base. TCP/IP sockets are used to connect and transport messages
+between processes. It is possible for Cluster Managers to provide a different transport.
 
 .. function:: launch(manager::FooManager, params::Dict, launched::Vector{WorkerConfig}, launch_ntfy::Condition)
 
@@ -488,12 +489,12 @@ Cluster Manager Interface
    Implemented by cluster managers. It is called on the master process, during a worker's lifetime,
    with appropriate ``op`` values:
 
-       - with ``:register``/``:deregister`` when a worker is added / removed
-         from the Julia worker pool.
-       - with ``:interrupt`` when ``interrupt(workers)`` is called. The
-         :class:`ClusterManager` should signal the appropriate worker with an
-         interrupt signal.
-       - with ``:finalize`` for cleanup purposes.
+   - with ``:register``/``:deregister`` when a worker is added / removed
+     from the Julia worker pool.
+   - with ``:interrupt`` when ``interrupt(workers)`` is called. The
+     :class:`ClusterManager` should signal the appropriate worker with an
+     interrupt signal.
+   - with ``:finalize`` for cleanup purposes.
 
 .. function:: kill(manager::FooManager, pid::Int, config::WorkerConfig)
 

@@ -53,7 +53,7 @@ function add_all_docs_mod(m::Module)
     try
         add_all_docs_meta(m,Docs.meta(m))
     end
-    for name in names(m)
+    for name in names(m, true)
         try
             sub_m = getfield(m,name)
             isa(sub_m, Module) || continue
@@ -288,6 +288,8 @@ for folder in ["stdlib", "manual", "devdocs"]
     end
 end
 
+println()
+
 exported_missing_count = 0
 unexported_missing_count = 0
 
@@ -303,7 +305,7 @@ for (d, v) in all_docs
         warn("Exported method missing doc for $val")
         exported_missing_count += 1
     else
-        info("Unexported method missing doc for $val")
+        # info("Unexported method missing doc for $val")
         unexported_missing_count += 1
     end
     # println(tryrst(d, false))

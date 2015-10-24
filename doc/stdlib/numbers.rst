@@ -42,11 +42,11 @@ Data Formats
 
    Convert an integer to a string in the given base, optionally specifying a number of digits to pad to. The base can be specified as either an integer, or as a ``UInt8`` array of character values to use as digit symbols.
 
-.. function:: digits(n, [base], [pad])
+.. function:: digits([T], n, [base], [pad])
 
    .. Docstring generated from Julia source
 
-   Returns an array of the digits of ``n`` in the given base, optionally padded with zeros to a specified size. More significant digits are at higher indexes, such that ``n == sum([digits[k]*base^(k-1) for k=1:length(digits)])``\ .
+   Returns an array with element type ``T`` (default ``Int``\ ) of the digits of ``n`` in the given base, optionally padded with zeros to a specified size. More significant digits are at higher indexes, such that ``n == sum([digits[k]*base^(k-1) for k=1:length(digits)])``\ .
 
 .. function:: digits!(array, n, [base])
 
@@ -605,8 +605,8 @@ As ``BigInt`` represents unbounded integers, the interval must be specified (e.g
 
    Pick a random element or array of random elements from the set of values specified by ``S``\ ; ``S`` can be
 
-     * an indexable collection (for example ``1:n`` or ``['x','y','z']``\ ), or
-     * a type: the set of values to pick from is then equivalent to ``typemin(S):typemax(S)`` for integers (this is not applicable to ``BigInt``\ ), and to :math:`[0, 1)` for floating point numbers;
+   * an indexable collection (for example ``1:n`` or ``['x','y','z']``\ ), or
+   * a type: the set of values to pick from is then equivalent to ``typemin(S):typemax(S)`` for integers (this is not applicable to ``BigInt``\ ), and to :math:`[0, 1)` for floating point numbers;
 
    ``S`` defaults to ``Float64``\ .
 

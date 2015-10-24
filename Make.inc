@@ -8,6 +8,7 @@
 # OPENBLAS build options
 OPENBLAS_TARGET_ARCH:=
 OPENBLAS_SYMBOLSUFFIX:=
+OPENBLAS_LIBNAMESUFFIX:=
 
 # If OPENBLAS_TARGET_ARCH is set, we default to disabling OPENBLAS_DYNAMIC_ARCH
 ifneq ($(OPENBLAS_TARGET_ARCH),)
@@ -58,6 +59,9 @@ ifeq ($(USE_MKL), 1)
 $(warning "The julia make variable USE_MKL has been renamed to USE_INTEL_MKL")
 USE_INTEL_MKL := 1
 endif
+
+# Set to 1 to enable profiling with OProfile
+USE_OPROFILE_JITEVENTS ?= 0
 
 # libc++ is standard on OS X 10.9, but not for earlier releases
 USE_LIBCPP := 0
@@ -262,6 +266,7 @@ EXE :=
 endif
 
 JULIAGC := MARKSWEEP
+JULIACODEGEN := LLVM
 USE_COPY_STACKS := 1
 
 # flag for disabling assertions
@@ -375,6 +380,8 @@ DEBUGFLAGS := -O0 -g -DJL_DEBUG_BUILD -fstack-protector-all
 SHIPFLAGS := -O3 -g -falign-functions
 endif
 
+JCPPFLAGS += -ftls-model=global-dynamic
+
 ifeq ($(USECCACHE), 1)
 # expand CC and CXX at declaration time because we will redefine them
 CC_ARG   := $(CC)         # Expand CC and CXX here already because we want
@@ -446,12 +453,14 @@ endif
 ifeq ($(SANITIZE),1)
 ifeq ($(SANITIZE_MEMORY),1)
 SANITIZE_OPTS := -fsanitize=memory -fsanitize-memory-track-origins -fno-omit-frame-pointer
+SANITIZE_LDFLAGS := $(SANITIZE_OPTS)
 else
 SANITIZE_OPTS := -fsanitize=address -mllvm -asan-stack=0
+SANITIZE_LDFLAGS := -fsanitize=address
 endif
 JCXXFLAGS += $(SANITIZE_OPTS)
 JCFLAGS += $(SANITIZE_OPTS)
-LDFLAGS += $(SANITIZE_OPTS)
+LDFLAGS += $(SANITIZE_LDFLAGS)
 DEPS_CFLAGS += $(SANITIZE_OPTS)
 DEPS_CXXFLAGS += $(SANITIZE_OPTS)
 endif
@@ -493,6 +502,8 @@ else
 ifneq ($(XC_HOST),)
 XC_HOST := $(ARCH)$(shell echo $(XC_HOST) | sed "s/[^-]*\(.*\)$$/\1/")
 MARCH := $(subst _,-,$(ARCH))
+else # insert ARCH into HOST
+XC_HOST := $(ARCH)$(shell echo $(BUILD_MACHINE) | sed "s/[^-]*\(.*\)$$/\1/")
 endif
 endif
 
@@ -524,6 +535,18 @@ ARCH := $(BUILD_OS)
 endif
 endif
 
+# Detect common pre-SSE2 JULIA_CPU_TARGET values known not to work (#7185)
+ifeq ($(MARCH),)
+ifneq ($(findstring $(ARCH),i386 i486 i586 i686),)
+MARCH := pentium4
+endif
+endif
+
+ifneq ($(findstring $(MARCH),i386 i486 i586 i686 pentium pentium2 pentium3),)
+$(error Pre-SSE2 CPU targets not supported. To create a generic 32-bit x86 binary, \
+pass 'MARCH=pentium4'.)
+endif
+
 ifneq ($(MARCH),)
 CC += -march=$(MARCH)
 CXX += -march=$(MARCH)
@@ -546,12 +569,6 @@ endif
 endif
 
 JULIA_CPU_TARGET ?= native
-
-# Detect common pre-SSE2 JULIA_CPU_TARGET values known not to work (#7185)
-ifneq ($(findstring $(JULIA_CPU_TARGET),i386 i486 i586 i686 pentium pentium2 pentium3),)
-$(error Pre-SSE2 CPU targets not supported. To create a generic 32-bit x86 binary, \
-pass 'MARCH=i686 JULIA_CPU_TARGET=pentium4', or 'MARCH=pentium4' if not building any dependencies.)
-endif
 
 # We map amd64 to x86_64 for compatibility with systems that identify 64-bit systems as such
 ifeq ($(ARCH),amd64)
@@ -576,14 +593,9 @@ ISX86:=1
 else ifeq ($(ARCH),x86_64)
 BINARY:=64
 ISX86:=1
-else ifneq (,$(findstring arm,$(ARCH)))
-ISX86:=0
-else ifneq (,$(findstring powerpc,$(ARCH)))
-ISX86:=0
-else ifneq (,$(findstring ppc,$(ARCH)))
-ISX86:=0
 else
-$(error "unknown word-size for arch: $(ARCH)")
+# For all other architectures (ARM, PPC, AArch64, etc.)
+ISX86:=0
 endif
 
 # If we are running on ARM, set certain options automatically
@@ -839,6 +851,11 @@ ifeq ($(USE_INTEL_JITEVENTS), 1)
 JCPPFLAGS += -DJL_USE_INTEL_JITEVENTS
 endif
 
+# OProfile
+ifeq ($(USE_OPROFILE_JITEVENTS), 1)
+JCPPFLAGS += -DJL_USE_OPROFILE_JITEVENTS
+endif
+
 # Intel libraries
 
 ifeq ($(USE_INTEL_LIBM), 1)
@@ -906,6 +923,11 @@ endif
 ifeq ($(USE_SYSTEM_BLAS), 0)
 ifeq ($(USE_BLAS64), 1)
 OPENBLAS_SYMBOLSUFFIX := 64_
+OPENBLAS_LIBNAMESUFFIX := 64_
+LIBBLAS := -L$(build_shlibdir) -lopenblas$(OPENBLAS_LIBNAMESUFFIX)
+LIBLAPACK := $(LIBBLAS)
+LIBBLASNAME := $(LIBBLASNAME)$(OPENBLAS_LIBNAMESUFFIX)
+LIBLAPACKNAME := $(LIBBLASNAME)
 endif
 endif
 

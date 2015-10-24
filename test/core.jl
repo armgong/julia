@@ -1594,6 +1594,12 @@ end
 h5142(true)
 @test_throws TypeError h5142(1)
 h5142(2)
+f5142() = h5142(1)
+try
+    # try running this code in a different context that triggers the codegen
+    # assertion `assert(isboxed || v.typ == typ)`.
+    f5142()
+end
 
 bitstype 8 Int5142b
 function h5142b(a::Int)
@@ -2173,6 +2179,21 @@ f9520c(::Any, ::Any, ::Any, ::Any, ::Any, ::Any, args...) = 46
 @test invoke(f9520b, (Any, Any, Any, Any, Any, Any), 1, 2, 3, 4, 5, 6) == 23
 @test invoke(f9520c, (Any, Any, Any, Any, Any, Any), 1, 2, 3, 4, 5, 6) == 46
 @test invoke(f9520c, (Any, Any, Any, Any, Any, Any, Any), 1, 2, 3, 4, 5, 6, 7) == 46
+
+call_lambda1() = (()->x)(1)
+call_lambda2() = ((x)->x)()
+call_lambda3() = ((x)->x)(1,2)
+call_lambda4() = ((x,y...)->x)()
+@test (try call_lambda1(); false; catch e; (e::ErrorException).msg; end) == "wrong number of arguments"
+@test (try call_lambda2(); false; catch e; (e::ErrorException).msg; end) == "wrong number of arguments"
+@test (try call_lambda3(); false; catch e; (e::ErrorException).msg; end) == "wrong number of arguments"
+@test (try call_lambda4(); false; catch e; (e::ErrorException).msg; end) == "too few arguments"
+call_lambda5() = ((x...)->x)()
+call_lambda6() = ((x...)->x)(1)
+call_lambda7() = ((x...)->x)(1,2)
+@test call_lambda5() == ()
+@test call_lambda6() == (1,)
+@test call_lambda7() == (1,2)
 
 # jl_new_bits testing
 let x = [1,2,3]
@@ -3390,3 +3411,65 @@ f8932(a::Vec3_8932, b::Vec3_8932) = Vec3_8932(a.x % b.x, a.y % b.y, a.z % b.z)
 a8932 = Vec3_8932(1,1,1)
 b8932 = Vec3_8932(2,2,2)
 @test f8932(a8932, b8932) == Vec3_8932(1.0, 1.0, 1.0)
+
+# issue #13261
+f13261() = (x = (error("oops"),); +(x...))
+g13261() = f13261()
+@test_throws ErrorException g13261()
+
+# issue 13432
+@noinline function f13432(x)
+    offset = x ? Base.Bottom : 1
+    return is(offset, Base.Bottom)
+end
+@test f13432(true) == true
+@test f13432(false) == false
+@noinline function f13432b(x)
+    a = x ? 1 : 1.0
+    b = x ? 1 : 1.0f0
+    return is(a, b)
+end
+@test f13432b(true) == true
+@test f13432b(false) == false
+
+#13433, read!(::IO, a::Vector{UInt8}) should return a
+type IO13433 <: IO end
+Base.read(::IO13433, ::Type{UInt8}) = 0x01
+@test read!(IO13433(), Array(UInt8, 4)) == [0x01, 0x01, 0x01, 0x01]
+
+# issue #13647, comparing boxed isbits immutables
+immutable X13647
+    a::Int
+    b::Bool
+end
+function f13647(x, y)
+   z = false
+   z = y
+   x === z
+end
+@test f13647(X13647(1, false), X13647(1, false))
+@test !f13647(X13647(1, false), X13647(1, true))
+@test !f13647(X13647(2, false), X13647(1, false))
+
+# issue #13636
+module I13636
+foo(x) = 1
+end
+let cache = Dict()
+    function I13636.foo(y::Int;k::Int=1)
+        cache[1] = y+k
+    end
+end
+@test I13636.foo(1,k=2) == 3
+
+# issue #11327 and #13547
+@test_throws MethodError convert(Type{Int}, Float32)
+# TODO: this should probably be a MethodError in `convert`; not sure what's going on
+@test_throws TypeError Array{Type{Int64}}([Float32])
+abstract A11327
+abstract B11327 <: A11327
+f11327{T}(::Type{T},x::T) = x
+@test_throws MethodError f11327(Type{A11327},B11327)
+let T=TypeVar(:T,true)
+    @test typeintersect(Tuple{Type{T},T}, Tuple{Type{Type{Float64}},Type{Int}}) === Union{}
+end
