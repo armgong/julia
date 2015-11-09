@@ -113,7 +113,7 @@ cmp_tfunc = (x,y)->Bool
 isType(t::ANY) = isa(t,DataType) && is((t::DataType).name,Type.name)
 
 const IInf = typemax(Int) # integer infinity
-const n_ifunc = reinterpret(Int32,llvmcall)+1
+const n_ifunc = reinterpret(Int32,arraylen)+1
 const t_ifunc = Array{Tuple{Int,Int,Function},1}(n_ifunc)
 const t_ffunc_key = Array{Function,1}(0)
 const t_ffunc_val = Array{Tuple{Int,Int,Function},1}(0)
@@ -162,6 +162,7 @@ add_tfunc(eval(Core.Intrinsics,:cglobal), 1, 2,
 add_tfunc(eval(Core.Intrinsics,:select_value), 3, 3,
     # TODO: return Bottom if cnd is definitely not a Bool
     (cnd, x, y)->Union{x,y})
+add_tfunc(eval(Core.Intrinsics,:arraylen), 1, 1, x->Int)
 add_tfunc(is, 2, 2, cmp_tfunc)
 add_tfunc(issubtype, 2, 2, cmp_tfunc)
 add_tfunc(isa, 2, 2, cmp_tfunc)
@@ -169,9 +170,7 @@ add_tfunc(isdefined, 1, IInf, (args...)->Bool)
 add_tfunc(Core.sizeof, 1, 1, x->Int)
 add_tfunc(nfields, 1, 1, x->Int)
 add_tfunc(_expr, 1, IInf, (args...)->Expr)
-add_tfunc(method_exists, 2, 2, cmp_tfunc)
 add_tfunc(applicable, 1, IInf, (f, args...)->Bool)
-add_tfunc(arraylen, 1, 1, x->Int)
 #add_tfunc(arrayref, 2,IInf,(a,i...)->(isa(a,DataType) && a<:Array ?
 #                                     a.parameters[1] : Any))
 #add_tfunc(arrayset, 3, IInf, (a,v,i...)->a)
@@ -223,7 +222,7 @@ function limit_type_depth(t::ANY, d::Int, cov::Bool, vars)
         end
     elseif isa(t,DataType)
         P = t.parameters
-        length(P) == 0 && return t
+        isempty(P) && return t
         if d > MAX_TYPE_DEPTH
             R = t.name.primary
         else
@@ -298,7 +297,7 @@ const getfield_tfunc = function (A, s0, name)
         for i=1:length(snames)
             if is(snames[i],fld)
                 R = s.types[i]
-                if length(s.parameters) == 0
+                if isempty(s.parameters)
                     return R, true
                 else
                     typ = limit_type_depth(R, 0, true,
@@ -398,18 +397,18 @@ const apply_type_tfunc = function (A, args...)
     istuple = (headtype === Tuple)
     uncertain = false
     lA = length(A)
-    tparams = svec()
+    tparams = Any[]
     for i=2:max(lA,largs)
         ai = args[i]
         if isType(ai)
             aip1 = ai.parameters[1]
             uncertain |= has_typevars(aip1)
-            tparams = svec(tparams..., aip1)
+            push!(tparams, aip1)
         else
             if i<=lA
                 val = extract_simple_tparam(A[i])
                 if val !== Bottom
-                    tparams = svec(tparams..., val)
+                    push!(tparams, val)
                     continue
                 elseif isa(inference_stack,CallStack) && isa(A[i],Symbol)
                     sp = inference_stack.sv.sp
@@ -420,7 +419,7 @@ const apply_type_tfunc = function (A, args...)
                             # static parameter
                             val = sp[j+1]
                             if valid_tparam(val)
-                                tparams = svec(tparams..., val)
+                                push!(tparams, val)
                                 found = true
                                 break
                             end
@@ -437,9 +436,9 @@ const apply_type_tfunc = function (A, args...)
             end
             uncertain = true
             if istuple
-                tparams = svec(tparams..., Any)
+                push!(tparams, Any)
             else
-                tparams = svec(tparams..., headtype.parameters[i-1])
+                push!(tparams, headtype.parameters[i-1])
             end
         end
     end
@@ -614,7 +613,7 @@ const limit_tuple_type_n = function (t, lim::Int)
     p = t.parameters
     n = length(p)
     if n > lim
-        tail = reduce(typejoin, Bottom, svec(p[lim:(n-1)]..., unwrapva(p[n])))
+        tail = reduce(typejoin, Bottom, Any[p[lim:(n-1)]..., unwrapva(p[n])])
         return Tuple{p[1:(lim-1)]..., Vararg{tail}}
     end
     return t
@@ -1980,8 +1979,8 @@ function type_annotate(ast::Expr, states::Array{Any,1}, sv::ANY, rettype::ANY, a
     ast.args[2][3] = sv.gensym_types
 
     for (li::LambdaStaticData) in closures
-        if !li.inferred
-            a = li.ast
+        if !li.inferred && (isa(li.ast, Expr) || isdefined(li, :capt))
+            a = li.ast::Expr
             # pass on declarations of captured vars
             for vi in a.args[2][2]::Array{Any,1}
                 if (vi[3]&4)==0
@@ -2329,7 +2328,7 @@ function inlineable(f::ANY, e::Expr, atype::ANY, sv::StaticVarInfo, enclosing_as
             methfunc = f
         end
 
-        if length(methfunc.env) > 0
+        if !isempty(methfunc.env)
             # can't inline something with an env
             return NF
         end
@@ -2722,6 +2721,14 @@ function inlineable(f::ANY, e::Expr, atype::ANY, sv::StaticVarInfo, enclosing_as
         expr = lastexpr.args[1]
     end
 
+    if length(stmts) == 1
+        # remove line number when inlining a single expression. see issue #13725
+        s = stmts[1]
+        if isa(s,Expr)&&is(s.head,:line) || isa(s,LineNumberNode)
+            pop!(stmts)
+        end
+    end
+
     if isa(expr,Expr)
         old_t = e.typ
         if old_t <: expr.typ
@@ -2859,7 +2866,7 @@ function inlining_pass(e::Expr, sv, ast)
             end
             if isa(res[2],Array)
                 res2 = res[2]::Array{Any,1}
-                if length(res2) > 0
+                if !isempty(res2)
                     prepend!(stmts,res2)
                     if !has_stmts
                         for stmt in res2

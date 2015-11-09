@@ -328,7 +328,7 @@ Libdl.dlclose
 doc"""
     dlsym_e(handle, sym)
 
-Look up a symbol from a shared library handle, silently return NULL pointer on lookup failure.
+Look up a symbol from a shared library handle, silently return `NULL` pointer on lookup failure.
 """
 Libdl.dlsym_e
 
@@ -1238,20 +1238,6 @@ For matrices or vectors $A$ and $B$, calculates $Aᴴ / B$
 """
 Ac_rdiv_B
 
-doc"""
-```rst
-..  set_rounding(T, mode)
-
-Set the rounding mode of floating point type ``T``, controlling the
-rounding of basic arithmetic functions (:func:`+`, :func:`-`, :func:`*`,
-:func:`/` and :func:`sqrt`) and type conversion.
-
-Note that this may affect other types, for instance changing the rounding
-mode of ``Float64`` will change the rounding mode of ``Float32``. See
-``get_rounding`` for available modes
-```
-"""
-set_rounding
 
 doc"""
     linspace(start, stop, n=100)
@@ -1335,11 +1321,11 @@ Get the value type of an associative collection type. Behaves similarly to `elty
 valtype
 
 doc"""
-    edit(file::AbstractString, [line])
+    edit(path::AbstractString, [line])
 
-Edit a file optionally providing a line number to edit at. Returns to the julia prompt when you quit the editor.
+Edit a file or directory optionally providing a line number to edit the file at. Returns to the julia prompt when you quit the editor.
 """
-edit(file::AbstractString, line=?)
+edit(path::AbstractString, line=?)
 
 doc"""
     edit(function, [types])
@@ -1700,7 +1686,7 @@ julia> Float32(1/3, RoundUp)
 0.33333334f0
 ```
 
-See `get_rounding` for available rounding modes.
+See `rounding` for available rounding modes.
 """
 Float32
 
@@ -1836,20 +1822,6 @@ doc"""
 Update `collection`, removing elements for which `function` is `false`. For associative collections, the function is passed two arguments (key and value).
 """
 filter!
-
-doc"""
-    schurfact(A) -> Schur
-
-Computes the Schur factorization of the matrix `A`. The (quasi) triangular Schur factor can be obtained from the `Schur` object `F` with either `F[:Schur]` or `F[:T]` and the unitary/orthogonal Schur vectors can be obtained with `F[:vectors]` or `F[:Z]` such that `A=F[:vectors]*F[:Schur]*F[:vectors]'`. The eigenvalues of `A` can be obtained with `F[:values]`.
-"""
-schurfact(A)
-
-doc"""
-    schurfact(A, B) -> GeneralizedSchur
-
-Computes the Generalized Schur (or QZ) factorization of the matrices `A` and `B`. The (quasi) triangular Schur factors can be obtained from the `Schur` object `F` with `F[:S]` and `F[:T]`, the left unitary/orthogonal Schur vectors can be obtained with `F[:left]` or `F[:Q]` and the right unitary/orthogonal Schur vectors can be obtained with `F[:right]` or `F[:Z]` such that `A=F[:left]*F[:S]*F[:right]'` and `B=F[:left]*F[:T]*F[:right]'`. The generalized eigenvalues of `A` and `B` can be obtained with `F[:alpha]./F[:beta]`.
-"""
-schurfact(A, B)
 
 doc"""
     base64decode(string)
@@ -2092,24 +2064,6 @@ doc"""
 Reseed the random number generator. If a `seed` is provided, the RNG will give a reproducible sequence of numbers, otherwise Julia will get entropy from the system. For `MersenneTwister`, the `seed` may be a non-negative integer, a vector of `UInt32` integers or a filename, in which case the seed is read from a file. `RandomDevice` does not support seeding.
 """
 srand
-
-doc"""
-```rst
-..  schur(A) -> Schur[:T], Schur[:Z], Schur[:values]
-
-See :func:`schurfact`
-```
-"""
-schur(A)
-
-doc"""
-```rst
-..  schur(A,B) -> GeneralizedSchur[:S], GeneralizedSchur[:T], GeneralizedSchur[:Q], GeneralizedSchur[:Z]
-
-See :func:`schurfact`
-```
-"""
-schur(A,B)
 
 doc"""
     isexecutable(path) -> Bool
@@ -3069,42 +3023,6 @@ Accepts a connection on the given server and returns a connection to the client.
 accept
 
 doc"""
-```rst
-..  ordschur(Q, T, select) -> Schur
-
-Reorders the Schur factorization of a real matrix ``A=Q*T*Q'`` according to the logical array ``select`` returning a Schur object ``F``. The selected eigenvalues appear in the leading diagonal of ``F[:Schur]`` and the the corresponding leading columns of ``F[:vectors]`` form an orthonormal basis of the corresponding right invariant subspace. A complex conjugate pair of eigenvalues must be either both included or excluded via ``select``.
-```
-"""
-ordschur(Q, T, select)
-
-doc"""
-```rst
-..  ordschur(S, select) -> Schur
-
-Reorders the Schur factorization ``S`` of type ``Schur``.
-```
-"""
-ordschur(S::Schur, select)
-
-doc"""
-```rst
-..  ordschur(S, T, Q, Z, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a matrix ``(A, B) = (Q*S*Z^{H}, Q*T*Z^{H})`` according to the logical array ``select`` and returns a GeneralizedSchur object ``GS``.  The selected eigenvalues appear in the leading diagonal of both ``(GS[:S], GS[:T])`` and the left and right unitary/orthogonal Schur vectors are also reordered such that ``(A, B) = GS[:Q]*(GS[:S], GS[:T])*GS[:Z]^{H}`` still holds and the generalized eigenvalues of ``A`` and ``B`` can still be obtained with ``GS[:alpha]./GS[:beta]``.
-```
-"""
-ordschur(S, T, Q, Z)
-
-doc"""
-```rst
-..  ordschur(GS, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a Generalized Schur object.  See :func:`ordschur`.
-```
-"""
-ordschur(GS::GeneralizedSchur, select)
-
-doc"""
     triu!(M)
 
 Upper triangle of a matrix, overwriting `M` in the process.
@@ -3190,7 +3108,7 @@ doc"""
 ..  round([T,] x, [digits, [base]], [r::RoundingMode])
 
 ``round(x)`` rounds ``x`` to an integer value according to the default
-rounding mode (see :func:`get_rounding`), returning a value of the same type as
+rounding mode (see :func:`rounding`), returning a value of the same type as
 ``x``. By default (:obj:`RoundNearest`), this will round to the nearest
 integer, with ties (fractional values of 0.5) being rounded to the even
 integer.
@@ -3922,7 +3840,7 @@ julia> Float64(pi, RoundUp)
 3.1415926535897936
 ```
 
-See `get_rounding` for available rounding modes.
+See `rounding` for available rounding modes.
 """
 Float64
 
@@ -3949,7 +3867,7 @@ doc"""
 
 Equivalent to ``addprocs(CPU_CORES)``
 
-Note that workers do not run a `.juliarc.jl` startup script, nor do they synchronize their global state
+Note that workers do not run a ``.juliarc.jl`` startup script, nor do they synchronize their global state
 (such as global variables, new method definitions, and loaded modules) with any of the other running processes.
 ```
 """
@@ -4160,7 +4078,11 @@ pipeline(command)
 doc"""
     serialize(stream, value)
 
-Write an arbitrary value to a stream in an opaque format, such that it can be read back by `deserialize`. The read-back value will be as identical as possible to the original. In general, this process will not work if the reading and writing are done by different versions of Julia, or an instance of Julia with a different system image.
+Write an arbitrary value to a stream in an opaque format, such that it can be read back by `deserialize`.
+The read-back value will be as identical as possible to the original.
+In general, this process will not work if the reading and writing are done by different versions of Julia,
+or an instance of Julia with a different system image.
+`Ptr` values are serialized as all-zero bit patterns (`NULL`).
 """
 serialize
 
@@ -5009,27 +4931,6 @@ doc"""
 Implemented by cluster managers. It is called on the master process, by `rmprocs`. It should cause the remote worker specified by `pid` to exit. `Base.kill(manager::ClusterManager.....)` executes a remote `exit()` on `pid`
 """
 kill(manager, pid::Int, config::WorkerConfig)
-
-doc"""
-```rst
-..  logm(A)
-
-If ``A`` has no negative real eigenvalue, compute the principal matrix logarithm of ``A``, i.e. the unique matrix :math:`X` such that :math:`e^X = A` and :math:`-\pi < Im(\lambda) < \pi` for all the eigenvalues :math:`\lambda` of :math:`X`. If ``A`` has nonpositive eigenvalues, a warning is printed and whenever possible a nonprincipal matrix function is returned.
-
-If ``A`` is symmetric or Hermitian, its eigendecomposition (:func:`eigfact`) is used, if ``A`` is triangular an improved version of the inverse scaling and squaring method is employed (see [AH12]_ and [AHR13]_). For general matrices, the complex Schur form (:func:`schur`) is computed and the triangular algorithm is used on the triangular factor.
-
-.. [AH12] Awad H. Al-Mohy and Nicholas J. Higham, "Improved inverse  scaling
-   and squaring algorithms for the matrix logarithm", SIAM Journal on
-   Scientific Computing, 34(4), 2012, C153-C169.
-   `doi:10.1137/110852553 <http://dx.doi.org/10.1137/110852553>`_
-.. [AHR13] Awad H. Al-Mohy, Nicholas J. Higham and Samuel D. Relton,
-   "Computing the Fréchet derivative of the matrix logarithm and estimating
-   the condition number", SIAM Journal on Scientific Computing, 35(4), 2013,
-   C394-C410.
-   `doi:10.1137/120885991 <http://dx.doi.org/10.1137/120885991>`_
-```
-"""
-logm
 
 doc"""
     sylvester(A, B, C)
@@ -6005,42 +5906,6 @@ sin
 
 doc"""
 ```rst
-..  ordschur!(Q, T, select) -> Schur
-
-Reorders the Schur factorization of a real matrix ``A=Q*T*Q'``, overwriting ``Q`` and ``T`` in the process. See :func:`ordschur`
-```
-"""
-ordschur!(Q,T,select)
-
-doc"""
-```rst
-..  ordschur!(S, select) -> Schur
-
-Reorders the Schur factorization ``S`` of type ``Schur``, overwriting ``S`` in the process. See :func:`ordschur`
-```
-"""
-ordschur!(S,select)
-
-doc"""
-```rst
-..  ordschur!(S, T, Q, Z, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a matrix by overwriting the matrices ``(S, T, Q, Z)`` in the process.  See :func:`ordschur`.
-```
-"""
-ordschur!(S,T,Q,Z,select)
-
-doc"""
-```rst
-..  ordschur!(GS, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a Generalized Schur object by overwriting the object with the new factorization.  See :func:`ordschur`.
-```
-"""
-ordschur!(::LinAlg.GeneralizedSchur,select)
-
-doc"""
-```rst
 ..  Base.compilecache(module::ByteString)
 
 Creates a precompiled cache file for module (see help for ``require``) and all of its dependencies. This can be used to reduce package load times. Cache files are stored in ``LOAD_CACHE_PATH[1]``, which defaults to ``~/.julia/lib/VERSION``. See :ref:`Module initialization and precompilation <man-modules-initialization-precompilation>` for important notes.
@@ -6343,7 +6208,7 @@ isreadonly
 
 doc"""
 ```rst
-..  get_rounding(T)
+..  rounding(T)
 
 Get the current floating point rounding mode for type ``T``, controlling
 the rounding of basic arithmetic functions (:func:`+`, :func:`-`,
@@ -6353,7 +6218,7 @@ Valid modes are ``RoundNearest``, ``RoundToZero``, ``RoundUp``,
 ``RoundDown``, and ``RoundFromZero`` (``BigFloat`` only).
 ```
 """
-get_rounding
+rounding
 
 doc"""
 ```rst
@@ -6568,18 +6433,33 @@ Like `broadcast_function`, but for `broadcast!`.
 broadcast!_function
 
 doc"""
-    with_rounding(f::Function, T, mode)
+```rst
+..  setrounding(T, mode)
+
+Set the rounding mode of floating point type ``T``, controlling the
+rounding of basic arithmetic functions (:func:`+`, :func:`-`, :func:`*`,
+:func:`/` and :func:`sqrt`) and type conversion.
+
+Note that this may affect other types, for instance changing the rounding
+mode of ``Float64`` will change the rounding mode of ``Float32``. See
+``rounding`` for available modes
+```
+"""
+setrounding(T, mode)
+
+doc"""
+    setrounding(f::Function, T, mode)
 
 Change the rounding mode of floating point type `T` for the duration of `f`. It is logically equivalent to:
 
-    old = get_rounding(T)
-    set_rounding(T, mode)
+    old = rounding(T)
+    setrounding(T, mode)
     f()
-    set_rounding(T, old)
+    setrounding(T, old)
 
-See `get_rounding` for available rounding modes.
+See `rounding` for available rounding modes.
 """
-with_rounding
+setrounding(f::Function, T, mode)
 
 doc"""
     sleep(seconds)
@@ -6669,15 +6549,6 @@ ERROR: ArgumentError: indices must be unique and sorted
 ```
 """
 deleteat!(collection, itr)
-
-doc"""
-```rst
-..  schurfact!(A)
-
-Computes the Schur factorization of ``A``, overwriting ``A`` in the process. See :func:`schurfact`
-```
-"""
-schurfact!
 
 doc"""
     read(stream, type)
@@ -6943,9 +6814,9 @@ multiplied by the larger matrix dimension.
 For inverting dense ill-conditioned matrices in a least-squares sense,
 ``tol = sqrt(eps(real(float(one(eltype(M))))))`` is recommended.
 
-For more information, see [8859]_, [B96]_, [S84]_, [KY88]_.
+For more information, see [issue8859]_, [B96]_, [S84]_, [KY88]_.
 
-.. [8859] Issue 8859, "Fix least squares", https://github.com/JuliaLang/julia/pull/8859
+.. [issue8859] Issue 8859, "Fix least squares", https://github.com/JuliaLang/julia/pull/8859
 .. [B96] Åke Björck, "Numerical Methods for Least Squares Problems",
    SIAM Press, Philadelphia, 1996, "Other Titles in Applied Mathematics", Vol. 51.
    `doi:10.1137/1.9781611971484 <http://epubs.siam.org/doi/book/10.1137/1.9781611971484>`_
@@ -7114,13 +6985,6 @@ doc"""
 Sum absolute values of elements of `A` over the singleton dimensions of `r`, and write results to `r`.
 """
 sumabs!
-
-doc"""
-    abs(x)
-
-Absolute value of `x`
-"""
-abs
 
 doc"""
     Sys.set_process_title(title::AbstractString)
@@ -7945,11 +7809,11 @@ Join path components into a full path. If some argument is an absolute path, the
 joinpath
 
 doc"""
-    get_bigfloat_precision()
+    precision(BigFloat)
 
 Get the precision (in bits) currently used for `BigFloat` arithmetic.
 """
-get_bigfloat_precision
+precision(::Type{BigFloat})
 
 doc"""
     homedir() -> AbstractString
@@ -8578,16 +8442,16 @@ Compute $e^x$.
 exp
 
 doc"""
-    with_bigfloat_precision(f::Function,precision::Integer)
+    setprecision(f::Function, precision::Integer)
 
 Change the `BigFloat` arithmetic precision (in bits) for the duration of `f`. It is logically equivalent to:
 
-    old = get_bigfloat_precision()
-    set_bigfloat_precision(precision)
+    old = precision(BigFloat)
+    setprecision(BigFloat, precision)
     f()
-    set_bigfloat_precision(old)
+    setprecision(BigFloat, old)
 """
-with_bigfloat_precision
+setprecision
 
 doc"""
     searchindex(string, substring, [start])
@@ -9664,11 +9528,11 @@ Test whether a vector is in sorted order. The `by`, `lt` and `rev` keywords modi
 issorted
 
 doc"""
-    set_bigfloat_precision(x::Int64)
+    setprecision(x::Int64)
 
 Set the precision (in bits) to be used to `BigFloat` arithmetic.
 """
-set_bigfloat_precision
+setprecision
 
 doc"""
     isbits(T)

@@ -61,8 +61,21 @@ Library improvements
       appropriate. The `sparsevec` function returns a one-dimensional sparse
       vector instead of a one-column sparse matrix. ([#13440])
 
+  * New `foreach` function for calling a function on every element of a collection when
+    the results are not needed.
+
 Deprecated or removed
 ---------------------
+
+  * The following function names have been simplified and unified ([#13232]):
+
+    * `get_bigfloat_precision`  -> `precision(BigFloat)`
+    * `set_bigfloat_precision`  -> `setprecision`
+    * `with_bigfloat_precision` -> `setprecision`
+
+    * `get_rounding`            -> `rounding`
+    * `set_rounding`            -> `setrounding`
+    * `with_rounding`           -> `setrounding`
 
   * The method `A_ldiv_B!(SparseMatrixCSC, StrideVecOrMat)` has been deprecated
     in favor of versions that require the matrix to be in factored form
@@ -984,7 +997,7 @@ Deprecated or removed
 
   * The `Stat` type is renamed `StatStruct` ([#4670]).
 
-  * `set_rounding`, `get_rounding` and `with_rounding` now take an additional
+  * `setrounding`, `rounding` and `setrounding` now take an additional
     argument specifying the floating point type to which they apply. The old
     behaviour and `[get/set/with]_bigfloat_rounding` functions are deprecated ([#5007]).
 
@@ -1709,6 +1722,10 @@ Too numerous to mention.
 [#13062]: https://github.com/JuliaLang/julia/issues/13062
 [#13338]: https://github.com/JuliaLang/julia/issues/13338
 [#13387]: https://github.com/JuliaLang/julia/issues/13387
+[#13440]: https://github.com/JuliaLang/julia/issues/13440
 [#13465]: https://github.com/JuliaLang/julia/issues/13465
+[#13496]: https://github.com/JuliaLang/julia/issues/13496
 [#13480]: https://github.com/JuliaLang/julia/issues/13480
 [#13542]: https://github.com/JuliaLang/julia/issues/13542
+[#13680]: https://github.com/JuliaLang/julia/issues/13680
+[#13681]: https://github.com/JuliaLang/julia/issues/13681

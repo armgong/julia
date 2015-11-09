@@ -47,7 +47,17 @@ function mkpath(path::AbstractString, mode::Unsigned=0o777)
     dir = dirname(path)
     (path == dir || isdir(path)) && return
     mkpath(dir, mode)
-    mkdir(path, mode)
+    try
+        mkdir(path, mode)
+    # If there is a problem with making the directory, but the directory
+    # does in fact exist, then ignore the error. Else re-throw it.
+    catch err
+        if isa(err, SystemError) && isdir(path)
+            return
+        else
+            rethrow()
+        end
+    end
 end
 
 mkdir(path::AbstractString, mode::Signed) = throw(ArgumentError("mode must be an unsigned integer; try 0o$mode"))
@@ -260,3 +270,63 @@ function readdir(path::AbstractString)
 end
 
 readdir() = readdir(".")
+
+"""
+    walkdir(dir; topdown=true, follow_symlinks=false, onerror=throw)
+
+The walkdir method return an iterator that walks the directory tree of a directory. The iterator returns a tuple containing
+`(rootpath, dirs, files)`. The directory tree can be traversed top-down or bottom-up. If walkdir encounters a SystemError
+it will raise the error. A custom error handling function can be provided through `onerror` keyword argument, the function
+is called with a SystemError as argument.
+
+    for (root, dirs, files) in walkdir(".")
+        println("Directories in \$root")
+        for dir in dirs
+            println(joinpath(root, dir)) # path to directories
+        end
+        println("Files in \$root")
+        for file in files
+            println(joinpath(root, file)) # path to files
+        end
+    end
+
+"""
+function walkdir(root; topdown=true, follow_symlinks=false, onerror=throw)
+    content = nothing
+    try
+        content = readdir(root)
+    catch err
+        isa(err, SystemError) || throw(err)
+        onerror(err)
+        #Need to return an empty task to skip the current root folder
+        return Task(()->())
+    end
+    dirs = Array(eltype(content), 0)
+    files = Array(eltype(content), 0)
+    for name in content
+        if isdir(joinpath(root, name))
+            push!(dirs, name)
+        else
+            push!(files, name)
+        end
+    end
+
+    function _it()
+        if topdown
+            produce(root, dirs, files)
+        end
+        for dir in dirs
+            path = joinpath(root,dir)
+            if follow_symlinks || !islink(path)
+                for (root_l, dirs_l, files_l) in walkdir(path, topdown=topdown, follow_symlinks=follow_symlinks, onerror=onerror)
+                    produce(root_l, dirs_l, files_l)
+                end
+            end
+        end
+        if !topdown
+            produce(root, dirs, files)
+        end
+    end
+    Task(_it)
+end
+

@@ -1141,10 +1141,10 @@ R = CartesianRange((0,3))
 R = CartesianRange((3,0))
 @test done(R, start(R)) == true
 
-@test eachindex(Base.LinearSlow(),zeros(3),zeros(2,2),zeros(2,2,2),zeros(2,2)) == CartesianRange((3,2,2))
-@test eachindex(Base.LinearFast(),zeros(3),zeros(2,2),zeros(2,2,2),zeros(2,2)) == 1:8
-@test eachindex(zeros(3),sub(zeros(3,3),1:2,1:2),zeros(2,2,2),zeros(2,2)) == CartesianRange((3,2,2))
-@test eachindex(zeros(3),zeros(2,2),zeros(2,2,2),zeros(2,2)) == 1:8
+@test @inferred(eachindex(Base.LinearSlow(),zeros(3),zeros(2,2),zeros(2,2,2),zeros(2,2))) == CartesianRange((3,2,2))
+@test @inferred(eachindex(Base.LinearFast(),zeros(3),zeros(2,2),zeros(2,2,2),zeros(2,2))) == 1:8
+@test @inferred(eachindex(zeros(3),sub(zeros(3,3),1:2,1:2),zeros(2,2,2),zeros(2,2))) == CartesianRange((3,2,2))
+@test @inferred(eachindex(zeros(3),zeros(2,2),zeros(2,2,2),zeros(2,2))) == 1:8
 
 
 #rotates
@@ -1233,7 +1233,7 @@ b = rand(6,7)
 # return type declarations (promote_op)
 module RetTypeDecl
     using Base.Test
-    import Base: +, *, .*
+    import Base: +, *, .*, zero
 
     immutable MeterUnits{T,P} <: Number
         val::T
@@ -1243,9 +1243,11 @@ module RetTypeDecl
     m  = MeterUnits(1.0, 1)   # 1.0 meter, i.e. units of length
     m2 = MeterUnits(1.0, 2)   # 1.0 meter^2, i.e. units of area
 
-    (+){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,1}(x.val+y.val)
+    (+){T,pow}(x::MeterUnits{T,pow}, y::MeterUnits{T,pow}) = MeterUnits{T,pow}(x.val+y.val)
+    (*){T,pow}(x::Int, y::MeterUnits{T,pow}) = MeterUnits{typeof(x*one(T)),pow}(x*y.val)
     (*){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,2}(x.val*y.val)
     (.*){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,2}(x.val*y.val)
+    zero{T,pow}(x::MeterUnits{T,pow}) = MeterUnits{T,pow}(zero(T))
 
     Base.promote_op{R,S}(::Base.AddFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),1}
     Base.promote_op{R,S}(::Base.MulFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
@@ -1255,6 +1257,8 @@ module RetTypeDecl
     @test @inferred([m,m]+m) == [m+m,m+m]
     @test @inferred(m.*[m,m]) == [m2,m2]
     @test @inferred([m,m].*m) == [m2,m2]
+    @test @inferred([m 2m; m m]*[m,m]) == [3m2,2m2]
+    @test @inferred([m m].*[m,m]) == [m2 m2; m2 m2]
 end
 
 # range, range ops
@@ -1286,6 +1290,7 @@ Base.setindex!(A::LinSlowMatrix, v, i::Integer, j::Integer) = A.data[i,j] = v
 
 A = rand(3,5)
 B = LinSlowMatrix(A)
+S = sub(A, :, :)
 
 @test A == B
 @test B == A
@@ -1295,51 +1300,61 @@ B = LinSlowMatrix(A)
 for (a,b) in zip(A, B)
     @test a == b
 end
+for (a,s) in zip(A, S)
+    @test a == s
+end
 
 C = copy(B)
 @test A == C
 @test B == C
 
-@test vec(A) == vec(B)
-@test minimum(A) == minimum(B)
-@test maximum(A) == maximum(B)
+@test vec(A) == vec(B) == vec(S)
+@test minimum(A) == minimum(B) == minimum(S)
+@test maximum(A) == maximum(B) == maximum(S)
 
 a, ai = findmin(A)
 b, bi = findmin(B)
-@test a == b
-@test ai == bi
+s, si = findmin(S)
+@test a == b == s
+@test ai == bi == si
 
 a, ai = findmax(A)
 b, bi = findmax(B)
-@test a == b
-@test ai == bi
+s, si = findmax(S)
+@test a == b == s
+@test ai == bi == si
 
 fill!(B, 2)
 @test all(x->x==2, B)
 
-i,j = findn(B)
 iall = (1:size(A,1)).*ones(Int,size(A,2))'
 jall = ones(Int,size(A,1)).*(1:size(A,2))'
+i,j = findn(B)
+@test vec(i) == vec(iall)
+@test vec(j) == vec(jall)
+fill!(S, 2)
+i,j = findn(S)
 @test vec(i) == vec(iall)
 @test vec(j) == vec(jall)
 
 copy!(B, A)
+copy!(S, A)
 
-@test cat(1, A, B) == cat(1, A, A)
-@test cat(2, A, B) == cat(2, A, A)
+@test cat(1, A, B, S) == cat(1, A, A, A)
+@test cat(2, A, B, S) == cat(2, A, A, A)
 
-@test cumsum(A, 1) == cumsum(B, 1)
-@test cumsum(A, 2) == cumsum(B, 2)
+@test cumsum(A, 1) == cumsum(B, 1) == cumsum(S, 1)
+@test cumsum(A, 2) == cumsum(B, 2) == cumsum(S, 2)
 
-@test mapslices(v->sort(v), A, 1) == mapslices(v->sort(v), B, 1)
-@test mapslices(v->sort(v), A, 2) == mapslices(v->sort(v), B, 2)
+@test mapslices(v->sort(v), A, 1) == mapslices(v->sort(v), B, 1) == mapslices(v->sort(v), S, 1)
+@test mapslices(v->sort(v), A, 2) == mapslices(v->sort(v), B, 2) == mapslices(v->sort(v), S, 2)
 
-@test flipdim(A, 1) == flipdim(B, 1)
-@test flipdim(A, 2) == flipdim(B, 2)
+@test flipdim(A, 1) == flipdim(B, 1) == flipdim(S, 2)
+@test flipdim(A, 2) == flipdim(B, 2) == flipdim(S, 2)
 
-@test A + 1 == B + 1
-@test 2*A == 2*B
-@test A/3 == B/3
+@test A + 1 == B + 1 == S + 1
+@test 2*A == 2*B == 2*S
+@test A/3 == B/3 == S/3
 
 # issue #13250
 x13250 = zeros(3)

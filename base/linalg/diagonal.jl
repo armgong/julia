@@ -5,7 +5,7 @@
 immutable Diagonal{T} <: AbstractMatrix{T}
     diag::Vector{T}
 end
-Diagonal(A::Matrix) = Diagonal(diag(A))
+Diagonal(A::AbstractMatrix) = Diagonal(diag(A))
 
 convert{T}(::Type{Diagonal{T}}, D::Diagonal{T}) = D
 convert{T}(::Type{Diagonal{T}}, D::Diagonal) = Diagonal{T}(convert(Vector{T}, D.diag))
@@ -163,9 +163,9 @@ function A_ldiv_B!(D::Diagonal, B::StridedVecOrMat)
     end
     return B
 end
-\(D::Diagonal, B::StridedMatrix) = scale(1 ./ D.diag, B)
-\(D::Diagonal, b::StridedVector) = reshape(scale(1 ./ D.diag, reshape(b, length(b), 1)), length(b))
-\(Da::Diagonal, Db::Diagonal) = Diagonal(Db.diag ./ Da.diag)
+(\)(D::Diagonal, B::AbstractMatrix) = scale(1 ./ D.diag, B)
+(\)(D::Diagonal, b::AbstractVector) = reshape(scale(1 ./ D.diag, reshape(b, length(b), 1)), length(b))
+(\)(Da::Diagonal, Db::Diagonal) = Diagonal(Db.diag ./ Da.diag)
 
 function inv{T}(D::Diagonal{T})
     Di = similar(D.diag)
@@ -187,7 +187,7 @@ function pinv{T}(D::Diagonal{T})
 end
 function pinv{T}(D::Diagonal{T}, tol::Real)
     Di = similar(D.diag)
-    if( length(D.diag) != 0 ) maxabsD = maximum(abs(D.diag)) end
+    if( !isempty(D.diag) ) maxabsD = maximum(abs(D.diag)) end
     for i = 1:length(D.diag)
         if( abs(D.diag[i]) > tol*maxabsD && isfinite(inv(D.diag[i])) )
             Di[i]=inv(D.diag[i])

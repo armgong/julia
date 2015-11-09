@@ -60,7 +60,7 @@ ndims{T,n}(::Type{AbstractArray{T,n}}) = n
 ndims{T<:AbstractArray}(::Type{T}) = ndims(super(T))
 length(t::AbstractArray) = prod(size(t))::Int
 endof(a::AbstractArray) = length(a)
-first(a::AbstractArray) = a[1]
+first(a::AbstractArray) = a[first(eachindex(a))]
 
 function first(itr)
     state = start(itr)
@@ -401,10 +401,10 @@ next(A::AbstractArray,i) = (@_inline_meta(); (idx, s) = next(i[1], i[2]); (A[idx
 done(A::AbstractArray,i) = done(i[1], i[2])
 
 iterstate(i) = i
+iterstate(i::Tuple{UnitRange{Int},Int}) = i[2]
 
 # eachindex iterates over all indices. LinearSlow definitions are later.
 eachindex(A::AbstractArray) = (@_inline_meta(); eachindex(linearindexing(A), A))
-eachindex(::LinearFast, A::AbstractArray) = 1:length(A)
 
 function eachindex(A::AbstractArray, B::AbstractArray)
     @_inline_meta
@@ -414,8 +414,16 @@ function eachindex(A::AbstractArray, B::AbstractArray...)
     @_inline_meta
     eachindex(linearindexing(A,B...), A, B...)
 end
-eachindex(::LinearFast, A::AbstractArray, B::AbstractArray) = 1:max(length(A),length(B))
-eachindex(::LinearFast, A::AbstractArray, B::AbstractArray...) = 1:max(length(A), map(length, B)...)
+eachindex(::LinearFast, A::AbstractArray) = 1:length(A)
+function eachindex(::LinearFast, A::AbstractArray, B::AbstractArray...)
+    @_inline_meta
+    1:_maxlength(A, B...)
+end
+_maxlength(A) = length(A)
+function _maxlength(A, B, C...)
+    @_inline_meta
+    max(length(A), _maxlength(B, C...))
+end
 
 isempty(a::AbstractArray) = (length(a) == 0)
 
@@ -1137,6 +1145,18 @@ end
 
 ## iteration utilities ##
 
+doc"""
+    foreach(f, c...) -> Void
+
+Call function `f` on each element of iterable `c`.
+For multiple iterable arguments, `f` is called elementwise.
+`foreach` should be used instead of `map` when the results of `f` are not
+needed, for example in `foreach(println, array)`.
+"""
+foreach(f) = (f(); nothing)
+foreach(f, itr) = (for x in itr; f(x); end; nothing)
+foreach(f, itrs...) = (for z in zip(itrs...); f(z...); end; nothing)
+
 # generic map on any iterator
 function map(f, iters...)
     result = []
@@ -1256,6 +1276,15 @@ function map_promote(f, A::AbstractArray)
     dest[1] = first
     return promote_to!(f, 2, dest, A)
 end
+
+# These are needed because map(eltype, As) is not inferrable
+promote_eltype_op(::Any) = (@_pure_meta; Bottom)
+promote_eltype_op{T}(op, ::AbstractArray{T}) = (@_pure_meta; promote_op(op, T))
+promote_eltype_op{T}(op, ::T               ) = (@_pure_meta; promote_op(op, T))
+promote_eltype_op{R,S}(op, ::AbstractArray{R}, ::AbstractArray{S}) = (@_pure_meta; promote_op(op, R, S))
+promote_eltype_op{R,S}(op, ::AbstractArray{R}, ::S) = (@_pure_meta; promote_op(op, R, S))
+promote_eltype_op{R,S}(op, ::R, ::AbstractArray{S}) = (@_pure_meta; promote_op(op, R, S))
+promote_eltype_op(op, A, B, C, D...) = (@_pure_meta; promote_op(op, eltype(A), promote_eltype_op(op, B, C, D...)))
 
 ## 1 argument
 map!{F}(f::F, A::AbstractArray) = map!(f, A, A)

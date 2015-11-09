@@ -325,19 +325,26 @@ function inv{T}(A::AbstractMatrix{T})
     A_ldiv_B!(factorize(convert(AbstractMatrix{S}, A)), eye(S, chksquare(A)))
 end
 
-function \{T}(A::AbstractMatrix{T}, B::AbstractVecOrMat{T})
-    if size(A,1) != size(B,1)
-        throw(DimensionMismatch("left and right hand sides should have the same number of rows, left hand side has $(size(A,1)) rows, but right hand side has $(size(B,1)) rows."))
+function (\)(A::AbstractMatrix, B::AbstractVecOrMat)
+    m, n = size(A)
+    if m == n
+        if istril(A)
+            if istriu(A)
+                return Diagonal(A) \ B
+            else
+                return LowerTriangular(A) \ B
+            end
+        end
+        if istriu(A)
+            return UpperTriangular(A) \ B
+        end
+        return lufact(A) \ B
     end
-    factorize(A)\B
-end
-function \{TA,TB}(A::AbstractMatrix{TA}, B::AbstractVecOrMat{TB})
-    TC = typeof(one(TA)/one(TB))
-    convert(AbstractMatrix{TC}, A)\convert(AbstractArray{TC}, B)
+    return qrfact(A,Val{true}) \ B
 end
 
-\(a::AbstractVector, b::AbstractArray) = reshape(a, length(a), 1) \ b
-/(A::AbstractVecOrMat, B::AbstractVecOrMat) = (B' \ A')'
+(\)(a::AbstractVector, b::AbstractArray) = reshape(a, length(a), 1) \ b
+(/)(A::AbstractVecOrMat, B::AbstractVecOrMat) = (B' \ A')'
 # \(A::StridedMatrix,x::Number) = inv(A)*x Should be added at some point when the old elementwise version has been deprecated long enough
 # /(x::Number,A::StridedMatrix) = x*inv(A)
 
@@ -535,17 +542,17 @@ end
 
 Normalize the vector `v` in-place with respect to the `p`-norm.
 
-# Inputs
+Inputs:
 
 - `v::AbstractVector` - vector to be normalized
 - `p::Real` - The `p`-norm to normalize with respect to. Default: 2
 
-# Output
+Output:
 
 - `v` - A unit vector being the input vector, rescaled to have norm 1.
         The input vector is modified in-place.
 
-# See also
+See also:
 
 `normalize`, `qr`
 
@@ -555,23 +562,19 @@ function normalize!(v::AbstractVector, p::Real=2)
     __normalize!(v, nrm)
 end
 
-@inline function __normalize!{T<:AbstractFloat}(v::AbstractVector{T}, nrm::T)
+@inline function __normalize!(v::AbstractVector, nrm::AbstractFloat)
     #The largest positive floating point number whose inverse is less than
     #infinity
-    const δ = inv(prevfloat(typemax(T)))
+    δ = inv(prevfloat(typemax(nrm)))
 
     if nrm ≥ δ #Safe to multiply with inverse
         invnrm = inv(nrm)
         scale!(v, invnrm)
 
-    else #Divide by norm; slower but more correct
-        #Note 2015-10-19: As of Julia 0.4, @simd does not vectorize floating
-        #point division, although vectorized intrinsics like DIVPD exist. I
-        #will leave the @simd annotation in, hoping that someone will improve
-        #the @simd macro in the future. - cjh
-        @inbounds @simd for i in eachindex(v)
-            v[i] /= nrm
-        end
+    else # scale elements to avoid overflow
+        εδ = eps(one(nrm))/δ
+        scale!(v, εδ)
+        scale!(v, inv(nrm*εδ))
     end
 
     v
@@ -582,18 +585,26 @@ end
 
 Normalize the vector `v` with respect to the `p`-norm.
 
-# Inputs
+Inputs:
 
 - `v::AbstractVector` - vector to be normalized
 - `p::Real` - The `p`-norm to normalize with respect to. Default: 2
 
-# Output
+Output:
 
 - `v` - A unit vector being a copy of the input vector, scaled to have norm 1
 
-# See also
+See also:
 
 `normalize!`, `qr`
 """
-normalize(v::AbstractVector, p::Real=2) = v/norm(v, p)
-
+function normalize(v::AbstractVector, p::Real = 2)
+    nrm = norm(v, p)
+    if !isempty(v)
+        vv = copy_oftype(v, typeof(v[1]/nrm))
+        return __normalize!(vv, nrm)
+    else
+        T = typeof(zero(eltype(v))/nrm)
+        return T[]
+    end
+end

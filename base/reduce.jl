@@ -36,10 +36,10 @@ function mapfoldl_impl(f, op, v0, itr, i)
     # Unroll the while loop once; if v0 is known, the call to op may
     # be evaluated at compile time
     if done(itr, i)
-        return v0
+        return r_promote(op, v0)
     else
         (x, i) = next(itr, i)
-        v = op(v0, f(x))
+        v = op(r_promote(op, v0), f(x))
         while !done(itr, i)
             (x, i) = next(itr, i)
             v = op(v, f(x))
@@ -71,10 +71,10 @@ function mapfoldr_impl(f, op, v0, itr, i::Integer)
     # Unroll the while loop once; if v0 is known, the call to op may
     # be evaluated at compile time
     if i == 0
-        return v0
+        return r_promote(op, v0)
     else
         x = itr[i]
-        v  = op(f(x), v0)
+        v  = op(f(x), r_promote(op, v0))
         while i > 1
             x = itr[i -= 1]
             v = op(f(x), v)
@@ -393,16 +393,8 @@ end
 
 function count(pred, itr)
     n = 0
-    for x in itr
-        pred(x) && (n += 1)
-    end
-    return n
-end
-
-function count(pred, A::AbstractArray)
-    n = 0
-    @inbounds for a in A
-        pred(a) && (n += 1)
+    @inbounds for x in itr
+        n += pred(x)
     end
     return n
 end

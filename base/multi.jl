@@ -465,7 +465,7 @@ end
 
 const client_refs = WeakKeyDict()
 
-type RemoteRef{RemoteStore}
+type RemoteRef{T<:AbstractChannel}
     where::Int
     whence::Int
     id::Int
@@ -1136,13 +1136,13 @@ function addprocs_locked(manager::ClusterManager; kwargs...)
 
     @sync begin
         while true
-            if length(launched) == 0
+            if isempty(launched)
                 istaskdone(t_launch) && break
                 @schedule (sleep(1); notify(launch_ntfy))
                 wait(launch_ntfy)
             end
 
-            if (length(launched) > 0)
+            if !isempty(launched)
                 wconfig = shift!(launched)
                 let wconfig=wconfig
                     @async setup_launched_worker(manager, wconfig, launched_q)
@@ -1306,7 +1306,7 @@ function launch_additional(np::Integer, cmd::Cmd)
     addresses = cell(np)
 
     for i in 1:np
-        io, pobj = open(detach(cmd), "r")
+        io, pobj = open(pipeline(detach(cmd), stderr=STDERR), "r")
         io_objs[i] = io
     end
 
