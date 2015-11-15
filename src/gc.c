@@ -43,8 +43,6 @@ JL_DEFINE_MUTEX(finalizers)
 #define GC_QUEUED 2 // if it is reachable it will be marked as old
 #define GC_MARKED_NOESC (GC_MARKED | GC_QUEUED) // reachable and young
 
-#define jl_valueof(v) (&((jl_taggedvalue_t*)(v))->value)
-
 // This struct must be kept in sync with the Julia type of the same name in base/util.jl
 typedef struct {
     int64_t     allocd;
@@ -347,26 +345,26 @@ static void run_finalizer(jl_value_t *o, jl_value_t *ff)
     }
 }
 
-static int finalize_object(jl_value_t *o)
+static void finalize_object(arraylist_t *list, jl_value_t *o)
 {
-    int success = 0;
+    /* int success = 0; */
     jl_value_t *f = NULL;
     JL_GC_PUSH1(&f);
-    for(int i = 0; i < finalizer_list.len; i+=2) {
-        if (o == (jl_value_t*)finalizer_list.items[i]) {
-            f = (jl_value_t*)finalizer_list.items[i+1];
-            if (i < finalizer_list.len - 2) {
-                finalizer_list.items[i] = finalizer_list.items[finalizer_list.len-2];
-                finalizer_list.items[i+1] = finalizer_list.items[finalizer_list.len-1];
+    for(int i = 0; i < list->len; i+=2) {
+        if (o == (jl_value_t*)list->items[i]) {
+            f = (jl_value_t*)list->items[i+1];
+            if (i < list->len - 2) {
+                list->items[i] = list->items[list->len-2];
+                list->items[i+1] = list->items[list->len-1];
                 i -= 2;
             }
-            finalizer_list.len -= 2;
+            list->len -= 2;
             run_finalizer(o, f);
-            success = 1;
+            /* success = 1; */
         }
     }
     JL_GC_POP();
-    return success;
+    /* return success; */
 }
 
 static void run_finalizers(void)
@@ -423,7 +421,10 @@ DLLEXPORT void jl_gc_add_finalizer(jl_value_t *v, jl_function_t *f)
 void jl_finalize(jl_value_t *o)
 {
     JL_LOCK(finalizers);
-    (void)finalize_object(o);
+    // No need to check the to_finalize list since the user is apparently
+    // still holding a reference to the object
+    finalize_object(&finalizer_list, o);
+    finalize_object(&finalizer_list_marked, o);
     JL_UNLOCK(finalizers);
 }
 
@@ -1664,8 +1665,9 @@ static int push_root(jl_value_t *v, int d, int bits)
     // some values have special representations
     if (vt == (jl_value_t*)jl_simplevector_type) {
         size_t l = jl_svec_len(v);
-        MARK(v, bits = gc_setmark(v, l*sizeof(void*) + sizeof(jl_svec_t), GC_MARKED_NOESC));
-        jl_value_t **data = ((jl_svec_t*)v)->data;
+        MARK(v, bits = gc_setmark(v, l * sizeof(void*) +
+                                  sizeof(jl_svec_t), GC_MARKED_NOESC));
+        jl_value_t **data = jl_svec_data(v);
         nptr += l;
         for(size_t i=0; i < l; i++) {
             jl_value_t *elt = data[i];
