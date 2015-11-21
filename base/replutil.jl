@@ -136,7 +136,13 @@ function showerror(io::IO, ex::DomainError, bt; backtrace=true)
     nothing
 end
 
-showerror(io::IO, ex::SystemError) = print(io, "SystemError: $(ex.prefix): $(Libc.strerror(ex.errnum))")
+function showerror(io::IO, ex::SystemError)
+    if ex.extrainfo == nothing
+        print(io, "SystemError: $(ex.prefix): $(Libc.strerror(ex.errnum))")
+    else
+        print(io, "SystemError (with $(ex.extrainfo)): $(ex.prefix): $(Libc.strerror(ex.errnum))")
+    end
+end
 showerror(io::IO, ::DivideError) = print(io, "DivideError: integer division error")
 showerror(io::IO, ::StackOverflowError) = print(io, "StackOverflowError:")
 showerror(io::IO, ::UndefRefError) = print(io, "UndefRefError: access to undefined reference")
@@ -208,7 +214,7 @@ function showerror(io::IO, ex::MethodError)
     try
         show_method_candidates(io, ex)
     catch
-        warn("Unable to show method candidates")
+        warn(io, "Error showing method candidates, aborted")
     end
 end
 

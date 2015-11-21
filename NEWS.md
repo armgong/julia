@@ -20,6 +20,9 @@ Compiler/Runtime improvements
 Library improvements
 --------------------
 
+  * Most of the  combinatorics functions have been moved from `Base`
+    to the [Combinatorics.jl package](https://github.com/JuliaLang/Combinatorics.jl) ([#13897]).
+
   * Packages:
 
     * The package system (`Pkg`) is now based on the `libgit2` library, rather
@@ -46,6 +49,9 @@ Library improvements
   * `cov` and `cor` don't use keyword arguments anymore and are therefore now type stable ([#13465]).
 
   * Linear algebra:
+
+    * All dimensions indexed by scalars are now dropped, whereas previously only
+      trailing scalar dimensions would be omitted from the result.
 
     * New `normalize` and `normalize!` convenience functions for normalizing
       vectors ([#13681]).
