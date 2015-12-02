@@ -541,8 +541,6 @@ JL_CALLABLE(jl_f_kwcall)
 
 // eval -----------------------------------------------------------------------
 
-extern int jl_lineno;
-
 DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex)
 {
     return jl_toplevel_eval_in_warn(m, ex, 0);
@@ -955,8 +953,6 @@ extern int jl_in_inference;
 extern int jl_boot_file_loaded;
 int jl_eval_with_compiler_p(jl_expr_t *ast, jl_expr_t *expr, int compileloops, jl_module_t *m);
 
-JL_DEFINE_MUTEX_EXT(codegen)
-
 static int jl_eval_inner_with_compiler(jl_expr_t *e, jl_module_t *m)
 {
     int i;
@@ -980,7 +976,7 @@ static int jl_eval_inner_with_compiler(jl_expr_t *e, jl_module_t *m)
 
 void jl_trampoline_compile_linfo(jl_lambda_info_t *linfo, int always_infer)
 {
-    JL_LOCK(codegen)
+    JL_LOCK(codegen);
     assert(linfo);
     assert(linfo->specTypes);
     // to run inference on all thunks. slows down loading files.
@@ -1009,7 +1005,7 @@ void jl_trampoline_compile_linfo(jl_lambda_info_t *linfo, int always_infer)
         linfo->ast = jl_compress_ast(linfo, linfo->ast);
         jl_gc_wb(linfo, linfo->ast);
     }
-    JL_UNLOCK(codegen)
+    JL_UNLOCK(codegen);
 }
 
 JL_CALLABLE(jl_trampoline)

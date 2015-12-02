@@ -447,8 +447,6 @@ static GlobalVariable *jlemptytuple_var;
 #ifdef JL_NEED_FLOATTEMP_VAR
 static GlobalVariable *jlfloattemp_var;
 #endif
-static GlobalVariable *jlpgcstack_var;
-static GlobalVariable *jlexc_var;
 static GlobalVariable *jldiverr_var;
 static GlobalVariable *jlundeferr_var;
 static GlobalVariable *jldomerr_var;
@@ -465,6 +463,15 @@ extern JITMemoryManager* createJITMemoryManagerWin();
 #if defined(_OS_DARWIN_) && defined(LLVM37) && defined(LLVM_SHLIB)
 #define CUSTOM_MEMORY_MANAGER 1
 extern RTDyldMemoryManager* createRTDyldMemoryManagerOSX();
+#endif
+
+#ifndef JULIA_ENABLE_THREADING
+static GlobalVariable *jltls_states_var;
+#else
+static Function *jltls_states_func;
+// Imaging mode only
+static GlobalVariable *jltls_states_func_ptr = NULL;
+static size_t jltls_states_func_idx = 0;
 #endif
 
 // important functions
@@ -517,7 +524,6 @@ static Function *box8_func;
 static Function *box16_func;
 static Function *box32_func;
 static Function *box64_func;
-static Function *wbfunc;
 static Function *queuerootfun;
 static Function *expect_func;
 static Function *jldlsym_func;
@@ -539,11 +545,6 @@ static std::vector<Type *> two_pvalue_llvmt;
 static std::vector<Type *> three_pvalue_llvmt;
 
 static std::map<jl_fptr_t, Function*> builtin_func_map;
-
-extern "C" DLLEXPORT void jl_gc_wb_slow(jl_value_t* parent, jl_value_t* ptr)
-{
-    jl_gc_wb(parent, ptr);
-}
 
 // --- code generation ---
 
@@ -666,6 +667,7 @@ typedef struct {
 struct jl_gcinfo_t {
     AllocaInst *gcframe;
     Value *argSlot;
+    Value *ptlsStates;
     GetElementPtrInst *tempSlot;
     int argDepth;
     int maxDepth;
@@ -923,8 +925,6 @@ static void maybe_alloc_arrayvar(jl_sym_t *s, jl_codectx_t *ctx)
     }
 }
 
-JL_DEFINE_MUTEX_EXT(codegen)
-
 // Snooping on which functions are being compiled, and how long it takes
 JL_STREAM *dump_compiles_stream = NULL;
 uint64_t last_time = 0;
@@ -941,7 +941,7 @@ static void jl_finalize_module(Module *m);
 //static int n_compile=0;
 static Function *to_function(jl_lambda_info_t *li)
 {
-    JL_LOCK(codegen)
+    JL_LOCK(codegen);
     JL_SIGATOMIC_BEGIN();
     assert(!li->inInference);
     BasicBlock *old = nested_compile ? builder.GetInsertBlock() : NULL;
@@ -966,7 +966,7 @@ static Function *to_function(jl_lambda_info_t *li)
             builder.SetCurrentDebugLocation(olddl);
         }
         JL_SIGATOMIC_END();
-        JL_UNLOCK(codegen)
+        JL_UNLOCK(codegen);
         jl_rethrow_with_add("error compiling %s", jl_symbol_name(li->name));
     }
     assert(f != NULL);
@@ -1005,7 +1005,7 @@ static Function *to_function(jl_lambda_info_t *li)
     }
     nested_compile = last_n_c;
     jl_gc_inhibit_finalizers(nested_compile);
-    JL_UNLOCK(codegen)
+    JL_UNLOCK(codegen);
     JL_SIGATOMIC_END();
     if (dump_compiles_stream != NULL) {
         uint64_t this_time = jl_hrtime();
@@ -1062,7 +1062,7 @@ static void jl_finalize_module(Module *m)
 
 extern "C" void jl_generate_fptr(jl_function_t *f)
 {
-    JL_LOCK(codegen)
+    JL_LOCK(codegen);
     // objective: assign li->fptr
     jl_lambda_info_t *li = f->linfo;
     assert(li->functionObject);
@@ -1131,7 +1131,7 @@ extern "C" void jl_generate_fptr(jl_function_t *f)
         JL_SIGATOMIC_END();
     }
     f->fptr = li->fptr;
-    JL_UNLOCK(codegen)
+    JL_UNLOCK(codegen);
 }
 
 extern "C" void jl_compile_linfo(jl_lambda_info_t *li)
@@ -1454,14 +1454,22 @@ void jl_dump_asm_internal(uintptr_t Fptr, size_t Fsize, size_t slide,
 #else
                           std::vector<JITEvent_EmittedFunctionDetails::LineStart> lineinfo,
 #endif
-                          formatted_raw_ostream &stream);
+#ifdef LLVM37
+                          raw_ostream &rstream
+#else
+                          formatted_raw_ostream &stream
+#endif
+                          );
 
 extern "C" DLLEXPORT
 const jl_value_t *jl_dump_function_asm(void *f, int raw_mc)
 {
     std::string code;
     llvm::raw_string_ostream stream(code);
+#ifdef LLVM37
+#else
     llvm::formatted_raw_ostream fstream(stream);
+#endif
 
     Function *llvmf = dyn_cast<Function>((Function*)f);
     if (!llvmf)
@@ -1480,12 +1488,19 @@ const jl_value_t *jl_dump_function_asm(void *f, int raw_mc)
     if (jl_get_llvmf_info(fptr, &symsize, &slide, &object)) {
         if (raw_mc)
             return (jl_value_t*)jl_pchar_to_array((char*)fptr, symsize);
+#ifdef LLVM37
+        jl_dump_asm_internal(fptr, symsize, slide, object, stream);
+#else
         jl_dump_asm_internal(fptr, symsize, slide, object, fstream);
+#endif
     }
     else {
         jl_printf(JL_STDERR, "WARNING: Unable to find function pointer\n");
     }
+#ifdef LLVM37
+#else
     fstream.flush();
+#endif
 
     return jl_cstr_to_string(const_cast<char*>(stream.str().c_str()));
 }
@@ -3775,7 +3790,9 @@ static jl_cgval_t emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, b
         return mark_julia_type(val, true, ty);
     }
     else if (head == exc_sym) { // *jl_exception_in_transit
-        return mark_julia_type(builder.CreateLoad(prepare_global(jlexc_var), /*isvolatile*/true), true, jl_any_type);
+        return mark_julia_type(builder.CreateLoad(emit_exc_in_transit(ctx),
+                                                  /*isvolatile*/true),
+                               true, jl_any_type);
     }
     else if (head == leave_sym) {
         assert(jl_is_long(args[0]));
@@ -3811,7 +3828,7 @@ static jl_cgval_t emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, b
         builder.SetInsertPoint(cond_resetstkoflw_blk);
         builder.CreateCondBr(builder.CreateICmpEQ(
                     literal_pointer_val(jl_stackovf_exception),
-                    builder.CreateLoad(prepare_global(jlexc_var), true)),
+                    builder.CreateLoad(emit_exc_in_transit(ctx), true)),
                 resetstkoflw_blk, handlr);
         builder.SetInsertPoint(resetstkoflw_blk);
         builder.CreateCall(prepare_call(resetstkoflw_func)
@@ -3907,6 +3924,25 @@ static void allocate_gc_frame(size_t n_roots, BasicBlock *b0, jl_codectx_t *ctx)
     gc->argDepth = 0;
     gc->maxDepth = 0;
 
+#ifdef JULIA_ENABLE_THREADING
+    CallInst *calltls;
+    if (imaging_mode) {
+        Value *getter = tbaa_decorate(tbaa_const,
+                                      builder.CreateLoad(jltls_states_func_ptr));
+        FunctionType *functype = jltls_states_func->getFunctionType();
+        Value *func = builder.CreateBitCast(getter,
+                                            PointerType::get(functype, 0));
+        calltls = builder.CreateCall(func);
+    }
+    else {
+        calltls = builder.CreateCall(prepare_call(jltls_states_func));
+    }
+    calltls->setAttributes(jltls_states_func->getAttributes());
+    gc->ptlsStates = calltls;
+#else
+    gc->ptlsStates = prepare_global(jltls_states_var);
+#endif
+
     gc->gcframe = builder.CreateAlloca(T_pjlvalue, ConstantInt::get(T_int32, 0));
 #ifdef JL_DEBUG_BUILD
     gc->gcframe->setName("gcrootframe");
@@ -3954,7 +3990,7 @@ emit_gcpops(jl_codectx_t *ctx)
                 (Instruction*)builder.CreateConstGEP1_32(ctx->gc.gcframe, 1);
             builder.CreateStore(builder.CreatePointerCast(builder.CreateLoad(gcpop),
                                                       T_ppjlvalue),
-                                prepare_global(jlpgcstack_var));
+                                emit_pgcstack(ctx));
         }
     }
 }
@@ -3976,9 +4012,9 @@ static void finalize_gc_frame(jl_codectx_t *ctx)
     gc->tempSlot->setOperand(1, ConstantInt::get(T_int32, 2 + gc->argSpaceSize)); // fix up the offset to the temp slot space
     builder.CreateStore(ConstantInt::get(T_size, (gc->argSpaceSize + gc->maxDepth) << 1),
                         builder.CreateBitCast(builder.CreateConstGEP1_32(newgcframe, 0), T_psize));
-    builder.CreateStore(builder.CreateLoad(prepare_global(jlpgcstack_var)),
+    builder.CreateStore(builder.CreateLoad(emit_pgcstack(ctx)),
                         builder.CreatePointerCast(builder.CreateConstGEP1_32(newgcframe, 1), PointerType::get(T_ppjlvalue,0)));
-    builder.CreateStore(newgcframe, prepare_global(jlpgcstack_var));
+    builder.CreateStore(newgcframe, emit_pgcstack(ctx));
     // Initialize the slots for temporary variables to NULL
     for (int i = 0; i < gc->argSpaceSize; i++) {
         Value *argTempi = emit_local_slot(i, ctx);
@@ -4411,7 +4447,7 @@ static Function *emit_function(jl_lambda_info_t *lam)
     int va = 0;
 
     if ((jl_array_len(jl_lam_staticparams(ast)) == 0) != (jl_svec_len(sparams) == 0)) // TODO: more accurate check
-        jl_error("wrong number of static-parameters on LambdaStaticData");
+        jl_error("wrong number of static parameters on LambdaStaticData");
 
     assert(lam->specTypes); // this could happen if the user tries to compile a generic-function
                             // without specializing (or unspecializing) it first
@@ -5578,23 +5614,6 @@ static void init_julia_llvm_env(Module *m)
                            "jl_array_t");
     jl_parray_llvmt = PointerType::get(jl_array_llvmt,0);
 
-#ifdef JULIA_ENABLE_THREADING
-#define JL_THREAD_MODEL ,GlobalValue::GeneralDynamicTLSModel
-#else
-#define JL_THREAD_MODEL
-#endif
-    jlpgcstack_var =
-        new GlobalVariable(*m, T_ppjlvalue,
-                           false, GlobalVariable::ExternalLinkage,
-                           NULL, "jl_pgcstack", NULL JL_THREAD_MODEL);
-    add_named_global(jlpgcstack_var, jl_dlsym(jl_dl_handle, "jl_pgcstack"));
-
-    jlexc_var =
-        new GlobalVariable(*m, T_pjlvalue,
-                           false, GlobalVariable::ExternalLinkage,
-                           NULL, "jl_exception_in_transit", NULL JL_THREAD_MODEL);
-    add_named_global(jlexc_var, jl_dlsym(jl_dl_handle, "jl_exception_in_transit"));
-
     global_to_llvm("__stack_chk_guard", (void*)&__stack_chk_guard, m);
     Function *jl__stack_chk_fail =
         Function::Create(FunctionType::get(T_void, false),
@@ -5642,6 +5661,55 @@ static void init_julia_llvm_env(Module *m)
                                      false, GlobalVariable::ExternalLinkage,
                                      ConstantInt::get(IntegerType::get(jl_LLVMContext,128),0),
                                      "jl_float_temp"));
+#endif
+
+#ifndef JULIA_ENABLE_THREADING
+    // For non-threading, we use the address of the global variable directly
+    size_t tls_states_size = LLT_ALIGN(sizeof(jl_tls_states_t),
+                                       sizeof(void*)) / sizeof(void*);
+    jltls_states_var =
+        new GlobalVariable(*m, ArrayType::get(T_pint8, tls_states_size),
+                           false, GlobalVariable::ExternalLinkage,
+                           NULL, "jl_tls_states");
+    add_named_global(jltls_states_var, (void*)&jl_tls_states);
+#else
+    // For threading, we emit a call to the getter function.
+    // In non-imaging mode, (i.e. the code will not be safed to disk), we
+    // use the address of the actual getter function directly
+    // (`jl_tls_states_cb` returned by `jl_get_ptls_states_getter()`)
+    // In imaging mode, we emit the function address as a load of a static
+    // variable to be filled (in `dump.c`) at initialization time of the sysimg.
+    // This way we can by pass the extra indirection in `jl_get_ptls_states`
+    // since we don't know which getter function to use ahead of time.
+    jltls_states_func = Function::Create(FunctionType::get(T_ppint8, false),
+                                         Function::ExternalLinkage,
+                                         "jl_get_ptls_states", m);
+    jltls_states_func->setAttributes(
+        jltls_states_func->getAttributes()
+        .addAttribute(jltls_states_func->getContext(),
+                      AttributeSet::FunctionIndex, Attribute::ReadNone)
+        .addAttribute(jltls_states_func->getContext(),
+                      AttributeSet::FunctionIndex, Attribute::NoUnwind));
+    add_named_global(jltls_states_func, (void*)jl_get_ptls_states_getter());
+    if (imaging_mode) {
+        jltls_states_func_ptr =
+            new GlobalVariable(*m, T_ppint8,
+                               false, GlobalVariable::InternalLinkage,
+                               ConstantPointerNull::get((PointerType*)T_ppint8),
+                               "jl_get_ptls_states.ptr");
+        addComdat(jltls_states_func_ptr);
+#ifdef USE_MCJIT
+        jl_llvm_to_jl_value[jltls_states_func_ptr] =
+            (void*)jl_get_ptls_states_getter();
+#else
+        void **p = (void**)jl_ExecutionEngine->getPointerToGlobal(jltls_states_func_ptr);
+        *p = (void*)jl_get_ptls_states_getter();
+#endif
+        jl_sysimg_gvars.push_back(ConstantExpr::getBitCast(jltls_states_func_ptr,
+                                                           T_psize));
+        jltls_states_func_idx = jl_sysimg_gvars.size();
+    }
+
 #endif
 
     std::vector<Type*> args1(0);
@@ -5808,14 +5876,6 @@ static void init_julia_llvm_env(Module *m)
                                     Function::ExternalLinkage,
                                     "jl_gc_queue_root", m);
     add_named_global(queuerootfun, (void*)&jl_gc_queue_root);
-
-    std::vector<Type *> wbargs(0);
-    wbargs.push_back(T_pjlvalue);
-    wbargs.push_back(T_pjlvalue);
-    wbfunc = Function::Create(FunctionType::get(T_void, wbargs, false),
-                              Function::ExternalLinkage,
-                              "jl_gc_wb_slow", m);
-    add_named_global(wbfunc, (void*)&jl_gc_wb_slow);
 
     std::vector<Type *> exp_args(0);
     exp_args.push_back(T_int1);
@@ -6209,6 +6269,8 @@ static inline SmallVector<std::string,10> getTargetFeatures() {
   return attr;
 }
 
+extern "C" void jl_init_debuginfo(void);
+
 extern "C" void jl_init_codegen(void)
 {
     const char *const argv_tailmerge[] = {"", "-enable-tail-merge=0"}; // NOO TOUCHIE; NO TOUCH! See #922
@@ -6226,6 +6288,7 @@ extern "C" void jl_init_codegen(void)
 #else
     imaging_mode = jl_generating_output();
 #endif
+    jl_init_debuginfo();
 
 #if LLVM_VERSION_MAJOR == 3 && LLVM_VERSION_MINOR <= 3
     // this option disables LLVM's signal handlers

@@ -53,10 +53,13 @@ static llvm::Value *prepare_call(llvm::Value* Callee)
             return ModuleF;
         }
         else {
-            return Function::Create(F->getFunctionType(),
-                                    Function::ExternalLinkage,
-                                    F->getName(),
-                                    jl_Module);
+            Function *func = Function::Create(F->getFunctionType(),
+                                              Function::ExternalLinkage,
+                                              F->getName(),
+                                              jl_Module);
+            func->setAttributes(AttributeSet());
+            func->copyAttributesFrom(F);
+            return func;
         }
     }
 #endif
@@ -233,9 +236,11 @@ public:
             // as codegen may make decisions based on the presence of certain attributes
             NewF->copyAttributesFrom(F);
 
+            #ifdef LLVM37
             // Declarations are not allowed to have personality routines, but
             // copyAttributesFrom sets them anyway, so clear them again manually
             NewF->setPersonalityFn(nullptr);
+            #endif
 
             AttributeSet OldAttrs = F->getAttributes();
             // Clone any argument attributes that are present in the VMap.
@@ -451,6 +456,14 @@ static void jl_gen_llvm_globaldata(llvm::Module *mod, ValueToValueMapTy &VMap, c
                                  GlobalVariable::ExternalLinkage,
                                  ConstantInt::get(T_size,globalUnique+1),
                                  "jl_globalUnique"));
+#ifdef JULIA_ENABLE_THREADING
+    addComdat(new GlobalVariable(*mod,
+                                 T_size,
+                                 true,
+                                 GlobalVariable::ExternalLinkage,
+                                 ConstantInt::get(T_size, jltls_states_func_idx),
+                                 "jl_ptls_states_getter_idx"));
+#endif
 
     Constant *feature_string = ConstantDataArray::getString(jl_LLVMContext, jl_options.cpu_target);
     addComdat(new GlobalVariable(*mod,
@@ -2119,4 +2132,22 @@ static jl_cgval_t emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **arg
         assert(sty->instance != NULL);
         return mark_julia_const(sty->instance);
     }
+}
+
+static Value *emit_pgcstack(jl_codectx_t *ctx)
+{
+    Value * addr = emit_nthptr_addr(
+        ctx->gc.ptlsStates,
+        (ssize_t)(offsetof(jl_tls_states_t, pgcstack) / sizeof(void*)));
+    return builder.CreateBitCast(addr, PointerType::get(T_ppjlvalue, 0),
+                                 "jl_pgcstack");
+}
+
+static Value *emit_exc_in_transit(jl_codectx_t *ctx)
+{
+    Value * addr = emit_nthptr_addr(
+        ctx->gc.ptlsStates,
+        (ssize_t)(offsetof(jl_tls_states_t,
+                           exception_in_transit) / sizeof(void*)));
+    return builder.CreateBitCast(addr, T_ppjlvalue, "jl_exception_in_transit");
 }
