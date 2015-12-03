@@ -2,21 +2,24 @@
 
 // utility procedures used in code generation
 
-#if defined(USE_MCJIT) && defined(_OS_WINDOWS_)
 template<class T> // for GlobalObject's
 static T* addComdat(T *G)
 {
-    if (imaging_mode && (!G->isDeclarationForLinker())) {
+#if defined(_OS_WINDOWS_)
+    if (imaging_mode && !G->isDeclaration()) {
+#ifdef LLVM35
+        // Add comdat information to make MSVC link.exe happy
         Comdat *jl_Comdat = G->getParent()->getOrInsertComdat(G->getName());
         jl_Comdat->setSelectionKind(Comdat::NoDuplicates);
         G->setComdat(jl_Comdat);
+        // add __declspec(dllexport) to everything marked for export
+        if (G->getLinkage() == GlobalValue::ExternalLinkage)
+            G->setDLLStorageClass(GlobalValue::DLLExportStorageClass);
+#endif
     }
+#endif
     return G;
 }
-#else
-template<class T>
-static T* addComdat(T *G) { return G; }
-#endif
 
 static Instruction *tbaa_decorate(MDNode* md, Instruction* load_or_store)
 {
@@ -67,9 +70,9 @@ static llvm::Value *prepare_call(llvm::Value* Callee)
 }
 
 #ifdef LLVM35
-static inline void add_named_global(GlobalObject *gv, void *addr)
+static inline void add_named_global(GlobalObject *gv, void *addr, bool dllimport = true)
 #else
-static inline void add_named_global(GlobalValue *gv, void *addr)
+static inline void add_named_global(GlobalValue *gv, void *addr, bool dllimport = true)
 #endif
 {
 #ifdef LLVM34
@@ -80,8 +83,9 @@ static inline void add_named_global(GlobalValue *gv, void *addr)
 #endif
 
 #ifdef _OS_WINDOWS_
-    // setting DLLEXPORT correctly only matters when building a binary
-    if (jl_generating_output()) {
+    // setting JL_DLLEXPORT correctly only matters when building a binary
+    if (dllimport && imaging_mode) {
+        assert(gv->getLinkage() == GlobalValue::ExternalLinkage);
 #ifdef LLVM35
         // add the __declspec(dllimport) attribute
         gv->setDLLStorageClass(GlobalValue::DLLImportStorageClass);
@@ -89,8 +93,7 @@ static inline void add_named_global(GlobalValue *gv, void *addr)
         imp_name = Twine("__imp_", name).str();
         name = StringRef(imp_name);
 #else
-        if (gv->getLinkage() == GlobalValue::ExternalLinkage)
-            gv->setLinkage(GlobalValue::DLLImportLinkage);
+        gv->setLinkage(GlobalValue::DLLImportLinkage);
 #endif
 #if defined(_P64) || defined(LLVM35)
         // __imp_ variables are indirection pointers, so use malloc to simulate that
@@ -153,7 +156,7 @@ static GlobalVariable *stringConst(const std::string &txt)
 
 typedef struct {Value* gv; int32_t index;} jl_value_llvm; // uses 1-based indexing
 static std::map<void*, jl_value_llvm> jl_value_to_llvm;
-DLLEXPORT std::map<Value *, void*> jl_llvm_to_jl_value;
+JL_DLLEXPORT std::map<Value *, void*> jl_llvm_to_jl_value;
 
 // In imaging mode, cache a fast mapping of Function * to code address
 // because this is queried in the hot path
@@ -755,7 +758,7 @@ static Value *julia_binding_gv(jl_binding_t *b)
 static Type *julia_struct_to_llvm(jl_value_t *jt, bool *isboxed);
 
 extern "C" {
-DLLEXPORT Type *julia_type_to_llvm(jl_value_t *jt, bool *isboxed)
+JL_DLLEXPORT Type *julia_type_to_llvm(jl_value_t *jt, bool *isboxed)
 {
     // this function converts a Julia Type into the equivalent LLVM type
     if (isboxed) *isboxed = false;
