@@ -358,6 +358,7 @@ static Type *T_ppjlvalue;
 static Type* jl_parray_llvmt;
 static FunctionType *jl_func_sig;
 static Type *jl_pfptr_llvmt;
+static Type *T_pvoidfunc;
 
 static IntegerType *T_int1;
 static IntegerType *T_int8;
@@ -1466,8 +1467,7 @@ const jl_value_t *jl_dump_function_asm(void *f, int raw_mc)
 {
     std::string code;
     llvm::raw_string_ostream stream(code);
-#ifdef LLVM37
-#else
+#ifndef LLVM37
     llvm::formatted_raw_ostream fstream(stream);
 #endif
 
@@ -1497,8 +1497,7 @@ const jl_value_t *jl_dump_function_asm(void *f, int raw_mc)
     else {
         jl_printf(JL_STDERR, "WARNING: Unable to find function pointer\n");
     }
-#ifdef LLVM37
-#else
+#ifndef LLVM37
     fstream.flush();
 #endif
 
@@ -5517,9 +5516,10 @@ static void init_julia_llvm_env(Module *m)
     T_float64 = Type::getDoubleTy(getGlobalContext());
     T_pfloat64 = PointerType::get(T_float64, 0);
     T_void = Type::getVoidTy(jl_LLVMContext);
+    T_pvoidfunc = FunctionType::get(T_void, /*isVarArg*/false)->getPointerTo();
 
     // This type is used to create undef Values for use in struct declarations to skip indices
-    NoopType = ArrayType::get(T_int1,0);
+    NoopType = ArrayType::get(T_int1, 0);
 
     // add needed base definitions to our LLVM environment
     StructType *valueSt = StructType::create(getGlobalContext(), "jl_value_t");
@@ -6050,7 +6050,7 @@ static void init_julia_llvm_env(Module *m)
     dlsym_args.push_back(T_pint8);
     dlsym_args.push_back(PointerType::get(T_pint8,0));
     jldlsym_func =
-        Function::Create(FunctionType::get(T_pint8, dlsym_args, false),
+        Function::Create(FunctionType::get(T_pvoidfunc, dlsym_args, false),
                          Function::ExternalLinkage,
                          "jl_load_and_lookup", m);
     add_named_global(jldlsym_func, (void*)&jl_load_and_lookup);
@@ -6122,6 +6122,10 @@ static void init_julia_llvm_env(Module *m)
 
 #ifdef __has_feature
 #   if __has_feature(address_sanitizer)
+#   if defined(LLVM37) && !defined(LLVM38)
+    // LLVM 3.7 BUG: ASAN pass doesn't properly initialize its dependencies
+    initializeTargetLibraryInfoWrapperPassPass(*PassRegistry::getPassRegistry());
+#   endif
     FPM->add(createAddressSanitizerFunctionPass());
 #   endif
 #   if __has_feature(memory_sanitizer)
@@ -6345,7 +6349,7 @@ extern "C" void jl_init_codegen(void)
 #endif
 
 #ifdef LLVM36
-    EngineBuilder eb(std::move(std::unique_ptr<Module>(engine_module)));
+    EngineBuilder eb((std::unique_ptr<Module>(engine_module)));
 #else
     EngineBuilder eb(engine_module);
 #endif

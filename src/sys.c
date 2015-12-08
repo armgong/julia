@@ -720,7 +720,7 @@ JL_DLLEXPORT void jl_raise_debugger(void)
     if (IsDebuggerPresent() == 1)
         DebugBreak();
 #else
-    raise(SIGINT);
+    raise(SIGTRAP);
 #endif // _OS_WINDOWS_
 }
 
@@ -751,22 +751,22 @@ JL_DLLEXPORT jl_sym_t* jl_get_ARCH(void)
 JL_DLLEXPORT size_t jl_maxrss(void)
 {
 #if defined(_OS_WINDOWS_)
-	PROCESS_MEMORY_COUNTERS counter;
-	GetProcessMemoryInfo( GetCurrentProcess( ), &counter, sizeof(counter) );
-	return (size_t)counter.PeakWorkingSetSize;
+    PROCESS_MEMORY_COUNTERS counter;
+    GetProcessMemoryInfo( GetCurrentProcess( ), &counter, sizeof(counter) );
+    return (size_t)counter.PeakWorkingSetSize;
 
 #elif defined(_OS_LINUX_) || defined(_OS_DARWIN_) || defined (_OS_FREEBSD_)
-	struct rusage rusage;
-	getrusage( RUSAGE_SELF, &rusage );
+    struct rusage rusage;
+    getrusage( RUSAGE_SELF, &rusage );
 
 #if defined(_OS_LINUX_)
-	return (size_t)(rusage.ru_maxrss * 1024);
+    return (size_t)(rusage.ru_maxrss * 1024);
 #else
-	return (size_t)rusage.ru_maxrss;
+    return (size_t)rusage.ru_maxrss;
 #endif
 
 #else
-	return (size_t)0;
+    return (size_t)0;
 #endif
 }
 

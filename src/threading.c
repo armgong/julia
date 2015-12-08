@@ -125,9 +125,7 @@ JL_DLLEXPORT JL_CONST_FUNC jl_tls_states_t *(jl_get_ptls_states)(void)
 
 // thread ID
 JL_DLLEXPORT int jl_n_threads;     // # threads we're actually using
-JL_DLLEXPORT int jl_max_threads;   // # threads possible
 jl_thread_task_state_t *jl_all_task_states;
-jl_gcframe_t ***jl_all_pgcstacks;
 
 // return calling thread's ID
 JL_DLLEXPORT int16_t jl_threadid(void) { return ti_tid; }
@@ -139,7 +137,6 @@ static void ti_initthread(int16_t tid)
 {
     ti_tid = tid;
     jl_pgcstack = NULL;
-    jl_all_pgcstacks[tid] = &jl_pgcstack;
 #ifdef JULIA_ENABLE_THREADING
     jl_all_heaps[tid] = jl_mk_thread_heap();
 #else
@@ -280,18 +277,17 @@ void jl_init_threading(void)
     char *cp;
 
     // how many threads available, usable
-    jl_max_threads = jl_cpu_cores();
+    int max_threads = jl_cpu_cores();
     jl_n_threads = DEFAULT_NUM_THREADS;
     cp = getenv(NUM_THREADS_NAME);
     if (cp) {
         jl_n_threads = (uint64_t)strtol(cp, NULL, 10);
     }
-    if (jl_n_threads > jl_max_threads)
-        jl_n_threads = jl_max_threads;
+    if (jl_n_threads > max_threads)
+        jl_n_threads = max_threads;
 
     // set up space for per-thread heaps
     jl_all_heaps = (struct _jl_thread_heap_t **)malloc(jl_n_threads * sizeof(void*));
-    jl_all_pgcstacks = (jl_gcframe_t ***)malloc(jl_n_threads * sizeof(void*));
     jl_all_task_states = (jl_thread_task_state_t *)malloc(jl_n_threads * sizeof(jl_thread_task_state_t));
 
 #if PROFILE_JL_THREADING
@@ -536,9 +532,7 @@ void jl_init_threading(void)
 {
     static jl_thread_task_state_t _jl_all_task_states;
     jl_all_task_states = &_jl_all_task_states;
-    jl_max_threads = 1;
     jl_n_threads = 1;
-    jl_all_pgcstacks = (jl_gcframe_t***) malloc(jl_n_threads * sizeof(jl_gcframe_t**));
 
 #if defined(__linux__) && defined(JL_USE_INTEL_JITEVENTS)
     if (jl_using_intel_jitevents)

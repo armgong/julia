@@ -348,38 +348,60 @@ static void run_finalizer(jl_value_t *o, jl_value_t *ff)
     }
 }
 
-static void finalize_object(arraylist_t *list, jl_value_t *o)
+static void finalize_object(arraylist_t *list, jl_value_t *o,
+                            arraylist_t *copied_list)
 {
-    /* int success = 0; */
-    jl_value_t *f = NULL;
-    JL_GC_PUSH1(&f);
     for(int i = 0; i < list->len; i+=2) {
         if (o == (jl_value_t*)list->items[i]) {
-            f = (jl_value_t*)list->items[i+1];
+            void *f = list->items[i+1];
             if (i < list->len - 2) {
                 list->items[i] = list->items[list->len-2];
                 list->items[i+1] = list->items[list->len-1];
                 i -= 2;
             }
             list->len -= 2;
-            run_finalizer(o, f);
-            /* success = 1; */
+            arraylist_push(copied_list, o);
+            arraylist_push(copied_list, f);
         }
     }
+}
+
+// The first two entries are assumed to be empty and the rest are assumed to
+// be pointers to `jl_value_t` objects
+static void jl_gc_push_arraylist(arraylist_t *list)
+{
+    list->items[0] = (void*)(((uintptr_t)list->len - 2) << 1);
+    list->items[1] = jl_pgcstack;
+    jl_pgcstack = (jl_gcframe_t*)list->items;
+}
+
+// Same assumption as `jl_gc_push_arraylist`
+static void jl_gc_run_finalizers_in_list(arraylist_t *list)
+{
+    size_t len = list->len;
+    jl_value_t **items = (jl_value_t**)list->items;
+    jl_gc_push_arraylist(list);
+    for (size_t i = 2;i < len;i += 2) {
+        run_finalizer(items[i], items[i + 1]);
+    }
     JL_GC_POP();
-    /* return success; */
 }
 
 static void run_finalizers(void)
 {
-    void *o = NULL, *f = NULL;
-    JL_GC_PUSH2(&o, &f);
-    while (to_finalize.len > 0) {
-        f = arraylist_pop(&to_finalize);
-        o = arraylist_pop(&to_finalize);
-        run_finalizer((jl_value_t*)o, (jl_value_t*)f);
+    if (to_finalize.len == 0)
+        return;
+    arraylist_t copied_list;
+    memcpy(&copied_list, &to_finalize, sizeof(copied_list));
+    if (to_finalize.items == to_finalize._space) {
+        copied_list.items = copied_list._space;
     }
-    JL_GC_POP();
+    arraylist_new(&to_finalize, 0);
+    // empty out the first two entries for the GC frame
+    arraylist_push(&copied_list, copied_list.items[0]);
+    arraylist_push(&copied_list, copied_list.items[1]);
+    jl_gc_run_finalizers_in_list(&copied_list);
+    arraylist_free(&copied_list);
 }
 
 void jl_gc_inhibit_finalizers(int state)
@@ -424,11 +446,22 @@ JL_DLLEXPORT void jl_gc_add_finalizer(jl_value_t *v, jl_function_t *f)
 JL_DLLEXPORT void jl_finalize(jl_value_t *o)
 {
     JL_LOCK(finalizers);
+    // Copy the finalizers into a temporary list so that code in the finalizer
+    // won't change the list as we loop through them.
+    // This list is also used as the GC frame when we are running the finalizers
+    arraylist_t copied_list;
+    arraylist_new(&copied_list, 0);
+    arraylist_push(&copied_list, NULL); // GC frame size to be filled later
+    arraylist_push(&copied_list, NULL); // pgcstack to be filled later
     // No need to check the to_finalize list since the user is apparently
     // still holding a reference to the object
-    finalize_object(&finalizer_list, o);
-    finalize_object(&finalizer_list_marked, o);
+    finalize_object(&finalizer_list, o, &copied_list);
+    finalize_object(&finalizer_list_marked, o, &copied_list);
     JL_UNLOCK(finalizers);
+    if (copied_list.len > 2) {
+        jl_gc_run_finalizers_in_list(&copied_list);
+    }
+    arraylist_free(&copied_list);
 }
 
 static region_t *find_region(void *ptr, int maybe)
@@ -995,7 +1028,7 @@ static size_t array_nbytes(jl_array_t *a)
     return sz;
 }
 
-void jl_gc_free_array(jl_array_t *a)
+static void jl_gc_free_array(jl_array_t *a)
 {
     if (a->how == 2) {
         char *d = (char*)a->data - a->offset*a->elsize;
@@ -1355,21 +1388,21 @@ static gcval_t** sweep_page(pool_t* p, gcpage_t* pg, gcval_t **pfl, int sweep_ma
 static void gc_sweep_once(int sweep_mask)
 {
 #ifdef GC_TIME
-    double t0 = clock_now();
+    double t0 = jl_clock_now();
     mallocd_array_total = 0;
     mallocd_array_freed = 0;
 #endif
     sweep_malloced_arrays();
 #ifdef GC_TIME
-    jl_printf(JL_STDOUT, "GC sweep arrays %.2f (freed %d/%d)\n", (clock_now() - t0)*1000, mallocd_array_freed, mallocd_array_total);
-    t0 = clock_now();
+    jl_printf(JL_STDOUT, "GC sweep arrays %.2f (freed %d/%d)\n", (jl_clock_now() - t0)*1000, mallocd_array_freed, mallocd_array_total);
+    t0 = jl_clock_now();
     big_total = 0;
     big_freed = 0;
     big_reset = 0;
 #endif
     sweep_big(sweep_mask);
 #ifdef GC_TIME
-    jl_printf(JL_STDOUT, "GC sweep big %.2f (freed %d/%d with %d rst)\n", (clock_now() - t0)*1000, big_freed, big_total, big_reset);
+    jl_printf(JL_STDOUT, "GC sweep big %.2f (freed %d/%d with %d rst)\n", (jl_clock_now() - t0)*1000, big_freed, big_total, big_reset);
 #endif
 }
 
@@ -1377,7 +1410,7 @@ static void gc_sweep_once(int sweep_mask)
 static int gc_sweep_inc(int sweep_mask)
 {
 #ifdef GC_TIME
-    double t0 = clock_now();
+    double t0 = jl_clock_now();
 #endif
     skipped_pages = 0;
     total_pages = 0;
@@ -1430,7 +1463,7 @@ static int gc_sweep_inc(int sweep_mask)
     }
 
 #ifdef GC_TIME
-    double sweep_pool_sec = clock_now() - t0;
+    double sweep_pool_sec = jl_clock_now() - t0;
     double sweep_speed = ((((double)total_pages)*GC_PAGE_SZ)/(1024*1024*1024))/sweep_pool_sec;
     jl_printf(JL_STDOUT, "GC sweep pools %s %.2f at %.1f GB/s (skipped %d%% of %d, done %d pgs, %d freed with %d lazily) mask %d\n", finished ? "end" : "inc", sweep_pool_sec*1000, sweep_speed, total_pages ? (skipped_pages*100)/total_pages : 0, total_pages, page_done, freed_pages, lazy_freed_pages,  sweep_mask);
 #endif
@@ -1528,31 +1561,6 @@ void jl_gc_setmark(jl_value_t *v) // TODO rename this as it is misleading now
     //    perm_scanned_bytes = s;
 }
 
-static void gc_mark_stack(jl_value_t* ta, jl_gcframe_t *s, ptrint_t offset, int d)
-{
-    while (s != NULL) {
-        s = (jl_gcframe_t*)((char*)s + offset);
-        jl_value_t ***rts = (jl_value_t***)(((void**)s)+2);
-        size_t nr = s->nroots>>1;
-        if (s->nroots & 1) {
-            for(size_t i=0; i < nr; i++) {
-                jl_value_t **ptr = (jl_value_t**)((char*)rts[i] + offset);
-                if (*ptr != NULL)
-                    gc_push_root(*ptr, d);
-            }
-        }
-        else {
-            for(size_t i=0; i < nr; i++) {
-                if (rts[i] != NULL) {
-                    verify_parent2("task", ta, &rts[i], "stack(%d)", (int)i);
-                    gc_push_root(rts[i], d);
-                }
-            }
-        }
-        s = s->prev;
-    }
-}
-
 NOINLINE static int gc_mark_module(jl_module_t *m, int d)
 {
     size_t i;
@@ -1594,24 +1602,49 @@ NOINLINE static int gc_mark_module(jl_module_t *m, int d)
     return refyoung;
 }
 
+static void gc_mark_stack(jl_value_t* ta, jl_gcframe_t *s, ptrint_t offset, int d)
+{
+    while (s != NULL) {
+        s = (jl_gcframe_t*)((char*)s + offset);
+        jl_value_t ***rts = (jl_value_t***)(((void**)s)+2);
+        size_t nr = s->nroots>>1;
+        if (s->nroots & 1) {
+            for(size_t i=0; i < nr; i++) {
+                jl_value_t **ptr = (jl_value_t**)((char*)rts[i] + offset);
+                if (*ptr != NULL)
+                    gc_push_root(*ptr, d);
+            }
+        }
+        else {
+            for(size_t i=0; i < nr; i++) {
+                if (rts[i] != NULL) {
+                    verify_parent2("task", ta, &rts[i], "stack(%d)", (int)i);
+                    gc_push_root(rts[i], d);
+                }
+            }
+        }
+        s = s->prev;
+    }
+}
+
 static void gc_mark_task_stack(jl_task_t *ta, int d)
 {
     int stkbuf = (ta->stkbuf != (void*)(intptr_t)-1 && ta->stkbuf != NULL);
-    // FIXME - we need to mark stacks on other threads
-    int curtask = (ta == jl_all_task_states[0].ptls->current_task);
+    int16_t tid = ta->tid;
+    jl_tls_states_t *ptls = jl_all_task_states[tid].ptls;
     if (stkbuf) {
 #ifndef COPY_STACKS
-        if (ta != jl_root_task) // stkbuf isn't owned by julia for the root task
+        if (ta != ptls->root_task) // stkbuf isn't owned by julia for the root task
 #endif
         gc_setmark_buf(ta->stkbuf, gc_bits(jl_astaggedvalue(ta)));
     }
-    if (curtask) {
-        gc_mark_stack((jl_value_t*)ta, *jl_all_pgcstacks[0], 0, d);
+    if (ta == ptls->current_task) {
+        gc_mark_stack((jl_value_t*)ta, ptls->pgcstack, 0, d);
     }
     else if (stkbuf) {
         ptrint_t offset;
 #ifdef COPY_STACKS
-        offset = (char *)ta->stkbuf - ((char *)jl_stackbase - ta->ssize);
+        offset = (char *)ta->stkbuf - ((char *)ptls->stackbase - ta->ssize);
 #else
         offset = 0;
 #endif
@@ -1847,7 +1880,7 @@ static void visit_mark_stack(int mark_mode)
 void jl_mark_box_caches(void);
 
 #if defined(GCTIME) || defined(GC_FINAL_STATS)
-double clock_now(void);
+double jl_clock_now(void);
 #endif
 
 extern jl_module_t *jl_old_base_module;
@@ -1876,8 +1909,6 @@ static void pre_mark(void)
 
     // invisible builtin values
     if (jl_an_empty_cell) gc_push_root(jl_an_empty_cell, 0);
-    gc_push_root(jl_exception_in_transit, 0);
-    gc_push_root(jl_task_arg_in_transit, 0);
     if (jl_module_init_order != NULL)
         gc_push_root(jl_module_init_order, 0);
 
@@ -2006,7 +2037,7 @@ static void print_obj_profile(htable_t nums, htable_t sizes)
     }
 }
 
-void print_obj_profiles(void)
+static void print_obj_profiles(void)
 {
     jl_printf(JL_STDERR, "Transient mark :\n");
     print_obj_profile(obj_counts[0], obj_sizes[0]);
@@ -2023,10 +2054,6 @@ static int saved_mark_sp = 0;
 static int sweep_mask = GC_MARKED;
 #define MIN_SCAN_BYTES 1024*1024
 
-void prepare_sweep(void)
-{
-}
-
 JL_DLLEXPORT void jl_gc_collect(int full)
 {
     if (!is_gc_enabled) return;
@@ -2038,6 +2065,7 @@ JL_DLLEXPORT void jl_gc_collect(int full)
 #ifdef JULIA_ENABLE_THREADING
     ti_threadgroup_barrier(tgworld, ti_tid);
     if (ti_tid != 0) {
+        JL_SIGATOMIC_END();
         ti_threadgroup_barrier(tgworld, ti_tid);
         return;
     }
@@ -2407,7 +2435,7 @@ void jl_print_gc_stats(JL_STREAM *s)
 {
     double gct = total_gc_time/1e9;
     malloc_stats();
-    double ptime = clock_now()-process_t0;
+    double ptime = jl_clock_now()-process_t0;
     jl_printf(s, "exec time\t%.5f sec\n", ptime);
     if (n_pause > 0) {
         jl_printf(s, "gc time  \t%.5f sec (%2.1f%%) in %d (%d full) collections\n",
@@ -2434,8 +2462,9 @@ void jl_print_gc_stats(JL_STREAM *s)
 jl_thread_heap_t *jl_mk_thread_heap(void)
 {
 #ifdef JULIA_ENABLE_THREADING
-    // FIXME - should be cache-aligned malloc
-    jl_thread_heap = (jl_thread_heap_t*)malloc(sizeof(jl_thread_heap_t));
+    // Cache-aligned malloc
+    jl_thread_heap =
+        (jl_thread_heap_t*)jl_malloc_aligned(sizeof(jl_thread_heap_t), 64);
 #endif
     FOR_CURRENT_HEAP () {
         const int* szc = sizeclasses;
@@ -2489,7 +2518,7 @@ void jl_gc_init(void)
     }
 #endif
 #ifdef GC_FINAL_STATS
-    process_t0 = clock_now();
+    process_t0 = jl_clock_now();
 #endif
 
 #ifdef _P64

@@ -59,7 +59,7 @@ function write(io::IO, xs...)
 end
 
 if ENDIAN_BOM == 0x01020304
-    function write(s::IO, x::Integer)
+    function write(s::IO, x::Union{Int8,Int16,UInt16,Int32,UInt32,Int64,UInt64,Int128,UInt128})
         sz = sizeof(x)
         local written::Int = 0
         for n = sz:-1:1
@@ -68,7 +68,7 @@ if ENDIAN_BOM == 0x01020304
         return written
     end
 else
-    function write(s::IO, x::Integer)
+    function write(s::IO, x::Union{Int8,Int16,UInt16,Int32,UInt32,Int64,UInt64,Int128,UInt128})
         sz = sizeof(x)
         local written::Int = 0
         for n = 1:sz
@@ -124,12 +124,12 @@ end
 
 function write(io::IO, s::Symbol)
     pname = unsafe_convert(Ptr{UInt8}, s)
-    return write(io, pname, Int(ccall(:strlen, Csize_t, (Ptr{UInt8},), pname)))
+    return write(io, pname, Int(ccall(:strlen, Csize_t, (Cstring,), pname)))
 end
 
 read(s::IO, ::Type{Int8}) = reinterpret(Int8, read(s,UInt8))
 
-function read{T <: Integer}(s::IO, ::Type{T})
+function read{T <: Union{Int16,UInt16,Int32,UInt32,Int64,UInt64,Int128,UInt128}}(s::IO, ::Type{T})
     x = zero(T)
     for n = 1:sizeof(x)
         x |= (convert(T,read(s,UInt8))<<((n-1)<<3))
