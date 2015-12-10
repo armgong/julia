@@ -2530,6 +2530,9 @@ end
 # test second branch, after all small primes in list have been searched
 @test factor(10009 * Int128(1000000000000037)) == Dict(10009=>1,1000000000000037=>1)
 
+@test all(x -> (m=mod1(x,3); 0<m<=3), -5:+5)
+@test all(x -> x == (fld1(x,3)-1)*3 + mod1(x,3), -5:+5)
+@test all(x -> fldmod1(x,3) == (fld1(x,3), mod1(x,3)), -5:+5)
 #Issue #5570
 @test map(x -> Int(mod1(UInt(x),UInt(5))), 0:15) == [5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5]
 
@@ -2566,17 +2569,33 @@ for x in [1.23, 7, e, 4//5] #[FP, Int, Irrational, Rat]
     @test getindex(x) == x
 end
 
-#copysign(x::Real, y::Real) = ifelse(signbit(x)!=signbit(y), -x, x)
-#same sign
-for x in [1.23, 7, e, 4//5]
-    for y in [1.23, 7, e, 4//5]
-        @test copysign(x,y) == x
-    end
+#getindex(x::Number,-1) throws BoundsError
+#getindex(x::Number,0) throws BoundsError
+#getindex(x::Number,2) throws BoundsError
+#getindex(x::Array,-1) throws BoundsError
+#getindex(x::Array,0 throws BoundsError
+#getindex(x::Array,length(x::Array)+1) throws BoundsError
+for x in [1.23, 7, e, 4//5] #[FP, Int, Irrational, Rat]
+    @test_throws BoundsError getindex(x,-1)
+    @test_throws BoundsError getindex(x,0)
+    @test_throws BoundsError getindex(x,2)
+    @test_throws BoundsError getindex([x x],-1)
+    @test_throws BoundsError getindex([x x],0)
+    @test_throws BoundsError getindex([x x],length([x,x])+1)
 end
-#different sign
+
+# copysign(x::Real, y::Real) = ifelse(signbit(x)!=signbit(y), -x, x)
+# flipsign(x::Real, y::Real) = ifelse(signbit(y), -x, x)
 for x in [1.23, 7, e, 4//5]
     for y in [1.23, 7, e, 4//5]
+        @test copysign(x, y) == x
         @test copysign(x, -y) == -x
+        @test copysign(-x, y) == x
+        @test copysign(-x, -y) == -x
+        @test flipsign(x, y) == x
+        @test flipsign(x, -y) == -x
+        @test flipsign(-x, y) == -x
+        @test flipsign(-x, -y) == x
     end
 end
 

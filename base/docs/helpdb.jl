@@ -1332,13 +1332,6 @@ Get a backtrace object for the current program point.
 backtrace
 
 doc"""
-    ignorestatus(command)
-
-Mark a command object so that running it will not throw an error if the result code is non-zero.
-"""
-ignorestatus
-
-doc"""
     reducedim(f, A, dims[, initial])
 
 Reduce 2-argument function `f` along dimensions of `A`. `dims` is a vector specifying the dimensions to reduce, and `initial` is the initial value to use in the reductions. For `+`, `*`, `max` and `min` the `initial` argument is optional.
@@ -3272,7 +3265,7 @@ tril!(M, k)
 doc"""
     divrem(x, y)
 
-The quotient and remainder from Euclidean division. Equivalent to `(x÷y, x%y)`.
+The quotient and remainder from Euclidean division. Equivalent to `(div(x,y), rem(x,y))` or `(x÷y, x%y)`.
 """
 divrem
 
@@ -3327,29 +3320,30 @@ Creates an iterable object for visiting each index of an AbstractArray `A` in an
 
 Example for a sparse 2-d array:
 
-    julia> A = sprand(2, 3, 0.5)
-    2x3 sparse matrix with 4 Float64 entries:
-        [1, 1]  =  0.598888
-        [1, 2]  =  0.0230247
-        [1, 3]  =  0.486499
-        [2, 3]  =  0.809041
+```jldoctest
+julia> A = sparse([1, 1, 2], [1, 3, 1], [1, 2, -5])
+2x3 sparse matrix with 3 Int64 entries:
+        [1, 1]  =  1
+        [2, 1]  =  -5
+        [1, 3]  =  2
 
-    julia> for iter in eachindex(A)
-               @show iter.I_1, iter.I_2
-               @show A[iter]
-           end
-    (iter.I_1,iter.I_2) = (1,1)
-    A[iter] = 0.5988881393454597
-    (iter.I_1,iter.I_2) = (2,1)
-    A[iter] = 0.0
-    (iter.I_1,iter.I_2) = (1,2)
-    A[iter] = 0.02302469881746183
-    (iter.I_1,iter.I_2) = (2,2)
-    A[iter] = 0.0
-    (iter.I_1,iter.I_2) = (1,3)
-    A[iter] = 0.4864987874354343
-    (iter.I_1,iter.I_2) = (2,3)
-    A[iter] = 0.8090413606455655
+julia> for iter in eachindex(A)
+           @show iter.I[1], iter.I[2]
+           @show A[iter]
+       end
+(iter.I[1],iter.I[2]) = (1,1)
+A[iter] = 1
+(iter.I[1],iter.I[2]) = (2,1)
+A[iter] = -5
+(iter.I[1],iter.I[2]) = (1,2)
+A[iter] = 0
+(iter.I[1],iter.I[2]) = (2,2)
+A[iter] = 0
+(iter.I[1],iter.I[2]) = (1,3)
+A[iter] = 2
+(iter.I[1],iter.I[2]) = (2,3)
+A[iter] = 0
+```
 
 If you supply more than one ``AbstractArray`` argument, ``eachindex``
 will create an iterable object that is fast for all arguments (a
@@ -5273,6 +5267,8 @@ doc"""
     %(x, y)
 
 Remainder from Euclidean division, returning a value of the same sign as `x`, and smaller in magnitude than `y`. This value is always exact.
+
+    x == div(x,y)*y + rem(x,y)
 """
 rem
 
@@ -5673,9 +5669,9 @@ The distance between `x` and the next larger representable floating-point value 
 eps(::AbstractFloat)
 
 doc"""
-    rem1(x,m)
+    rem1(x, y)
 
-Remainder after division, returning in the range (0,m\]
+(Deprecated.) Remainder after division, returning in the range `(0,y\]`
 """
 rem1
 
@@ -5986,13 +5982,6 @@ doc"""
 Commit all currently buffered writes to the given stream.
 """
 flush
-
-doc"""
-    detach(command)
-
-Mark a command object so that it will be run in a new process group, allowing it to outlive the julia process, and not have Ctrl-C interrupts passed to it.
-"""
-detach
 
 doc"""
     precompile(f,args::Tuple{Vararg{Any}})
@@ -8318,7 +8307,9 @@ procs(::SharedArray)
 doc"""
     mod(x, y)
 
-Modulus after division, returning in the range \[0,`y`), if `y` is positive, or (`y`,0\] if `y` is negative.
+Modulus after flooring division, returning in the range \[0,`y`), if `y` is positive, or (`y`,0\] if `y` is negative.
+
+    x == fld(x,y)*y + mod(x,y)
 """
 mod
 
@@ -8475,11 +8466,29 @@ Matrix inverse
 inv
 
 doc"""
-    mod1(x,m)
+    fld1(x, y)
 
-Modulus after division, returning in the range (0,m\]
+Flooring division, returning a value consistent with `mod1(x,y)`
+
+    x == fld(x,y)*y + mod(x,y)
+
+    x == (fld1(x,y)-1)*y + mod1(x,y)
+"""
+fld1
+
+doc"""
+    mod1(x, y)
+
+Modulus after flooring division, returning a value in the range `(0,y\]`
 """
 mod1
+
+doc"""
+    fldmod1(x, y)
+
+Return `(fld1(x,y), mod1(x,y))`
+"""
+fldmod1
 
 doc"""
     @assert cond [text]
@@ -8604,9 +8613,9 @@ As a special case, if `x` is an `AbstractString` (for textual MIME types) or a `
 reprmime
 
 doc"""
-    rm(path::AbstractString; recursive=false)
+    rm(path::AbstractString; force=false, recursive=false)
 
-Delete the file, link, or empty directory at the given path. If `recursive=true` is passed and the path is a directory, then all contents are removed recursively.
+Delete the file, link, or empty directory at the given path. If `force=true` is passed, a non-existing path is not treated as error. If `recursive=true` is passed and the path is a directory, then all contents are removed recursively.
 """
 rm
 
@@ -11447,9 +11456,9 @@ If `pkg` has a URL registered in `Pkg.dir("METADATA")`, clone it from that URL o
 Pkg.clone(pkg)
 
 doc"""
-    checkout(pkg, [branch="master"])
+    checkout(pkg, [branch="master"]; merge=true, pull=true)
 
-Checkout the `Pkg.dir(pkg)` repo to the branch `branch`. Defaults to checking out the "master" branch. To go back to using the newest compatible released version, use `Pkg.free(pkg)`
+Checkout the `Pkg.dir(pkg)` repo to the branch `branch`. Defaults to checking out the "master" branch. To go back to using the newest compatible released version, use `Pkg.free(pkg)`. Changes are merged (fast-forward only) if the keyword argument `merge == true`, and the latest version is pulled from the upsream repo if `pull == true`.
 """
 Pkg.checkout(pkg)
 

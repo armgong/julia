@@ -202,7 +202,6 @@ Ac_mul_Bt!(C::StridedMatrix, A::StridedVecOrMat, B::StridedVecOrMat) = generic_m
 
 function copytri!(A::StridedMatrix, uplo::Char, conjugate::Bool=false)
     n = chksquare(A)
-    @chkuplo
     if uplo == 'U'
         for i = 1:(n-1), j = (i+1):n
             A[j,i] = conjugate ? conj(A[i,j]) : A[i,j]
@@ -211,6 +210,8 @@ function copytri!(A::StridedMatrix, uplo::Char, conjugate::Bool=false)
         for i = 1:(n-1), j = (i+1):n
             A[i,j] = conjugate ? conj(A[j,i]) : A[j,i]
         end
+    else
+        throw(ArgumentError("uplo argument must be 'U' (upper) or 'L' (lower), got $uplo"))
     end
     A
 end
@@ -451,12 +452,15 @@ function generic_matmatmul!{T,S,R}(C::AbstractVecOrMat{R}, tA, tB, A::AbstractVe
         return matmul3x3!(C, tA, tB, A, B)
     end
 
+    tile_size = 0
+    if isbits(R) && isbits(T) && isbits(S)
+        tile_size = floor(Int,sqrt(tilebufsize/max(sizeof(R),sizeof(S),sizeof(T))))
+    end
     @inbounds begin
-    if isbits(R)
-        tile_size = floor(Int,sqrt(tilebufsize/sizeof(R)))
+    if tile_size > 0
         sz = (tile_size, tile_size)
-        Atile = pointer_to_array(convert(Ptr{R}, pointer(Abuf)), sz)
-        Btile = pointer_to_array(convert(Ptr{R}, pointer(Bbuf)), sz)
+        Atile = pointer_to_array(convert(Ptr{T}, pointer(Abuf)), sz)
+        Btile = pointer_to_array(convert(Ptr{S}, pointer(Bbuf)), sz)
 
         z = zero(R)
 

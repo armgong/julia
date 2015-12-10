@@ -35,7 +35,7 @@ function edit(path::AbstractString, line::Integer=0)
     line_unsupported = false
     if startswith(name, "emacs") || name == "gedit"
         cmd = line != 0 ? `$command +$line $path` : `$command $path`
-    elseif name == "vi" || name == "vim" || name == "nvim" || name == "mvim" || name == "nano"
+    elseif startswith(name, "vim.") || name == "vi" || name == "vim" || name == "nvim" || name == "mvim" || name == "nano"
         cmd = line != 0 ? `$command +$line $path` : `$command $path`
         background = false
     elseif name == "textmate" || name == "mate" || name == "kate"
@@ -450,8 +450,6 @@ function whos(io::IO=STDOUT, m::Module=current_module(), pattern::Regex=r"")
                     @printf(head, "%6d KB     ", bytes ÷ (1024))
                 end
                 print(head, summary(value))
-                print(head, " : ")
-                show(head, value)
             catch e
                 print(head, "#=ERROR: unable to show value=#")
             end

@@ -14,8 +14,6 @@
 extern "C" {
 #endif
 
-extern int jl_lineno;
-
 static jl_value_t *eval(jl_value_t *e, jl_value_t **locals, size_t nl, size_t ngensym);
 static jl_value_t *eval_body(jl_array_t *stmts, jl_value_t **locals, size_t nl, size_t ngensym,
                              int start, int toplevel);
@@ -27,8 +25,10 @@ jl_value_t *jl_interpret_toplevel_expr(jl_value_t *e)
     return eval(e, NULL, 0, 0);
 }
 
-DLLEXPORT jl_value_t *jl_interpret_toplevel_expr_in(jl_module_t *m, jl_value_t *e,
-                                                    jl_value_t **locals, size_t nl)
+JL_DLLEXPORT jl_value_t *jl_interpret_toplevel_expr_in(jl_module_t *m,
+                                                       jl_value_t *e,
+                                                       jl_value_t **locals,
+                                                       size_t nl)
 {
     jl_value_t *v=NULL;
     jl_module_t *last_m = jl_current_module;

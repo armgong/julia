@@ -1,10 +1,31 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-## core stream types ##
+# Generic IO stubs
 
-# the first argument to any IO MUST be a POINTER (to a JL_STREAM) or using show on it will cause memory corruption
+lock(::IO) = nothing
+unlock(::IO) = nothing
+reseteof(x::IO) = nothing
 
-# Generic IO functions
+const SZ_UNBUFFERED_IO = 65536
+buffer_writes(x::IO, bufsize=SZ_UNBUFFERED_IO) = nothing
+
+function isopen end
+function close end
+function flush end
+function wait_connected end
+function wait_readnb end
+function wait_readbyte end
+function wait_close end
+function nb_available end
+function readavailable end
+function isreadable end
+function iswritable end
+function copy end
+function eof end
+
+# all subtypes should implement this
+read(s::IO, ::Type{UInt8}) = error(typeof(s)," does not support byte I/O")
+write(s::IO, x::UInt8) = error(typeof(s)," does not support byte I/O")
 
 ## byte-order mark, ntoh & hton ##
 
@@ -38,7 +59,7 @@ function write(io::IO, xs...)
 end
 
 if ENDIAN_BOM == 0x01020304
-    function write(s::IO, x::Integer)
+    function write(s::IO, x::Union{Int8,Int16,UInt16,Int32,UInt32,Int64,UInt64,Int128,UInt128})
         sz = sizeof(x)
         local written::Int = 0
         for n = sz:-1:1
@@ -47,7 +68,7 @@ if ENDIAN_BOM == 0x01020304
         return written
     end
 else
-    function write(s::IO, x::Integer)
+    function write(s::IO, x::Union{Int8,Int16,UInt16,Int32,UInt32,Int64,UInt64,Int128,UInt128})
         sz = sizeof(x)
         local written::Int = 0
         for n = 1:sz
@@ -103,12 +124,12 @@ end
 
 function write(io::IO, s::Symbol)
     pname = unsafe_convert(Ptr{UInt8}, s)
-    return write(io, pname, Int(ccall(:strlen, Csize_t, (Ptr{UInt8},), pname)))
+    return write(io, pname, Int(ccall(:strlen, Csize_t, (Cstring,), pname)))
 end
 
 read(s::IO, ::Type{Int8}) = reinterpret(Int8, read(s,UInt8))
 
-function read{T <: Integer}(s::IO, ::Type{T})
+function read{T <: Union{Int16,UInt16,Int32,UInt32,Int64,UInt64,Int128,UInt128}}(s::IO, ::Type{T})
     x = zero(T)
     for n = 1:sizeof(x)
         x |= (convert(T,read(s,UInt8))<<((n-1)<<3))
@@ -313,30 +334,3 @@ function reset{T<:IO}(io::T)
 end
 
 ismarked(io::IO) = io.mark >= 0
-
-# Generic IO stubs
-
-lock(::IO) = nothing
-unlock(::IO) = nothing
-reseteof(x::IO) = nothing
-
-const SZ_UNBUFFERED_IO = 65536
-buffer_writes(x::IO, bufsize=SZ_UNBUFFERED_IO) = nothing
-
-function isopen end
-function close end
-function flush end
-function wait_connected end
-function wait_readnb end
-function wait_readbyte end
-function wait_close end
-function nb_available end
-function readavailable end
-function isreadable end
-function iswritable end
-function copy end
-function eof end
-
-# all subtypes should implement this
-read(s::IO, ::Type{UInt8}) = error(typeof(s)," does not support byte I/O")
-write(s::IO, x::UInt8) = error(typeof(s)," does not support byte I/O")

@@ -34,6 +34,18 @@
 extern "C" {
 #endif
 
+#ifdef JULIA_ENABLE_THREADING
+static JL_CONST_FUNC jl_tls_states_t *jl_get_ptls_states_static(void)
+{
+#  if !defined(_COMPILER_MICROSOFT_)
+    static __thread jl_tls_states_t tls_states;
+#  else
+    static __declspec(thread) jl_tls_states_t tls_states;
+#  endif
+    return &tls_states;
+}
+#endif
+
 static int lisp_prompt = 0;
 static int codecov  = JL_LOG_NONE;
 static int malloclog= JL_LOG_NONE;
@@ -477,7 +489,7 @@ static void print_profile(void)
 }
 #endif
 
-static int true_main(int argc, char *argv[])
+static NOINLINE int true_main(int argc, char *argv[])
 {
     if (jl_core_module != NULL) {
         jl_array_t *args = (jl_array_t*)jl_get_global(jl_core_module, jl_symbol("ARGS"));
@@ -595,6 +607,14 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
         if (!WideCharToMultiByte(CP_UTF8, 0, warg, -1, arg, len, NULL, NULL)) return 1;
         argv[i] = (wchar_t*)arg;
     }
+#endif
+#ifdef JULIA_ENABLE_THREADING
+    // We need to make sure this function is called before any reference to
+    // TLS variables. Since the compiler is free to move calls to
+    // `jl_get_ptls_states()` around, we should avoid referencing TLS
+    // variables in this function. (Mark `true_main` as noinline for this
+    // reason).
+    jl_set_ptls_states_getter(jl_get_ptls_states_static);
 #endif
     libsupport_init();
     parse_opts(&argc, (char***)&argv);

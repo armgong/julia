@@ -430,7 +430,7 @@ static jl_cgval_t generic_box(jl_value_t *targ, jl_value_t *x, jl_codectx_t *ctx
                 error_unless(isbits, "reinterpret: expected bitstype value for second argument", ctx);
             }
             else {
-                emit_error("reinterpet: expected bitstype value for second argument", ctx);
+                emit_error("reinterpret: expected bitstype value for second argument", ctx);
                 return jl_cgval_t();
             }
         }
@@ -438,10 +438,10 @@ static jl_cgval_t generic_box(jl_value_t *targ, jl_value_t *x, jl_codectx_t *ctx
             if (isboxed) {
                 Value *size = emit_datatype_size(typ);
                 error_unless(builder.CreateICmpEQ(size, ConstantInt::get(T_int32, nb)),
-                            "reinterpet: argument size does not match size of target type", ctx);
+                            "reinterpret: argument size does not match size of target type", ctx);
             }
             else {
-                emit_error("reinterpet: argument size does not match size of target type", ctx);
+                emit_error("reinterpret: argument size does not match size of target type", ctx);
                 return jl_cgval_t();
             }
         }
@@ -1150,7 +1150,12 @@ static Value *emit_untyped_intrinsic(intrinsic f, Value *x, Value *y, Value *z, 
     Value *den;
     Value *typemin;
     switch (f) {
-    case neg_int: return builder.CreateSub(ConstantInt::get(t, 0), JL_INT(x));
+    case neg_int:
+#ifdef LLVM37
+     return builder.CreateNeg(JL_INT(x));
+#else
+     return builder.CreateSub(ConstantInt::get(t, 0), JL_INT(x));
+#endif
     case add_int: return builder.CreateAdd(JL_INT(x), JL_INT(y));
     case sub_int: return builder.CreateSub(JL_INT(x), JL_INT(y));
     case mul_int: return builder.CreateMul(JL_INT(x), JL_INT(y));

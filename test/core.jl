@@ -2207,7 +2207,11 @@ end
 # sig 2 is SIGINT per the POSIX.1-1990 standard
 if Base.is_unix(OS_NAME)
     ccall(:jl_exit_on_sigint, Void, (Cint,), 0)
-    @test_throws InterruptException ccall(:raise, Void, (Cint,), 2)
+    @test_throws InterruptException begin
+        #ccall(:raise, Void, (Cint,), 2) # llvm installs a custom version on Darwin that resolves to pthread_kill(pthread_self(), sig), which isn't what we want
+        ccall(:kill, Void, (Cint, Cint,), getpid(), 2)
+        Libc.systemsleep(0.1) # wait for SIGINT to arrive
+    end
     ccall(:jl_exit_on_sigint, Void, (Cint,), 1)
 end
 
@@ -3481,6 +3485,15 @@ end
 @test foo13855(Base.AddFun())() == Base.AddFun()
 @test foo13855(Base.MulFun())() == Base.MulFun()
 
+# issue #8487
+@test [x for x in 1:3] == [x for x ∈ 1:3] == [x for x = 1:3]
+let A = Array(Int, 4,3)
+    for i ∈ 1:size(A,1), j ∈ 1:size(A,2)
+        A[i,j] = 17*i + 51*j
+    end
+    @test A == [17*i + 51*j for i ∈ 1:size(A,1), j ∈ 1:size(A,2)]
+end
+
 # check if finalizers for the old gen can be triggered manually
 # issue #13986
 let
@@ -3498,4 +3511,28 @@ let
     # GC_MARKED; age = 1
     finalize(obj)
     @test finalized == 1
+end
+
+# check if finalizers for the old gen can be triggered manually
+# PR #14181
+let
+    # The following three `gc(false)` clears the `finalizer_list`. It is
+    # not strictly necessary to make the test pass but should make the failure
+    # more repeatable if something breaks.
+    gc(false)
+    # At least: GC_CLEAN; age = 1
+    gc(false)
+    # At least: GC_QUEUED; age = 1
+    gc(false)
+    # all objects in `finalizer_list` are now moved to `finalizer_list_marked`
+
+    obj1 = Ref(1)
+    obj2 = Ref(1)
+    finalized = 0
+    finalizer(obj1, (obj) -> (finalized += 1))
+    finalizer(obj1, (obj) -> (finalized += 1))
+    finalizer(obj2, (obj) -> (finalized += 1; finalize(obj1)))
+    finalizer(obj2, (obj) -> (finalized += 1; finalize(obj1)))
+    finalize(obj2)
+    @test finalized == 4
 end

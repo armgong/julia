@@ -138,21 +138,17 @@ static jl_sym_t *runnable_sym;
 
 extern size_t jl_page_size;
 jl_datatype_t *jl_task_type;
-DLLEXPORT JL_THREAD jl_task_t * volatile jl_current_task;
-JL_THREAD jl_task_t *jl_root_task;
-DLLEXPORT JL_THREAD jl_value_t *jl_exception_in_transit;
-DLLEXPORT JL_THREAD jl_gcframe_t *jl_pgcstack = NULL;
+#define jl_root_task (jl_get_ptls_states()->root_task)
 
 #ifdef COPY_STACKS
-static JL_THREAD jl_jmp_buf * volatile jl_jmp_target;
+#define jl_jmp_target (jl_get_ptls_states()->jmp_target)
 
 #if (defined(_CPU_X86_64_) || defined(_CPU_X86_)) && !defined(_COMPILER_MICROSOFT_)
 #define ASM_COPY_STACKS
 #endif
-JL_THREAD void *jl_stackbase;
 
 #ifndef ASM_COPY_STACKS
-static JL_THREAD jl_jmp_buf jl_base_ctx; // base context of stack
+#define jl_base_ctx (jl_get_ptls_states()->base_ctx)
 #endif
 
 static void NOINLINE save_stack(jl_task_t *t)
@@ -197,7 +193,7 @@ void NOINLINE restore_stack(jl_task_t *t, jl_jmp_buf *where, char *p)
 
 static jl_function_t *task_done_hook_func=NULL;
 
-static void NORETURN finish_task(jl_task_t *t, jl_value_t *resultval)
+static void JL_NORETURN finish_task(jl_task_t *t, jl_value_t *resultval)
 {
     if (t->exception != jl_nothing)
         t->state = failed_sym;
@@ -235,7 +231,7 @@ static void throw_if_exception_set(jl_task_t *t)
 }
 
 static void record_backtrace(void);
-static void NOINLINE NORETURN start_task(void)
+static void NOINLINE JL_NORETURN start_task(void)
 {
     // this runs the first time we switch to a task
     jl_task_t *t = jl_current_task;
@@ -271,7 +267,7 @@ void NOINLINE jl_set_base_ctx(char *__stk)
 }
 #endif
 
-DLLEXPORT void julia_init(JL_IMAGE_SEARCH rel)
+JL_DLLEXPORT void julia_init(JL_IMAGE_SEARCH rel)
 { // keep this function small, since we want to keep the stack frame
   // leading up to this also quite small
     _julia_init(rel);
@@ -299,7 +295,7 @@ static void ctx_switch(jl_task_t *t, jl_jmp_buf *where)
     */
     //JL_SIGATOMIC_BEGIN();
     if (!jl_setjmp(jl_current_task->ctx, 0)) {
-        bt_size = 0;  // backtraces don't survive task switches, see e.g. issue #12485
+        jl_bt_size = 0;  // backtraces don't survive task switches, see e.g. issue #12485
 #ifdef COPY_STACKS
         jl_task_t *lastt = jl_current_task;
         save_stack(lastt);
@@ -359,9 +355,8 @@ static void ctx_switch(jl_task_t *t, jl_jmp_buf *where)
     //JL_SIGATOMIC_END();
 }
 
-JL_THREAD jl_value_t * volatile jl_task_arg_in_transit;
 extern int jl_in_gc;
-DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg)
+JL_DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg)
 {
     if (t == jl_current_task) {
         throw_if_exception_set(t);
@@ -480,9 +475,6 @@ static void init_task(jl_task_t *t, char* stack)
 
 #endif /* !COPY_STACKS */
 
-ptrint_t bt_data[MAX_BT_SIZE+1];
-size_t bt_size = 0;
-
 // Always Set *func_name and *file_name to malloc'd pointers (non-NULL)
 static int frame_info_from_ip(char **func_name,
                               char **file_name, size_t *line_num,
@@ -563,14 +555,15 @@ static DWORD64 WINAPI JuliaGetModuleBase64(
 
 int needsSymRefreshModuleList;
 BOOL (WINAPI *hSymRefreshModuleList)(HANDLE);
-DLLEXPORT size_t rec_backtrace(ptrint_t *data, size_t maxsize)
+JL_DLLEXPORT size_t rec_backtrace(ptrint_t *data, size_t maxsize)
 {
     CONTEXT Context;
     memset(&Context, 0, sizeof(Context));
     RtlCaptureContext(&Context);
     return rec_backtrace_ctx(data, maxsize, &Context);
 }
-DLLEXPORT size_t rec_backtrace_ctx(ptrint_t *data, size_t maxsize, CONTEXT *Context)
+JL_DLLEXPORT size_t rec_backtrace_ctx(ptrint_t *data, size_t maxsize,
+                                      CONTEXT *Context)
 {
     if (needsSymRefreshModuleList && hSymRefreshModuleList != 0 && !jl_in_stackwalk) {
         jl_in_stackwalk = 1;
@@ -652,13 +645,14 @@ DLLEXPORT size_t rec_backtrace_ctx(ptrint_t *data, size_t maxsize, CONTEXT *Cont
 }
 #else
 // stacktrace using libunwind
-DLLEXPORT size_t rec_backtrace(ptrint_t *data, size_t maxsize)
+JL_DLLEXPORT size_t rec_backtrace(ptrint_t *data, size_t maxsize)
 {
     unw_context_t uc;
     unw_getcontext(&uc);
     return rec_backtrace_ctx(data, maxsize, &uc);
 }
-DLLEXPORT size_t rec_backtrace_ctx(ptrint_t *data, size_t maxsize, unw_context_t *uc)
+JL_DLLEXPORT size_t rec_backtrace_ctx(ptrint_t *data, size_t maxsize,
+                                      unw_context_t *uc)
 {
 #if !defined(_CPU_ARM_) && !defined(_CPU_PPC64_)
     unw_cursor_t cursor;
@@ -700,11 +694,11 @@ size_t rec_backtrace_ctx_dwarf(ptrint_t *data, size_t maxsize, unw_context_t *uc
 
 static void record_backtrace(void)
 {
-    bt_size = rec_backtrace(bt_data, MAX_BT_SIZE);
+    jl_bt_size = rec_backtrace(jl_bt_data, JL_MAX_BT_SIZE);
 }
 
 static jl_value_t *array_ptr_void_type = NULL;
-DLLEXPORT jl_value_t *jl_backtrace_from_here(void)
+JL_DLLEXPORT jl_value_t *jl_backtrace_from_here(void)
 {
     jl_svec_t *tp = NULL;
     jl_array_t *bt = NULL;
@@ -713,15 +707,15 @@ DLLEXPORT jl_value_t *jl_backtrace_from_here(void)
         tp = jl_svec2(jl_voidpointer_type, jl_box_long(1));
         array_ptr_void_type = jl_apply_type((jl_value_t*)jl_array_type, tp);
     }
-    bt = jl_alloc_array_1d(array_ptr_void_type, MAX_BT_SIZE);
-    size_t n = rec_backtrace((ptrint_t*)jl_array_data(bt), MAX_BT_SIZE);
-    if (n < MAX_BT_SIZE)
-        jl_array_del_end(bt, MAX_BT_SIZE-n);
+    bt = jl_alloc_array_1d(array_ptr_void_type, JL_MAX_BT_SIZE);
+    size_t n = rec_backtrace((ptrint_t*)jl_array_data(bt), JL_MAX_BT_SIZE);
+    if (n < JL_MAX_BT_SIZE)
+        jl_array_del_end(bt, JL_MAX_BT_SIZE-n);
     JL_GC_POP();
     return (jl_value_t*)bt;
 }
 
-DLLEXPORT jl_value_t *jl_lookup_code_address(void *ip, int skipC)
+JL_DLLEXPORT jl_value_t *jl_lookup_code_address(void *ip, int skipC)
 {
     char *func_name;
     size_t line_num;
@@ -746,7 +740,7 @@ DLLEXPORT jl_value_t *jl_lookup_code_address(void *ip, int skipC)
     return r;
 }
 
-DLLEXPORT jl_value_t *jl_get_backtrace(void)
+JL_DLLEXPORT jl_value_t *jl_get_backtrace(void)
 {
     jl_svec_t *tp = NULL;
     jl_array_t *bt = NULL;
@@ -755,14 +749,14 @@ DLLEXPORT jl_value_t *jl_get_backtrace(void)
         tp = jl_svec2(jl_voidpointer_type, jl_box_long(1));
         array_ptr_void_type = jl_apply_type((jl_value_t*)jl_array_type, tp);
     }
-    bt = jl_alloc_array_1d(array_ptr_void_type, bt_size);
-    memcpy(bt->data, bt_data, bt_size*sizeof(void*));
+    bt = jl_alloc_array_1d(array_ptr_void_type, jl_bt_size);
+    memcpy(bt->data, jl_bt_data, jl_bt_size*sizeof(void*));
     JL_GC_POP();
     return (jl_value_t*)bt;
 }
 
 //for looking up functions from gdb:
-DLLEXPORT void gdblookup(ptrint_t ip)
+JL_DLLEXPORT void gdblookup(ptrint_t ip)
 {
     char *func_name;
     size_t line_num;
@@ -786,14 +780,14 @@ DLLEXPORT void gdblookup(ptrint_t ip)
     free(inlinedat_file);
 }
 
-DLLEXPORT void jlbacktrace(void)
+JL_DLLEXPORT void jlbacktrace(void)
 {
-    size_t n = bt_size; //bt_size > 40 ? 40 : bt_size;
+    size_t n = jl_bt_size; // jl_bt_size > 40 ? 40 : jl_bt_size;
     for(size_t i=0; i < n; i++)
-        gdblookup(bt_data[i]);
+        gdblookup(jl_bt_data[i]);
 }
 
-DLLEXPORT void gdbbacktrace(void)
+JL_DLLEXPORT void gdbbacktrace(void)
 {
     record_backtrace();
     jlbacktrace();
@@ -801,7 +795,7 @@ DLLEXPORT void gdbbacktrace(void)
 
 
 // yield to exception handler
-void NORETURN throw_internal(jl_value_t *e)
+void JL_NORETURN throw_internal(jl_value_t *e)
 {
     assert(e != NULL);
     jl_exception_in_transit = e;
@@ -819,24 +813,24 @@ void NORETURN throw_internal(jl_value_t *e)
 }
 
 // record backtrace and raise an error
-DLLEXPORT void jl_throw(jl_value_t *e)
+JL_DLLEXPORT void jl_throw(jl_value_t *e)
 {
     assert(e != NULL);
     record_backtrace();
     throw_internal(e);
 }
 
-DLLEXPORT void jl_rethrow(void)
+JL_DLLEXPORT void jl_rethrow(void)
 {
     throw_internal(jl_exception_in_transit);
 }
 
-DLLEXPORT void jl_rethrow_other(jl_value_t *e)
+JL_DLLEXPORT void jl_rethrow_other(jl_value_t *e)
 {
     throw_internal(e);
 }
 
-DLLEXPORT jl_task_t *jl_new_task(jl_function_t *start, size_t ssize)
+JL_DLLEXPORT jl_task_t *jl_new_task(jl_function_t *start, size_t ssize)
 {
     size_t pagesz = jl_page_size;
     jl_task_t *t = (jl_task_t*)jl_gc_allocobj(sizeof(jl_task_t));
@@ -898,7 +892,7 @@ JL_CALLABLE(jl_unprotect_stack)
     return jl_nothing;
 }
 
-DLLEXPORT jl_value_t *jl_get_current_task(void)
+JL_DLLEXPORT jl_value_t *jl_get_current_task(void)
 {
     return (jl_value_t*)jl_current_task;
 }
@@ -973,7 +967,7 @@ void jl_init_root_task(void *stack, size_t ssize)
     jl_task_arg_in_transit = (jl_value_t*)jl_nothing;
 }
 
-DLLEXPORT int jl_is_task_started(jl_task_t *t)
+JL_DLLEXPORT int jl_is_task_started(jl_task_t *t)
 {
     return t->started;
 }

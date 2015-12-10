@@ -77,6 +77,18 @@ flush_cstdio() = ccall(:jl_flush_cstdio, Void, ())
 @unix_only systemsleep(s::Real) = ccall(:usleep, Int32, (UInt32,), round(UInt32,s*1e6))
 @windows_only systemsleep(s::Real) = (ccall(:Sleep, stdcall, Void, (UInt32,), round(UInt32,s*1e3)); return Int32(0))
 
+immutable TimeVal
+   sec::Int64
+   usec::Int64
+end
+
+function TimeVal()
+    tv = Ref{TimeVal}()
+    status = ccall(:jl_gettimeofday, Cint, (Ref{TimeVal},), tv)
+    status != 0 && error("unable to determine current time: ", status)
+    return tv[]
+end
+
 type TmStruct
     sec::Int32
     min::Int32
@@ -121,7 +133,7 @@ end
 strptime(timestr::AbstractString) = strptime("%c", timestr)
 function strptime(fmt::AbstractString, timestr::AbstractString)
     tm = TmStruct()
-    r = ccall(:strptime, Ptr{UInt8}, (Cstring, Cstring, Ptr{TmStruct}),
+    r = ccall(:strptime, Cstring, (Cstring, Cstring, Ptr{TmStruct}),
               timestr, fmt, &tm)
     # the following would tell mktime() that this is a local time, and that
     # it should try to guess the timezone. not sure if/how this should be
@@ -143,7 +155,7 @@ end
 
 # system date in seconds
 time(tm::TmStruct) = Float64(ccall(:mktime, Int, (Ptr{TmStruct},), &tm))
-time() = ccall(:clock_now, Float64, ())
+time() = ccall(:jl_clock_now, Float64, ())
 
 ## process-related functions ##
 
@@ -163,7 +175,7 @@ end
 
 errno() = ccall(:jl_errno, Cint, ())
 errno(e::Integer) = ccall(:jl_set_errno, Void, (Cint,), e)
-strerror(e::Integer) = bytestring(ccall(:strerror, Ptr{UInt8}, (Int32,), e))
+strerror(e::Integer) = bytestring(ccall(:strerror, Cstring, (Int32,), e))
 strerror() = strerror(errno())
 
 @windows_only begin

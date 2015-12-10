@@ -2,21 +2,24 @@
 
 // utility procedures used in code generation
 
-#if defined(USE_MCJIT) && defined(_OS_WINDOWS_)
 template<class T> // for GlobalObject's
 static T* addComdat(T *G)
 {
-    if (imaging_mode && (!G->isDeclarationForLinker())) {
+#if defined(_OS_WINDOWS_)
+    if (imaging_mode && !G->isDeclaration()) {
+#ifdef LLVM35
+        // Add comdat information to make MSVC link.exe happy
         Comdat *jl_Comdat = G->getParent()->getOrInsertComdat(G->getName());
         jl_Comdat->setSelectionKind(Comdat::NoDuplicates);
         G->setComdat(jl_Comdat);
+        // add __declspec(dllexport) to everything marked for export
+        if (G->getLinkage() == GlobalValue::ExternalLinkage)
+            G->setDLLStorageClass(GlobalValue::DLLExportStorageClass);
+#endif
     }
+#endif
     return G;
 }
-#else
-template<class T>
-static T* addComdat(T *G) { return G; }
-#endif
 
 static Instruction *tbaa_decorate(MDNode* md, Instruction* load_or_store)
 {
@@ -53,10 +56,13 @@ static llvm::Value *prepare_call(llvm::Value* Callee)
             return ModuleF;
         }
         else {
-            return Function::Create(F->getFunctionType(),
-                                    Function::ExternalLinkage,
-                                    F->getName(),
-                                    jl_Module);
+            Function *func = Function::Create(F->getFunctionType(),
+                                              Function::ExternalLinkage,
+                                              F->getName(),
+                                              jl_Module);
+            func->setAttributes(AttributeSet());
+            func->copyAttributesFrom(F);
+            return func;
         }
     }
 #endif
@@ -64,9 +70,9 @@ static llvm::Value *prepare_call(llvm::Value* Callee)
 }
 
 #ifdef LLVM35
-static inline void add_named_global(GlobalObject *gv, void *addr)
+static inline void add_named_global(GlobalObject *gv, void *addr, bool dllimport = true)
 #else
-static inline void add_named_global(GlobalValue *gv, void *addr)
+static inline void add_named_global(GlobalValue *gv, void *addr, bool dllimport = true)
 #endif
 {
 #ifdef LLVM34
@@ -77,8 +83,9 @@ static inline void add_named_global(GlobalValue *gv, void *addr)
 #endif
 
 #ifdef _OS_WINDOWS_
-    // setting DLLEXPORT correctly only matters when building a binary
-    if (jl_generating_output()) {
+    // setting JL_DLLEXPORT correctly only matters when building a binary
+    if (dllimport && imaging_mode) {
+        assert(gv->getLinkage() == GlobalValue::ExternalLinkage);
 #ifdef LLVM35
         // add the __declspec(dllimport) attribute
         gv->setDLLStorageClass(GlobalValue::DLLImportStorageClass);
@@ -86,8 +93,7 @@ static inline void add_named_global(GlobalValue *gv, void *addr)
         imp_name = Twine("__imp_", name).str();
         name = StringRef(imp_name);
 #else
-        if (gv->getLinkage() == GlobalValue::ExternalLinkage)
-            gv->setLinkage(GlobalValue::DLLImportLinkage);
+        gv->setLinkage(GlobalValue::DLLImportLinkage);
 #endif
 #if defined(_P64) || defined(LLVM35)
         // __imp_ variables are indirection pointers, so use malloc to simulate that
@@ -150,7 +156,7 @@ static GlobalVariable *stringConst(const std::string &txt)
 
 typedef struct {Value* gv; int32_t index;} jl_value_llvm; // uses 1-based indexing
 static std::map<void*, jl_value_llvm> jl_value_to_llvm;
-DLLEXPORT std::map<Value *, void*> jl_llvm_to_jl_value;
+JL_DLLEXPORT std::map<Value *, void*> jl_llvm_to_jl_value;
 
 // In imaging mode, cache a fast mapping of Function * to code address
 // because this is queried in the hot path
@@ -233,9 +239,11 @@ public:
             // as codegen may make decisions based on the presence of certain attributes
             NewF->copyAttributesFrom(F);
 
+            #ifdef LLVM37
             // Declarations are not allowed to have personality routines, but
             // copyAttributesFrom sets them anyway, so clear them again manually
             NewF->setPersonalityFn(nullptr);
+            #endif
 
             AttributeSet OldAttrs = F->getAttributes();
             // Clone any argument attributes that are present in the VMap.
@@ -419,6 +427,7 @@ static Value *literal_static_pointer_val(const void *p, Type *t)
 }
 
 static std::vector<Constant*> jl_sysimg_gvars;
+static std::vector<Constant*> jl_sysimg_fvars;
 
 extern "C" int32_t jl_get_llvm_gv(jl_value_t *p)
 {
@@ -438,19 +447,34 @@ extern "C" {
 
 static void jl_gen_llvm_globaldata(llvm::Module *mod, ValueToValueMapTy &VMap, const char *sysimg_data, size_t sysimg_len)
 {
-    ArrayType *atype = ArrayType::get(T_psize, jl_sysimg_gvars.size());
+    ArrayType *gvars_type = ArrayType::get(T_psize, jl_sysimg_gvars.size());
     addComdat(new GlobalVariable(*mod,
-                                 atype,
+                                 gvars_type,
                                  true,
                                  GlobalVariable::ExternalLinkage,
-                                 MapValue(ConstantArray::get(atype, ArrayRef<Constant*>(jl_sysimg_gvars)), VMap),
+                                 MapValue(ConstantArray::get(gvars_type, ArrayRef<Constant*>(jl_sysimg_gvars)), VMap),
                                  "jl_sysimg_gvars"));
+    ArrayType *fvars_type = ArrayType::get(T_pvoidfunc, jl_sysimg_fvars.size());
+    addComdat(new GlobalVariable(*mod,
+                                 fvars_type,
+                                 true,
+                                 GlobalVariable::ExternalLinkage,
+                                 MapValue(ConstantArray::get(fvars_type, ArrayRef<Constant*>(jl_sysimg_fvars)), VMap),
+                                 "jl_sysimg_fvars"));
     addComdat(new GlobalVariable(*mod,
                                  T_size,
                                  true,
                                  GlobalVariable::ExternalLinkage,
                                  ConstantInt::get(T_size,globalUnique+1),
                                  "jl_globalUnique"));
+#ifdef JULIA_ENABLE_THREADING
+    addComdat(new GlobalVariable(*mod,
+                                 T_size,
+                                 true,
+                                 GlobalVariable::ExternalLinkage,
+                                 ConstantInt::get(T_size, jltls_states_func_idx),
+                                 "jl_ptls_states_getter_idx"));
+#endif
 
     Constant *feature_string = ConstantDataArray::getString(jl_LLVMContext, jl_options.cpu_target);
     addComdat(new GlobalVariable(*mod,
@@ -598,8 +622,8 @@ static int32_t jl_assign_functionID(Function *functionObject)
     // give the function an index in the constant lookup table
     if (!imaging_mode)
         return 0;
-    jl_sysimg_gvars.push_back(ConstantExpr::getBitCast(functionObject,T_psize));
-    return jl_sysimg_gvars.size();
+    jl_sysimg_fvars.push_back(ConstantExpr::getBitCast(functionObject, T_pvoidfunc));
+    return jl_sysimg_fvars.size();
 }
 
 static Value *julia_gv(const char *cname, void *addr)
@@ -742,7 +766,7 @@ static Value *julia_binding_gv(jl_binding_t *b)
 static Type *julia_struct_to_llvm(jl_value_t *jt, bool *isboxed);
 
 extern "C" {
-DLLEXPORT Type *julia_type_to_llvm(jl_value_t *jt, bool *isboxed)
+JL_DLLEXPORT Type *julia_type_to_llvm(jl_value_t *jt, bool *isboxed)
 {
     // this function converts a Julia Type into the equivalent LLVM type
     if (isboxed) *isboxed = false;
@@ -2119,4 +2143,22 @@ static jl_cgval_t emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **arg
         assert(sty->instance != NULL);
         return mark_julia_const(sty->instance);
     }
+}
+
+static Value *emit_pgcstack(jl_codectx_t *ctx)
+{
+    Value * addr = emit_nthptr_addr(
+        ctx->gc.ptlsStates,
+        (ssize_t)(offsetof(jl_tls_states_t, pgcstack) / sizeof(void*)));
+    return builder.CreateBitCast(addr, PointerType::get(T_ppjlvalue, 0),
+                                 "jl_pgcstack");
+}
+
+static Value *emit_exc_in_transit(jl_codectx_t *ctx)
+{
+    Value * addr = emit_nthptr_addr(
+        ctx->gc.ptlsStates,
+        (ssize_t)(offsetof(jl_tls_states_t,
+                           exception_in_transit) / sizeof(void*)));
+    return builder.CreateBitCast(addr, T_ppjlvalue, "jl_exception_in_transit");
 }

@@ -11,6 +11,8 @@
 @test endswith("abcd", "cd")
 @test !endswith("abcd", "dc")
 @test !endswith("cd", "abcd")
+@test startswith("ab\0cd", "ab\0c")
+@test !startswith("ab\0cd", "ab\0d")
 
 @test filter(x -> x ∈ ['f', 'o'], "foobar") == "foo"
 
@@ -484,3 +486,9 @@ foobaz(ch) = reinterpret(Char, typemax(UInt32))
 @test_throws UnicodeError map(foomap, utf16(str))
 @test_throws UnicodeError map(foobar, utf16(str))
 @test_throws UnicodeError map(foobaz, utf16(str))
+
+@test "a".*["b","c"] == ["ab","ac"]
+@test ["b","c"].*"a" == ["ba","ca"]
+@test utf8("a").*["b","c"] == ["ab","ac"]
+@test "a".*map(utf8,["b","c"]) == ["ab","ac"]
+@test ["a","b"].*["c","d"]' == ["ac" "ad"; "bc" "bd"]
