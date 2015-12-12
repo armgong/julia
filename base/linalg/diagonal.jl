@@ -5,7 +5,8 @@
 immutable Diagonal{T} <: AbstractMatrix{T}
     diag::Vector{T}
 end
-Diagonal(A::Matrix) = Diagonal(diag(A))
+Diagonal(A::AbstractMatrix) = Diagonal(diag(A))
+Diagonal(V::AbstractVector) = Diagonal(collect(V))
 
 convert{T}(::Type{Diagonal{T}}, D::Diagonal{T}) = D
 convert{T}(::Type{Diagonal{T}}, D::Diagonal) = Diagonal{T}(convert(Vector{T}, D.diag))
@@ -37,6 +38,8 @@ full(D::Diagonal) = diagm(D.diag)
 
 getindex(D::Diagonal, i::Int, j::Int) = (checkbounds(D, i, j); unsafe_getindex(D, i, j))
 unsafe_getindex{T}(D::Diagonal{T}, i::Int, j::Int) = i == j ? unsafe_getindex(D.diag, i) : zero(T)
+unsafe_getindex{T}(D::Diagonal{Matrix{T}}, i::Int, j::Int) = i == j ? D.diag[i] : zeros(T, size(D.diag[i
+], 1), size(D.diag[j], 2))
 
 setindex!(D::Diagonal, v, i::Int, j::Int) = (checkbounds(D, i, j); unsafe_setindex!(D, v, i, j))
 function unsafe_setindex!(D::Diagonal, v, i::Int, j::Int)
@@ -54,6 +57,10 @@ issym(D::Diagonal) = true
 isposdef(D::Diagonal) = all(D.diag .> 0)
 
 factorize(D::Diagonal) = D
+
+abs(D::Diagonal) = Diagonal(abs(D.diag))
+real(D::Diagonal) = Diagonal(real(D.diag))
+imag(D::Diagonal) = Diagonal(imag(D.diag))
 
 istriu(D::Diagonal) = true
 istril(D::Diagonal) = true
@@ -117,7 +124,10 @@ function A_ldiv_B!{T}(D::Diagonal{T}, V::AbstractMatrix{T})
         if d == zero(T)
             throw(SingularException(i))
         end
-        V[i,:] *= inv(d)
+        d⁻¹ = inv(d)
+        for j=1:size(V,2)
+            @inbounds V[i,j] *= d⁻¹
+        end
     end
     V
 end
@@ -159,9 +169,9 @@ function A_ldiv_B!(D::Diagonal, B::StridedVecOrMat)
     end
     return B
 end
-\(D::Diagonal, B::StridedMatrix) = scale(1 ./ D.diag, B)
-\(D::Diagonal, b::StridedVector) = reshape(scale(1 ./ D.diag, reshape(b, length(b), 1)), length(b))
-\(Da::Diagonal, Db::Diagonal) = Diagonal(Db.diag ./ Da.diag)
+(\)(D::Diagonal, B::AbstractMatrix) = scale(1 ./ D.diag, B)
+(\)(D::Diagonal, b::AbstractVector) = reshape(scale(1 ./ D.diag, reshape(b, length(b), 1)), length(b))
+(\)(Da::Diagonal, Db::Diagonal) = Diagonal(Db.diag ./ Da.diag)
 
 function inv{T}(D::Diagonal{T})
     Di = similar(D.diag)
@@ -183,7 +193,7 @@ function pinv{T}(D::Diagonal{T})
 end
 function pinv{T}(D::Diagonal{T}, tol::Real)
     Di = similar(D.diag)
-    if( length(D.diag) != 0 ) maxabsD = maximum(abs(D.diag)) end
+    if( !isempty(D.diag) ) maxabsD = maximum(abs(D.diag)) end
     for i = 1:length(D.diag)
         if( abs(D.diag[i]) > tol*maxabsD && isfinite(inv(D.diag[i])) )
             Di[i]=inv(D.diag[i])

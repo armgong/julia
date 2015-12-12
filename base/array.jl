@@ -183,19 +183,9 @@ function fill!(a::Union{Array{UInt8}, Array{Int8}}, x::Integer)
 end
 
 function fill!{T<:Union{Integer,AbstractFloat}}(a::Array{T}, x)
-    # note: checking bit pattern
-    xT = convert(T,x)
-    if isbits(T) && nfields(T)==0 &&
-        ((sizeof(T)==1 && reinterpret(UInt8, xT) == 0) ||
-         (sizeof(T)==2 && reinterpret(UInt16, xT) == 0) ||
-         (sizeof(T)==4 && reinterpret(UInt32, xT) == 0) ||
-         (sizeof(T)==8 && reinterpret(UInt64, xT) == 0))
-        ccall(:memset, Ptr{Void}, (Ptr{Void}, Cint, Csize_t),
-              a, 0, length(a)*sizeof(T))
-    else
-        for i in eachindex(a)
-            @inbounds a[i] = xT
-        end
+    xT = convert(T, x)
+    for i in eachindex(a)
+        @inbounds a[i] = xT
     end
     return a
 end
@@ -236,8 +226,9 @@ end
 
 convert{T,n}(::Type{Array{T}}, x::Array{T,n}) = x
 convert{T,n}(::Type{Array{T,n}}, x::Array{T,n}) = x
-convert{T,n,S}(::Type{Array{T}}, x::Array{S,n}) = convert(Array{T,n}, x)
-convert{T,n,S}(::Type{Array{T,n}}, x::Array{S,n}) = copy!(similar(x,T), x)
+
+convert{T,n,S}(::Type{Array{T}}, x::AbstractArray{S, n}) = convert(Array{T, n}, x)
+convert{T,n,S}(::Type{Array{T,n}}, x::AbstractArray{S,n}) = copy!(Array(T, size(x)), x)
 
 promote_rule{T,n,S}(::Type{Array{T,n}}, ::Type{Array{S,n}}) = Array{promote_type(T,S),n}
 
@@ -267,14 +258,14 @@ end
 """
     collect(collection)
 
-Return an array of all items in a collection. For associative collections, returns (key, value) tuples.
+Return an array of all items in a collection. For associative collections, returns Pair{KeyType, ValType}.
 """
 collect(itr) = collect(eltype(itr), itr)
 
 ## Iteration ##
 start(A::Array) = 1
 next(a::Array,i) = (a[i],i+1)
-done(a::Array,i) = (i > length(a))
+done(a::Array,i) = i == length(a)+1
 
 ## Indexing: getindex ##
 
@@ -310,10 +301,13 @@ function getindex{T<:Real}(A::Array, I::Range{T})
 end
 
 ## Indexing: setindex! ##
-setindex!{T}(A::Array{T}, x, i1::Real) = arrayset(A, convert(T,x), to_index(i1))
-setindex!{T}(A::Array{T}, x, i1::Real, i2::Real, I::Real...) = arrayset(A, convert(T,x), to_index(i1), to_index(i2), to_indexes(I...)...)
+setindex!{T}(A::Array{T}, x, i1::Real) = arrayset(A, convert(T,x)::T, to_index(i1))
+setindex!{T}(A::Array{T}, x, i1::Real, i2::Real, I::Real...) = arrayset(A, convert(T,x)::T, to_index(i1), to_index(i2), to_indexes(I...)...)
 
-unsafe_setindex!{T}(A::Array{T}, x, i1::Real, I::Real...) = @inbounds return arrayset(A, convert(T,x), to_index(i1), to_indexes(I...)...)
+# Type inference is confused by `@inbounds return ...` and introduces a
+# !ispointerfree local variable and a GC frame
+unsafe_setindex!{T}(A::Array{T}, x, i1::Real, I::Real...) =
+    (@inbounds arrayset(A, convert(T,x)::T, to_index(i1), to_indexes(I...)...); A)
 
 # These are redundant with the abstract fallbacks but needed for bootstrap
 function setindex!(A::Array, x, I::AbstractVector{Int})
@@ -426,9 +420,9 @@ end
 
 function push!{T}(a::Array{T,1}, item)
     # convert first so we don't grow the array if the assignment won't work
-    item = convert(T, item)
+    itemT = convert(T, item)
     ccall(:jl_array_grow_end, Void, (Any, UInt), a, 1)
-    a[end] = item
+    a[end] = itemT
     return a
 end
 
@@ -827,10 +821,12 @@ function findmax(a)
     if isempty(a)
         throw(ArgumentError("collection must be non-empty"))
     end
-    m = a[1]
-    mi = 1
-    for i=2:length(a)
-        ai = a[i]
+    s = start(a)
+    mi = i = 1
+    m, s = next(a, s)
+    while !done(a, s)
+        ai, s = next(a, s)
+        i += 1
         if ai > m || m!=m
             m = ai
             mi = i
@@ -843,10 +839,12 @@ function findmin(a)
     if isempty(a)
         throw(ArgumentError("collection must be non-empty"))
     end
-    m = a[1]
-    mi = 1
-    for i=2:length(a)
-        ai = a[i]
+    s = start(a)
+    mi = i = 1
+    m, s = next(a, s)
+    while !done(a, s)
+        ai, s = next(a, s)
+        i += 1
         if ai < m || m!=m
             m = ai
             mi = i

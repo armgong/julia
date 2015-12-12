@@ -47,8 +47,8 @@ let inet = Base.InetAddr(IPv4(127,0,0,1), 1024)
     @test inet.port == 1024
 end
 # test InetAddr invalid port
-@test_throws ArgumentError Base.InetAddr(IPv4(127,0,0,1), -1)
-@test_throws ArgumentError Base.InetAddr(IPv4(127,0,0,1), typemax(UInt16)+1)
+@test_throws InexactError Base.InetAddr(IPv4(127,0,0,1), -1)
+@test_throws InexactError Base.InetAddr(IPv4(127,0,0,1), typemax(UInt16)+1)
 
 # isless and comparisons
 @test ip"1.2.3.4" < ip"1.2.3.7" < ip"2.3.4.5"
@@ -86,22 +86,22 @@ wait(port)
 @test readall(connect(fetch(port))) == "Hello World\n" * ("a1\n"^100)
 wait(tsk)
 
-socketname = (@windows ? "\\\\.\\pipe\\uv-test" : "testsocket") * "-" * randstring(6)
-@unix_only isfile(socketname) && Base.FS.unlink(socketname)
-
-c=Base.Condition()
-for T in (ASCIIString, UTF8String, UTF16String) # test for issue #9435
-    tsk = @async begin
-        s = listen(T(socketname))
-        Base.notify(c)
-        sock = accept(s)
-        write(sock,"Hello World\n")
-        close(s)
-        close(sock)
+mktempdir() do tmpdir
+    socketname = @windows ? ("\\\\.\\pipe\\uv-test-" * randstring(6)) : joinpath(tmpdir, "socket")
+    c = Base.Condition()
+    for T in (ASCIIString, UTF8String, UTF16String) # test for issue #9435
+        tsk = @async begin
+            s = listen(T(socketname))
+            Base.notify(c)
+            sock = accept(s)
+            write(sock,"Hello World\n")
+            close(s)
+            close(sock)
+        end
+        wait(c)
+        @test readall(connect(socketname)) == "Hello World\n"
+        wait(tsk)
     end
-    wait(c)
-    @test readall(connect(socketname)) == "Hello World\n"
-    wait(tsk)
 end
 
 @test_throws Base.UVError getaddrinfo(".invalid")
@@ -184,4 +184,84 @@ if @unix? true : (Base.windows_version() >= Base.WINDOWS_VISTA_VER)
     end
     send(b, ip"::1", port, "Hello World")
     wait(tsk)
+end
+
+begin
+    default_port = UInt16(11011)
+    default_addr = IPv4("127.0.0.1")
+
+    sock = Base.TCPServer()
+    bind(sock,Base.InetAddr(default_addr,default_port))
+    listen(sock)
+
+    new_addr, new_port = getsockname(sock)
+
+    @test default_addr == new_addr
+    @test default_port == new_port
+    close(sock)
+end
+
+begin
+    default_port = UInt16(21011)
+    default_addr = IPv6("::1")
+
+    sock = Base.TCPServer()
+    addr = Base.InetAddr(default_addr,default_port)
+    bind(sock,addr)
+    listen(sock)
+
+    new_addr, new_port = getsockname(sock)
+
+    @test default_addr == new_addr
+    @test default_port == new_port
+    close(sock)
+end
+
+begin
+    default_port = UInt16(11011)
+    default_addr = getipaddr()
+
+    sock = Base.TCPServer()
+    bind(sock,Base.InetAddr(default_addr,default_port))
+    listen(sock)
+
+    @async begin
+        sleep(1)
+        ssock = connect(default_addr, default_port)
+    end
+
+    csock = accept(sock)
+    new_addr, new_port = getsockname(csock)
+
+    @test default_addr == new_addr
+    @test new_port > 0
+    close(csock)
+    close(sock)
+end
+
+# Local-machine broadcast
+let
+    # (Mac OS X's loopback interface doesn't support broadcasts)
+    bcastdst = @osx ? ip"255.255.255.255" : ip"127.255.255.255"
+
+    function create_socket()
+        s = UDPSocket()
+        bind(s, ip"0.0.0.0", 2000, reuseaddr = true, enable_broadcast = true)
+        s
+    end
+    a, b, c = [create_socket() for i = 1:3]
+    try
+        @sync begin
+            send(c, bcastdst, 2000, "hello")
+            recvs = [@async @test bytestring(recv(s)) == "hello" for s in (a, b)]
+            map(wait, recvs)
+        end
+    catch e
+        if isa(e, Base.UVError) && Base.uverrorname(e) == "EPERM"
+            warn("UDP broadcast test skipped (permission denied upon send, restrictive firewall?)")
+        else
+            rethrow()
+        end
+    end
+    [close(s) for s in [a, b, c]]
 end

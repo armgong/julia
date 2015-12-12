@@ -29,7 +29,9 @@ end
 function arg_decl_parts(m::Method)
     tv = m.tvars
     if !isa(tv,SimpleVector)
-        tv = svec(tv)
+        tv = Any[tv]
+    else
+        tv = Any[tv...]
     end
     li = m.func.code
     e = uncompressed_ast(li)
@@ -90,6 +92,7 @@ function inbase(m::Module)
     end
 end
 fileurl(file) = let f = find_source_file(file); f === nothing ? "" : "file://"*f; end
+
 function url(m::Method)
     M = m.func.code.module
     (m.func.code.file == :null || m.func.code.file == :string) && return ""
@@ -97,20 +100,27 @@ function url(m::Method)
     line = m.func.code.line
     line <= 0 || ismatch(r"In\[[0-9]+\]", file) && return ""
     if inbase(M)
-        return "https://github.com/JuliaLang/julia/tree/$(Base.GIT_VERSION_INFO.commit)/base/$file#L$line"
+        if isempty(Base.GIT_VERSION_INFO.commit)
+            # this url will only work if we're on a tagged release
+            return "https://github.com/JuliaLang/julia/tree/v$VERSION/base/$file#L$line"
+        else
+            return "https://github.com/JuliaLang/julia/tree/$(Base.GIT_VERSION_INFO.commit)/base/$file#L$line"
+        end
     else
         try
             d = dirname(file)
-            u = Git.readchomp(`config remote.origin.url`, dir=d)
-            u = match(Git.GITHUB_REGEX,u).captures[1]
-            root = cd(d) do # dir=d confuses --show-toplevel, apparently
-                Git.readchomp(`rev-parse --show-toplevel`)
-            end
-            if startswith(file, root)
-                commit = Git.readchomp(`rev-parse HEAD`, dir=d)
-                return "https://github.com/$u/tree/$commit/"*file[length(root)+2:end]*"#L$line"
-            else
-                return fileurl(file)
+            return LibGit2.with(LibGit2.GitRepoExt(d)) do repo
+                LibGit2.with(LibGit2.GitConfig(repo)) do cfg
+                    u = LibGit2.get(cfg, "remote.origin.url", "")
+                    u = match(LibGit2.GITHUB_REGEX,u).captures[1]
+                    commit = string(LibGit2.head_oid(repo))
+                    root = LibGit2.path(repo)
+                    if startswith(file, root)
+                        "https://github.com/$u/tree/$commit/"*file[length(root)+1:end]*"#L$line"
+                    else
+                        fileurl(file)
+                    end
+                end
             end
         catch
             return fileurl(file)

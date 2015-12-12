@@ -60,7 +60,7 @@ ndims{T,n}(::Type{AbstractArray{T,n}}) = n
 ndims{T<:AbstractArray}(::Type{T}) = ndims(super(T))
 length(t::AbstractArray) = prod(size(t))::Int
 endof(a::AbstractArray) = length(a)
-first(a::AbstractArray) = a[1]
+first(a::AbstractArray) = a[first(eachindex(a))]
 
 function first(itr)
     state = start(itr)
@@ -116,15 +116,6 @@ linearindexing(A::AbstractArray, B::AbstractArray) = linearindexing(linearindexi
 linearindexing(A::AbstractArray, B::AbstractArray...) = linearindexing(linearindexing(A), linearindexing(B...))
 linearindexing(::LinearFast, ::LinearFast) = LinearFast()
 linearindexing(::LinearIndexing, ::LinearIndexing) = LinearSlow()
-
-# The real @inline macro is not available this early in the bootstrap, so this
-# internal macro splices the meta Expr directly into the function body.
-macro _inline_meta()
-    Expr(:meta, :inline)
-end
-macro _noinline_meta()
-    Expr(:meta, :noinline)
-end
 
 ## Bounds checking ##
 @generated function trailingsize{T,N,n}(A::AbstractArray{T,N}, ::Type{Val{n}})
@@ -198,13 +189,14 @@ end
 ## Constructors ##
 
 # default arguments to similar()
-similar{T}(a::AbstractArray{T})               = similar(a, T, size(a))
-similar(   a::AbstractArray, T)               = similar(a, T, size(a))
-similar{T}(a::AbstractArray{T}, dims::Dims)   = similar(a, T, dims)
-similar{T}(a::AbstractArray{T}, dims::Int...) = similar(a, T, dims)
-similar(   a::AbstractArray, T, dims::Int...) = similar(a, T, dims)
+similar{T}(a::AbstractArray{T})                          = similar(a, T, size(a))
+similar(   a::AbstractArray, T::Type)                    = similar(a, T, size(a))
+similar{T}(a::AbstractArray{T}, dims::DimsInteger)       = similar(a, T, dims)
+similar{T}(a::AbstractArray{T}, dims::Integer...)        = similar(a, T, dims)
+similar(   a::AbstractArray, T::Type, dims::Integer...)  = similar(a, T, dims)
 # similar creates an Array by default
-similar(   a::AbstractArray, T, dims::Dims)   = Array(T, dims)
+similar(   a::AbstractArray, T::Type, dims::DimsInteger) = Array(T, dims...)
+similar(   a::AbstractArray, T::Type, dims::Dims)        = Array(T, dims)
 
 function reshape(a::AbstractArray, dims::Dims)
     if prod(dims) != length(a)
@@ -300,11 +292,24 @@ end
 ## copy between abstract arrays - generally more efficient
 ## since a single index variable can be used.
 
-function copy!(dest::AbstractArray, src::AbstractArray)
+copy!(dest::AbstractArray, src::AbstractArray) =
+    copy!(linearindexing(dest), dest, linearindexing(src), src)
+
+function copy!(::LinearIndexing, dest::AbstractArray, ::LinearIndexing, src::AbstractArray)
     n = length(src)
     n > length(dest) && throw(BoundsError(dest, n))
     @inbounds for i = 1:n
         dest[i] = src[i]
+    end
+    return dest
+end
+
+function copy!(::LinearIndexing, dest::AbstractArray, ::LinearSlow, src::AbstractArray)
+    n = length(src)
+    n > length(dest) && throw(BoundsError(dest, n))
+    i = 0
+    @inbounds for a in src
+        dest[i+=1] = a
     end
     return dest
 end
@@ -397,7 +402,6 @@ done(A::AbstractArray,i) = done(i[1], i[2])
 
 # eachindex iterates over all indices. LinearSlow definitions are later.
 eachindex(A::AbstractArray) = (@_inline_meta(); eachindex(linearindexing(A), A))
-eachindex(::LinearFast, A::AbstractArray) = 1:length(A)
 
 function eachindex(A::AbstractArray, B::AbstractArray)
     @_inline_meta
@@ -407,8 +411,16 @@ function eachindex(A::AbstractArray, B::AbstractArray...)
     @_inline_meta
     eachindex(linearindexing(A,B...), A, B...)
 end
-eachindex(::LinearFast, A::AbstractArray, B::AbstractArray) = 1:max(length(A),length(B))
-eachindex(::LinearFast, A::AbstractArray, B::AbstractArray...) = 1:max(length(A), map(length, B)...)
+eachindex(::LinearFast, A::AbstractArray) = 1:length(A)
+function eachindex(::LinearFast, A::AbstractArray, B::AbstractArray...)
+    @_inline_meta
+    1:_maxlength(A, B...)
+end
+_maxlength(A) = length(A)
+function _maxlength(A, B, C...)
+    @_inline_meta
+    max(length(A), _maxlength(B, C...))
+end
 
 isempty(a::AbstractArray) = (length(a) == 0)
 
@@ -705,29 +717,29 @@ cat(catdim::Integer) = Array(Any, 0)
 
 vcat() = Array(Any, 0)
 hcat() = Array(Any, 0)
+typed_vcat(T::Type) = Array(T, 0)
+typed_hcat(T::Type) = Array(T, 0)
 
 ## cat: special cases
-hcat{T}(X::T...)         = T[ X[j] for i=1, j=1:length(X) ]
-hcat{T<:Number}(X::T...) = T[ X[j] for i=1, j=1:length(X) ]
 vcat{T}(X::T...)         = T[ X[i] for i=1:length(X) ]
 vcat{T<:Number}(X::T...) = T[ X[i] for i=1:length(X) ]
+hcat{T}(X::T...)         = T[ X[j] for i=1, j=1:length(X) ]
+hcat{T<:Number}(X::T...) = T[ X[j] for i=1, j=1:length(X) ]
 
-function vcat(X::Number...)
-    T = promote_typeof(X...)
-    hvcat_fill(Array(T,length(X)), X)
-end
+vcat(X::Number...) = hvcat_fill(Array(promote_typeof(X...),length(X)), X)
+hcat(X::Number...) = hvcat_fill(Array(promote_typeof(X...),1,length(X)), X)
+typed_vcat(T::Type, X::Number...) = hvcat_fill(Array(T,length(X)), X)
+typed_hcat(T::Type, X::Number...) = hvcat_fill(Array(T,1,length(X)), X)
 
-function hcat(X::Number...)
-    T = promote_typeof(X...)
-    hvcat_fill(Array(T,1,length(X)), X)
-end
+vcat(V::AbstractVector...) = typed_vcat(promote_eltype(V...), V...)
+vcat{T}(V::AbstractVector{T}...) = typed_vcat(T, V...)
 
-function vcat{T}(V::AbstractVector{T}...)
-    n = 0
+function typed_vcat(T::Type, V::AbstractVector...)
+    n::Int = 0
     for Vk in V
         n += length(Vk)
     end
-    a = similar(full(V[1]), n)
+    a = similar(full(V[1]), T, n)
     pos = 1
     for k=1:length(V)
         Vk = V[k]
@@ -738,7 +750,10 @@ function vcat{T}(V::AbstractVector{T}...)
     a
 end
 
-function hcat{T}(A::AbstractVecOrMat{T}...)
+hcat(A::AbstractVecOrMat...) = typed_hcat(promote_eltype(A...), A...)
+hcat{T}(A::AbstractVecOrMat{T}...) = typed_hcat(T, A...)
+
+function typed_hcat(T::Type, A::AbstractVecOrMat...)
     nargs = length(A)
     nrows = size(A[1], 1)
     ncols = 0
@@ -752,7 +767,7 @@ function hcat{T}(A::AbstractVecOrMat{T}...)
         nd = ndims(Aj)
         ncols += (nd==2 ? size(Aj,2) : 1)
     end
-    B = similar(full(A[1]), nrows, ncols)
+    B = similar(full(A[1]), T, nrows, ncols)
     pos = 1
     if dense
         for k=1:nargs
@@ -772,7 +787,10 @@ function hcat{T}(A::AbstractVecOrMat{T}...)
     return B
 end
 
-function vcat{T}(A::AbstractMatrix{T}...)
+vcat(A::AbstractMatrix...) = typed_vcat(promote_eltype(A...), A...)
+vcat{T}(A::AbstractMatrix{T}...) = typed_vcat(T, A...)
+
+function typed_vcat(T::Type, A::AbstractMatrix...)
     nargs = length(A)
     nrows = sum(a->size(a, 1), A)::Int
     ncols = size(A[1], 2)
@@ -781,7 +799,7 @@ function vcat{T}(A::AbstractMatrix{T}...)
             throw(ArgumentError("number of columns of each array must match (got $(map(x->size(x,2), A)))"))
         end
     end
-    B = similar(full(A[1]), nrows, ncols)
+    B = similar(full(A[1]), T, nrows, ncols)
     pos = 1
     for k=1:nargs
         Ak = A[k]
@@ -1013,7 +1031,7 @@ function isequal(A::AbstractArray, B::AbstractArray)
     if isa(A,Range) != isa(B,Range)
         return false
     end
-    for i in eachindex(A)
+    for i in eachindex(A,B)
         if !isequal(A[i], B[i])
             return false
         end
@@ -1037,7 +1055,7 @@ function (==)(A::AbstractArray, B::AbstractArray)
     if isa(A,Range) != isa(B,Range)
         return false
     end
-    for i in eachindex(A)
+    for i in eachindex(A,B)
         if !(A[i]==B[i])
             return false
         end
@@ -1123,6 +1141,18 @@ function ind2sub!{T<:Integer}(sub::Array{T}, dims::Tuple{Vararg{T}}, ind::T)
 end
 
 ## iteration utilities ##
+
+doc"""
+    foreach(f, c...) -> Void
+
+Call function `f` on each element of iterable `c`.
+For multiple iterable arguments, `f` is called elementwise.
+`foreach` should be used instead of `map` when the results of `f` are not
+needed, for example in `foreach(println, array)`.
+"""
+foreach(f) = (f(); nothing)
+foreach(f, itr) = (for x in itr; f(x); end; nothing)
+foreach(f, itrs...) = (for z in zip(itrs...); f(z...); end; nothing)
 
 # generic map on any iterator
 function map(f, iters...)
@@ -1243,6 +1273,15 @@ function map_promote(f, A::AbstractArray)
     dest[1] = first
     return promote_to!(f, 2, dest, A)
 end
+
+# These are needed because map(eltype, As) is not inferrable
+promote_eltype_op(::Any) = (@_pure_meta; Bottom)
+promote_eltype_op{T}(op, ::AbstractArray{T}) = (@_pure_meta; promote_op(op, T))
+promote_eltype_op{T}(op, ::T               ) = (@_pure_meta; promote_op(op, T))
+promote_eltype_op{R,S}(op, ::AbstractArray{R}, ::AbstractArray{S}) = (@_pure_meta; promote_op(op, R, S))
+promote_eltype_op{R,S}(op, ::AbstractArray{R}, ::S) = (@_pure_meta; promote_op(op, R, S))
+promote_eltype_op{R,S}(op, ::R, ::AbstractArray{S}) = (@_pure_meta; promote_op(op, R, S))
+promote_eltype_op(op, A, B, C, D...) = (@_pure_meta; promote_op(op, eltype(A), promote_eltype_op(op, B, C, D...)))
 
 ## 1 argument
 map!{F}(f::F, A::AbstractArray) = map!(f, A, A)

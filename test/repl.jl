@@ -198,7 +198,8 @@ fakehistory = """
 \tls
 # time: 2014-06-30 20:44:29 EDT
 # mode: julia
-\t2 + 2"""
+\t2 + 2
+"""
 
 # Test various history related issues
 begin
@@ -320,8 +321,8 @@ let exename = joinpath(JULIA_HOME, Base.julia_exename())
 # Test REPL in dumb mode
 @unix_only begin
 
-const O_RDWR = Base.FS.JL_O_RDWR
-const O_NOCTTY = Base.FS.JL_O_NOCTTY
+const O_RDWR = Base.Filesystem.JL_O_RDWR
+const O_NOCTTY = Base.Filesystem.JL_O_NOCTTY
 
 fdm = ccall(:posix_openpt,Cint,(Cint,),O_RDWR|O_NOCTTY)
 fdm == -1 && error("Failed to open PTY master")

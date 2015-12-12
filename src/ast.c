@@ -26,7 +26,7 @@ extern "C" {
 #endif
 
 static uint8_t flisp_system_image[] = {
-#include "julia_flisp.boot.inc"
+#include <julia_flisp.boot.inc>
 };
 
 static fltype_t *jvtype=NULL;
@@ -115,7 +115,6 @@ static builtinspec_t julia_flisp_ast_ext[] = {
     { NULL, NULL }
 };
 
-extern int jl_parse_depwarn(int warn);
 extern int jl_parse_deperror(int err);
 
 void jl_init_frontend(void)
@@ -149,7 +148,7 @@ void jl_init_frontend(void)
         jl_parse_depwarn((int)jl_options.depwarn);
 }
 
-DLLEXPORT void jl_lisp_prompt(void)
+JL_DLLEXPORT void jl_lisp_prompt(void)
 {
     if (jvtype==NULL) jl_init_frontend();
     fl_applyn(1, symbol_value(symbol("__start")), fl_cons(FL_NIL,FL_NIL));
@@ -451,7 +450,7 @@ static value_t julia_to_list2(jl_value_t *a, jl_value_t *b)
 static value_t julia_to_scm_(jl_value_t *v)
 {
     if (jl_is_symbol(v))
-        return symbol(((jl_sym_t*)v)->name);
+        return symbol(jl_symbol_name((jl_sym_t*)v));
     if (jl_is_gensym(v)) {
         size_t idx = ((jl_gensym_t*)v)->id;
         size_t i;
@@ -482,6 +481,8 @@ static value_t julia_to_scm_(jl_value_t *v)
         return scmv;
     }
     if (jl_typeis(v, jl_linenumbernode_type)) {
+        // GC Note: jl_fieldref(v, 1) allocates but neither jl_fieldref(v, 0)
+        //          or julia_to_list2 should allocate here
         value_t args = julia_to_list2(jl_fieldref(v,1), jl_fieldref(v,0));
         fl_gc_handle(&args);
         value_t hd = julia_to_scm_((jl_value_t*)line_sym);
@@ -489,6 +490,9 @@ static value_t julia_to_scm_(jl_value_t *v)
         fl_free_gc_handles(1);
         return scmv;
     }
+    // GC Note: jl_fieldref(v, 0) allocate for LabelNode, GotoNode
+    //          but we don't need a GC root here because julia_to_list2
+    //          shouldn't allocate in this case.
     if (jl_typeis(v, jl_labelnode_type))
         return julia_to_list2((jl_value_t*)label_sym, jl_fieldref(v,0));
     if (jl_typeis(v, jl_gotonode_type))
@@ -507,7 +511,7 @@ static value_t julia_to_scm_(jl_value_t *v)
 }
 
 // this is used to parse a line of repl input
-DLLEXPORT jl_value_t *jl_parse_input_line(const char *str, size_t len)
+JL_DLLEXPORT jl_value_t *jl_parse_input_line(const char *str, size_t len)
 {
     value_t s = cvalue_static_cstrn(str, len);
     value_t e = fl_applyn(1, symbol_value(symbol("jl-parse-string")), s);
@@ -518,8 +522,8 @@ DLLEXPORT jl_value_t *jl_parse_input_line(const char *str, size_t len)
 
 // this is for parsing one expression out of a string, keeping track of
 // the current position.
-DLLEXPORT jl_value_t *jl_parse_string(const char *str, size_t len,
-                                      int pos0, int greedy)
+JL_DLLEXPORT jl_value_t *jl_parse_string(const char *str, size_t len,
+                                         int pos0, int greedy)
 {
     value_t s = cvalue_static_cstrn(str, len);
     value_t p = fl_applyn(3, symbol_value(symbol("jl-parse-one-string")),
@@ -552,7 +556,7 @@ void jl_stop_parsing(void)
     fl_applyn(0, symbol_value(symbol("jl-parser-close-stream")));
 }
 
-DLLEXPORT int jl_parse_depwarn(int warn)
+JL_DLLEXPORT int jl_parse_depwarn(int warn)
 {
     value_t prev = fl_applyn(1, symbol_value(symbol("jl-parser-depwarn")),
                              warn ? FL_T : FL_F);
@@ -565,8 +569,6 @@ int jl_parse_deperror(int err)
                              err ? FL_T : FL_F);
     return prev == FL_T ? 1 : 0;
 }
-
-extern int jl_lineno;
 
 jl_value_t *jl_parse_next(void)
 {
@@ -589,8 +591,8 @@ jl_value_t *jl_parse_next(void)
     return scm_to_julia(c,0);
 }
 
-jl_value_t *jl_load_file_string(const char *text, size_t len,
-                                char *filename, size_t namelen)
+JL_DLLEXPORT jl_value_t *jl_load_file_string(const char *text, size_t len,
+                                             char *filename, size_t namelen)
 {
     value_t t, f;
     t = cvalue_static_cstrn(text, len);
@@ -602,7 +604,7 @@ jl_value_t *jl_load_file_string(const char *text, size_t len,
 }
 
 // returns either an expression or a thunk
-jl_value_t *jl_expand(jl_value_t *expr)
+JL_DLLEXPORT jl_value_t *jl_expand(jl_value_t *expr)
 {
     int np = jl_gc_n_preserved_values();
     value_t arg = julia_to_scm(expr);
@@ -614,7 +616,7 @@ jl_value_t *jl_expand(jl_value_t *expr)
     return result;
 }
 
-DLLEXPORT jl_value_t *jl_macroexpand(jl_value_t *expr)
+JL_DLLEXPORT jl_value_t *jl_macroexpand(jl_value_t *expr)
 {
     int np = jl_gc_n_preserved_values();
     value_t arg = julia_to_scm(expr);
@@ -766,7 +768,7 @@ jl_sym_t *jl_decl_var(jl_value_t *ex)
     return (jl_sym_t*)jl_exprarg(ex, 0);
 }
 
-int jl_is_rest_arg(jl_value_t *ex)
+JL_DLLEXPORT int jl_is_rest_arg(jl_value_t *ex)
 {
     if (!jl_is_expr(ex)) return 0;
     if (((jl_expr_t*)ex)->head != colons_sym) return 0;
@@ -795,15 +797,25 @@ static jl_value_t *copy_ast(jl_value_t *expr, jl_svec_t *sp, int do_sp)
     }
     else if (jl_is_lambda_info(expr)) {
         jl_lambda_info_t *li = (jl_lambda_info_t*)expr;
-        /*
-        if (sp == jl_empty_svec && li->ast &&
-            jl_array_len(jl_lam_capt((jl_expr_t*)li->ast)) == 0)
+        /* TODO: restore the following optimization. it can reduce the number of anonymous functions in the compiler,
+              but it can cause an issue when Expr(:localize) clones variable types into the closure environment,
+              defeating the test below that this lambda doesn't have a closure environment (#13855)
+        if (sp == jl_emptysvec && li->ast &&
+            (jl_is_expr(li->ast) ? jl_array_len(jl_lam_capt((jl_expr_t*)li->ast)) == 0 : li->capt == NULL)) {
+            // share the inner function if the outer function has no sparams to insert
+            if (!li->specTypes) {
+                // if the decl values haven't been evaluated yet (or alternately already compiled by jl_trampoline), do so now
+                li->ast = jl_prepare_ast(li, li->sparams);
+                jl_gc_wb(li, li->ast);
+                if (jl_array_len(jl_lam_staticparams((jl_expr_t*)li->ast)) == 0)
+                    // mark this as compilable; otherwise, will need to make an (un)specialized version of
+                    // to handle all of the static parameters before compiling
+                    li->specTypes = jl_anytuple_type; // no gc_wb needed
+            }
             return expr;
-        */
-        // TODO: avoid if above condition is true and decls have already
-        // been evaluated.
+        } */
         JL_GC_PUSH1(&li);
-        li = jl_add_static_parameters(li, sp);
+        li = jl_add_static_parameters(li, sp, li->specTypes);
         // inner lambda does not need the "def" link. it leads to excess object
         // retention, for example pointing to the original uncompressed AST
         // of a top-level thunk that gets type inferred.
@@ -847,7 +859,7 @@ static jl_value_t *copy_ast(jl_value_t *expr, jl_svec_t *sp, int do_sp)
     return expr;
 }
 
-DLLEXPORT jl_value_t *jl_copy_ast(jl_value_t *expr)
+JL_DLLEXPORT jl_value_t *jl_copy_ast(jl_value_t *expr)
 {
     if (expr == NULL) {
         return NULL;
@@ -955,7 +967,7 @@ jl_svec_t *jl_svec_tvars_to_symbols(jl_svec_t *t)
 // of the tree with declared types evaluated and static parameters passed
 // on to all enclosed functions.
 // this tree can then be further mutated by optimization passes.
-DLLEXPORT jl_value_t *jl_prepare_ast(jl_lambda_info_t *li, jl_svec_t *sparams)
+JL_DLLEXPORT jl_value_t *jl_prepare_ast(jl_lambda_info_t *li, jl_svec_t *sparams)
 {
     jl_svec_t *spenv = NULL;
     jl_value_t *ast = li->ast;
@@ -984,12 +996,12 @@ DLLEXPORT jl_value_t *jl_prepare_ast(jl_lambda_info_t *li, jl_svec_t *sparams)
     return ast;
 }
 
-DLLEXPORT int jl_is_operator(char *sym)
+JL_DLLEXPORT int jl_is_operator(char *sym)
 {
     return fl_applyn(1, symbol_value(symbol("operator?")), symbol(sym)) == FL_T;
 }
 
-DLLEXPORT int jl_operator_precedence(char *sym)
+JL_DLLEXPORT int jl_operator_precedence(char *sym)
 {
     return numval(fl_applyn(1, symbol_value(symbol("operator-precedence")), symbol(sym)));
 }
@@ -1002,6 +1014,22 @@ jl_value_t *skip_meta(jl_array_t *body)
         body1 = jl_cellref(body,1);
     return body1;
 }
+
+int has_meta(jl_array_t *body, jl_sym_t *sym)
+{
+    size_t i, l = jl_array_len(body);
+    for (i = 0; i < l; i++) {
+        jl_expr_t *stmt = (jl_expr_t*)jl_cellref(body, i);
+        if (jl_is_expr((jl_value_t*)stmt) && stmt->head == meta_sym) {
+            size_t i, l = jl_array_len(stmt->args);
+            for (i = 0; i < l; i++)
+                if (jl_cellref(stmt->args, i) == (jl_value_t*)sym)
+                    return 1;
+        }
+    }
+    return 0;
+}
+
 
 int jl_in_vinfo_array(jl_array_t *a, jl_sym_t *v)
 {

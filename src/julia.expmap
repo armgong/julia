@@ -4,7 +4,6 @@
     __stack_chk_guard;
     asprintf;
     bitvector_*;
-    clock_now;
     ev_break;
     get_exename;
     getlocalip;
@@ -31,6 +30,7 @@
     add_library_mapping;
     utf8proc_*;
     jlbacktrace;
+    julia_type_to_llvm;
     _IO_stdin_used;
     __ZN4llvm23createLowerSimdLoopPassEv;
 

@@ -58,17 +58,17 @@ Getting Around
 
    The memory consumption estimate is an approximate lower bound on the size of the internal structure of the object.
 
-.. function:: Base.summarysize(obj, recurse) -> Int
+.. function:: Base.summarysize(obj; exclude=Union{Module,Function,DataType,TypeName}) -> Int
 
    .. Docstring generated from Julia source
 
-   ``summarysize`` is an estimate of the size of the object as if all iterables were allocated inline in general, this forms a conservative lower bound n the memory "controlled" by the object if recurse is ``true``\ , then simply reachable memory should also be included, otherwise, only directly used memory should be included you should never ignore recurse in cases where recursion is possible
+   Compute the amount of memory used by all unique objects reachable from the argument. Keyword argument ``exclude`` specifies a type of objects to exclude from the traversal.
 
-.. function:: edit(file::AbstractString, [line])
+.. function:: edit(path::AbstractString, [line])
 
    .. Docstring generated from Julia source
 
-   Edit a file optionally providing a line number to edit at. Returns to the julia prompt when you quit the editor.
+   Edit a file or directory optionally providing a line number to edit the file at. Returns to the julia prompt when you quit the editor.
 
 .. function:: edit(function, [types])
 
@@ -112,6 +112,12 @@ Getting Around
 
    Return a string with the contents of the operating system clipboard ("paste").
 
+.. function:: reload(name::AbstractString)
+
+   .. Docstring generated from Julia source
+
+   Force reloading of a package, even if it has been loaded before. This is intended for use during package development as code is modified.
+
 .. function:: require(module::Symbol)
 
    .. Docstring generated from Julia source
@@ -122,7 +128,7 @@ Getting Around
 
    When searching for files, ``require`` first looks in the current working directory, then looks for package code under ``Pkg.dir()``\ , then tries paths in the global array ``LOAD_PATH``\ .
 
-.. function:: Base.compilecache(module::Symbol)
+.. function:: Base.compilecache(module::ByteString)
 
    .. Docstring generated from Julia source
 
@@ -160,7 +166,7 @@ Getting Around
 
    .. Docstring generated from Julia source
 
-   Search through all documention for a string, ignoring case.
+   Search through all documentation for a string, ignoring case.
 
 .. function:: which(f, types)
 
@@ -300,7 +306,7 @@ All Objects
 
    Get a unique integer id for ``x``\ . ``object_id(x)==object_id(y)`` if and only if ``is(x,y)``\ .
 
-.. function:: hash(x[, h])
+.. function:: hash(x[, h::UInt])
 
    .. Docstring generated from Julia source
 
@@ -359,7 +365,7 @@ All Objects
 
       julia> convert(Int, 3.5)
       ERROR: InexactError()
-       in convert at int.jl:205
+       in convert at int.jl:209
 
    If ``T`` is a :obj:`AbstractFloat` or :obj:`Rational` type, then it will return
    the closest value to ``x`` representable by ``T``.
@@ -394,19 +400,15 @@ All Objects
 
    .. Docstring generated from Julia source
 
-   If the argument is a type, return a "larger" type (for numeric types, this will be
-   a type with at least as much range and precision as the argument, and usually more).
-   Otherwise the argument ``x`` is converted to ``widen(typeof(x))``.
+   If the argument is a type, return a "larger" type (for numeric types, this will be a type with at least as much range and precision as the argument, and usually more). Otherwise the argument ``x`` is converted to ``widen(typeof(x))``\ .
 
    .. doctest::
 
-      julia> widen(Int32)
-      Int64
+       julia> widen(Int32)
+       Int64
 
-   .. doctest::
-
-      julia> widen(1.5f0)
-      1.5
+       julia> widen(1.5f0)
+       1.5
 
 .. function:: identity(x)
 
@@ -477,11 +479,17 @@ Types
 
    Size, in bytes, of the canonical binary representation of the given DataType ``T``\ , if any.
 
-.. function:: eps([T])
+.. function:: eps(T)
 
    .. Docstring generated from Julia source
 
-   The distance between 1.0 and the next larger representable floating-point value of ``DataType`` ``T``\ . Only floating-point types are sensible arguments. If ``T`` is omitted, then ``eps(Float64)`` is returned.
+   The distance between 1.0 and the next larger representable floating-point value of ``DataType`` ``T``\ . Only floating-point types are sensible arguments.
+
+.. function:: eps()
+
+   .. Docstring generated from Julia source
+
+   The distance between 1.0 and the next larger representable floating-point value of ``Float64``\ .
 
 .. function:: eps(x)
 
@@ -517,27 +525,26 @@ Types
 
    .. Docstring generated from Julia source
 
-   The byte offset of each field of a type relative to the data start. For example, we could use it
-   in the following manner to summarize information about a struct type:
+   The byte offset of each field of a type relative to the data start. For example, we could use it in the following manner to summarize information about a struct type:
 
    .. doctest::
 
-      julia> structinfo(T) = [zip(fieldoffsets(T),fieldnames(T),T.types)...];
+       julia> structinfo(T) = [zip(fieldoffsets(T),fieldnames(T),T.types)...];
 
-      julia> structinfo(StatStruct)
-      12-element Array{Tuple{Int64,Symbol,DataType},1}:
-       (0,:device,UInt64)
-       (8,:inode,UInt64)
-       (16,:mode,UInt64)
-       (24,:nlink,Int64)
-       (32,:uid,UInt64)
-       (40,:gid,UInt64)
-       (48,:rdev,UInt64)
-       (56,:size,Int64)
-       (64,:blksize,Int64)
-       (72,:blocks,Int64)
-       (80,:mtime,Float64)
-       (88,:ctime,Float64)
+       julia> structinfo(StatStruct)
+       12-element Array{Tuple{Int64,Symbol,DataType},1}:
+        (0,:device,UInt64)
+        (8,:inode,UInt64)
+        (16,:mode,UInt64)
+        (24,:nlink,Int64)
+        (32,:uid,UInt64)
+        (40,:gid,UInt64)
+        (48,:rdev,UInt64)
+        (56,:size,Int64)
+        (64,:blksize,Int64)
+        (72,:blocks,Int64)
+        (80,:mtime,Float64)
+        (88,:ctime,Float64)
 
 .. function:: fieldtype(T, name::Symbol | index::Int)
 
@@ -556,15 +563,15 @@ Types
 
    .. Docstring generated from Julia source
 
-   Return ``true`` if ``T`` is a "plain data" type, meaning it is immutable and contains no references to other values. Typical examples are numeric types such as ``UInt8``, ``Float64``, and ``Complex{Float64}``.
+   Return ``true`` if ``T`` is a "plain data" type, meaning it is immutable and contains no references to other values. Typical examples are numeric types such as ``UInt8``\ , ``Float64``\ , and ``Complex{Float64}``\ .
 
    .. doctest::
 
-      julia> isbits(Complex{Float64})
-      true
+       julia> isbits(Complex{Float64})
+       true
 
-      julia> isbits(Complex)
-      false
+       julia> isbits(Complex)
+       false
 
 .. function:: isleaftype(T)
 
@@ -623,8 +630,8 @@ Generic Functions
 
    .. doctest::
 
-   	julia> method_exists(length, Tuple{Array})
-   	true
+      julia> method_exists(length, Tuple{Array})
+      true
 
 .. function:: applicable(f, args...) -> Bool
 
@@ -634,15 +641,15 @@ Generic Functions
 
    .. doctest::
 
-   	julia> function f(x, y)
-   	           x + y
-   	       end;
+       julia> function f(x, y)
+                  x + y
+              end;
 
-   	julia> applicable(f, 1)
-   	false
+       julia> applicable(f, 1)
+       false
 
-   	julia> applicable(f, 1, 2)
-   	true
+       julia> applicable(f, 1, 2)
+       true
 
 .. function:: invoke(f, (types...), args...)
 
@@ -658,8 +665,8 @@ Generic Functions
 
    .. doctest::
 
-      julia> [1:5;] |> x->x.^2 |> sum |> inv
-      0.01818181818181818
+       julia> [1:5;] |> x->x.^2 |> sum |> inv
+       0.01818181818181818
 
 .. function:: call(x, args...)
 
@@ -792,27 +799,6 @@ System
 
    Send a signal to a process. The default is to terminate the process.
 
-.. function:: open(command, mode::AbstractString="r", stdio=DevNull)
-
-   .. Docstring generated from Julia source
-
-   Start running ``command`` asynchronously, and return a tuple
-   ``(stream,process)``.  If ``mode`` is ``"r"``, then ``stream``
-   reads from the process's standard output and ``stdio`` optionally
-   specifies the process's standard input stream.  If ``mode`` is
-   ``"w"``, then ``stream`` writes to the process's standard input
-   and ``stdio`` optionally specifies the process's standard output
-   stream.
-
-.. function:: open(f::Function, command, mode::AbstractString="r", stdio=DevNull)
-
-   .. Docstring generated from Julia source
-
-   Similar to ``open(command, mode, stdio)``, but calls ``f(stream)``
-   on the resulting read or write stream, then closes the stream
-   and waits for the process to complete.  Returns the value returned
-   by ``f``.
-
 .. function:: Sys.set_process_title(title::AbstractString)
 
    .. Docstring generated from Julia source
@@ -843,6 +829,26 @@ System
 
    Mark a command object so that it will be run in a new process group, allowing it to outlive the julia process, and not have Ctrl-C interrupts passed to it.
 
+.. function:: Cmd(cmd::Cmd; ignorestatus, detach, windows_verbatim, windows_hide,
+                            env, dir)
+
+   .. Docstring generated from Julia source
+
+   Construct a new ``Cmd`` object, representing an external program and arguments, from ``cmd``\ , while changing the settings of the optional keyword arguments:
+
+   * ``ignorestatus::Bool``\ : If ``true`` (defaults to ``false``\ ), then the ``Cmd``   will not throw an error if the return code is nonzero.
+   * ``detach::Bool``\ : If ``true`` (defaults to ``false``\ ), then the ``Cmd`` will be   run in a new process group, allowing it to outlive the ``julia`` process   and not have Ctrl-C passed to it.
+   * ``windows_verbatim::Bool``\ : If ``true`` (defaults to ``false``\ ), then on Windows   the ``Cmd`` will send a command-line string to the process with no quoting   or escaping of arguments, even arguments containing spaces.  (On Windows,   arguments are sent to a program as a single "command-line" string, and   programs are responsible for parsing it into arguments.  By default,   empty arguments and arguments with spaces or tabs are quoted with double   quotes ``"`` in the command line, and ``\`` or ``"`` are preceded by backslashes.   ``windows_verbatim=true`` is useful for launching programs that parse their   command line in nonstandard ways.)  Has no effect on non-Windows systems.
+   * ``windows_hide::Bool``\ : If ``true`` (defaults to ``false``\ ), then on Windows no   new console window is displayed when the ``Cmd`` is executed.  This has   no effect if a console is already open or on non-Windows systems.
+   * ``env``\ : Set environment variables to use when running the ``Cmd``\ .  ``env``   is either a dictionary mapping strings to strings, an array   of strings of the form ``"var=val"``\ , an array or tuple of ``"var"=>val``   pairs, or ``nothing``\ .  In order to modify (rather than replace)   the existing environment, create ``env`` by ``copy(ENV)`` and then   set ``env["var"]=val`` as desired.
+   * ``dir::AbstractString``\ : Specify a working directory for the command (instead   of the current directory).
+
+   For any keywords that are not specified, the current settings from ``cmd`` are used.   Normally, to create a ``Cmd`` object in the first place, one uses backticks, e.g.
+
+   .. code-block:: julia
+
+       Cmd(`echo "Hello world"`, ignorestatus=true, detach=false)
+
 .. function:: setenv(command, env; dir=working_dir)
 
    .. Docstring generated from Julia source
@@ -861,35 +867,24 @@ System
 
    .. Docstring generated from Julia source
 
-   Create a pipeline from a data source to a destination. The source and destination can
-   be commands, I/O streams, strings, or results of other ``pipeline`` calls. At least one
-   argument must be a command. Strings refer to filenames.
-   When called with more than two arguments, they are chained together from left to right.
-   For example ``pipeline(a,b,c)`` is equivalent to ``pipeline(pipeline(a,b),c)``. This provides a more
-   concise way to specify multi-stage pipelines.
+   Create a pipeline from a data source to a destination. The source and destination can be commands, I/O streams, strings, or results of other ``pipeline`` calls. At least one argument must be a command. Strings refer to filenames. When called with more than two arguments, they are chained together from left to right. For example ``pipeline(a,b,c)`` is equivalent to ``pipeline(pipeline(a,b),c)``\ . This provides a more concise way to specify multi-stage pipelines.
 
    **Examples**:
-     * ``run(pipeline(`ls`, `grep xyz`))``
-     * ``run(pipeline(`ls`, "out.txt"))``
-     * ``run(pipeline("out.txt", `grep xyz`))``
 
+   * ``run(pipeline(`ls`, `grep xyz`))``
+   * ``run(pipeline(`ls`, "out.txt"))``
+   * ``run(pipeline("out.txt", `grep xyz`))``
 
 .. function:: pipeline(command; stdin, stdout, stderr, append=false)
 
    .. Docstring generated from Julia source
 
-   Redirect I/O to or from the given ``command``. Keyword arguments specify which of
-   the command's streams should be redirected. ``append`` controls whether file output
-   appends to the file.
-   This is a more general version of the 2-argument ``pipeline`` function.
-   ``pipeline(from, to)`` is equivalent to ``pipeline(from, stdout=to)`` when ``from`` is a
-   command, and to ``pipe(to, stdin=from)`` when ``from`` is another kind of
-   data source.
+   Redirect I/O to or from the given ``command``\ . Keyword arguments specify which of the command's streams should be redirected. ``append`` controls whether file output appends to the file. This is a more general version of the 2-argument ``pipeline`` function. ``pipeline(from, to)`` is equivalent to ``pipeline(from, stdout=to)`` when ``from`` is a command, and to ``pipe(to, stdin=from)`` when ``from`` is another kind of data source.
 
    **Examples**:
-     * ``run(pipeline(`dothings`, stdout="out.txt", stderr="errs.txt"))``
-     * ``run(pipeline(`update`, stdout="log.txt", append=true))``
 
+   * ``run(pipeline(`dothings`, stdout="out.txt", stderr="errs.txt"))``
+   * ``run(pipeline(`update`, stdout="log.txt", append=true))``
 
 .. function:: gethostname() -> AbstractString
 
@@ -897,11 +892,11 @@ System
 
    Get the local machine's host name.
 
-.. function:: getipaddr() -> AbstractString
+.. function:: getipaddr() -> IPAddr
 
    .. Docstring generated from Julia source
 
-   Get the IP address of the local machine, as a string of the form "x.x.x.x".
+   Get the IP address of the local machine.
 
 .. function:: getpid() -> Int32
 
@@ -1375,7 +1370,7 @@ Internals
 
    .. Docstring generated from Julia source
 
-   Prints the native assembly instructions generated for running the method matching the given generic function and type signature to STDOUT.
+   Prints the native assembly instructions generated for running the method matching the given generic function and type signature to ``STDOUT``\ .
 
 .. function:: @code_native
 

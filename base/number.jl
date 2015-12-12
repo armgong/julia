@@ -27,6 +27,7 @@ sign(x::Real) = ifelse(x < 0, oftype(x,-1), ifelse(x > 0, one(x), x))
 sign(x::Unsigned) = ifelse(x > 0, one(x), x)
 abs(x::Real) = ifelse(signbit(x), -x, x)
 abs2(x::Real) = x*x
+flipsign(x::Real, y::Real) = ifelse(signbit(y), -x, x)
 copysign(x::Real, y::Real) = ifelse(signbit(x)!=signbit(y), -x, x)
 
 conj(x::Real) = x
@@ -43,7 +44,7 @@ done(x::Number, state) = state
 isempty(x::Number) = false
 in(x::Number, y::Number) = x == y
 
-map(f, x::Number) = f(x)
+map(f, x::Number, ys::Number...) = f(x, ys...)
 
 zero(x::Number) = oftype(x,0)
 zero{T<:Number}(::Type{T}) = convert(T,0)

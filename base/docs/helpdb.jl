@@ -328,7 +328,7 @@ Libdl.dlclose
 doc"""
     dlsym_e(handle, sym)
 
-Look up a symbol from a shared library handle, silently return NULL pointer on lookup failure.
+Look up a symbol from a shared library handle, silently return `NULL` pointer on lookup failure.
 """
 Libdl.dlsym_e
 
@@ -363,6 +363,13 @@ doc"""
 Convert a number of seconds since the epoch to broken-down format, with fields `sec`, `min`, `hour`, `mday`, `month`, `year`, `wday`, `yday`, and `isdst`.
 """
 Libc.TmStruct
+
+doc"""
+    dlext
+
+File extension for dynamic libraries (e.g. dll, dylib, so) on the current platform.
+"""
+Libdl.dlext
 
 doc"""
     time(t::TmStruct)
@@ -519,103 +526,6 @@ doc"""
 Return `true` iff an array is heap-ordered according to the given order.
 """
 Collections.isheap
-
-# Base.Test
-
-doc"""
-    @test_throws(extype, ex)
-
-Test that the expression `ex` throws an exception of type `extype` and calls the current handler to handle the result. The default handler returns the exception if it is of the expected type.
-"""
-:(Test.@test_throws)
-
-doc"""
-    @test_approx_eq_eps(a, b, tol)
-
-Test two floating point numbers `a` and `b` for equality taking in account a margin of tolerance given by `tol`.
-"""
-:(Test.@test_approx_eq_eps)
-
-doc"""
-    @test(ex)
-
-Test the expression `ex` and calls the current handler to handle the result.
-"""
-:(Test.@test)
-
-doc"""
-    @test_approx_eq(a, b)
-
-Test two floating point numbers `a` and `b` for equality taking in account small numerical errors.
-"""
-:(Test.@test_approx_eq)
-
-doc"""
-    with_handler(f, handler)
-
-Run the function `f` using the `handler` as the handler.
-"""
-Test.with_handler
-
-# Base.FFTW
-
-doc"""
-```rst
-..  r2r(A, kind [, dims])
-
-Performs a multidimensional real-input/real-output (r2r) transform
-of type ``kind`` of the array ``A``, as defined in the FFTW manual.
-``kind`` specifies either a discrete cosine transform of various types
-(``FFTW.REDFT00``, ``FFTW.REDFT01``, ``FFTW.REDFT10``, or
-``FFTW.REDFT11``), a discrete sine transform of various types
-(``FFTW.RODFT00``, ``FFTW.RODFT01``, ``FFTW.RODFT10``, or
-``FFTW.RODFT11``), a real-input DFT with halfcomplex-format output
-(``FFTW.R2HC`` and its inverse ``FFTW.HC2R``), or a discrete
-Hartley transform (``FFTW.DHT``).  The ``kind`` argument may be
-an array or tuple in order to specify different transform types
-along the different dimensions of ``A``; ``kind[end]`` is used
-for any unspecified dimensions.  See the FFTW manual for precise
-definitions of these transform types, at http://www.fftw.org/doc.
-
-The optional ``dims`` argument specifies an iterable subset of
-dimensions (e.g. an integer, range, tuple, or array) to transform
-along. ``kind[i]`` is then the transform type for ``dims[i]``,
-with ``kind[end]`` being used for ``i > length(kind)``.
-
-See also :func:`plan_r2r` to pre-plan optimized r2r transforms.
-```
-"""
-FFTW.r2r
-
-doc"""
-```rst
-..  r2r!(A, kind [, dims])
-
-Same as :func:`r2r`, but operates in-place on ``A``, which must be
-an array of real or complex floating-point numbers.
-```
-"""
-FFTW.r2r!
-
-doc"""
-```rst
-..  plan_r2r!(A, kind [, dims [, flags [, timelimit]]])
-
-Similar to :func:`Base.plan_fft`, but corresponds to :func:`r2r!`.
-```
-"""
-FFTW.plan_r2r!
-
-doc"""
-```rst
-..  plan_r2r(A, kind [, dims [, flags [, timelimit]]])
-
-Pre-plan an optimized r2r transform, similar to :func:`Base.plan_fft`
-except that the transforms (and the first three arguments)
-correspond to :func:`r2r` and :func:`r2r!`, respectively.
-```
-"""
-FFTW.plan_r2r
 
 # Base.Profile
 
@@ -950,11 +860,9 @@ Returns the index of the minimum element in a collection.
 indmin
 
 doc"""
-```rst
-..  powermod(x, p, m)
+    powermod(x, p, m)
 
-Compute :math:`x^p \pmod m`
-```
+Compute $x^p \pmod m$.
 """
 powermod
 
@@ -966,15 +874,6 @@ Compute a type that contains the intersection of `T` and `S`. Usually this will 
 typeintersect
 
 doc"""
-```rst
-..  plan_bfft!(A [, dims]; flags=FFTW.ESTIMATE;  timelimit=Inf)
-
-Same as :func:`plan_bfft`, but operates in-place on ``A``.
-```
-"""
-plan_bfft!
-
-doc"""
     pointer(array [, index])
 
 Get the native address of an array or string element. Be careful to ensure that a julia reference to `a` exists as long as this pointer will be used. This function is "unsafe" like `unsafe_convert`.
@@ -984,29 +883,11 @@ Calling `Ref(array[, index])` is generally preferable to this function.
 pointer
 
 doc"""
-    countnz(A)
-
-Counts the number of nonzero values in array `A` (dense or sparse). Note that this is not a constant-time operation. For sparse matrices, one should usually use `nnz`, which returns the number of stored values.
-"""
-countnz
-
-doc"""
     isnan(f) -> Bool
 
 Test whether a floating point number is not a number (NaN)
 """
 isnan
-
-doc"""
-```rst
-..  plan_irfft(A, d [, dims]; flags=FFTW.ESTIMATE;  timelimit=Inf)
-
-Pre-plan an optimized inverse real-input FFT, similar to :func:`plan_rfft`
-except for :func:`irfft` and :func:`brfft`, respectively.  The first
-three arguments have the same meaning as for :func:`irfft`.
-```
-"""
-plan_irfft
 
 doc"""
 ```rst
@@ -1018,11 +899,9 @@ Print (using :func:`print`) ``x`` followed by a newline.
 println
 
 doc"""
-```rst
-..  besselj(nu, x)
+    besselj(nu, x)
 
-Bessel function of the first kind of order ``nu``, :math:`J_\nu(x)`.
-```
+Bessel function of the first kind of order `nu`, $J_\nu(x)$.
 """
 besselj
 
@@ -1043,11 +922,9 @@ Divide two integers or rational numbers, giving a `Rational` result.
 Base.(:(//))
 
 doc"""
-```rst
-..  At_mul_B(...)
+    At_mul_B(A, B)
 
-Matrix operator A\ :sup:`T` B
-```
+For matrices or vectors $A$ and $B$, calculates $Aᵀ⋅B$
 """
 At_mul_B
 
@@ -1132,20 +1009,16 @@ Determine the declared type of a field (specified by name or index) in a composi
 fieldtype
 
 doc"""
-```rst
-..  hypot(x, y)
+    hypot(x, y)
 
-Compute the :math:`\sqrt{x^2+y^2}` avoiding overflow and underflow
-```
+Compute the $\sqrt{x^2+y^2}$ avoiding overflow and underflow
 """
 hypot
 
 doc"""
-```rst
-..  airybi(x)
+    airybi(x)
 
-Airy function :math:`\operatorname{Bi}(x)`.
-```
+Airy function $\operatorname{Bi}(x)$.
 """
 airybi
 
@@ -1171,24 +1044,13 @@ Compute the minimum absolute values over the singleton dimensions of `r`, and wr
 minabs!
 
 doc"""
-```rst
-..  prevprod([k_1,k_2,...], n)
+    @evalpoly(z, c...)
 
-Previous integer not greater than ``n`` that can be written as :math:`\prod k_i^{p_i}` for integers :math:`p_1`, :math:`p_2`, etc.
-```
-"""
-prevprod
-
-doc"""
-```rst
-..  @evalpoly(z, c...)
-
-Evaluate the polynomial :math:`\sum_k c[k] z^{k-1}` for the
-coefficients ``c[1]``, ``c[2]``, ...; that is, the coefficients are
-given in ascending order by power of ``z``.  This macro expands to
+Evaluate the polynomial $\sum_k c[k] z^{k-1}$ for the
+coefficients `c[1]`, `c[2]`, ...; that is, the coefficients are
+given in ascending order by power of `z`.  This macro expands to
 efficient inline code that uses either Horner's method or, for
-complex ``z``, a more efficient Goertzel-like algorithm.
-```
+complex `z`, a more efficient Goertzel-like algorithm.
 """
 :@evalpoly
 
@@ -1279,43 +1141,6 @@ Get the precision of a floating point number, as defined by the effective number
 precision
 
 doc"""
-    cor(v1[, v2][, vardim=1, mean=nothing])
-
-Compute the Pearson correlation between the vector(s) in `v1` and `v2`.
-
-Users can use the keyword argument `vardim` to specify the variable dimension, and `mean` to supply pre-computed mean values.
-"""
-cor
-
-doc"""
-    partitions(n)
-
-Generate all integer arrays that sum to `n`. Because the number of partitions can be very large, this function returns an iterator object. Use `collect(partitions(n))` to get an array of all partitions. The number of partitions to generate can be efficiently computed using `length(partitions(n))`.
-"""
-partitions(n::Integer)
-
-doc"""
-    partitions(n, m)
-
-Generate all arrays of `m` integers that sum to `n`. Because the number of partitions can be very large, this function returns an iterator object. Use `collect(partitions(n,m))` to get an array of all partitions. The number of partitions to generate can be efficiently computed using `length(partitions(n,m))`.
-"""
-partitions(n::Integer, m::Integer)
-
-doc"""
-    partitions(array)
-
-Generate all set partitions of the elements of an array, represented as arrays of arrays. Because the number of partitions can be very large, this function returns an iterator object. Use `collect(partitions(array))` to get an array of all partitions. The number of partitions to generate can be efficiently computed using `length(partitions(array))`.
-"""
-partitions(array)
-
-doc"""
-    partitions(array, m)
-
-Generate all set partitions of the elements of an array into exactly m subsets, represented as arrays of arrays. Because the number of partitions can be very large, this function returns an iterator object. Use `collect(partitions(array,m))` to get an array of all partitions. The number of partitions into m subsets is equal to the Stirling number of the second kind and can be efficiently computed using `length(partitions(array,m))`.
-"""
-partitions(array, m::Integer)
-
-doc"""
     readlines(stream)
 
 Read all lines as an array.
@@ -1330,18 +1155,43 @@ Return a tuple `(I, J, V)` where `I` and `J` are the row and column indexes of t
 findnz
 
 doc"""
-    RemoteRef()
+    Future()
 
-Make an uninitialized remote reference on the local machine.
+Create a `Future` on the local machine.
 """
-RemoteRef()
+Future()
 
 doc"""
-    RemoteRef(n)
+    Future(n)
 
-Make an uninitialized remote reference on process `n`.
+Create a `Future` on process `n`.
 """
-RemoteRef(::Integer)
+Future(::Integer)
+
+doc"""
+    RemoteChannel()
+
+Make an reference to a `Channel{Any}(1)` on the local machine.
+"""
+RemoteChannel()
+
+doc"""
+    RemoteChannel(n)
+
+Make an reference to a `Channel{Any}(1)` on process `n`.
+"""
+RemoteChannel(::Integer)
+
+doc"""
+    RemoteChannel(f::Function, pid)
+
+Create references to remote channels of a specific size and type. `f()` is a function that when
+executed on `pid` must return an implementation of an `AbstractChannel`.
+
+For example, `RemoteChannel(()->Channel{Int}(10), pid)`, will return a reference to a channel of type `Int`
+and size 10 on `pid`.
+"""
+RemoteChannel(f::Function, pid)
 
 doc"""
 ```rst
@@ -1365,37 +1215,19 @@ as ``v0``. In general, this cannot be used with empty collections
 foldl(op, itr)
 
 doc"""
-```rst
-..  airybiprime(x)
+    airybiprime(x)
 
-Airy function derivative :math:`\operatorname{Bi}'(x)`.
-```
+Airy function derivative $\operatorname{Bi}'(x)$.
 """
 airybiprime
 
 doc"""
-```rst
-..  Ac_rdiv_B(a,b)
+    Ac_rdiv_B(A, B)
 
-Matrix operator A\ :sup:`H` / B
-```
+For matrices or vectors $A$ and $B$, calculates $Aᴴ / B$
 """
 Ac_rdiv_B
 
-doc"""
-```rst
-..  set_rounding(T, mode)
-
-Set the rounding mode of floating point type ``T``, controlling the
-rounding of basic arithmetic functions (:func:`+`, :func:`-`, :func:`*`,
-:func:`/` and :func:`sqrt`) and type conversion.
-
-Note that this may affect other types, for instance changing the rounding
-mode of ``Float64`` will change the rounding mode of ``Float32``. See
-``get_rounding`` for available modes
-```
-"""
-set_rounding
 
 doc"""
     linspace(start, stop, n=100)
@@ -1412,22 +1244,20 @@ Determine a type big enough to hold values of each argument type without loss, w
 promote_type
 
 doc"""
-```rst
-..  ind2sub(dims, index) -> subscripts
+    ind2sub(dims, index) -> subscripts
 
-Returns a tuple of subscripts into an array with dimensions ``dims``, corresponding to the linear index ``index``
+Returns a tuple of subscripts into an array with dimensions `dims`,
+corresponding to the linear index `index`.
 
-**Example** ``i, j, ... = ind2sub(size(A), indmax(A))`` provides the indices of the maximum element
-```
+**Example**: `i, j, ... = ind2sub(size(A), indmax(A))` provides the
+indices of the maximum element
 """
 ind2sub(dims::Tuple, index::Int)
 
 doc"""
-```rst
-..  ind2sub(a, index) -> subscripts
+    ind2sub(a, index) -> subscripts
 
-Returns a tuple of subscripts into array ``a`` corresponding to the linear index ``index``
-```
+Returns a tuple of subscripts into array `a` corresponding to the linear index `index`
 """
 ind2sub(a, index)
 
@@ -1462,16 +1292,30 @@ range
 doc"""
     eltype(type)
 
-Determine the type of the elements generated by iterating a collection of the given `type`. For associative collection types, this will be a `(key,value)` tuple type. The definition `eltype(x) = eltype(typeof(x))` is provided for convenience so that instances can be passed instead of types. However the form that accepts a type argument should be defined for new types.
+Determine the type of the elements generated by iterating a collection of the given `type`. For associative collection types, this will be a `Pair{KeyType,ValType}`. The definition `eltype(x) = eltype(typeof(x))` is provided for convenience so that instances can be passed instead of types. However the form that accepts a type argument should be defined for new types.
 """
 eltype
 
 doc"""
-    edit(file::AbstractString, [line])
+    keytype(type)
 
-Edit a file optionally providing a line number to edit at. Returns to the julia prompt when you quit the editor.
+Get the key type of an associative collection type. Behaves similarly to `eltype`.
 """
-edit(file::AbstractString, line=?)
+keytype
+
+doc"""
+    valtype(type)
+
+Get the value type of an associative collection type. Behaves similarly to `eltype`.
+"""
+valtype
+
+doc"""
+    edit(path::AbstractString, [line])
+
+Edit a file or directory optionally providing a line number to edit the file at. Returns to the julia prompt when you quit the editor.
+"""
+edit(path::AbstractString, line=?)
 
 doc"""
     edit(function, [types])
@@ -1486,13 +1330,6 @@ doc"""
 Get a backtrace object for the current program point.
 """
 backtrace
-
-doc"""
-    ignorestatus(command)
-
-Mark a command object so that running it will not throw an error if the result code is non-zero.
-"""
-ignorestatus
 
 doc"""
     reducedim(f, A, dims[, initial])
@@ -1623,15 +1460,13 @@ Neither `convert` nor `cconvert` should take a Julia object and turn it into a `
 cconvert
 
 doc"""
-```rst
-..  |>(x, f)
+    |>(x, f)
 
 Applies a function to the preceding argument. This allows for easy function chaining.
 
-.. doctest::
-
-   julia> [1:5;] |> x->x.^2 |> sum |> inv
-   0.01818181818181818
+```jldoctest
+julia> [1:5;] |> x->x.^2 |> sum |> inv
+0.01818181818181818
 ```
 """
 Base.(:(|>))
@@ -1686,22 +1521,20 @@ Construct vector `c` such that `b = conv(a,c) + r`. Equivalent to polynomial div
 deconv
 
 doc"""
-```rst
-..  insert!(collection, index, item)
+    insert!(collection, index, item)
 
-Insert an ``item`` into ``collection`` at the given ``index``.
-``index`` is the index of ``item`` in the resulting ``collection``.
+Insert an `item` into `collection` at the given `index`.
+`index` is the index of `item` in the resulting `collection`.
 
-.. doctest::
-
-   julia> insert!([6, 5, 4, 2, 1], 4, 3)
-   6-element Array{Int64,1}:
-    6
-    5
-    4
-    3
-    2
-    1
+```jldoctest
+julia> insert!([6, 5, 4, 2, 1], 4, 3)
+6-element Array{Int64,1}:
+ 6
+ 5
+ 4
+ 3
+ 2
+ 1
 ```
 """
 insert!
@@ -1719,25 +1552,6 @@ doc"""
 Compute the inverse cosine of `x`, where the output is in radians
 """
 acos
-
-doc"""
-    nzrange(A, col)
-
-Return the range of indices to the structural nonzero values of a sparse matrix column. In conjunction with `nonzeros(A)` and `rowvals(A)`, this allows for convenient iterating over a sparse matrix :
-
-    A = sparse(I,J,V)
-    rows = rowvals(A)
-    vals = nonzeros(A)
-    m, n = size(A)
-    for i = 1:n
-       for j in nzrange(A, i)
-          row = rows[j]
-          val = vals[j]
-          # perform sparse wizardry...
-       end
-    end
-"""
-nzrange
 
 doc"""
     ispath(path) -> Bool
@@ -1814,20 +1628,11 @@ Returns an array of lowered and type-inferred ASTs for the methods matching the 
 code_typed
 
 doc"""
-```rst
-..  hankelh1x(nu, x)
+    hankelh1x(nu, x)
 
-Scaled Bessel function of the third kind of order ``nu``, :math:`H^{(1)}_\nu(x) e^{-x i}`.
-```
+Scaled Bessel function of the third kind of order `nu`, $H^{(1)}_\nu(x) e^{-x i}$.
 """
 hankelh1x
-
-doc"""
-    blkdiag(A...)
-
-Concatenate matrices block-diagonally. Currently only implemented for sparse matrices.
-"""
-blkdiag
 
 doc"""
     replace(string, pat, r[, n])
@@ -1851,22 +1656,20 @@ Remove the last character from a string.
 chop
 
 doc"""
-```rst
-..  Float32(x [, mode::RoundingMode])
+    Float32(x [, mode::RoundingMode])
 
-Create a Float32 from ``x``. If ``x`` is not exactly representable then
-``mode`` determines how ``x`` is rounded.
+Create a Float32 from `x`. If `x` is not exactly representable then
+`mode` determines how `x` is rounded.
 
-.. doctest::
+```jldoctest
+julia> Float32(1/3, RoundDown)
+0.3333333f0
 
-   julia> Float32(1/3, RoundDown)
-   0.3333333f0
-
-   julia> Float32(1/3, RoundUp)
-   0.33333334f0
-
-See ``get_rounding`` for available rounding modes.
+julia> Float32(1/3, RoundUp)
+0.33333334f0
 ```
+
+See `rounding` for available rounding modes.
 """
 Float32
 
@@ -1925,7 +1728,7 @@ If no ``type`` argument is specified, the default is ``Vector{UInt8}``.
 
 Optionally, you can specify an offset (in bytes) if, for example, you want to skip over a header in the file. The default value for the offset is the current stream position for an ``IOStream``.
 
-The ``grow`` keyword argument specifies whether the disk file should be grown to accomodate the requested size of array (if the total file size is < requested array size). Write privileges are required to grow the file.
+The ``grow`` keyword argument specifies whether the disk file should be grown to accommodate the requested size of array (if the total file size is < requested array size). Write privileges are required to grow the file.
 
 The ``shared`` keyword argument specifies whether the resulting ``Array`` and changes made to it will be visible to other processes mapping the same file.
 
@@ -1969,20 +1772,16 @@ This would create a 25-by-30000 ``BitArray``, linked to the file associated with
 Mmap.mmap(io, ::BitArray, dims = ?, offset = ?)
 
 doc"""
-```rst
-..  airyprime(x)
+    airyprime(x)
 
-Airy function derivative :math:`\operatorname{Ai}'(x)`.
-```
+Airy function derivative $\operatorname{Ai}'(x)$.
 """
 airyprime
 
 doc"""
-```rst
-..  bessely0(x)
+    bessely0(x)
 
-Bessel function of the second kind of order 0, :math:`Y_0(x)`.
-```
+Bessel function of the second kind of order 0, $Y_0(x)$.
 """
 bessely0
 
@@ -2008,20 +1807,6 @@ Update `collection`, removing elements for which `function` is `false`. For asso
 filter!
 
 doc"""
-    schurfact(A) -> Schur
-
-Computes the Schur factorization of the matrix `A`. The (quasi) triangular Schur factor can be obtained from the `Schur` object `F` with either `F[:Schur]` or `F[:T]` and the unitary/orthogonal Schur vectors can be obtained with `F[:vectors]` or `F[:Z]` such that `A=F[:vectors]*F[:Schur]*F[:vectors]'`. The eigenvalues of `A` can be obtained with `F[:values]`.
-"""
-schurfact(A)
-
-doc"""
-    schurfact(A, B) -> GeneralizedSchur
-
-Computes the Generalized Schur (or QZ) factorization of the matrices `A` and `B`. The (quasi) triangular Schur factors can be obtained from the `Schur` object `F` with `F[:S]` and `F[:T]`, the left unitary/orthogonal Schur vectors can be obtained with `F[:left]` or `F[:Q]` and the right unitary/orthogonal Schur vectors can be obtained with `F[:right]` or `F[:Z]` such that `A=F[:left]*F[:S]*F[:right]'` and `B=F[:left]*F[:T]*F[:right]'`. The generalized eigenvalues of `A` and `B` can be obtained with `F[:alpha]./F[:beta]`.
-"""
-schurfact(A, B)
-
-doc"""
     base64decode(string)
 
 Decodes the base64-encoded `string` and returns a `Vector{UInt8}` of the decoded bytes.
@@ -2029,11 +1814,9 @@ Decodes the base64-encoded `string` and returns a `Vector{UInt8}` of the decoded
 base64decode
 
 doc"""
-```rst
-..  besselkx(nu, x)
+    besselkx(nu, x)
 
-Scaled modified Bessel function of the second kind of order ``nu``, :math:`K_\nu(x) e^x`.
-```
+Scaled modified Bessel function of the second kind of order `nu`, $K_\nu(x) e^x$.
 """
 besselkx
 
@@ -2168,11 +1951,9 @@ Convert an integer to a binary string, optionally specifying a number of digits 
 bin
 
 doc"""
-```rst
-..  cis(z)
+    cis(z)
 
-Return :math:`\exp(iz)`.
-```
+Return $\exp(iz)$.
 """
 cis
 
@@ -2211,13 +1992,6 @@ Compute hyperbolic sine of `x`
 sinh
 
 doc"""
-    permutations(array)
-
-Generate all permutations of an indexable object. Because the number of permutations can be very large, this function returns an iterator object. Use `collect(permutations(array))` to get an array of all permutations.
-"""
-permutations
-
-doc"""
 ```rst
 ..  ceil([T,] x, [digits, [base]])
 
@@ -2238,13 +2012,6 @@ doc"""
 Transform the given dimensions of array `A` using function `f`. `f` is called on each slice of `A` of the form `A[...,:,...,:,...]`. `dims` is an integer vector specifying where the colons go in this expression. The results are concatenated along the remaining dimensions. For example, if `dims` is `[1,2]` and `A` is 4-dimensional, `f` is called on `A[:,:,i,j]` for all `i` and `j`.
 """
 mapslices
-
-doc"""
-    spdiagm(B, d[, m, n])
-
-Construct a sparse diagonal matrix. `B` is a tuple of vectors containing the diagonals and `d` is a tuple containing the positions of the diagonals. In the case the input contains only one diagonaly, `B` can be a vector (instead of a tuple) and `d` can be the diagonal position (instead of a tuple), defaulting to 0 (diagonal). Optionally, `m` and `n` specify the size of the resulting sparse matrix.
-"""
-spdiagm
 
 doc"""
     svdvals(A)
@@ -2273,31 +2040,6 @@ doc"""
 Reseed the random number generator. If a `seed` is provided, the RNG will give a reproducible sequence of numbers, otherwise Julia will get entropy from the system. For `MersenneTwister`, the `seed` may be a non-negative integer, a vector of `UInt32` integers or a filename, in which case the seed is read from a file. `RandomDevice` does not support seeding.
 """
 srand
-
-doc"""
-```rst
-..  schur(A) -> Schur[:T], Schur[:Z], Schur[:values]
-
-See :func:`schurfact`
-```
-"""
-schur(A)
-
-doc"""
-```rst
-..  schur(A,B) -> GeneralizedSchur[:S], GeneralizedSchur[:T], GeneralizedSchur[:Q], GeneralizedSchur[:Z]
-
-See :func:`schurfact`
-```
-"""
-schur(A,B)
-
-doc"""
-    isexecutable(path) -> Bool
-
-Returns `true` if the current user has permission to execute `path`, `false` otherwise.
-"""
-isexecutable
 
 doc"""
     acot(x)
@@ -2406,16 +2148,14 @@ promote
 doc"""
     @schedule
 
-Wrap an expression in a `Task` and add it to the scheduler's queue.
+Wrap an expression in a `Task` and add it to the local machine's scheduler queue.
 """
 :@schedule
 
 doc"""
-```rst
-..  bessely(nu, x)
+    bessely(nu, x)
 
-Bessel function of the second kind of order ``nu``, :math:`Y_\nu(x)`.
-```
+Bessel function of the second kind of order `nu`, $Y_\nu(x)$.
 """
 bessely
 
@@ -2550,11 +2290,9 @@ By default, the `redisplay` functions simply call `display`. However, some displ
 redisplay
 
 doc"""
-```rst
-..  A_mul_Bc(...)
+    A_mul_Bc(A, B)
 
-Matrix operator A B\ :sup:`H`
-```
+For matrices or vectors $A$ and $B$, calculates $A⋅Bᴴ$
 """
 A_mul_Bc
 
@@ -2573,25 +2311,7 @@ Right division operator: multiplication of `x` by the inverse of `y` on the righ
 Base.(:(/))
 
 doc"""
-    ldltfact(A) -> LDLtFactorization
-
-Compute a factorization of a positive definite matrix `A` such that `A=L*Diagonal(d)*L'` where `L` is a unit lower triangular matrix and `d` is a vector with non-negative elements.
-"""
-ldltfact(A)
-
-doc"""
-    ldltfact(A; shift=0, perm=Int[]) -> CHOLMOD.Factor
-
-Compute the LDLt factorization of a sparse symmetric or Hermitian matrix `A`. A fill-reducing permutation is used. `F = ldltfact(A)` is most frequently used to solve systems of equations with `F\b`, but also the methods `diag`, `det`, `logdet` are defined for `F`. You can also extract individual factors from `F`, using `F[:L]`. However, since pivoting is on by default, the factorization is internally represented as `A == P'*L*D*L'*P` with a permutation matrix `P`; using just `L` without accounting for `P` will give incorrect answers. To include the effects of permutation, it's typically preferable to extact "combined" factors like `PtL = F[:PtL]` (the equivalent of `P'*L`) and `LtP = F[:UP]` (the equivalent of `L'*P`). The complete list of supported factors is `:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP`.
-
-Setting optional `shift` keyword argument computes the factorization of `A+shift*I` instead of `A`. If the `perm` argument is nonempty, it should be a permutation of `1:size(A,1)` giving the ordering to use (instead of CHOLMOD's default AMD ordering).
-
-The function calls the C library CHOLMOD and many other functions from the library are wrapped but not exported.
-"""
-ldltfact(A::SparseMatrix.CHOLMOD.Sparse; shift=0, perm=Int[])
-
-doc"""
-    connect([host],port) -> TcpSocket
+    connect([host],port) -> TCPSocket
 
 Connect to the host `host` on port `port`
 """
@@ -2661,11 +2381,9 @@ Receive the next value passed to `produce` by the specified task. Additional arg
 consume
 
 doc"""
-```rst
-..  hankelh2x(nu, x)
+    hankelh2x(nu, x)
 
-Scaled Bessel function of the third kind of order ``nu``, :math:`H^{(2)}_\nu(x) e^{x i}`.
-```
+Scaled Bessel function of the third kind of order `nu`, $H^{(2)}_\nu(x) e^{x i}$.
 """
 hankelh2x
 
@@ -2695,11 +2413,9 @@ This behavior of this function varies slightly across platforms. See <https://no
 watch_file
 
 doc"""
-```rst
-..  At_rdiv_Bt(a,b)
+    At_rdiv_Bt(A, B)
 
-Matrix operator A\ :sup:`T` / B\ :sup:`T`
-```
+For matrices or vectors $A$ and $B$, calculates $Aᵀ / Bᵀ$
 """
 At_rdiv_Bt
 
@@ -2711,11 +2427,9 @@ Determine whether Julia is running an interactive session.
 isinteractive
 
 doc"""
-```rst
-..  At_mul_Bt(...)
+    At_mul_Bt(A, B)
 
-Matrix operator A\ :sup:`T` B\ :sup:`T`
-```
+For matrices or vectors $A$ and $B$, calculates $Aᵀ⋅Bᵀ$
 """
 At_mul_Bt
 
@@ -2727,34 +2441,26 @@ Sum elements of `A` over the singleton dimensions of `r`, and write results to `
 sum!
 
 doc"""
-```rst
-..  close(stream)
+    close(stream)
 
-Close an I/O stream. Performs a ``flush`` first.
-```
+Close an I/O stream. Performs a `flush` first.
 """
 close(stream::IO)
 
 doc"""
-```rst
-..  close(Channel)
+    close(Channel)
 
 Closes a channel. An exception is thrown by:
 
-    - ``put!`` on a closed channel.
-
-    - ``take!`` and ``fetch`` on an empty, closed channel.
-
-```
+* `put!` on a closed channel.
+* `take!` and `fetch` on an empty, closed channel.
 """
 close(::Channel)
 
 doc"""
-```rst
-..  cospi(x)
+    cospi(x)
 
-Compute :math:`\cos(\pi x)` more accurately than ``cos(pi*x)``, especially for large ``x``.
-```
+Compute $\cos(\pi x)$ more accurately than `cos(pi*x)`, especially for large `x`.
 """
 cospi
 
@@ -2764,13 +2470,6 @@ doc"""
 From an array view `A`, returns the corresponding indexes in the parent
 """
 parentindexes
-
-doc"""
-    spones(S)
-
-Create a sparse matrix with the same structure as that of `S`, but with every nonzero element having the value `1.0`.
-"""
-spones
 
 doc"""
     display(x)
@@ -2787,7 +2486,7 @@ display
 doc"""
     @spawnat
 
-Accepts two arguments, `p` and an expression. A closure is created around the expression and run asynchronously on process `p`. Returns a `RemoteRef` to the result.
+Accepts two arguments, `p` and an expression. A closure is created around the expression and run asynchronously on process `p`. Returns a `Future` to the result.
 """
 :@spawnat
 
@@ -2799,34 +2498,35 @@ Print the shortest possible representation, with the minimum number of consecuti
 print_shortest
 
 doc"""
-```rst
-..  merge(collection, others...)
+    merge(collection, others...)
 
-Construct a merged collection from the given collections. If necessary, the types of the resulting collection will be promoted to accommodate the types of the merged collections. If the same key is present in another collection, the value for that key will be the value it has in the last collection listed.
+Construct a merged collection from the given collections. If necessary, the
+types of the resulting collection will be promoted to accommodate the types of
+the merged collections. If the same key is present in another collection, the
+value for that key will be the value it has in the last collection listed.
 
-.. doctest::
+```jldoctest
+julia> a = Dict("foo" => 0.0, "bar" => 42.0)
+Dict{ASCIIString,Float64} with 2 entries:
+  "bar" => 42.0
+  "foo" => 0.0
 
-  julia> a = Dict("foo" => 0.0, "bar" => 42.0)
-  Dict{ASCIIString,Float64} with 2 entries:
-    "bar" => 42.0
-    "foo" => 0.0
+julia> b = Dict(utf8("baz") => 17, utf8("bar") => 4711)
+Dict{UTF8String,Int64} with 2 entries:
+  "bar" => 4711
+  "baz" => 17
 
-  julia> b = Dict(utf8("baz") => 17, utf8("bar") => 4711)
-  Dict{UTF8String,Int64} with 2 entries:
-    "bar" => 4711
-    "baz" => 17
+julia> merge(a, b)
+Dict{UTF8String,Float64} with 3 entries:
+  "bar" => 4711.0
+  "baz" => 17.0
+  "foo" => 0.0
 
-  julia> merge(a, b)
-  Dict{UTF8String,Float64} with 3 entries:
-    "bar" => 4711.0
-    "baz" => 17.0
-    "foo" => 0.0
-
-  julia> merge(b, a)
-  Dict{UTF8String,Float64} with 3 entries:
-    "bar" => 42.0
-    "baz" => 17.0
-    "foo" => 0.0
+julia> merge(b, a)
+Dict{UTF8String,Float64} with 3 entries:
+  "bar" => 42.0
+  "baz" => 17.0
+  "foo" => 0.0
 ```
 """
 merge
@@ -2922,13 +2622,12 @@ Alternate syntax for open, where a string-based mode specifier is used instead o
 open(file_name, mode="r")
 
 doc"""
-```rst
-..  open(f::Function, args...)
+    open(f::Function, args...)
 
-Apply the function ``f`` to the result of ``open(args...)`` and close the resulting file descriptor upon completion.
+Apply the function `f` to the result of `open(args...)`
+and close the resulting file descriptor upon completion.
 
-**Example**: ``open(readall, "file.txt")``
-```
+**Example**: `open(readall, "file.txt")`
 """
 open(f::Function, args...)
 
@@ -2961,43 +2660,31 @@ Right bit shift operator, preserving the sign of `x`.
 Base.(:(>>))
 
 doc"""
-```rst
-..  fieldoffsets(type)
+    fieldoffsets(type)
 
 The byte offset of each field of a type relative to the data start. For example, we could use it
 in the following manner to summarize information about a struct type:
 
-.. doctest::
+```jldoctest
+julia> structinfo(T) = [zip(fieldoffsets(T),fieldnames(T),T.types)...];
 
-   julia> structinfo(T) = [zip(fieldoffsets(T),fieldnames(T),T.types)...];
-
-   julia> structinfo(StatStruct)
-   12-element Array{Tuple{Int64,Symbol,DataType},1}:
-    (0,:device,UInt64)
-    (8,:inode,UInt64)
-    (16,:mode,UInt64)
-    (24,:nlink,Int64)
-    (32,:uid,UInt64)
-    (40,:gid,UInt64)
-    (48,:rdev,UInt64)
-    (56,:size,Int64)
-    (64,:blksize,Int64)
-    (72,:blocks,Int64)
-    (80,:mtime,Float64)
-    (88,:ctime,Float64)
+julia> structinfo(StatStruct)
+12-element Array{Tuple{Int64,Symbol,DataType},1}:
+ (0,:device,UInt64)
+ (8,:inode,UInt64)
+ (16,:mode,UInt64)
+ (24,:nlink,Int64)
+ (32,:uid,UInt64)
+ (40,:gid,UInt64)
+ (48,:rdev,UInt64)
+ (56,:size,Int64)
+ (64,:blksize,Int64)
+ (72,:blocks,Int64)
+ (80,:mtime,Float64)
+ (88,:ctime,Float64)
 ```
 """
 fieldoffsets
-
-doc"""
-```rst
-..  fft!(A [, dims])
-
-Same as :func:`fft`, but operates in-place on ``A``,
-which must be an array of complex floating-point numbers.
-```
-"""
-fft!
 
 doc"""
     randn([rng], [dims...])
@@ -3021,20 +2708,11 @@ Construct a tuple of the given objects.
 tuple
 
 doc"""
-```rst
-..  besseli(nu, x)
+    besseli(nu, x)
 
-Modified Bessel function of the first kind of order ``nu``, :math:`I_\nu(x)`.
-```
+Modified Bessel function of the first kind of order `nu`, $I_\nu(x)$.
 """
 besseli
-
-doc"""
-    ifftshift(x, [dim])
-
-Undoes the effect of `fftshift`.
-"""
-ifftshift
 
 doc"""
     eachmatch(r::Regex, s::AbstractString[, overlap::Bool=false])
@@ -3093,22 +2771,13 @@ Get a hexadecimal string of the binary representation of a floating point number
 num2hex
 
 doc"""
-    speye(type,m[,n])
+    count_ones(x::Integer) -> Integer
 
-Create a sparse identity matrix of specified type of size `m x m`. In case `n` is supplied, create a sparse identity matrix of size `m x n`.
-"""
-speye
+Number of ones in the binary representation of `x`.
 
-doc"""
-```rst
-..  count_ones(x::Integer) -> Integer
-
-Number of ones in the binary representation of ``x``.
-
-.. doctest::
-
-   julia> count_ones(7)
-   3
+```jldoctest
+julia> count_ones(7)
+3
 ```
 """
 count_ones
@@ -3167,11 +2836,9 @@ Returns a structure whose fields contain information about the file. The fields 
 stat
 
 doc"""
-```rst
-..  exp10(x)
+    exp10(x)
 
-Compute :math:`10^x`
-```
+Compute $10^x$.
 """
 exp10
 
@@ -3183,11 +2850,9 @@ Bitwise and
 &
 
 doc"""
-```rst
-..  besselyx(nu, x)
+    besselyx(nu, x)
 
-Scaled Bessel function of the second kind of order ``nu``, :math:`Y_\nu(x) e^{- | \operatorname{Im}(x) |}`.
-```
+Scaled Bessel function of the second kind of order `nu`, $Y_\nu(x) e^{- | \operatorname{Im}(x) |}$.
 """
 besselyx
 
@@ -3211,53 +2876,6 @@ doc"""
 Create a PipeBuffer to operate on a data vector, optionally specifying a size beyond which the underlying Array may not be grown.
 """
 PipeBuffer(data)
-
-doc"""
-```rst
-..  eigs(A, [B,]; nev=6, which="LM", tol=0.0, maxiter=300, sigma=nothing, ritzvec=true, v0=zeros((0,))) -> (d,[v,],nconv,niter,nmult,resid)
-
-Computes eigenvalues ``d`` of ``A`` using Lanczos or Arnoldi iterations for
-real symmetric or general nonsymmetric matrices respectively. If ``B`` is
-provided, the generalized eigenproblem is solved.
-
-The following keyword arguments are supported:
- * ``nev``: Number of eigenvalues
- * ``ncv``: Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrix ``A``. The default is ``ncv = max(20,2*nev+1)``.
-
-    Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
- * ``which``: type of eigenvalues to compute. See the note below.
-
-   ========= ======================================================================================================================
-   ``which`` type of eigenvalues
-   --------- ----------------------------------------------------------------------------------------------------------------------
-   ``:LM``   eigenvalues of largest magnitude (default)
-   ``:SM``   eigenvalues of smallest magnitude
-   ``:LR``   eigenvalues of largest real part
-   ``:SR``   eigenvalues of smallest real part
-   ``:LI``   eigenvalues of largest imaginary part (nonsymmetric or complex ``A`` only)
-   ``:SI``   eigenvalues of smallest imaginary part (nonsymmetric or complex ``A`` only)
-   ``:BE``   compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only)
-   ========= ======================================================================================================================
-
- * ``tol``: tolerance (:math:`tol \le 0.0` defaults to ``DLAMCH('EPS')``)
- * ``maxiter``: Maximum number of iterations (default = 300)
- * ``sigma``: Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
- * ``ritzvec``: Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
- * ``v0``: starting vector from which to start the iterations
-
-``eigs`` returns the ``nev`` requested eigenvalues in ``d``, the corresponding Ritz vectors ``v`` (only if ``ritzvec=true``), the number of converged eigenvalues ``nconv``, the number of iterations ``niter`` and the number of matrix vector multiplications ``nmult``, as well as the final residual vector ``resid``.
-
-.. note:: The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do _not_ necessarily refer to the eigenvalues of ``A``, but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``.
-
-   =============== ================================== ==================================
-   ``sigma``       iteration mode                     ``which`` refers to eigenvalues of
-   --------------- ---------------------------------- ----------------------------------
-   ``nothing``     ordinary (forward)                 :math:`A`
-   real or complex inverse with level shift ``sigma`` :math:`(A - \sigma I )^{-1}`
-   =============== ================================== ==================================
-```
-"""
-eigs
 
 doc"""
 ```rst
@@ -3374,42 +2992,6 @@ Accepts a connection on the given server and returns a connection to the client.
 accept
 
 doc"""
-```rst
-..  ordschur(Q, T, select) -> Schur
-
-Reorders the Schur factorization of a real matrix ``A=Q*T*Q'`` according to the logical array ``select`` returning a Schur object ``F``. The selected eigenvalues appear in the leading diagonal of ``F[:Schur]`` and the the corresponding leading columns of ``F[:vectors]`` form an orthonormal basis of the corresponding right invariant subspace. A complex conjugate pair of eigenvalues must be either both included or excluded via ``select``.
-```
-"""
-ordschur(Q, T, select)
-
-doc"""
-```rst
-..  ordschur(S, select) -> Schur
-
-Reorders the Schur factorization ``S`` of type ``Schur``.
-```
-"""
-ordschur(S::Schur, select)
-
-doc"""
-```rst
-..  ordschur(S, T, Q, Z, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a matrix ``(A, B) = (Q*S*Z^{H}, Q*T*Z^{H})`` according to the logical array ``select`` and returns a GeneralizedSchur object ``GS``.  The selected eigenvalues appear in the leading diagonal of both ``(GS[:S], GS[:T])`` and the left and right unitary/orthogonal Schur vectors are also reordered such that ``(A, B) = GS[:Q]*(GS[:S], GS[:T])*GS[:Z]^{H}`` still holds and the generalized eigenvalues of ``A`` and ``B`` can still be obtained with ``GS[:alpha]./GS[:beta]``.
-```
-"""
-ordschur(S, T, Q, Z)
-
-doc"""
-```rst
-..  ordschur(GS, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a Generalized Schur object.  See :func:`ordschur`.
-```
-"""
-ordschur(GS::GeneralizedSchur, select)
-
-doc"""
     triu!(M)
 
 Upper triangle of a matrix, overwriting `M` in the process.
@@ -3484,34 +3066,18 @@ Create an `IO`-like object for creating zeroed-out mmapped-memory that is not ti
 Mmap.Anonymous
 
 doc"""
-```rst
-..  A_rdiv_Bc(...)
+    A_rdiv_Bc(A, B)
 
-Matrix operator A / B\ :sup:`H`
-```
+For matrices or vectors $A$ and $B$, calculates $A / Bᴴ$
 """
 A_rdiv_Bc
-
-doc"""
-    sparse(I,J,V,[m,n,combine])
-
-Create a sparse matrix `S` of dimensions `m x n` such that `S[I[k], J[k]] = V[k]`. The `combine` function is used to combine duplicates. If `m` and `n` are not specified, they are set to `max(I)` and `max(J)` respectively. If the `combine` function is not supplied, duplicates are added by default.
-"""
-sparse(I, J, V, m=?, n=?, combine=?)
-
-doc"""
-    sparse(A)
-
-Convert an AbstractMatrix `A` into a sparse matrix.
-"""
-sparse(A)
 
 doc"""
 ```rst
 ..  round([T,] x, [digits, [base]], [r::RoundingMode])
 
 ``round(x)`` rounds ``x`` to an integer value according to the default
-rounding mode (see :func:`get_rounding`), returning a value of the same type as
+rounding mode (see :func:`rounding`), returning a value of the same type as
 ``x``. By default (:obj:`RoundNearest`), this will round to the nearest
 integer, with ties (fractional values of 0.5) being rounded to the even
 integer.
@@ -3660,12 +3226,10 @@ Move the file, link, or directory from `src` to `dst`. `remove_destination=true`
 mv
 
 doc"""
-```rst
-..  erfi(x)
+    erfi(x)
 
-Compute the imaginary error function of ``x``,
-defined by :math:`-i \operatorname{erf}(ix)`.
-```
+Compute the imaginary error function of `x`,
+defined by $-i \operatorname{erf}(ix)$.
 """
 erfi
 
@@ -3701,7 +3265,7 @@ tril!(M, k)
 doc"""
     divrem(x, y)
 
-The quotient and remainder from Euclidean division. Equivalent to `(x÷y, x%y)`.
+The quotient and remainder from Euclidean division. Equivalent to `(div(x,y), rem(x,y))` or `(x÷y, x%y)`.
 """
 divrem
 
@@ -3756,29 +3320,30 @@ Creates an iterable object for visiting each index of an AbstractArray `A` in an
 
 Example for a sparse 2-d array:
 
-    julia> A = sprand(2, 3, 0.5)
-    2x3 sparse matrix with 4 Float64 entries:
-        [1, 1]  =  0.598888
-        [1, 2]  =  0.0230247
-        [1, 3]  =  0.486499
-        [2, 3]  =  0.809041
+```jldoctest
+julia> A = sparse([1, 1, 2], [1, 3, 1], [1, 2, -5])
+2x3 sparse matrix with 3 Int64 entries:
+        [1, 1]  =  1
+        [2, 1]  =  -5
+        [1, 3]  =  2
 
-    julia> for iter in eachindex(A)
-               @show iter.I_1, iter.I_2
-               @show A[iter]
-           end
-    (iter.I_1,iter.I_2) = (1,1)
-    A[iter] = 0.5988881393454597
-    (iter.I_1,iter.I_2) = (2,1)
-    A[iter] = 0.0
-    (iter.I_1,iter.I_2) = (1,2)
-    A[iter] = 0.02302469881746183
-    (iter.I_1,iter.I_2) = (2,2)
-    A[iter] = 0.0
-    (iter.I_1,iter.I_2) = (1,3)
-    A[iter] = 0.4864987874354343
-    (iter.I_1,iter.I_2) = (2,3)
-    A[iter] = 0.8090413606455655
+julia> for iter in eachindex(A)
+           @show iter.I[1], iter.I[2]
+           @show A[iter]
+       end
+(iter.I[1],iter.I[2]) = (1,1)
+A[iter] = 1
+(iter.I[1],iter.I[2]) = (2,1)
+A[iter] = -5
+(iter.I[1],iter.I[2]) = (1,2)
+A[iter] = 0
+(iter.I[1],iter.I[2]) = (2,2)
+A[iter] = 0
+(iter.I[1],iter.I[2]) = (1,3)
+A[iter] = 2
+(iter.I[1],iter.I[2]) = (2,3)
+A[iter] = 0
+```
 
 If you supply more than one ``AbstractArray`` argument, ``eachindex``
 will create an iterable object that is fast for all arguments (a
@@ -3804,11 +3369,9 @@ The item or field is not defined for the given object.
 UndefRefError
 
 doc"""
-```rst
-..  bessely1(x)
+    bessely1(x)
 
-Bessel function of the second kind of order 1, :math:`Y_1(x)`.
-```
+Bessel function of the second kind of order 1, $Y_1(x)$.
 """
 bessely1
 
@@ -3825,11 +3388,9 @@ output (e.g. to avoid overflow).
 cumprod
 
 doc"""
-```rst
-..  besseljx(nu, x)
+    besseljx(nu, x)
 
-Scaled Bessel function of the first kind of order ``nu``, :math:`J_\nu(x) e^{- | \operatorname{Im}(x) |}`.
-```
+Scaled Bessel function of the first kind of order `nu`, $J_\nu(x) e^{- | \operatorname{Im}(x) |}$.
 """
 besseljx
 
@@ -3855,26 +3416,11 @@ Returns the index of the current worker into the `pids` vector, i.e., the list o
 indexpids
 
 doc"""
-    remotecall_wait(id, func, args...)
+    remotecall_wait(func, id, args...)
 
 Perform `wait(remotecall(...))` in one message.
 """
 remotecall_wait
-
-doc"""
-```rst
-..  dct(A [, dims])
-
-Performs a multidimensional type-II discrete cosine transform (DCT)
-of the array ``A``, using the unitary normalization of the DCT.
-The optional ``dims`` argument specifies an iterable subset of
-dimensions (e.g. an integer, range, tuple, or array) to transform
-along.  Most efficient if the size of ``A`` along the transformed
-dimensions is a product of small primes; see :func:`nextprod`.  See
-also :func:`plan_dct` for even greater efficiency.
-```
-"""
-dct
 
 doc"""
 ```rst
@@ -3936,23 +3482,6 @@ doc"""
 Seek a stream relative to the current position.
 """
 skip
-
-doc"""
-```rst
-..  bfft(A [, dims])
-
-Similar to :func:`ifft`, but computes an unnormalized inverse (backward)
-transform, which must be divided by the product of the sizes of the
-transformed dimensions in order to obtain the inverse. (This is slightly
-more efficient than :func:`ifft` because it omits a scaling step, which in
-some applications can be combined with other computational steps elsewhere.)
-
-.. math::
-
-   \operatorname{BDFT}(A)[k] = \operatorname{length}(A) \operatorname{IDFT}(A)[k]
-```
-"""
-bfft
 
 doc"""
     lu(A) -> L, U, p
@@ -4088,12 +3617,10 @@ Create a string from any values using the `print` function.
 string
 
 doc"""
-```rst
-..  erfc(x)
+    erfc(x)
 
 Compute the complementary error function of ``x``,
-defined by :math:`1 - \operatorname{erf}(x)`.
-```
+defined by $1 - \operatorname{erf}(x)$.
 """
 erfc
 
@@ -4142,27 +3669,50 @@ utf8(s)
 doc"""
     hvcat(rows::Tuple{Vararg{Int}}, values...)
 
-Horizontal and vertical concatenation in one call. This function is called for block matrix syntax. The first argument specifies the number of arguments to concatenate in each block row. For example, `[a b;c d e]` calls `hvcat((2,3),a,b,c,d,e)`.
+Horizontal and vertical concatenation in one call. This function is called for block matrix syntax. The first argument specifies the number of arguments to concatenate in each block row.
+
+```jldoctest
+julia> a, b, c, d, e, f = 1, 2, 3, 4, 5, 6
+(1,2,3,4,5,6)
+
+julia> [a b c; d e f]
+2x3 Array{Int64,2}:
+ 1  2  3
+ 4  5  6
+
+julia> hvcat((3,3), a,b,c,d,e,f)
+2x3 Array{Int64,2}:
+ 1  2  3
+ 4  5  6
+
+julia> [a b;c d; e f]
+3x2 Array{Int64,2}:
+ 1  2
+ 3  4
+ 5  6
+
+julia> hvcat((2,2,2), a,b,c,d,e,f)
+3x2 Array{Int64,2}:
+ 1  2
+ 3  4
+ 5  6
+```
 
 If the first argument is a single integer `n`, then all block rows are assumed to have `n` block columns.
 """
 hvcat
 
 doc"""
-```rst
-..  besselj1(x)
+    besselj1(x)
 
-Bessel function of the first kind of order 1, :math:`J_1(x)`.
-```
+Bessel function of the first kind of order 1, $J_1(x)$.
 """
 besselj1
 
 doc"""
-```rst
-..  sinpi(x)
+    sinpi(x)
 
-Compute :math:`\sin(\pi x)` more accurately than ``sin(pi*x)``, especially for large ``x``.
-```
+Compute $\sin(\pi x)$ more accurately than `sin(pi*x)`, especially for large `x`.
 """
 sinpi
 
@@ -4229,11 +3779,9 @@ Return `x` with its sign flipped if `y` is negative. For example `abs(x) = flips
 flipsign
 
 doc"""
-```rst
-..  lbeta(x, y)
+    lbeta(x, y)
 
-Natural logarithm of the absolute value of the beta function :math:`\log(|\operatorname{B}(x,y)|)`.
-```
+Natural logarithm of the absolute value of the beta function $\log(|\operatorname{B}(x,y)|)$.
 """
 lbeta
 
@@ -4249,22 +3797,20 @@ specifies a random number generator, see :ref:`Random Numbers <random-numbers>`.
 randstring
 
 doc"""
-```rst
-..  Float64(x [, mode::RoundingMode])
+    Float64(x [, mode::RoundingMode])
 
-Create a Float64 from ``x``. If ``x`` is not exactly representable then
-``mode`` determines how ``x`` is rounded.
+Create a Float64 from `x`. If `x` is not exactly representable then
+`mode` determines how `x` is rounded.
 
-.. doctest::
+```jldoctest
+julia> Float64(pi, RoundDown)
+3.141592653589793
 
-   julia> Float64(pi, RoundDown)
-   3.141592653589793
-
-   julia> Float64(pi, RoundUp)
-   3.1415926535897936
-
-See ``get_rounding`` for available rounding modes.
+julia> Float64(pi, RoundUp)
+3.1415926535897936
 ```
+
+See `rounding` for available rounding modes.
 """
 Float64
 
@@ -4291,7 +3837,7 @@ doc"""
 
 Equivalent to ``addprocs(CPU_CORES)``
 
-Note that workers do not run a `.juliarc.jl` startup script, nor do they synchronize their global state
+Note that workers do not run a ``.juliarc.jl`` startup script, nor do they synchronize their global state
 (such as global variables, new method definitions, and loaded modules) with any of the other running processes.
 ```
 """
@@ -4367,49 +3913,47 @@ doc"""
 
 Compute the LU factorization of ``A``. The return type of ``F`` depends on the type of ``A``. In most cases, if ``A`` is a subtype ``S`` of AbstractMatrix with an element type ``T`` supporting ``+``, ``-``, ``*`` and ``/`` the return type is ``LU{T,S{T}}``. If pivoting is chosen (default) the element type should also support ``abs`` and ``<``. When ``A`` is sparse and have element of type ``Float32``, ``Float64``, ``Complex{Float32}``, or ``Complex{Float64}`` the return type is ``UmfpackLU``. Some examples are shown in the table below.
 
-   ======================= ========================= ========================================
-   Type of input ``A``     Type of output ``F``      Relationship between ``F`` and ``A``
-   ----------------------- ------------------------- ----------------------------------------
-   :func:`Matrix`           ``LU``                   ``F[:L]*F[:U] == A[F[:p], :]``
-   :func:`Tridiagonal`      ``LU{T,Tridiagonal{T}}`` ``F[:L]*F[:U] == A[F[:p], :]``
-   :func:`SparseMatrixCSC`  ``UmfpackLU``            ``F[:L]*F[:U] == (F[:Rs] .* A)[F[:p], F[:q]]``
-   ======================= ========================= ========================================
+======================= ========================= ========================================
+Type of input ``A``     Type of output ``F``      Relationship between ``F`` and ``A``
+======================= ========================= ========================================
+:func:`Matrix`           ``LU``                   ``F[:L]*F[:U] == A[F[:p], :]``
+:func:`Tridiagonal`      ``LU{T,Tridiagonal{T}}`` ``F[:L]*F[:U] == A[F[:p], :]``
+:func:`SparseMatrixCSC`  ``UmfpackLU``            ``F[:L]*F[:U] == (F[:Rs] .* A)[F[:p], F[:q]]``
+======================= ========================= ========================================
 
 The individual components of the factorization ``F`` can be accessed by indexing:
 
-   =========== ======================================= ====== ======================== =============
-   Component   Description                             ``LU`` ``LU{T,Tridiagonal{T}}`` ``UmfpackLU``
-   ----------- --------------------------------------- ------ ------------------------ -------------
-   ``F[:L]``   ``L`` (lower triangular) part of ``LU``    ✓            ✓                        ✓
-   ``F[:U]``   ``U`` (upper triangular) part of ``LU``    ✓            ✓                        ✓
-   ``F[:p]``   (right) permutation ``Vector``             ✓            ✓                        ✓
-   ``F[:P]``   (right) permutation ``Matrix``             ✓            ✓
-   ``F[:q]``   left permutation ``Vector``                                                      ✓
-   ``F[:Rs]``  ``Vector`` of scaling factors                                                    ✓
-   ``F[:(:)]`` ``(L,U,p,q,Rs)`` components                                                      ✓
-   =========== ======================================= ====== ======================== =============
+=========== ======================================= ====== ======================== =============
+Component   Description                             ``LU`` ``LU{T,Tridiagonal{T}}`` ``UmfpackLU``
+=========== ======================================= ====== ======================== =============
+``F[:L]``   ``L`` (lower triangular) part of ``LU``    ✓            ✓                        ✓
+``F[:U]``   ``U`` (upper triangular) part of ``LU``    ✓            ✓                        ✓
+``F[:p]``   (right) permutation ``Vector``             ✓            ✓                        ✓
+``F[:P]``   (right) permutation ``Matrix``             ✓            ✓
+``F[:q]``   left permutation ``Vector``                                                      ✓
+``F[:Rs]``  ``Vector`` of scaling factors                                                    ✓
+``F[:(:)]`` ``(L,U,p,q,Rs)`` components                                                      ✓
+=========== ======================================= ====== ======================== =============
 
-   ================== ====== ======================== =============
-   Supported function ``LU`` ``LU{T,Tridiagonal{T}}`` ``UmfpackLU``
-   ------------------ ------ ------------------------ -------------
-        ``/``            ✓
-        ``\``            ✓                       ✓             ✓
-        ``cond``         ✓                                     ✓
-        ``det``          ✓                       ✓             ✓
-        ``logdet``       ✓                       ✓
-        ``logabsdet``    ✓                       ✓
-        ``size``         ✓                       ✓
-   ================== ====== ======================== =============
+================== ====== ======================== =============
+Supported function ``LU`` ``LU{T,Tridiagonal{T}}`` ``UmfpackLU``
+================== ====== ======================== =============
+     ``/``            ✓
+     ``\``            ✓                       ✓             ✓
+     ``cond``         ✓                                     ✓
+     ``det``          ✓                       ✓             ✓
+     ``logdet``       ✓                       ✓
+     ``logabsdet``    ✓                       ✓
+     ``size``         ✓                       ✓
+================== ====== ======================== =============
 ```
 """
 lufact
 
 doc"""
-```rst
-..  besselix(nu, x)
+    besselix(nu, x)
 
-Scaled modified Bessel function of the first kind of order ``nu``, :math:`I_\nu(x) e^{- | \operatorname{Re}(x) |}`.
-```
+Scaled modified Bessel function of the first kind of order `nu`, $I_\nu(x) e^{- | \operatorname{Re}(x) |}$.
 """
 besselix
 
@@ -4464,49 +4008,51 @@ Obtain the contents of an `IOBuffer` as a string, without copying. Afterwards, t
 takebuf_string
 
 doc"""
-```rst
-..  pipeline(from, to, ...)
+    pipeline(from, to, ...)
 
 Create a pipeline from a data source to a destination. The source and destination can
-be commands, I/O streams, strings, or results of other ``pipeline`` calls. At least one
+be commands, I/O streams, strings, or results of other `pipeline` calls. At least one
 argument must be a command. Strings refer to filenames.
 When called with more than two arguments, they are chained together from left to right.
-For example ``pipeline(a,b,c)`` is equivalent to ``pipeline(pipeline(a,b),c)``. This provides a more
+For example `pipeline(a,b,c)` is equivalent to `pipeline(pipeline(a,b),c)`. This provides a more
 concise way to specify multi-stage pipelines.
 
 **Examples**:
-  * ``run(pipeline(`ls`, `grep xyz`))``
-  * ``run(pipeline(`ls`, "out.txt"))``
-  * ``run(pipeline("out.txt", `grep xyz`))``
 
-```
+* ``run(pipeline(`ls`, `grep xyz`))``
+* ``run(pipeline(`ls`, "out.txt"))``
+* ``run(pipeline("out.txt", `grep xyz`))``
+
 """
 pipeline(from, to, rest...)
 
 doc"""
-```rst
-..  pipeline(command; stdin, stdout, stderr, append=false)
+    pipeline(command; stdin, stdout, stderr, append=false)
 
-Redirect I/O to or from the given ``command``. Keyword arguments specify which of
-the command's streams should be redirected. ``append`` controls whether file output
+Redirect I/O to or from the given `command`. Keyword arguments specify which of
+the command's streams should be redirected. `append` controls whether file output
 appends to the file.
-This is a more general version of the 2-argument ``pipeline`` function.
-``pipeline(from, to)`` is equivalent to ``pipeline(from, stdout=to)`` when ``from`` is a
-command, and to ``pipe(to, stdin=from)`` when ``from`` is another kind of
+This is a more general version of the 2-argument `pipeline` function.
+`pipeline(from, to)` is equivalent to `pipeline(from, stdout=to)` when `from` is a
+command, and to `pipe(to, stdin=from)` when `from` is another kind of
 data source.
 
 **Examples**:
-  * ``run(pipeline(`dothings`, stdout="out.txt", stderr="errs.txt"))``
-  * ``run(pipeline(`update`, stdout="log.txt", append=true))``
 
-```
+* ``run(pipeline(`dothings`, stdout="out.txt", stderr="errs.txt"))``
+* ``run(pipeline(`update`, stdout="log.txt", append=true))``
+
 """
 pipeline(command)
 
 doc"""
     serialize(stream, value)
 
-Write an arbitrary value to a stream in an opaque format, such that it can be read back by `deserialize`. The read-back value will be as identical as possible to the original. In general, this process will not work if the reading and writing are done by different versions of Julia, or an instance of Julia with a different system image.
+Write an arbitrary value to a stream in an opaque format, such that it can be read back by `deserialize`.
+The read-back value will be as identical as possible to the original.
+In general, this process will not work if the reading and writing are done by different versions of Julia,
+or an instance of Julia with a different system image.
+`Ptr` values are serialized as all-zero bit patterns (`NULL`).
 """
 serialize
 
@@ -4602,9 +4148,9 @@ Return a list of immediate subtypes of DataType `T`. Note that all currently loa
 subtypes
 
 doc"""
-    digits(n, [base], [pad])
+    digits([T], n, [base], [pad])
 
-Returns an array of the digits of `n` in the given base, optionally padded with zeros to a specified size. More significant digits are at higher indexes, such that `n == sum([digits[k]*base^(k-1) for k=1:length(digits)])`.
+Returns an array with element type `T` (default `Int`) of the digits of `n` in the given base, optionally padded with zeros to a specified size. More significant digits are at higher indexes, such that `n == sum([digits[k]*base^(k-1) for k=1:length(digits)])`.
 """
 digits
 
@@ -4741,19 +4287,17 @@ Display a warning. Argument `msg` is a string describing the warning to be displ
 warn
 
 doc"""
-```rst
-..  erfinv(x)
+    erfinv(x)
 
-Compute the inverse error function of a real ``x``,
-defined by :math:`\operatorname{erf}(\operatorname{erfinv}(x)) = x`.
-```
+Compute the inverse error function of a real `x`,
+defined by $\operatorname{erf}(\operatorname{erfinv}(x)) = x$.
 """
 erfinv
 
 doc"""
     @async
 
-Wraps an expression in a closure and schedules it to run on the local machine. Also adds it to the set of items that the nearest enclosing `@sync` waits for.
+Like `@schedule`, `@async` wraps an expression in a `Task` and adds it to the local machine's scheduler queue. Additionally it adds the task to the set of items that the nearest enclosing `@sync` waits for. `@async` also wraps the expression in a `let x=x, y=y, ...` block to create a new scope with copies of all variables referenced in the expression.
 """
 :@async
 
@@ -4814,21 +4358,17 @@ Return a collection of all instances of the given type, if applicable. Mostly us
 instances
 
 doc"""
-```rst
-..  besselj0(x)
+    besselj0(x)
 
-Bessel function of the first kind of order 0, :math:`J_0(x)`.
-```
+Bessel function of the first kind of order 0, $J_0(x)$.
 """
 besselj0
 
 doc"""
-```rst
-..  erfcinv(x)
+    erfcinv(x)
 
-Compute the inverse error complementary function of a real ``x``,
-defined by :math:`\operatorname{erfc}(\operatorname{erfcinv}(x)) = x`.
-```
+Compute the inverse error complementary function of a real `x`,
+defined by $\operatorname{erfc}(\operatorname{erfcinv}(x)) = x$.
 """
 erfcinv
 
@@ -4918,11 +4458,9 @@ Equivalent to `stat(file).size`
 filesize
 
 doc"""
-```rst
-..  sinc(x)
+    sinc(x)
 
-Compute :math:`\sin(\pi x) / (\pi x)` if :math:`x \neq 0`, and :math:`1` if :math:`x = 0`.
-```
+Compute $\sin(\pi x) / (\pi x)$ if $x \neq 0$, and $1$ if $x = 0$.
 """
 sinc
 
@@ -4945,7 +4483,7 @@ utf16(::Union{Ptr{UInt16},Ptr{Int16}}, length=?)
 doc"""
     median(v[, region])
 
-Compute the median of whole array `v`, or optionally along the dimensions in `region`. `NaN` is returned if the data contains any `NaN` values. For applications requiring the handling of missing data, the `DataArrays` package is recommended.
+Compute the median of whole array `v`, or optionally along the dimensions in `region`. For even number of elements no exact median element exists, so the result is equivalent to calculating mean of two median elements. `NaN` is returned if the data contains any `NaN` values. For applications requiring the handling of missing data, the `DataArrays` package is recommended.
 """
 median
 
@@ -4978,97 +4516,91 @@ Approximate floating point number `x` as a Rational number with components of th
 rationalize
 
 doc"""
-```rst
-..  splice!(collection, index, [replacement]) -> item
+    splice!(collection, index, [replacement]) -> item
 
 Remove the item at the given index, and return the removed item. Subsequent items
 are shifted down to fill the resulting gap. If specified, replacement values from
 an ordered collection will be spliced in place of the removed item.
 
-.. doctest::
+```jldoctest
+julia> A = [6, 5, 4, 3, 2, 1]; splice!(A, 5)
+2
 
-  julia> A = [6, 5, 4, 3, 2, 1]; splice!(A, 5)
-  2
+julia> A
+5-element Array{Int64,1}:
+ 6
+ 5
+ 4
+ 3
+ 1
 
-  julia> A
-  5-element Array{Int64,1}:
-   6
-   5
-   4
-   3
-   1
+julia> splice!(A, 5, -1)
+1
 
-  julia> splice!(A, 5, -1)
-  1
-
-  julia> A
-  5-element Array{Int64,1}:
-    6
-    5
-    4
-    3
-   -1
-
-  julia> splice!(A, 1, [-1, -2, -3])
+julia> A
+5-element Array{Int64,1}:
   6
+  5
+  4
+  3
+ -1
 
-  julia> A
-  7-element Array{Int64,1}:
-   -1
-   -2
-   -3
-    5
-    4
-    3
-   -1
+julia> splice!(A, 1, [-1, -2, -3])
+6
 
-To insert ``replacement`` before an index ``n`` without removing any items, use
-``splice!(collection, n:n-1, replacement)``.
+julia> A
+7-element Array{Int64,1}:
+ -1
+ -2
+ -3
+  5
+  4
+  3
+ -1
 ```
+
+To insert `replacement` before an index `n` without removing any items, use
+`splice!(collection, n:n-1, replacement)`.
 """
 splice!(collection, index, replacement = ?)
 
 doc"""
-```rst
-..  splice!(collection, range, [replacement]) -> items
+    splice!(collection, range, [replacement]) -> items
 
 Remove items in the specified index range, and return a collection containing the
 removed items. Subsequent items are shifted down to fill the resulting gap.
 If specified, replacement values from an ordered collection will be spliced in place
 of the removed items.
 
-To insert ``replacement`` before an index ``n`` without removing any items, use
-``splice!(collection, n:n-1, replacement)``.
+To insert `replacement` before an index `n` without removing any items, use
+`splice!(collection, n:n-1, replacement)`.
 
-.. doctest::
+```jldoctest
+julia> splice!(A, 4:3, 2)
+0-element Array{Int64,1}
 
-  julia> splice!(A, 4:3, 2)
-  0-element Array{Int64,1}
-
-  julia> A
-  8-element Array{Int64,1}:
-   -1
-   -2
-   -3
-    2
-    5
-    4
-    3
-   -1
+julia> A
+8-element Array{Int64,1}:
+ -1
+ -2
+ -3
+  2
+  5
+  4
+  3
+ -1
 ```
 """
 splice!(collection, range::Range, replacement)
 
 doc"""
-```rst
-..  endof(collection) -> Integer
+    endof(collection) -> Integer
 
 Returns the last index of the collection.
 
-.. doctest::
-
-	julia> endof([1,2,4])
-	3
+```jldoctest
+julia> endof([1,2,4])
+3
 ```
 """
 endof
@@ -5100,38 +4632,11 @@ For a given iterable object and iteration state, return the current item and the
 next
 
 doc"""
-```rst
-..  irfft(A, d [, dims])
+    unshift!(collection, items...) -> collection
 
-Inverse of :func:`rfft`: for a complex array ``A``, gives the
-corresponding real array whose FFT yields ``A`` in the first half.
-As for :func:`rfft`, ``dims`` is an optional subset of dimensions
-to transform, defaulting to ``1:ndims(A)``.
+Insert one or more `items` at the beginning of `collection`.
 
-``d`` is the length of the transformed real array along the ``dims[1]``
-dimension, which must satisfy ``div(d,2)+1 == size(A,dims[1])``.
-(This parameter cannot be inferred from ``size(A)`` since both
-``2*size(A,dims[1])-2`` as well as ``2*size(A,dims[1])-1`` are valid sizes
-for the transformed real array.)
-```
-"""
-irfft
-
-doc"""
-    nnz(A)
-
-Returns the number of stored (filled) elements in a sparse matrix.
-"""
-nnz
-
-doc"""
-```rst
-..  unshift!(collection, items...) -> collection
-
-Insert one or more ``items`` at the beginning of ``collection``.
-
-.. doctest::
-
+```jldoctest
   julia> unshift!([1, 2, 3, 4], 5, 6)
   6-element Array{Int64,1}:
    5
@@ -5159,13 +4664,6 @@ Construct a real symmetric tridiagonal matrix from the diagonal and upper diagon
 ```
 """
 SymTridiagonal
-
-doc"""
-    spzeros(m,n)
-
-Create a sparse matrix of size `m x n`. This sparse matrix will not contain any nonzero values. No storage will be allocated for nonzero values during construction.
-"""
-spzeros
 
 doc"""
     colon(start, [step], stop)
@@ -5206,6 +4704,13 @@ doc"""
     write(stream, x)
 
 Write the canonical binary representation of a value to the given stream.
+Returns the number of bytes written into the stream.
+
+You can write multiple values with the same :func:`write` call.
+i.e. the following are equivalent:
+
+    write(stream, x, y...)
+    write(stream, x) + write(stream, y...)
 """
 write
 
@@ -5215,15 +4720,6 @@ doc"""
 Suggest that collection `s` reserve capacity for at least `n` elements. This can improve performance.
 """
 sizehint!
-
-doc"""
-    permute!(v, p)
-
-Permute vector `v` in-place, according to permutation `p`. No checking is done to verify that `p` is a permutation.
-
-To return a new permutation, use `v[p]`. Note that this is generally faster than `permute!(v,p)` for large vectors.
-"""
-permute!
 
 doc"""
     ifelse(condition::Bool, x, y)
@@ -5363,11 +4859,11 @@ Optional argument `msg` is a descriptive error string.
 DimensionMismatch
 
 doc"""
-    take!(RemoteRef)
+    take!(RemoteChannel)
 
-Fetch the value of a remote reference, removing it so that the reference is empty again.
+Fetch a value from a remote channel, also removing it in the processs.
 """
-take!(::RemoteRef)
+take!(::RemoteChannel)
 
 doc"""
     take!(Channel)
@@ -5375,15 +4871,6 @@ doc"""
 Removes and returns a value from a `Channel`. Blocks till data is available.
 """
 take!(::Channel)
-
-doc"""
-```rst
-..  ifft!(A [, dims])
-
-Same as :func:`ifft`, but operates in-place on ``A``.
-```
-"""
-ifft!
 
 doc"""
     sort!(v, [alg=<algorithm>,] [by=<transform>,] [lt=<comparison>,] [rev=false])
@@ -5405,27 +4892,6 @@ doc"""
 Implemented by cluster managers. It is called on the master process, by `rmprocs`. It should cause the remote worker specified by `pid` to exit. `Base.kill(manager::ClusterManager.....)` executes a remote `exit()` on `pid`
 """
 kill(manager, pid::Int, config::WorkerConfig)
-
-doc"""
-```rst
-..  logm(A)
-
-If ``A`` has no negative real eigenvalue, compute the principal matrix logarithm of ``A``, i.e. the unique matrix :math:`X` such that :math:`e^X = A` and :math:`-\pi < Im(\lambda) < \pi` for all the eigenvalues :math:`\lambda` of :math:`X`. If ``A`` has nonpositive eigenvalues, a warning is printed and whenever possible a nonprincipal matrix function is returned.
-
-If ``A`` is symmetric or Hermitian, its eigendecomposition (:func:`eigfact`) is used, if ``A`` is triangular an improved version of the inverse scaling and squaring method is employed (see [AH12]_ and [AHR13]_). For general matrices, the complex Schur form (:func:`schur`) is computed and the triangular algorithm is used on the triangular factor.
-
-.. [AH12] Awad H. Al-Mohy and Nicholas J. Higham, "Improved inverse  scaling
-   and squaring algorithms for the matrix logarithm", SIAM Journal on
-   Scientific Computing, 34(4), 2012, C153-C169.
-   `doi:10.1137/110852553 <http://dx.doi.org/10.1137/110852553>`_
-.. [AHR13] Awad H. Al-Mohy, Nicholas J. Higham and Samuel D. Relton,
-   "Computing the Fréchet derivative of the matrix logarithm and estimating
-   the condition number", SIAM Journal on Scientific Computing, 35(4), 2013,
-   C394-C410.
-   `doi:10.1137/120885991 <http://dx.doi.org/10.1137/120885991>`_
-```
-"""
-logm
 
 doc"""
     sylvester(A, B, C)
@@ -5504,22 +4970,6 @@ Like uperm but gets the permissions of the group owning the file
 gperm
 
 doc"""
-```rst
-..  idct(A [, dims])
-
-Computes the multidimensional inverse discrete cosine transform (DCT)
-of the array ``A`` (technically, a type-III DCT with the unitary
-normalization).
-The optional ``dims`` argument specifies an iterable subset of
-dimensions (e.g. an integer, range, tuple, or array) to transform
-along.  Most efficient if the size of ``A`` along the transformed
-dimensions is a product of small primes; see :func:`nextprod`.  See
-also :func:`plan_idct` for even greater efficiency.
-```
-"""
-idct
-
-doc"""
     nb_available(stream)
 
 Returns the number of bytes available for reading before a read from this stream or buffer will block.
@@ -5534,17 +4984,16 @@ Immediately run finalizers registered for object `x`.
 finalize
 
 doc"""
-```rst
-..  rand([rng], [S], [dims...])
+    rand([rng], [S], [dims...])
 
-Pick a random element or array of random elements from the set of values specified by ``S``; ``S`` can be
+Pick a random element or array of random elements from the set of values specified by `S`; `S` can be
 
-* an indexable collection (for example ``1:n`` or ``['x','y','z']``), or
+* an indexable collection (for example `1:n` or `['x','y','z']`), or
+* a type: the set of values to pick from is then equivalent to
+`typemin(S):typemax(S)` for integers (this is not applicable to `BigInt`),
+and to $[0, 1)$ for floating point numbers;
 
-* a type: the set of values to pick from is then equivalent to ``typemin(S):typemax(S)`` for integers (this is not applicable to ``BigInt``), and to :math:`[0, 1)` for floating point numbers;
-
-``S`` defaults to ``Float64``.
-```
+`S` defaults to `Float64`.
 """
 rand
 
@@ -5700,27 +5149,23 @@ doc"""
 bkfact!
 
 doc"""
-```rst
-..  ^(x, y)
+    ^(x, y)
 
 Exponentiation operator.
-```
 """
 Base.(:(^))(x, y)
 
 doc"""
-```rst
-..  ^(s, n)
+    ^(s, n)
 
-Repeat ``n`` times the string ``s``. The ``^`` operator is an alias to this function.
+Repeat `n` times the string `s`. The `repeat` function is an alias to this operator.
 
-.. doctest::
-
-	julia> "Test "^3
-	"Test Test Test "
+```jldoctest
+julia> "Test "^3
+"Test Test Test "
 ```
 """
-Base.(:(^))(s::String, n::Int)
+Base.(:(^))(s::AbstractString, n::Int)
 
 doc"""
     position(s)
@@ -5779,11 +5224,9 @@ Bitwise not
 ~
 
 doc"""
-```rst
-..  hankelh1(nu, x)
+    hankelh1(nu, x)
 
-Bessel function of the third kind of order ``nu``, :math:`H^{(1)}_\nu(x)`.
-```
+Bessel function of the third kind of order `nu`, $H^{(1)}_\nu(x)$.
 """
 hankelh1
 
@@ -5824,6 +5267,8 @@ doc"""
     %(x, y)
 
 Remainder from Euclidean division, returning a value of the same sign as `x`, and smaller in magnitude than `y`. This value is always exact.
+
+    x == div(x,y)*y + rem(x,y)
 """
 rem
 
@@ -5897,29 +5342,26 @@ See also :func:`sortperm`
 sortperm!
 
 doc"""
-```rst
-..  isodd(x::Integer) -> Bool
+    isodd(x::Integer) -> Bool
 
-Returns ``true`` if ``x`` is odd (that is, not divisible by 2), and ``false`` otherwise.
+Returns `true` if `x` is odd (that is, not divisible by 2), and `false` otherwise.
 
-.. doctest::
+```jldoctest
+julia> isodd(9)
+true
 
-	julia> isodd(9)
-	true
-
-	julia> isodd(10)
-	false
+julia> isodd(10)
+false
 ```
 """
 isodd
 
 doc"""
-```rst
-..  normalize_string(s, normalform::Symbol)
+    normalize_string(s, normalform::Symbol)
 
-Normalize the string ``s`` according to one of the four "normal
-forms" of the Unicode standard: ``normalform`` can be ``:NFC``,
-``:NFD``, ``:NFKC``, or ``:NFKD``.  Normal forms C (canonical
+Normalize the string `s` according to one of the four "normal
+forms" of the Unicode standard: `normalform` can be `:NFC`,
+`:NFD`, `:NFKC`, or `:NFKD`.  Normal forms C (canonical
 composition) and D (canonical decomposition) convert different
 visually identical representations of the same abstract string into
 a single canonical form, with form C being more compact.  Normal
@@ -5929,23 +5371,22 @@ but visually distinct into a single canonical choice (e.g. they expand
 ligatures into the individual characters), with form KC being more compact.
 
 Alternatively, finer control and additional transformations may be
-be obtained by calling ``normalize_string(s; keywords...)``, where
+be obtained by calling `normalize_string(s; keywords...)`, where
 any number of the following boolean keywords options (which all default
-to ``false`` except for ``compose``) are specified:
+to `false` except for `compose`) are specified:
 
-* ``compose=false``: do not perform canonical composition
-* ``decompose=true``: do canonical decomposition instead of canonical composition (``compose=true`` is ignored if present)
-* ``compat=true``: compatibility equivalents are canonicalized
-* ``casefold=true``: perform Unicode case folding, e.g. for case-insensitive string comparison
-* ``newline2lf=true``, ``newline2ls=true``, or ``newline2ps=true``: convert various newline sequences (LF, CRLF, CR, NEL) into a linefeed (LF), line-separation (LS), or paragraph-separation (PS) character, respectively
-* ``stripmark=true``: strip diacritical marks (e.g. accents)
-* ``stripignore=true``: strip Unicode's "default ignorable" characters (e.g. the soft hyphen or the left-to-right marker)
-* ``stripcc=true``: strip control characters; horizontal tabs and form feeds are converted to spaces; newlines are also converted to spaces unless a newline-conversion flag was specified
-* ``rejectna=true``: throw an error if unassigned code points are found
-* ``stable=true``: enforce Unicode Versioning Stability
+* `compose=false`: do not perform canonical composition
+* `decompose=true`: do canonical decomposition instead of canonical composition (`compose=true` is ignored if present)
+* `compat=true`: compatibility equivalents are canonicalized
+* `casefold=true`: perform Unicode case folding, e.g. for case-insensitive string comparison
+* `newline2lf=true`, `newline2ls=true`, or `newline2ps=true`: convert various newline sequences (LF, CRLF, CR, NEL) into a linefeed (LF), line-separation (LS), or paragraph-separation (PS) character, respectively
+* `stripmark=true`: strip diacritical marks (e.g. accents)
+* `stripignore=true`: strip Unicode's "default ignorable" characters (e.g. the soft hyphen or the left-to-right marker)
+* `stripcc=true`: strip control characters; horizontal tabs and form feeds are converted to spaces; newlines are also converted to spaces unless a newline-conversion flag was specified
+* `rejectna=true`: throw an error if unassigned code points are found
+* `stable=true`: enforce Unicode Versioning Stability
 
-For example, NFKC corresponds to the options ``compose=true, compat=true, stable=true``.
-```
+For example, NFKC corresponds to the options `compose=true, compat=true, stable=true`.
 """
 normalize_string
 
@@ -6013,45 +5454,43 @@ doc"""
 Implemented by cluster managers. It is called on the master process, during a worker's lifetime,
 with appropriate ``op`` values:
 
-    - with ``:register``/``:deregister`` when a worker is added / removed
-      from the Julia worker pool.
-    - with ``:interrupt`` when ``interrupt(workers)`` is called. The
-      :class:`ClusterManager` should signal the appropriate worker with an
-      interrupt signal.
-    - with ``:finalize`` for cleanup purposes.
+- with ``:register``/``:deregister`` when a worker is added / removed
+  from the Julia worker pool.
+- with ``:interrupt`` when ``interrupt(workers)`` is called. The
+  :class:`ClusterManager` should signal the appropriate worker with an
+  interrupt signal.
+- with ``:finalize`` for cleanup purposes.
 ```
 """
 manage
 
 doc"""
-```rst
-..  resize!(collection, n) -> collection
+    resize!(collection, n) -> collection
 
-Resize ``collection`` to contain ``n`` elements.
-If ``n`` is smaller than the current collection length, the first ``n``
-elements will be retained. If ``n`` is larger, the new elements are not
+Resize `collection` to contain `n` elements.
+If `n` is smaller than the current collection length, the first `n`
+elements will be retained. If `n` is larger, the new elements are not
 guaranteed to be initialized.
 
-.. doctest::
+```jldoctest
+julia> resize!([6, 5, 4, 3, 2, 1], 3)
+3-element Array{Int64,1}:
+ 6
+ 5
+ 4
+```
 
-  julia> resize!([6, 5, 4, 3, 2, 1], 3)
-  3-element Array{Int64,1}:
-   6
-   5
-   4
-
-.. code-block:: julia
-
-  julia> resize!([6, 5, 4, 3, 2, 1], 8)
-  8-element Array{Int64,1}:
-   6
-   5
-   4
-   3
-   2
-   1
-   0
-   0
+```jl
+julia> resize!([6, 5, 4, 3, 2, 1], 8)
+8-element Array{Int64,1}:
+ 6
+ 5
+ 4
+ 3
+ 2
+ 1
+ 0
+ 0
 ```
 """
 resize!
@@ -6071,25 +5510,16 @@ Returns IPv4 object from ip address formatted as Integer
 IPv4
 
 doc"""
-```rst
-..  trailing_zeros(x::Integer) -> Integer
+    trailing_zeros(x::Integer) -> Integer
 
-Number of zeros trailing the binary representation of ``x``.
+Number of zeros trailing the binary representation of `x`.
 
-.. doctest::
-
-   julia> trailing_zeros(2)
-   1
+```jldoctest
+julia> trailing_zeros(2)
+1
 ```
 """
 trailing_zeros
-
-doc"""
-    etree(A[, post])
-
-Compute the elimination tree of a symmetric sparse matrix `A` from `triu(A)` and, optionally, its post-ordering permutation.
-"""
-etree
 
 doc"""
     isalnum(c::Union{Char,AbstractString}) -> Bool
@@ -6097,17 +5527,6 @@ doc"""
 Tests whether a character is alphanumeric, or whether this is true for all elements of a string. A character is classified as alphabetic if it belongs to the Unicode general category Letter or Number, i.e. a character whose category code begins with 'L' or 'N'.
 """
 isalnum
-
-doc"""
-```rst
-..  dct!(A [, dims])
-
-Same as :func:`dct!`, except that it operates in-place
-on ``A``, which must be an array of real or complex floating-point
-values.
-```
-"""
-dct!
 
 doc"""
     @sprintf("%Fmt", args...)
@@ -6180,13 +5599,6 @@ as ``v0``. In general, this cannot be used with empty collections
 foldr(op, itr)
 
 doc"""
-    chol(A, [LU]) -> F
-
-Compute the Cholesky factorization of a symmetric positive definite matrix `A` and return the matrix `F`. If `LU` is `Val{:U}` (Upper), `F` is of type `UpperTriangular` and `A = F'*F`. If `LU` is `Val{:L}` (Lower), `F` is of type `LowerTriangular` and `A = F*F'`. `LU` defaults to `Val{:U}`.
-"""
-chol
-
-doc"""
     ParseError(msg)
 
 The expression passed to the `parse` function could not be interpreted as a valid Julia expression.
@@ -6229,53 +5641,39 @@ Get the fully-qualified name of a module as a tuple of symbols. For example, `fu
 fullname
 
 doc"""
-    isreadable(path) -> Bool
+    isreadable(io) -> Bool
 
-Returns `true` if the current user has permission to read `path`, `false` otherwise.
+Returns `true` if the specified IO object is readable (if that can be determined).
 """
 isreadable
 
 doc"""
-    eps([T])
+    eps(T)
 
-The distance between 1.0 and the next larger representable floating-point value of `DataType` `T`. Only floating-point types are sensible arguments. If `T` is omitted, then `eps(Float64)` is returned.
+The distance between 1.0 and the next larger representable floating-point value of `DataType` `T`. Only floating-point types are sensible arguments.
 """
-eps(::Any)
+eps(::Union{Type{BigFloat},Type{Float64},Type{Float32},Type{Float16}})
+
+doc"""
+    eps()
+
+The distance between 1.0 and the next larger representable floating-point value of `Float64`.
+"""
+eps()
 
 doc"""
     eps(x)
 
 The distance between `x` and the next larger representable floating-point value of the same `DataType` as `x`.
 """
-eps(::FloatingPoint)
+eps(::AbstractFloat)
 
 doc"""
-    rem1(x,m)
+    rem1(x, y)
 
-Remainder after division, returning in the range (0,m\]
+(Deprecated.) Remainder after division, returning in the range `(0,y\]`
 """
 rem1
-
-doc"""
-    sparsevec(I, V, [m, combine])
-
-Create a sparse matrix `S` of size `m x 1` such that `S[I[k]] = V[k]`. Duplicates are combined using the `combine` function, which defaults to `+` if it is not provided. In julia, sparse vectors are really just sparse matrices with one column. Given Julia's Compressed Sparse Columns (CSC) storage format, a sparse column matrix with one column is sparse, whereas a sparse row matrix with one row ends up being dense.
-"""
-sparsevec(I, V)
-
-doc"""
-    sparsevec(D::Dict, [m])
-
-Create a sparse matrix of size `m x 1` where the row values are keys from the dictionary, and the nonzero values are the values from the dictionary.
-"""
-sparsevec(D::Dict)
-
-doc"""
-    sparsevec(A)
-
-Convert a dense vector `A` into a sparse matrix of size `m x 1`. In julia, sparse vectors are really just sparse matrices with one column.
-"""
-sparsevec(A)
 
 doc"""
     isalpha(c::Union{Char,AbstractString}) -> Bool
@@ -6350,13 +5748,6 @@ Compute a type that contains both `T` and `S`.
 typejoin
 
 doc"""
-    summary(x)
-
-Return a string giving a brief description of a value. By default returns `string(typeof(x))`. For arrays, returns strings like "2x2 Float64 Array".
-"""
-summary
-
-doc"""
     Base64DecodePipe(istream)
 
 Returns a new read-only I/O stream, which decodes base64-encoded data read from `istream`.
@@ -6371,11 +5762,9 @@ Get a module's enclosing `Module`. `Main` is its own parent, as is `LastMain` af
 module_parent
 
 doc"""
-```rst
-..  airyaiprime(x)
+    airyaiprime(x)
 
-Airy function derivative :math:`\operatorname{Ai}'(x)`.
-```
+Airy function derivative $\operatorname{Ai}'(x)$.
 """
 airyaiprime
 
@@ -6387,18 +5776,16 @@ Bessel function of the third kind of order `nu` (Hankel function). `k` is either
 besselh
 
 doc"""
-```rst
-..  prepend!(collection, items) -> collection
+    prepend!(collection, items) -> collection
 
-Insert the elements of ``items`` to the beginning of ``collection``.
+Insert the elements of `items` to the beginning of `collection`.
 
-.. doctest::
-
-   julia> prepend!([3],[1,2])
-   3-element Array{Int64,1}:
-    1
-    2
-    3
+```jldoctest
+julia> prepend!([3],[1,2])
+3-element Array{Int64,1}:
+ 1
+ 2
+ 3
 ```
 """
 prepend!
@@ -6411,11 +5798,9 @@ Returns the sum of all array elements, using the Kahan-Babuska-Neumaier compensa
 sum_kbn
 
 doc"""
-```rst
-..  beta(x, y)
+    beta(x, y)
 
-Euler integral of the first kind :math:`\operatorname{B}(x,y) = \Gamma(x)\Gamma(y)/\Gamma(x+y)`.
-```
+Euler integral of the first kind $\operatorname{B}(x,y) = \Gamma(x)\Gamma(y)/\Gamma(x+y)$.
 """
 beta
 
@@ -6477,43 +5862,7 @@ sin
 
 doc"""
 ```rst
-..  ordschur!(Q, T, select) -> Schur
-
-Reorders the Schur factorization of a real matrix ``A=Q*T*Q'``, overwriting ``Q`` and ``T`` in the process. See :func:`ordschur`
-```
-"""
-ordschur!(Q,T,select)
-
-doc"""
-```rst
-..  ordschur!(S, select) -> Schur
-
-Reorders the Schur factorization ``S`` of type ``Schur``, overwriting ``S`` in the process. See :func:`ordschur`
-```
-"""
-ordschur!(S,select)
-
-doc"""
-```rst
-..  ordschur!(S, T, Q, Z, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a matrix by overwriting the matrices ``(S, T, Q, Z)`` in the process.  See :func:`ordschur`.
-```
-"""
-ordschur!(S,T,Q,Z,select)
-
-doc"""
-```rst
-..  ordschur!(GS, select) -> GeneralizedSchur
-
-Reorders the Generalized Schur factorization of a Generalized Schur object by overwriting the object with the new factorization.  See :func:`ordschur`.
-```
-"""
-ordschur!(::LinAlg.GeneralizedSchur,select)
-
-doc"""
-```rst
-..  Base.compilecache(module::Symbol)
+..  Base.compilecache(module::ByteString)
 
 Creates a precompiled cache file for module (see help for ``require``) and all of its dependencies. This can be used to reduce package load times. Cache files are stored in ``LOAD_CACHE_PATH[1]``, which defaults to ``~/.julia/lib/VERSION``. See :ref:`Module initialization and precompilation <man-modules-initialization-precompilation>` for important notes.
 ```
@@ -6542,20 +5891,6 @@ Returns an array of lowered ASTs for the methods matching the given generic func
 code_lowered
 
 doc"""
-    nthperm(v, k)
-
-Compute the kth lexicographic permutation of a vector.
-"""
-nthperm(v,k)
-
-doc"""
-    nthperm(p)
-
-Return the `k` that generated permutation `p`. Note that `nthperm(nthperm([1:n], k)) == k` for `1 <= k <= factorial(n)`.
-"""
-nthperm(p)
-
-doc"""
     values(collection)
 
 Return an iterator over all values in a collection. `collect(values(d))` returns an array of values.
@@ -6563,21 +5898,19 @@ Return an iterator over all values in a collection. `collect(values(d))` returns
 values
 
 doc"""
-```rst
-..  A_mul_B!(Y, A, B) -> Y
+    A_mul_B!(Y, A, B) -> Y
 
+Calculates the matrix-matrix or matrix-vector product $A⋅B$ and stores the
+result in `Y`, overwriting the existing value of `Y`. Note that `Y` must not
+be aliased with either `A` or `B`.
 
-Calculates the matrix-matrix or matrix-vector product *A B* and stores the
-result in *Y*, overwriting the existing value of *Y*.
+```jldoctest
+julia> A=[1.0 2.0; 3.0 4.0]; B=[1.0 1.0; 1.0 1.0]; Y = similar(B); A_mul_B!(Y, A, B);
 
-.. doctest::
-
-   julia> A=[1.0 2.0; 3.0 4.0]; B=[1.0 1.0; 1.0 1.0]; A_mul_B!(B, A, B);
-
-   julia> B
-   2x2 Array{Float64,2}:
-    3.0  3.0
-    7.0  7.0
+julia> Y
+2x2 Array{Float64,2}:
+ 3.0  3.0
+ 7.0  7.0
 ```
 """
 A_mul_B!
@@ -6590,20 +5923,10 @@ Create a tuple of length `n`, computing each element as `f(i)`, where `i` is the
 ntuple
 
 doc"""
-```rst
-..  idct!(A [, dims])
+    Ac_rdiv_Bc(A, B)
 
-Same as :func:`idct!`, but operates in-place on ``A``.
-```
-"""
-idct!
+For matrices or vectors $A$ and $B$, calculates $Aᴴ / Bᴴ$
 
-doc"""
-```rst
-..  Ac_rdiv_Bc(a,b)
-
-Matrix operator A\ :sup:`H` / B\ :sup:`H`
-```
 """
 Ac_rdiv_Bc
 
@@ -6640,7 +5963,7 @@ Search for the first occurrence of the given characters within the given string.
 search
 
 doc"""
-    remotecall_fetch(id, func, args...)
+    remotecall_fetch(func, id, args...)
 
 Perform `fetch(remotecall(...))` in one message. Any remote exceptions are captured in a `RemoteException` and thrown.
 """
@@ -6659,13 +5982,6 @@ doc"""
 Commit all currently buffered writes to the given stream.
 """
 flush
-
-doc"""
-    detach(command)
-
-Mark a command object so that it will be run in a new process group, allowing it to outlive the julia process, and not have Ctrl-C interrupts passed to it.
-"""
-detach
 
 doc"""
     precompile(f,args::Tuple{Vararg{Any}})
@@ -6735,7 +6051,7 @@ minimum(A,dims)
 doc"""
     var(v[, region])
 
-Compute the sample variance of a vector or array `v`, optionally along dimensions in `region`. The algorithm will return an estimator of the generative distribution's variance under the assumption that each entry of `v` is an IID drawn from that generative distribution. This computation is equivalent to calculating `sum((v - mean(v)).^2) / (length(v) - 1)`. Note: Julia does not ignore `NaN` values in the computation. For applications requiring the handling of missing data, the `DataArray` package is recommended.
+Compute the sample variance of a vector or array `v`, optionally along dimensions in `region`. The algorithm will return an estimator of the generative distribution's variance under the assumption that each entry of `v` is an IID drawn from that generative distribution. This computation is equivalent to calculating `sumabs2(v - mean(v)) / (length(v) - 1)`. Note: Julia does not ignore `NaN` values in the computation. For applications requiring the handling of missing data, the `DataArray` package is recommended.
 """
 var
 
@@ -6827,7 +6143,7 @@ isreadonly
 
 doc"""
 ```rst
-..  get_rounding(T)
+..  rounding(T)
 
 Get the current floating point rounding mode for type ``T``, controlling
 the rounding of basic arithmetic functions (:func:`+`, :func:`-`,
@@ -6837,7 +6153,7 @@ Valid modes are ``RoundNearest``, ``RoundToZero``, ``RoundUp``,
 ``RoundDown``, and ``RoundFromZero`` (``BigFloat`` only).
 ```
 """
-get_rounding
+rounding
 
 doc"""
 ```rst
@@ -6866,27 +6182,6 @@ doc"""
 Wake up tasks waiting for a condition, passing them `val`. If `all` is `true` (the default), all waiting tasks are woken, otherwise only one is. If `error` is `true`, the passed value is raised as an exception in the woken tasks.
 """
 notify
-
-doc"""
-    fftshift(x)
-
-Swap the first and second halves of each dimension of `x`.
-"""
-fftshift(x)
-
-doc"""
-    fftshift(x,dim)
-
-Swap the first and second halves of the given dimension of array `x`.
-"""
-fftshift(x,dim)
-
-doc"""
-    unique(itr[, dim])
-
-Returns an array containing only the unique elements of the iterable `itr`, in the order that the first of each set of equivalent elements originally appears. If `dim` is specified, returns unique regions of the array `itr` along `dim`.
-"""
-unique
 
 doc"""
 ```rst
@@ -7018,15 +6313,6 @@ Create an IOBuffer, which may optionally operate on a pre-existing array. If the
 IOBuffer(data=?)
 
 doc"""
-```rst
-..  plan_dct!(A [, dims [, flags [, timelimit]]])
-
-Same as :func:`plan_dct`, but operates in-place on ``A``.
-```
-"""
-plan_dct!
-
-doc"""
     findmax(itr) -> (x, index)
 
 Returns the maximum element and its index.
@@ -7082,18 +6368,33 @@ Like `broadcast_function`, but for `broadcast!`.
 broadcast!_function
 
 doc"""
-    with_rounding(f::Function, T, mode)
+```rst
+..  setrounding(T, mode)
+
+Set the rounding mode of floating point type ``T``, controlling the
+rounding of basic arithmetic functions (:func:`+`, :func:`-`, :func:`*`,
+:func:`/` and :func:`sqrt`) and type conversion.
+
+Note that this may affect other types, for instance changing the rounding
+mode of ``Float64`` will change the rounding mode of ``Float32``. See
+``rounding`` for available modes
+```
+"""
+setrounding(T, mode)
+
+doc"""
+    setrounding(f::Function, T, mode)
 
 Change the rounding mode of floating point type `T` for the duration of `f`. It is logically equivalent to:
 
-    old = get_rounding(T)
-    set_rounding(T, mode)
+    old = rounding(T)
+    setrounding(T, mode)
     f()
-    set_rounding(T, old)
+    setrounding(T, old)
 
-See `get_rounding` for available rounding modes.
+See `rounding` for available rounding modes.
 """
-with_rounding
+setrounding(f::Function, T, mode)
 
 doc"""
     sleep(seconds)
@@ -7117,7 +6418,7 @@ Compute the cosecant of `x`, where `x` is in radians
 csc
 
 doc"""
-    hash(x[, h])
+    hash(x[, h::UInt])
 
 Compute an integer hash code such that `isequal(x,y)` implies `hash(x)==hash(y)`. The optional second argument `h` is a hash code to be mixed with the result.
 
@@ -7147,58 +6448,42 @@ Compute the inverse hyperbolic tangent of `x`
 atanh
 
 doc"""
-```rst
-..  deleteat!(collection, index)
+    deleteat!(collection, index)
 
-Remove the item at the given ``index`` and return the modified ``collection``.
+Remove the item at the given `index` and return the modified `collection`.
 Subsequent items are shifted to fill the resulting gap.
 
-.. doctest::
-
-  julia> deleteat!([6, 5, 4, 3, 2, 1], 2)
-  5-element Array{Int64,1}:
-   6
-   4
-   3
-   2
-   1
-
+```jldoctest
+julia> deleteat!([6, 5, 4, 3, 2, 1], 2)
+5-element Array{Int64,1}:
+ 6
+ 4
+ 3
+ 2
+ 1
 ```
 """
 deleteat!(collection, index::Integer)
 
 doc"""
-```rst
-..  deleteat!(collection, itr)
+    deleteat!(collection, itr)
 
-Remove the items at the indices given by ``itr``, and return the modified ``collection``.
-Subsequent items are shifted to fill the resulting gap. ``itr`` must be sorted and unique.
+Remove the items at the indices given by `itr`, and return the modified `collection`.
+Subsequent items are shifted to fill the resulting gap. `itr` must be sorted and unique.
 
-.. doctest::
+```jldoctest
+julia> deleteat!([6, 5, 4, 3, 2, 1], 1:2:5)
+3-element Array{Int64,1}:
+ 5
+ 3
+ 1
 
-  julia> deleteat!([6, 5, 4, 3, 2, 1], 1:2:5)
-  3-element Array{Int64,1}:
-   5
-   3
-   1
-
-.. doctest::
-
-  julia> deleteat!([6, 5, 4, 3, 2, 1], (2, 2))
-  ERROR: ArgumentError: indices must be unique and sorted
-   in deleteat! at array.jl:533
+julia> deleteat!([6, 5, 4, 3, 2, 1], (2, 2))
+ERROR: ArgumentError: indices must be unique and sorted
+ in deleteat! at array.jl:543
 ```
 """
 deleteat!(collection, itr)
-
-doc"""
-```rst
-..  schurfact!(A)
-
-Computes the Schur factorization of ``A``, overwriting ``A`` in the process. See :func:`schurfact`
-```
-"""
-schurfact!
 
 doc"""
     read(stream, type)
@@ -7215,18 +6500,6 @@ Read a series of values of the given type from a stream, in canonical binary rep
 read(stream, t, dims)
 
 doc"""
-```rst
-..  plan_rfft(A [, dims]; flags=FFTW.ESTIMATE;  timelimit=Inf)
-
-Pre-plan an optimized real-input FFT, similar to :func:`plan_fft`
-except for :func:`rfft` instead of :func:`fft`.  The first two
-arguments, and the size of the transformed result, are the same as
-for :func:`rfft`.
-```
-"""
-plan_rfft
-
-doc"""
     @timev
 
 This is a verbose version of the `@time` macro. It first prints the same information as `@time`, then any non-zero memory allocation counters, and then returns the value of the expression.
@@ -7241,32 +6514,30 @@ Determine whether an object - such as a stream, timer, or mmap -- is not yet clo
 isopen
 
 doc"""
-```rst
-..  shift!(collection) -> item
+    shift!(collection) -> item
 
-Remove the first ``item`` from ``collection``.
+Remove the first `item` from `collection`.
 
-.. doctest::
+```jldoctest
+julia> A = [1, 2, 3, 4, 5, 6]
+6-element Array{Int64,1}:
+ 1
+ 2
+ 3
+ 4
+ 5
+ 6
 
-  julia> A = [1, 2, 3, 4, 5, 6]
-  6-element Array{Int64,1}:
-   1
-   2
-   3
-   4
-   5
-   6
+julia> shift!(A)
+1
 
-  julia> shift!(A)
-  1
-
-  julia> A
-  5-element Array{Int64,1}:
-   2
-   3
-   4
-   5
-   6
+julia> A
+5-element Array{Int64,1}:
+ 2
+ 3
+ 4
+ 5
+ 6
 ```
 """
 shift!
@@ -7316,7 +6587,7 @@ A macro to execute an expression, and return the value of the expression, elapse
 doc"""
     code_native(f, types)
 
-Prints the native assembly instructions generated for running the method matching the given generic function and type signature to STDOUT.
+Prints the native assembly instructions generated for running the method matching the given generic function and type signature to `STDOUT`.
 """
 code_native
 
@@ -7335,15 +6606,6 @@ Construct the symmetric difference of elements in the passed in sets or arrays. 
 symdiff
 
 doc"""
-```rst
-..  bfft!(A [, dims])
-
-Same as :func:`bfft`, but operates in-place on ``A``.
-```
-"""
-bfft!
-
-doc"""
     histrange(v, n)
 
 Compute *nice* bin ranges for the edges of a histogram of `v`, using approximately `n` bins. The resulting step sizes will be 1, 2 or 5 multiplied by a power of 10. Note: Julia does not ignore `NaN` values in the computation.
@@ -7351,11 +6613,9 @@ Compute *nice* bin ranges for the edges of a histogram of `v`, using approximate
 histrange
 
 doc"""
-```rst
-..  eta(x)
+    eta(x)
 
-Dirichlet eta function :math:`\eta(s) = \sum^\infty_{n=1}(-)^{n-1}/n^{s}`.
-```
+Dirichlet eta function $\eta(s) = \sum^\infty_{n=1}(-)^{n-1}/n^{s}$.
 """
 eta
 
@@ -7381,32 +6641,24 @@ Convert an integer to a decimal string, optionally specifying a number of digits
 dec
 
 doc"""
-```rst
-..  wait([x])
+    wait([x])
 
 Block the current task until some event occurs, depending on the type
 of the argument:
 
-* ``RemoteRef``: Wait for a value to become available for the specified remote reference.
+* `RemoteChannel` : Wait for a value to become available on the specified remote channel.
+* `Future` : Wait for a value to become available for the specified future.
+* `Channel`: Wait for a value to be appended to the channel.
+* `Condition`: Wait for `notify` on a condition.
+* `Process`: Wait for a process or process chain to exit. The `exitcode` field of a process can be used to determine success or failure.
+* `Task`: Wait for a `Task` to finish, returning its result value. If the task fails with an exception, the exception is propagated (re-thrown in the task that called `wait`).
+* `RawFD`: Wait for changes on a file descriptor (see `poll_fd` for keyword arguments and return code)
 
-* ``Channel``: Wait for a value to be appended to the channel.
+If no argument is passed, the task blocks for an undefined period.
+A task can only be restarted by an explicit call to `schedule` or `yieldto`.
 
-* ``Condition``: Wait for ``notify`` on a condition.
-
-* ``Process``: Wait for a process or process chain to exit. The ``exitcode`` field of a process can be used to determine success or failure.
-
-* ``Task``: Wait for a ``Task`` to finish, returning its result value. If the task fails with an exception, the exception is propagated (re-thrown in the task that called ``wait``).
-
-* ``RawFD``: Wait for changes on a file descriptor (see `poll_fd` for keyword arguments and return code)
-
-If no argument is passed, the task blocks for an undefined period. If the task's
-state is set to ``:waiting``, it can only be restarted by an explicit call to
-``schedule`` or ``yieldto``. If the task's state is ``:runnable``, it might be
-restarted unpredictably.
-
-Often ``wait`` is called within a ``while`` loop to ensure a waited-for condition
+Often `wait` is called within a `while` loop to ensure a waited-for condition
 is met before proceeding.
-```
 """
 wait
 
@@ -7450,11 +6702,9 @@ Alternatively, a sequence of pair arguments may be passed.
 Dict
 
 doc"""
-```rst
-..  sqrt(x)
+    sqrt(x)
 
-Return :math:`\sqrt{x}`. Throws ``DomainError`` for negative ``Real`` arguments. Use complex negative arguments instead.  The prefix operator ``√`` is equivalent to ``sqrt``.
-```
+Return $\sqrt{x}$. Throws `DomainError` for negative `Real` arguments. Use complex negative arguments instead.  The prefix operator `√` is equivalent to `sqrt`.
 """
 sqrt
 
@@ -7467,11 +6717,9 @@ Register a zero-argument function `f()` to be called at process exit.
 atexit
 
 doc"""
-```rst
-..  besselk(nu, x)
+    besselk(nu, x)
 
-Modified Bessel function of the second kind of order ``nu``, :math:`K_\nu(x)`.
-```
+Modified Bessel function of the second kind of order `nu`, $K_\nu(x)$.
 """
 besselk
 
@@ -7500,9 +6748,9 @@ multiplied by the larger matrix dimension.
 For inverting dense ill-conditioned matrices in a least-squares sense,
 ``tol = sqrt(eps(real(float(one(eltype(M))))))`` is recommended.
 
-For more information, see [8859]_, [B96]_, [S84]_, [KY88]_.
+For more information, see [issue8859]_, [B96]_, [S84]_, [KY88]_.
 
-.. [8859] Issue 8859, "Fix least squares", https://github.com/JuliaLang/julia/pull/8859
+.. [issue8859] Issue 8859, "Fix least squares", https://github.com/JuliaLang/julia/pull/8859
 .. [B96] Åke Björck, "Numerical Methods for Least Squares Problems",
    SIAM Press, Philadelphia, 1996, "Other Titles in Applied Mathematics", Vol. 51.
    `doi:10.1137/1.9781611971484 <http://epubs.siam.org/doi/book/10.1137/1.9781611971484>`_
@@ -7542,13 +6790,6 @@ Get the file name part of a path.
 basename
 
 doc"""
-    issparse(S)
-
-Returns `true` if `S` is sparse, and `false` otherwise.
-"""
-issparse
-
-doc"""
     ArgumentError(msg)
 
 The parameters to a function call do not match a valid signature.
@@ -7586,15 +6827,13 @@ Equivalent to `!is(x, y)`
 Base.(:(!==))
 
 doc"""
-```rst
-..  trailing_ones(x::Integer) -> Integer
+    trailing_ones(x::Integer) -> Integer
 
-Number of ones trailing the binary representation of ``x``.
+Number of ones trailing the binary representation of `x`.
 
-.. doctest::
-
-   julia> trailing_ones(3)
-   2
+```jldoctest
+julia> trailing_ones(3)
+2
 ```
 """
 trailing_ones
@@ -7614,9 +6853,41 @@ Tests whether a character is numeric, or whether this is true for all elements o
 isnumber
 
 doc"""
-    similar(array, element_type, dims)
+    similar(array, [element_type=eltype(array)], [dims=size(array)])
 
-Create an uninitialized array of the same type as the given array, but with the specified element type and dimensions. The second and third arguments are both optional. The `dims` argument may be a tuple or a series of integer arguments. For some special `AbstractArray` objects which are not real containers (like ranges), this function returns a standard `Array` to allow operating on elements.
+Create an uninitialized mutable array with the given element type and size,
+based upon the given source array. The second and third arguments are both
+optional, defaulting to the given array's `eltype` and `size`. The dimensions
+may be specified either as a single tuple argument or as a series of integer
+arguments.
+
+Custom AbstractArray subtypes may choose which specific array type is
+best-suited to return for the given element type and dimensionality. If they do
+not specialize this method, the default is an `Array(element_type, dims...)`.
+
+For example, `similar(1:10, 1, 4)` returns an uninitialized `Array{Int,2}` since
+ranges are neither mutable nor support 2 dimensions:
+
+    julia> similar(1:10, 1, 4)
+    1x4 Array{Int64,2}:
+     4419743872  4374413872  4419743888  0
+
+Conversely, `similar(trues(10,10), 2)` returns an uninitialized `BitVector`
+with two elements since `BitArray`s are both mutable and can support
+1-dimensional arrays:
+
+    julia> similar(trues(10,10), 2)
+    2-element BitArray{1}:
+     false
+     false
+
+Since `BitArray`s can only store elements of type `Bool`, however, if you
+request a different element type it will create a regular `Array` instead:
+
+    julia> similar(falses(10), Float64, 2, 4)
+    2x4 Array{Float64,2}:
+     2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
+     2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
 """
 similar
 
@@ -7628,18 +6899,16 @@ Create a shallow copy of `x`: the outer structure is copied, but not all interna
 copy
 
 doc"""
-```rst
-..  isempty(collection) -> Bool
+    isempty(collection) -> Bool
 
 Determine whether a collection is empty (has no elements).
 
-.. doctest::
+```jldoctest
+julia> isempty([])
+true
 
-	julia> isempty([])
-	true
-
-	julia> isempty([1 2 3])
-	false
+julia> isempty([1 2 3])
+false
 ```
 """
 isempty
@@ -7650,13 +6919,6 @@ doc"""
 Sum absolute values of elements of `A` over the singleton dimensions of `r`, and write results to `r`.
 """
 sumabs!
-
-doc"""
-    abs(x)
-
-Absolute value of `x`
-"""
-abs
 
 doc"""
     Sys.set_process_title(title::AbstractString)
@@ -7768,13 +7030,6 @@ Tests whether `A` or its elements are of type `T`.
 iseltype
 
 doc"""
-    symperm(A, p)
-
-Return the symmetric permutation of `A`, which is `A[p,p]`. `A` should be symmetric and sparse, where only the upper triangular part of the matrix is stored. This algorithm ignores the lower triangular part of the matrix. Only the upper triangular part of the result is returned as well.
-"""
-symperm
-
-doc"""
     min(x, y, ...)
 
 Return the minimum of the arguments. Operates elementwise over arrays.
@@ -7782,17 +7037,25 @@ Return the minimum of the arguments. Operates elementwise over arrays.
 min
 
 doc"""
-    isready(r::RemoteRef)
+    isready(r::RemoteChannel)
 
-Determine whether a `RemoteRef` has a value stored to it. Note that this function can cause race conditions, since by the time you receive its result it may no longer be true. It is recommended that this function only be used on a `RemoteRef` that is assigned once.
-
-If the argument `RemoteRef` is owned by a different node, this call will block to wait for the answer. It is recommended to wait for `r` in a separate task instead, or to use a local `RemoteRef` as a proxy:
-
-    rr = RemoteRef()
-    @async put!(rr, remotecall_fetch(p, long_computation))
-    isready(rr)  # will not block
+Determine whether a `RemoteChannel` has a value stored to it. Note that this function can cause race conditions, since by the time you receive its result it may no longer be true.
+However, it can be safely used on a `Future` since they are assigned only once.
 """
 isready
+
+doc"""
+    isready(r::Future)
+
+Determine whether a `Future` has a value stored to it.
+
+If the argument `Future` is owned by a different node, this call will block to wait for the answer. It is recommended to wait for `r` in a separate task instead, or to use a local `Channel` as a proxy:
+
+    c = Channel(1)
+    @async put!(c, remotecall_fetch(long_computation, p))
+    isready(c)  # will not block
+"""
+    isready(r::Future)
 
 doc"""
     InexactError()
@@ -7816,41 +7079,36 @@ The highest value representable by the given (real) numeric `DataType`.
 typemax
 
 doc"""
-```rst
-..  all(itr) -> Bool
+    all(itr) -> Bool
 
-Test whether all elements of a boolean collection are ``true``.
-```
+Test whether all elements of a boolean collection are `true`.
 """
 all(itr)
 
 doc"""
-```rst
-..  all(A, dims)
+    all(A, dims)
 
-Test whether all values along the given dimensions of an array are ``true``.
-```
+Test whether all values along the given dimensions of an array are `true`.
 """
 all(A::AbstractArray, dims)
 
 doc"""
-```rst
-..  all(p, itr) -> Bool
+    all(p, itr) -> Bool
 
-Determine whether predicate ``p`` returns ``true`` for all elements of ``itr``.
+Determine whether predicate `p` returns `true` for all elements of `itr`.
 
-.. doctest::
-
-	julia> all(i->(4<=i<=6), [4,5,6])
-	true
+```jldoctest
+julia> all(i->(4<=i<=6), [4,5,6])
+true
 ```
 """
 all(p, itr)
 
 doc"""
-    bind(socket::Union{UDPSocket, TCPSocket}, host::IPv4, port::Integer)
+    bind(socket::Union{UDPSocket, TCPSocket}, host::IPAddr, port::Integer; ipv6only=false)
 
 Bind `socket` to the given `host:port`. Note that `0.0.0.0` will listen on all devices.
+`ipv6only` parameter disables dual stack mode. If it's `true`, only IPv6 stack is created.
 """
 bind
 
@@ -7907,11 +7165,12 @@ doc"""
 Uses :func:`eigs` underneath.
 
 Inputs are:
- * ``A``: Linear operator. It can either subtype of ``AbstractArray`` (e.g., sparse matrix) or duck typed. For duck typing ``A`` has to support ``size(A)``, ``eltype(A)``, ``A * vector`` and ``A' * vector``.
- * ``nsv``: Number of singular values.
- * ``ritzvec``: Whether to return the left and right singular vectors ``left_sv`` and ``right_sv``, default is ``true``. If ``false`` the singular vectors are omitted from the output.
- * ``tol``: tolerance, see :func:`eigs`.
- * ``maxiter``: Maximum number of iterations, see :func:`eigs`.
+
+* ``A``: Linear operator. It can either subtype of ``AbstractArray`` (e.g., sparse matrix) or duck typed. For duck typing ``A`` has to support ``size(A)``, ``eltype(A)``, ``A * vector`` and ``A' * vector``.
+* ``nsv``: Number of singular values.
+* ``ritzvec``: Whether to return the left and right singular vectors ``left_sv`` and ``right_sv``, default is ``true``. If ``false`` the singular vectors are omitted from the output.
+* ``tol``: tolerance, see :func:`eigs`.
+* ``maxiter``: Maximum number of iterations, see :func:`eigs`.
 
 **Example**::
 
@@ -7979,13 +7238,6 @@ The `dir` keyword argument can be used to specify a working directory for the co
 setenv
 
 doc"""
-    invperm(v)
-
-Return the inverse permutation of v.
-"""
-invperm
-
-doc"""
     lowercase(string)
 
 Returns `string` with all characters converted to lowercase.
@@ -7998,25 +7250,6 @@ doc"""
 Send the given value to the last `consume` call, switching to the consumer task. If the next `consume` call passes any values, they are returned by `produce`.
 """
 produce
-
-doc"""
-```rst
-.. ifft(A [, dims])
-
-Multidimensional inverse FFT.
-
-A one-dimensional inverse FFT computes
-
-.. math::
-
-   \operatorname{IDFT}(A)[k] = \frac{1}{\operatorname{length}(A)}
-   \sum_{n=1}^{\operatorname{length}(A)} \exp\left(+i\frac{2\pi (n-1)(k-1)}
-   {\operatorname{length}(A)} \right) A[n].
-
-A multidimensional inverse FFT simply performs this operation along each transformed dimension of ``A``.
-```
-"""
-ifft
 
 doc"""
     StackOverflowError()
@@ -8164,30 +7397,27 @@ Join an array of `strings` into a single string, inserting the given delimiter b
 join
 
 doc"""
-```rst
-..  linreg(x, y) -> [a; b]
+    linreg(x, y) -> a, b
 
-Linear Regression. Returns ``a`` and ``b`` such that ``a+b*x`` is the closest line to the given points ``(x,y)``. In other words, this function determines parameters ``[a, b]`` that minimize the squared error between ``y`` and ``a+b*x``.
+Perform linear regression. Returns `a` and `b` such that `a + b*x` is the closest
+straight line to the given points `(x, y)`, i.e., such that the squared error
+between `y` and `a + b*x` is minimized.
 
-**Example**::
+**Example**:
 
-   using PyPlot;
-   x = float([1:12])
-   y = [5.5; 6.3; 7.6; 8.8; 10.9; 11.79; 13.48; 15.02; 17.77; 20.81; 22.0; 22.99]
-   a, b = linreg(x,y) # Linear regression
-   plot(x, y, "o") # Plot (x,y) points
-   plot(x, [a+b*i for i in x]) # Plot the line determined by the linear regression
-
-```
+    using PyPlot
+    x = [1.0:12.0;]
+    y = [5.5, 6.3, 7.6, 8.8, 10.9, 11.79, 13.48, 15.02, 17.77, 20.81, 22.0, 22.99]
+    a, b = linreg(x, y)          # Linear regression
+    plot(x, y, "o")              # Plot (x, y) points
+    plot(x, [a+b*i for i in x])  # Plot line determined by linear regression
 """
 linreg(x,y)
 
 doc"""
-```rst
-..   linreg(x, y, w)
+    linreg(x, y, w)
 
 Weighted least-squares linear regression.
-```
 """
 linreg(x,y,w)
 
@@ -8206,11 +7436,9 @@ Test whether `x` is less than `y`, according to a canonical total order. Values 
 isless
 
 doc"""
-```rst
-..  expm1(x)
+    expm1(x)
 
-Accurately compute :math:`e^x-1`
-```
+Accurately compute $e^x-1$.
 """
 expm1
 
@@ -8229,11 +7457,9 @@ Construct the set of elements in `s1` but not `s2`. Maintains order with arrays.
 setdiff
 
 doc"""
-```rst
-..  airyai(x)
+    airyai(x)
 
-Airy function :math:`\operatorname{Ai}(x)`.
-```
+Airy function $\operatorname{Ai}(x)$.
 """
 airyai
 
@@ -8296,6 +7522,7 @@ doc"""
 Compute the matrix exponential of ``A``, defined by
 
 .. math::
+
    e^A = \sum_{n=0}^{\infty} \frac{A^n}{n!}.
 
 For symmetric or Hermitian ``A``, an eigendecomposition (:func:`eigfact`) is used, otherwise the scaling and squaring algorithm (see [H05]_) is chosen.
@@ -8339,14 +7566,12 @@ Get the *dynamically* current `Module`, which is the `Module` code is currently 
 current_module
 
 doc"""
-```rst
-..  erfcx(x)
+    erfcx(x)
 
-Compute the scaled complementary error function of ``x``,
-defined by :math:`e^{x^2} \operatorname{erfc}(x)`.  Note
-also that :math:`\operatorname{erfcx}(-ix)` computes the
-Faddeeva function :math:`w(x)`.
-```
+Compute the scaled complementary error function of `x`,
+defined by $e^{x^2} \operatorname{erfc}(x)$.  Note
+also that $\operatorname{erfcx}(-ix)$ computes the
+Faddeeva function $w(x)$.
 """
 erfcx
 
@@ -8442,8 +7667,8 @@ Determine whether the given generic function has a method matching the given :ob
 
 .. doctest::
 
-	julia> method_exists(length, Tuple{Array})
-	true
+   julia> method_exists(length, Tuple{Array})
+   true
 ```
 """
 method_exists
@@ -8475,13 +7700,6 @@ doc"""
 The inverse of `ind2sub`, returns the linear index corresponding to the provided subscripts
 """
 sub2ind
-
-doc"""
-    isperm(v) -> Bool
-
-Returns `true` if `v` is a valid permutation.
-"""
-isperm
 
 doc"""
     super(T::DataType)
@@ -8519,11 +7737,11 @@ Join path components into a full path. If some argument is an absolute path, the
 joinpath
 
 doc"""
-    get_bigfloat_precision()
+    precision(BigFloat)
 
 Get the precision (in bits) currently used for `BigFloat` arithmetic.
 """
-get_bigfloat_precision
+precision(::Type{BigFloat})
 
 doc"""
     homedir() -> AbstractString
@@ -8533,15 +7751,13 @@ Return the current user's home directory.
 homedir
 
 doc"""
-```rst
-..  count_zeros(x::Integer) -> Integer
+    count_zeros(x::Integer) -> Integer
 
-Number of zeros in the binary representation of ``x``.
+Number of zeros in the binary representation of `x`.
 
-.. doctest::
-
-   julia> count_zeros(Int32(2 ^ 16 - 1))
-   16
+```jldoctest
+julia> count_zeros(Int32(2 ^ 16 - 1))
+16
 ```
 """
 count_zeros
@@ -8641,7 +7857,7 @@ MethodError
 doc"""
     cat(dims, A...)
 
-Concatenate the input arrays along the specified dimensions in the iterable `dims`. For dimensions not in `dims`, all input arrays should have the same size, which will also be the size of the output array along that dimension. For dimensions in `dims`, the size of the output array is the sum of the sizes of the input arrays along that dimension. If `dims` is a single number, the different arrays are tightly stacked along that dimension. If `dims` is an iterable containing several dimensions, this allows to construct block diagonal matrices and their higher-dimensional analogues by simultaneously increasing several dimensions for every new input array and putting zero blocks elsewhere. For example, `cat([1,2], matrices...)` builds a block diagonal matrix, i.e. a block matrix with `matrices[1]`, `matrices[2]`, ... as diagonal blocks and matching zero blocks away from the diagonal.
+Concatenate the input arrays along the specified dimensions in the iterable `dims`. For dimensions not in `dims`, all input arrays should have the same size, which will also be the size of the output array along that dimension. For dimensions in `dims`, the size of the output array is the sum of the sizes of the input arrays along that dimension. If `dims` is a single number, the different arrays are tightly stacked along that dimension. If `dims` is an iterable containing several dimensions, this allows one to construct block diagonal matrices and their higher-dimensional analogues by simultaneously increasing several dimensions for every new input array and putting zero blocks elsewhere. For example, `cat([1,2], matrices...)` builds a block diagonal matrix, i.e. a block matrix with `matrices[1]`, `matrices[2]`, ... as diagonal blocks and matching zero blocks away from the diagonal.
 """
 cat
 
@@ -8687,25 +7903,21 @@ argument specifies a random number generator, see :ref:`Random Numbers
 randcycle
 
 doc"""
-```rst
-..  leading_zeros(x::Integer) -> Integer
+    leading_zeros(x::Integer) -> Integer
 
-Number of zeros leading the binary representation of ``x``.
+Number of zeros leading the binary representation of `x`.
 
-.. doctest::
-
-   julia> leading_zeros(Int32(1))
-   31
+```jldoctest
+julia> leading_zeros(Int32(1))
+31
 ```
 """
 leading_zeros
 
 doc"""
-```rst
-..  hankelh2(nu, x)
+    hankelh2(nu, x)
 
-Bessel function of the third kind of order ``nu``, :math:`H^{(2)}_\nu(x)`.
-```
+Bessel function of the third kind of order `nu`, $H^{(2)}_\nu(x)$.
 """
 hankelh2
 
@@ -8787,15 +7999,6 @@ Register a function `f(x)` to be called when there are no program-accessible ref
 finalizer
 
 doc"""
-```rst
-..  nextprod([k_1,k_2,...], n)
-
-Next integer not less than ``n`` that can be written as :math:`\prod k_i^{p_i}` for integers :math:`p_1`, :math:`p_2`, etc.
-```
-"""
-nextprod
-
-doc"""
     <<(x, n)
 
 Left bit shift operator.
@@ -8830,17 +8033,17 @@ Computes the solution `X` to the continuous Lyapunov equation `AX + XA' + C = 0`
 lyap
 
 doc"""
-```rst
-..  condskeel(M, [x, p])
+    condskeel(M, [x, p])
 
-.. math::
-   \kappa_S(M, p) & = \left\Vert \left\vert M \right\vert \left\vert M^{-1} \right\vert  \right\Vert_p \\
-   \kappa_S(M, x, p) & = \left\Vert \left\vert M \right\vert \left\vert M^{-1} \right\vert \left\vert x \right\vert \right\Vert_p
+$$\kappa_S(M, p) & = \left\Vert \left\vert M \right\vert \left\vert M^{-1} \right\vert  \right\Vert_p \\
+\kappa_S(M, x, p) & = \left\Vert \left\vert M \right\vert \left\vert M^{-1} \right\vert \left\vert x \right\vert \right\Vert_p$$
 
-Skeel condition number :math:`\kappa_S` of the matrix ``M``, optionally with respect to the vector ``x``, as computed using the operator ``p``-norm. ``p`` is ``Inf`` by default, if not provided. Valid values for ``p`` are ``1``, ``2``, or ``Inf``.
+Skeel condition number $\kappa_S$ of the matrix `M`, optionally with respect to
+the vector `x`, as computed using the operator `p`-norm. `p` is `Inf` by
+default, if not provided. Valid values for `p` are `1`, `2`, or `Inf`.
 
-This quantity is also known in the literature as the Bauer condition number, relative condition number, or componentwise relative condition number.
-```
+This quantity is also known in the literature as the Bauer condition number,
+relative condition number, or componentwise relative condition number.
 """
 condskeel
 
@@ -8880,50 +8083,9 @@ A type assertion failure, or calling an intrinsic function with an incorrect arg
 TypeError
 
 doc"""
-```rst
-..  plan_fft(A [, dims]; flags=FFTW.ESTIMATE;  timelimit=Inf)
+    A_rdiv_Bt(A, B)
 
-Pre-plan an optimized FFT along given dimensions (``dims``) of arrays
-matching the shape and type of ``A``.  (The first two arguments have
-the same meaning as for :func:`fft`.)  Returns an object ``P`` which
-represents the linear operator computed by the FFT, and which contains
-all of the information needed to compute ``fft(A, dims)`` quickly.
-
-To apply ``P`` to an array ``A``, use ``P * A``; in general, the
-syntax for applying plans is much like that of matrices.  (A plan
-can only be applied to arrays of the same size as the ``A`` for
-which the plan was created.)  You can also apply a plan with a
-preallocated output array ``Â`` by calling ``A_mul_B!(Â, plan,
-A)``.  You can compute the inverse-transform plan by ``inv(P)`` and
-apply the inverse plan with ``P \ Â`` (the inverse plan is cached
-and reused for subsequent calls to ``inv`` or ``\``), and apply the
-inverse plan to a pre-allocated output array ``A`` with
-``A_ldiv_B!(A, P, Â)``.
-
-The ``flags`` argument is a bitwise-or of FFTW planner flags, defaulting
-to ``FFTW.ESTIMATE``.  e.g. passing ``FFTW.MEASURE`` or ``FFTW.PATIENT``
-will instead spend several seconds (or more) benchmarking different
-possible FFT algorithms and picking the fastest one; see the FFTW manual
-for more information on planner flags.  The optional ``timelimit`` argument
-specifies a rough upper bound on the allowed planning time, in seconds.
-Passing ``FFTW.MEASURE`` or ``FFTW.PATIENT`` may cause the input array ``A``
-to be overwritten with zeros during plan creation.
-
-:func:`plan_fft!` is the same as :func:`plan_fft` but creates a plan
-that operates in-place on its argument (which must be an array of
-complex floating-point numbers).  :func:`plan_ifft` and so on
-are similar but produce plans that perform the equivalent of
-the inverse transforms :func:`ifft` and so on.
-```
-"""
-plan_fft
-
-doc"""
-```rst
-..  A_rdiv_Bt(a,b)
-
-Matrix operator A / B\ :sup:`T`
-```
+For matrices or vectors $A$ and $B$, calculates $A / Bᵀ$
 """
 A_rdiv_Bt
 
@@ -8935,9 +8097,9 @@ Get the current working directory.
 pwd
 
 doc"""
-    getipaddr() -> AbstractString
+    getipaddr() -> IPAddr
 
-Get the IP address of the local machine, as a string of the form "x.x.x.x".
+Get the IP address of the local machine.
 """
 getipaddr
 
@@ -8956,18 +8118,6 @@ Compute cosine of `x`, where `x` is in degrees
 cosd
 
 doc"""
-```rst
-..  brfft(A, d [, dims])
-
-Similar to :func:`irfft` but computes an unnormalized inverse transform
-(similar to :func:`bfft`), which must be divided by the product
-of the sizes of the transformed dimensions (of the real output array)
-in order to obtain the inverse transform.
-```
-"""
-brfft
-
-doc"""
     cycle(iter)
 
 An iterator that cycles through `iter` forever.
@@ -8975,11 +8125,19 @@ An iterator that cycles through `iter` forever.
 cycle
 
 doc"""
-    put!(RemoteRef, value)
+    put!(RemoteChannel, value)
 
-Store a value to a remote reference. Implements "shared queue of length 1" semantics: if a value is already present, blocks until the value is removed with `take!`. Returns its first argument.
+Store a value to the remote channel. If the channel is full, blocks until space is available. Returns its first argument.
 """
-put!(::RemoteRef, value)
+put!(::RemoteChannel, value)
+
+doc"""
+    put!(Future, value)
+
+Store a value to a future. Future's are write-once remote references. A `put!` on an already set `Future` throws an Exception.
+All asynchronous remote calls return `Future`s and set the value to the return value of the call upon completion.
+"""
+put!(::Future, value)
 
 doc"""
     put!(Channel, value)
@@ -9050,11 +8208,9 @@ Read `io` until the end of the stream/file and count the number of lines. To spe
 countlines
 
 doc"""
-```rst
-..  *(A, B)
+    *(A, B)
 
 Matrix multiplication
-```
 """
 Base.(:(*))(::AbstractMatrix, ::AbstractMatrix)
 
@@ -9064,7 +8220,7 @@ doc"""
 
 Matrix division using a polyalgorithm. For input matrices ``A`` and ``B``, the result ``X`` is such that ``A*X == B`` when ``A`` is square.  The solver that is used depends upon the structure of ``A``.  A direct solver is used for upper or lower triangular ``A``.  For Hermitian ``A`` (equivalent to symmetric ``A`` for non-complex ``A``) the ``BunchKaufman`` factorization is used.  Otherwise an LU factorization is used. For rectangular ``A`` the result is the minimum-norm least squares solution computed by a pivoted QR factorization of ``A`` and a rank estimate of ``A`` based on the R factor.
 
-When ``A`` is sparse, a similar polyalgorithm is used. For indefinite matrices, the LDLt factorization does not use pivoting during the numerical factorization and therefore the procedure can fail even for invertible matrices.
+When ``A`` is sparse, a similar polyalgorithm is used. For indefinite matrices, the ``LDLt`` factorization does not use pivoting during the numerical factorization and therefore the procedure can fail even for invertible matrices.
 ```
 """
 Base.(:(\))(A,B)
@@ -9090,25 +8246,21 @@ Base.(:(\))(x::Number,y::Number)
 
 
 doc"""
-```rst
-..  *(x, y...)
+    *(x, y...)
 
-Multiplication operator. ``x*y*z*...`` calls this function with all arguments, i.e.
-``*(x, y, z, ...)``.
-```
+Multiplication operator. `x*y*z*...` calls this function with all arguments, i.e.
+`*(x, y, z, ...)`.
 """
 Base.(:(*))(x, y...)
 
 doc"""
-```rst
-..  *(s, t)
+    *(s, t)
 
-Concatenate strings. The ``*`` operator is an alias to this function.
+Concatenate strings. The `*` operator is an alias to this function.
 
-.. doctest::
-
-   julia> "Hello " * "world"
-   "Hello world"
+```jldoctest
+julia> "Hello " * "world"
+"Hello world"
 ```
 """
 Base.(:(*))(s::AbstractString, t::AbstractString)
@@ -9153,19 +8305,11 @@ Get the vector of processes that have mapped the shared array
 procs(::SharedArray)
 
 doc"""
-```rst
-..  plan_bfft(A [, dims]; flags=FFTW.ESTIMATE;  timelimit=Inf)
-
-Same as :func:`plan_fft`, but produces a plan that performs an unnormalized
-backwards transform :func:`bfft`.
-```
-"""
-plan_bfft
-
-doc"""
     mod(x, y)
 
-Modulus after division, returning in the range \[0,`y`), if `y` is positive, or (`y`,0\] if `y` is negative.
+Modulus after flooring division, returning in the range \[0,`y`), if `y` is positive, or (`y`,0\] if `y` is negative.
+
+    x == fld(x,y)*y + mod(x,y)
 """
 mod
 
@@ -9184,11 +8328,9 @@ Compute the (pivoted) QR factorization of `A` such that either `A = Q*R` or `A[:
 qr
 
 doc"""
-```rst
-..  invmod(x,m)
+    invmod(x,m)
 
-Take the inverse of ``x`` modulo ``m``: ``y`` such that :math:`xy = 1 \pmod m`
-```
+Take the inverse of `x` modulo `m`: `y` such that $xy = 1 \pmod m$.
 """
 invmod
 
@@ -9200,17 +8342,18 @@ Returns a `TextDisplay <: Display`, which can display any object as the text/pla
 TextDisplay
 
 doc"""
-```rst
-..  factor(n) -> Dict
+    factor(n) -> Dict
 
-Compute the prime factorization of an integer ``n``. Returns a dictionary. The keys of the dictionary correspond to the factors, and hence are of the same type as ``n``. The value associated with each key indicates the number of times the factor appears in the factorization.
+Compute the prime factorization of an integer `n`. Returns a dictionary. The
+keys of the dictionary correspond to the factors, and hence are of the same type
+as `n`. The value associated with each key indicates the number of times the
+factor appears in the factorization.
 
-.. doctest::
-
-   julia> factor(100) # == 2*2*5*5
-   Dict{Int64,Int64} with 2 entries:
-     2 => 2
-     5 => 2
+```jldoctest
+julia> factor(100) # == 2*2*5*5
+Dict{Int64,Int64} with 2 entries:
+  2 => 2
+  5 => 2
 ```
 """
 factor
@@ -9223,25 +8366,11 @@ Test whether a string contains a match of the given regular expression.
 ismatch
 
 doc"""
-```rst
-..  exp(x)
+    exp(x)
 
-Compute :math:`e^x`
-```
+Compute $e^x$.
 """
 exp
-
-doc"""
-    with_bigfloat_precision(f::Function,precision::Integer)
-
-Change the `BigFloat` arithmetic precision (in bits) for the duration of `f`. It is logically equivalent to:
-
-    old = get_bigfloat_precision()
-    set_bigfloat_precision(precision)
-    f()
-    set_bigfloat_precision(old)
-"""
-with_bigfloat_precision
 
 doc"""
     searchindex(string, substring, [start])
@@ -9251,9 +8380,9 @@ Similar to `search`, but return only the start index at which the substring is f
 searchindex
 
 doc"""
-    listenany(port_hint) -> (UInt16,TcpServer)
+    listenany(port_hint) -> (UInt16,TCPServer)
 
-Create a TcpServer on any port, using hint as a starting point. Returns a tuple of the actual port that the server was created on and the server itself.
+Create a `TCPServer` on any port, using hint as a starting point. Returns a tuple of the actual port that the server was created on and the server itself.
 """
 listenany
 
@@ -9265,11 +8394,9 @@ Get julia's process ID.
 getpid
 
 doc"""
-```rst
-..  cbrt(x)
+    cbrt(x)
 
-Return :math:`x^{1/3}`.  The prefix operator ``∛`` is equivalent to ``cbrt``.
-```
+Return $x^{1/3}$.  The prefix operator `∛` is equivalent to `cbrt`.
 """
 cbrt
 
@@ -9339,11 +8466,29 @@ Matrix inverse
 inv
 
 doc"""
-    mod1(x,m)
+    fld1(x, y)
 
-Modulus after division, returning in the range (0,m\]
+Flooring division, returning a value consistent with `mod1(x,y)`
+
+    x == fld(x,y)*y + mod(x,y)
+
+    x == (fld1(x,y)-1)*y + mod1(x,y)
+"""
+fld1
+
+doc"""
+    mod1(x, y)
+
+Modulus after flooring division, returning a value in the range `(0,y\]`
 """
 mod1
+
+doc"""
+    fldmod1(x, y)
+
+Return `(fld1(x,y), mod1(x,y))`
+"""
+fldmod1
 
 doc"""
     @assert cond [text]
@@ -9361,7 +8506,7 @@ Intersects sets `s1` and `s2` and overwrites the set `s1` with the result. If ne
 intersect!
 
 doc"""
-    listen([addr,]port) -> TcpServer
+    listen([addr,]port) -> TCPServer
 
 Listen on port on the address specified by `addr`. By default this listens on localhost only. To listen on all interfaces pass `IPv4(0)` or `IPv6(0)` as appropriate.
 """
@@ -9375,15 +8520,13 @@ Create and listen on a Named Pipe / Domain Socket
 listen(path)
 
 doc"""
-```rst
-..  leading_ones(x::Integer) -> Integer
+    leading_ones(x::Integer) -> Integer
 
-Number of ones leading the binary representation of ``x``.
+Number of ones leading the binary representation of `x`.
 
-.. doctest::
-
-   julia> leading_ones(UInt32(2 ^ 32 - 2))
-   31
+```jldoctest
+julia> leading_ones(UInt32(2 ^ 32 - 2))
+31
 ```
 """
 leading_ones
@@ -9401,13 +8544,6 @@ doc"""
 Compute the inverse hyperbolic secant of `x`
 """
 asech
-
-doc"""
-    sprandn(m,n,p)
-
-Create a random `m` by `n` sparse matrix with the specified (independent) probability `p` of any entry being nonzero, where nonzero values are sampled from the normal distribution.
-"""
-sprandn
 
 doc"""
 ```rst
@@ -9477,9 +8613,9 @@ As a special case, if `x` is an `AbstractString` (for textual MIME types) or a `
 reprmime
 
 doc"""
-    rm(path::AbstractString; recursive=false)
+    rm(path::AbstractString; force=false, recursive=false)
 
-Delete the file, link, or empty directory at the given path. If `recursive=true` is passed and the path is a directory, then all contents are removed recursively.
+Delete the file, link, or empty directory at the given path. If `force=true` is passed, a non-existing path is not treated as error. If `recursive=true` is passed and the path is a directory, then all contents are removed recursively.
 """
 rm
 
@@ -9596,11 +8732,9 @@ Returns `true` if `string` ends with `suffix`. If the second argument is a vecto
 endswith
 
 doc"""
-```rst
-..  airy(k,x)
+    airy(k,x)
 
-kth derivative of the Airy function :math:`\operatorname{Ai}(x)`.
-```
+The `k`th derivative of the Airy function $\operatorname{Ai}(x)$.
 """
 airy
 
@@ -9665,23 +8799,6 @@ The process was stopped by a terminal interrupt (CTRL+C).
 InterruptException
 
 doc"""
-    cov(v1[, v2][, vardim=1, corrected=true, mean=nothing])
-
-Compute the Pearson covariance between the vector(s) in `v1` and `v2`. Here, `v1` and `v2` can be either vectors or matrices.
-
-This function accepts three keyword arguments:
-
--   `vardim`: the dimension of variables. When `vardim = 1`, variables are considered in columns while observations in rows; when `vardim = 2`, variables are in rows while observations in columns. By default, it is set to `1`.
--   `corrected`: whether to apply Bessel's correction (divide by `n-1` instead of `n`). By default, it is set to `true`.
--   `mean`: allow users to supply mean values that are known. By default, it is set to `nothing`, which indicates that the mean(s) are unknown, and the function will compute the mean. Users can use `mean=0` to indicate that the input data are centered, and hence there's no need to subtract the mean.
-
-The size of the result depends on the size of `v1` and `v2`. When both `v1` and `v2` are vectors, it returns the covariance between them as a scalar. When either one is a matrix, it returns a covariance matrix of size `(n1, n2)`, where `n1` and `n2` are the numbers of slices in `v1` and `v2`, which depend on the setting of `vardim`.
-
-Note: `v2` can be omitted, which indicates `v2 = v1`.
-"""
-cov
-
-doc"""
     den(x)
 
 Denominator of the rational representation of `x`
@@ -9696,11 +8813,9 @@ Test whether a floating point number is subnormal
 issubnormal
 
 doc"""
-```rst
-..  Ac_ldiv_B(...)
+    Ac_ldiv_B(A, B)
 
-Matrix operator A\ :sup:`H` \\ B
-```
+For matrices or vectors $A$ and $B$, calculates $Aᴴ$ \ $B$
 """
 Ac_ldiv_B
 
@@ -9777,7 +8892,7 @@ Base.(:(!=))
 doc"""
     @spawn
 
-Creates a closure around an expression and runs it on an automatically-chosen process, returning a `RemoteRef` to the result.
+Creates a closure around an expression and runs it on an automatically-chosen process, returning a `Future` to the result.
 """
 :@spawn
 
@@ -9908,32 +9023,28 @@ For any iterable containers `x` and `y` (including arrays of any dimension) of n
 vecdot
 
 doc"""
-```rst
-..  isprime(x::Integer) -> Bool
+    isprime(x::Integer) -> Bool
 
-Returns ``true`` if ``x`` is prime, and ``false`` otherwise.
+Returns `true` if `x` is prime, and `false` otherwise.
 
-.. doctest::
-
-	julia> isprime(3)
-	true
+```jldoctest
+julia> isprime(3)
+true
 ```
 """
 isprime(::Integer)
 
 doc"""
-```rst
-..  isprime(x::BigInt, [reps = 25]) -> Bool
+    isprime(x::BigInt, [reps = 25]) -> Bool
 
-Probabilistic primality test. Returns ``true`` if ``x`` is prime; and
-``false`` if ``x`` is not prime with high probability. The false positive
-rate is about ``0.25^reps``. ``reps = 25`` is considered safe for
+Probabilistic primality test. Returns `true` if `x` is prime; and
+`false` if `x` is not prime with high probability. The false positive
+rate is about `0.25^reps`. `reps = 25` is considered safe for
 cryptographic applications (Knuth, Seminumerical Algorithms).
 
-.. doctest::
-
-	julia> isprime(big(3))
-	true
+```jldoctest
+julia> isprime(big(3))
+true
 ```
 """
 isprime(::BigInt, ?)
@@ -9960,11 +9071,9 @@ Get the number of available processes.
 nprocs
 
 doc"""
-```rst
-..  Ac_mul_B(...)
+    Ac_mul_B(A, B)
 
-Matrix operator A\ :sup:`H` B
-```
+For matrices or vectors $A$ and $B$, calculates $Aᴴ⋅B$
 """
 Ac_mul_B
 
@@ -9978,11 +9087,9 @@ doc"""
 qrfact!
 
 doc"""
-```rst
-..  At_rdiv_B(a,b)
+    At_rdiv_B(A, B)
 
-Matrix operator A\ :sup:`T` / B
-```
+For matrices or vectors $A$ and $B$, calculates $Aᵀ / B$
 """
 At_rdiv_B
 
@@ -10037,9 +9144,9 @@ Read all available data on the stream, blocking the task only if no data is avai
 readavailable
 
 doc"""
-    remotecall(id, func, args...)
+    remotecall(func, id, args...)
 
-Call a function asynchronously on the given arguments on the specified process. Returns a `RemoteRef`.
+Call a function asynchronously on the given arguments on the specified process. Returns a `Future`.
 """
 remotecall
 
@@ -10089,11 +9196,11 @@ Get the backtrace of the current exception, for use within `catch` blocks.
 catch_backtrace
 
 doc"""
-```rst
-..  airyx(k,x)
+    airyx(k,x)
 
-scaled kth derivative of the Airy function, return :math:`\operatorname{Ai}(x) e^{\frac{2}{3} x \sqrt{x}}` for ``k == 0 || k == 1``, and :math:`\operatorname{Ai}(x) e^{- \left| \operatorname{Re} \left( \frac{2}{3} x \sqrt{x} \right) \right|}` for ``k == 2 || k == 3``.
-```
+scaled `k`th derivative of the Airy function, return $\operatorname{Ai}(x) e^{\frac{2}{3} x \sqrt{x}}$
+for `k == 0 || k == 1`, and $\operatorname{Ai}(x) e^{- \left| \operatorname{Re} \left( \frac{2}{3} x \sqrt{x} \right) \right|}$
+for `k == 2 || k == 3`.
 """
 airyx
 
@@ -10158,17 +9265,6 @@ Create an ASCII string from the address of a C (0-terminated) string encoded in 
 ascii(::Ptr{UInt8},?)
 
 doc"""
-```rst
-..  plan_idct(A [, dims [, flags [, timelimit]]])
-
-Pre-plan an optimized inverse discrete cosine transform (DCT), similar to
-:func:`plan_fft` except producing a function that computes :func:`idct`.
-The first two arguments have the same meaning as for :func:`idct`.
-```
-"""
-plan_idct
-
-doc"""
     maxabs(itr)
 
 Compute the maximum absolute value of a collection of values.
@@ -10206,7 +9302,7 @@ integer-valued, or is outside the range supported by ``T``.
 
    julia> convert(Int, 3.5)
    ERROR: InexactError()
-    in convert at int.jl:205
+    in convert at int.jl:209
 
 If ``T`` is a :obj:`AbstractFloat` or :obj:`Rational` type, then it will return
 the closest value to ``x`` representable by ``T``.
@@ -10229,31 +9325,27 @@ the closest value to ``x`` representable by ``T``.
 convert
 
 doc"""
-```rst
-..  A_ldiv_Bt(a,b)
+    A_ldiv_Bt(A, B)
 
-Matrix operator A \\ B\ :sup:`T`
-```
+For matrices or vectors $A$ and $B$, calculates $A$ \ $Bᵀ$
 """
 A_ldiv_Bt
 
 doc"""
-```rst
-..  applicable(f, args...) -> Bool
+    applicable(f, args...) -> Bool
 
 Determine whether the given generic function has a method applicable to the given arguments.
 
-.. doctest::
+```jldoctest
+julia> function f(x, y)
+           x + y
+       end;
 
-	julia> function f(x, y)
-	           x + y
-	       end;
+julia> applicable(f, 1)
+false
 
-	julia> applicable(f, 1)
-	false
-
-	julia> applicable(f, 1, 2)
-	true
+julia> applicable(f, 1, 2)
+true
 ```
 """
 applicable
@@ -10280,15 +9372,6 @@ Create a `RandomDevice` RNG object. Two such objects will always generate differ
 RandomDevice
 
 doc"""
-```rst
-..  plan_fft!(A [, dims]; flags=FFTW.ESTIMATE;  timelimit=Inf)
-
-Same as :func:`plan_fft`, but operates in-place on ``A``.
-```
-"""
-plan_fft!
-
-doc"""
     fma(x, y, z)
 
 Computes `x*y+z` without rounding the intermediate result `x*y`. On some systems this is significantly more expensive than `x*y+z`. `fma` is used to improve accuracy in certain algorithms. See `muladd`.
@@ -10296,30 +9379,26 @@ Computes `x*y+z` without rounding the intermediate result `x*y`. On some systems
 fma
 
 doc"""
-```rst
-..  eigvals(A,[irange,][vl,][vu])
 
-Returns the eigenvalues of ``A``. If ``A`` is :class:`Symmetric`,
-:class:`Hermitian` or :class:`SymTridiagonal`, it is possible to calculate
-only a subset of the eigenvalues by specifying either a :class:`UnitRange`
-``irange`` covering indices of the sorted eigenvalues, or a pair ``vl`` and
-``vu`` for the lower and upper boundaries of the eigenvalues.
+    eigvals(A,[irange,][vl,][vu]) -> values
 
-For general non-symmetric matrices it is possible to specify how the matrix
-is balanced before the eigenvector calculation. The option ``permute=true``
-permutes the matrix to become closer to upper triangular, and ``scale=true``
-scales the matrix by its diagonal elements to make rows and columns more
-equal in norm. The default is ``true`` for both options.
-```
+Returns the eigenvalues of `A`. If `A` is `Symmetric`, `Hermitian` or `SymTridiagonal`,
+it is possible to calculate only a subset of the eigenvalues by specifying either a
+`UnitRange` `irange` covering indices of the sorted eigenvalues, or a pair `vl` and `vu`
+for the lower and upper boundaries of the eigenvalues.
+
+For general non-symmetric matrices it is possible to specify how the matrix is balanced
+before the eigenvector calculation. The option `permute=true` permutes the matrix to
+become closer to upper triangular, and `scale=true` scales the matrix by its diagonal
+elements to make rows and columns moreequal in norm. The default is `true` for both
+options.
 """
 eigvals
 
 doc"""
-```rst
-..  A_ldiv_Bc(a,b)
+    A_ldiv_Bc(A, B)
 
-Matrix operator A \\ B\ :sup:`H`
-```
+For matrices or vectors $A$ and $B$, calculates $A$ \ $Bᴴ$
 """
 A_ldiv_Bc
 
@@ -10333,21 +9412,19 @@ General escaping of traditional C and Unicode escape sequences. See :func:`print
 escape_string
 
 doc"""
-```rst
-..  significand(x)
+    significand(x)
 
-Extract the ``significand(s)`` (a.k.a. mantissa), in binary representation, of
-a floating-point number or array. If ``x`` is a non-zero finite number,
+Extract the `significand(s)` (a.k.a. mantissa), in binary representation, of
+a floating-point number or array. If `x` is a non-zero finite number,
 than the result will be a number of the same type on the interval
-:math:`[1,2)`. Otherwise ``x`` is returned.
+$[1,2)$. Otherwise `x` is returned.
 
-.. doctest::
+```jldoctest
+julia> significand(15.2)/15.2
+0.125
 
-   julia> significand(15.2)/15.2
-   0.125
-
-   julia> significand(15.2)*8
-   15.2
+julia> significand(15.2)*8
+15.2
 ```
 """
 significand
@@ -10388,25 +9465,18 @@ Test whether a vector is in sorted order. The `by`, `lt` and `rev` keywords modi
 issorted
 
 doc"""
-    set_bigfloat_precision(x::Int64)
+    isbits(T)
 
-Set the precision (in bits) to be used to `BigFloat` arithmetic.
-"""
-set_bigfloat_precision
+Return `true` if `T` is a "plain data" type, meaning it is immutable and
+contains no references to other values. Typical examples are numeric types such
+as `UInt8`, `Float64`, and `Complex{Float64}`.
 
-doc"""
-```rst
-..  isbits(T)
+```jldoctest
+julia> isbits(Complex{Float64})
+true
 
-Return ``true`` if ``T`` is a "plain data" type, meaning it is immutable and contains no references to other values. Typical examples are numeric types such as ``UInt8``, ``Float64``, and ``Complex{Float64}``.
-
-.. doctest::
-
-   julia> isbits(Complex{Float64})
-   true
-
-   julia> isbits(Complex)
-   false
+julia> isbits(Complex)
+false
 ```
 """
 isbits
@@ -10461,15 +9531,15 @@ Find the next index >= `i` of an element of `A` equal to `v` (using `==`), or `0
 findnext(A,v,i)
 
 doc"""
-```rst
-..  fetch(x)
+    fetch(x)
 
-Waits and fetches a value from ``x`` depending on the type of ``x``. Does not remove the item fetched:
+Waits and fetches a value from `x` depending on the type of `x`. Does not remove the item fetched:
 
-* ``RemoteRef``: Wait for and get the value of a remote reference. If the remote value is an exception, throws a ``RemoteException`` which captures the remote exception and backtrace.
-
-* ``Channel`` : Wait for and get the first available item from the channel.
-```
+* `Future`: Wait for and get the value of a Future. The fetched value is cached locally. Further calls to `fetch` on the same reference
+return the cached value.
+If the remote value is an exception, throws a `RemoteException` which captures the remote exception and backtrace.
+* `RemoteChannel`: Wait for and get the value of a remote reference. Exceptions raised are same as for a `Future` .
+* `Channel` : Wait for and get the first available item from the channel.
 """
 fetch
 
@@ -10558,26 +9628,26 @@ doc"""
 
 Computes the QR factorization of ``A``. The return type of ``F`` depends on the element type of ``A`` and whether pivoting is specified (with ``pivot==Val{true}``).
 
-   ================ ================= ============== =====================================
-   Return type      ``eltype(A)``     ``pivot``      Relationship between ``F`` and ``A``
-   ---------------- ----------------- -------------- -------------------------------------
-   ``QR``           not ``BlasFloat`` either          ``A==F[:Q]*F[:R]``
-   ``QRCompactWY``  ``BlasFloat``     ``Val{false}``  ``A==F[:Q]*F[:R]``
-   ``QRPivoted``    ``BlasFloat``     ``Val{true}``   ``A[:,F[:p]]==F[:Q]*F[:R]``
-   ================ ================= ============== =====================================
+================ ================= ============== =====================================
+Return type      ``eltype(A)``     ``pivot``      Relationship between ``F`` and ``A``
+================ ================= ============== =====================================
+``QR``           not ``BlasFloat`` either          ``A==F[:Q]*F[:R]``
+``QRCompactWY``  ``BlasFloat``     ``Val{false}``  ``A==F[:Q]*F[:R]``
+``QRPivoted``    ``BlasFloat``     ``Val{true}``   ``A[:,F[:p]]==F[:Q]*F[:R]``
+================ ================= ============== =====================================
 
 ``BlasFloat`` refers to any of: ``Float32``, ``Float64``, ``Complex64`` or ``Complex128``.
 
 The individual components of the factorization ``F`` can be accessed by indexing:
 
-   =========== ============================================= ================== ===================== ==================
-   Component   Description                                   ``QR``             ``QRCompactWY``       ``QRPivoted``
-   ----------- --------------------------------------------- ------------------ --------------------- ------------------
-   ``F[:Q]``   ``Q`` (orthogonal/unitary) part of ``QR``      ✓ (``QRPackedQ``)  ✓ (``QRCompactWYQ``)  ✓ (``QRPackedQ``)
-   ``F[:R]``   ``R`` (upper right triangular) part of ``QR``  ✓                  ✓                     ✓
-   ``F[:p]``   pivot ``Vector``                                                                        ✓
-   ``F[:P]``   (pivot) permutation ``Matrix``                                                          ✓
-   =========== ============================================= ================== ===================== ==================
+=========== ============================================= ================== ===================== ==================
+Component   Description                                   ``QR``             ``QRCompactWY``       ``QRPivoted``
+=========== ============================================= ================== ===================== ==================
+``F[:Q]``   ``Q`` (orthogonal/unitary) part of ``QR``      ✓ (``QRPackedQ``)  ✓ (``QRCompactWYQ``)  ✓ (``QRPackedQ``)
+``F[:R]``   ``R`` (upper right triangular) part of ``QR``  ✓                  ✓                     ✓
+``F[:p]``   pivot ``Vector``                                                                        ✓
+``F[:P]``   (pivot) permutation ``Matrix``                                                          ✓
+=========== ============================================= ================== ===================== ==================
 
 The following functions are available for the ``QR`` objects: ``size``, ``\``. When ``A`` is rectangular, ``\`` will return a least squares solution and if the solution is not unique, the one with smallest norm is returned.
 
@@ -10589,17 +9659,17 @@ Multiplication with respect to either thin or full ``Q`` is allowed, i.e. both `
 
    The data contained in ``QR`` or ``QRPivoted`` can be used to construct the ``QRPackedQ`` type, which is a compact representation of the rotation matrix:
 
-      .. math::
+   .. math::
 
-         Q = \prod_{i=1}^{\min(m,n)} (I - \tau_i v_i v_i^T)
+      Q = \prod_{i=1}^{\min(m,n)} (I - \tau_i v_i v_i^T)
 
    where :math:`\tau_i` is the scale factor and :math:`v_i` is the projection vector associated with the :math:`i^{th}` Householder elementary reflector.
 
    The data contained in ``QRCompactWY`` can be used to construct the ``QRCompactWYQ`` type, which is a compact representation of the rotation matrix
 
-      .. math::
+   .. math::
 
-         Q = I + Y T Y^T
+      Q = I + Y T Y^T
 
    where ``Y`` is :math:`m \times r` lower trapezoidal and ``T`` is :math:`r \times r` upper triangular. The *compact WY* representation [Schreiber1989]_ is not to be confused with the older, *WY* representation [Bischof1987]_. (The LAPACK documentation uses ``V`` in lieu of ``Y``.)
 
@@ -10639,18 +9709,16 @@ The identity function. Returns its argument.
 identity
 
 doc"""
-```rst
-..  iseven(x::Integer) -> Bool
+    iseven(x::Integer) -> Bool
 
-Returns ``true`` is ``x`` is even (that is, divisible by 2), and ``false`` otherwise.
+Returns `true` is `x` is even (that is, divisible by 2), and `false` otherwise.
 
-.. doctest::
+```jldoctest
+julia> iseven(9)
+false
 
-	julia> iseven(9)
-	false
-
-	julia> iseven(10)
-	true
+julia> iseven(10)
+true
 ```
 """
 iseven
@@ -10677,34 +9745,11 @@ Rounds (in the sense of `round`) `x` so that there are `digits` significant digi
 signif
 
 doc"""
-    sprandbool(m,n,p)
-
-Create a random `m` by `n` sparse boolean matrix with the specified (independent) probability `p` of any entry being `true`.
-"""
-sprandbool
-
-doc"""
     nextpow2(n)
 
 The smallest power of two not less than `n`. Returns 0 for `n==0`, and returns `-nextpow2(-n)` for negative arguments.
 """
 nextpow2
-
-doc"""
-    ipermute!(v, p)
-
-Like permute!, but the inverse of the given permutation is applied.
-"""
-ipermute!
-
-doc"""
-```rst
-..  full(S)
-
-Convert a sparse matrix ``S`` into a dense matrix.
-```
-"""
-full(::AbstractSparseMatrix)
 
 doc"""
 ```rst
@@ -10732,25 +9777,23 @@ spans all rows of ``R`` in its corresponding QR factorization.
 full(::LinAlg.QRCompactWYQ, ?)
 
 doc"""
-```rst
-..  map(f, c...) -> collection
+    map(f, c...) -> collection
 
-Transform collection ``c`` by applying ``f`` to each element.
-For multiple collection arguments, apply ``f`` elementwise.
+Transform collection `c` by applying `f` to each element.
+For multiple collection arguments, apply `f` elementwise.
 
-.. doctest::
+```jldoctest
+julia> map((x) -> x * 2, [1, 2, 3])
+3-element Array{Int64,1}:
+ 2
+ 4
+ 6
 
-   julia> map((x) -> x * 2, [1, 2, 3])
-   3-element Array{Int64,1}:
-    2
-    4
-    6
-
-   julia> map(+, [1, 2, 3], [10, 20, 30])
-   3-element Array{Int64,1}:
-    11
-    22
-    33
+julia> map(+, [1, 2, 3], [10, 20, 30])
+3-element Array{Int64,1}:
+ 11
+ 22
+ 33
 ```
 """
 map
@@ -10872,14 +9915,14 @@ unescape_string
 doc"""
     redirect_stdout()
 
-Create a pipe to which all C and Julia level STDOUT output will be redirected. Returns a tuple (rd,wr) representing the pipe ends. Data written to STDOUT may now be read from the rd end of the pipe. The wr end is given for convenience in case the old STDOUT object was cached by the user and needs to be replaced elsewhere.
+Create a pipe to which all C and Julia level `STDOUT` output will be redirected. Returns a tuple `(rd,wr)` representing the pipe ends. Data written to `STDOUT` may now be read from the rd end of the pipe. The wr end is given for convenience in case the old `STDOUT` object was cached by the user and needs to be replaced elsewhere.
 """
 redirect_stdout
 
 doc"""
     redirect_stdout(stream)
 
-Replace STDOUT by stream for all C and julia level output to STDOUT. Note that `stream` must be a TTY, a Pipe or a TcpSocket.
+Replace `STDOUT` by stream for all C and julia level output to `STDOUT`. Note that `stream` must be a TTY, a `Pipe` or a `TCPSocket`.
 """
 redirect_stdout(stream)
 
@@ -10933,22 +9976,10 @@ Determine whether predicate `p` returns `true` for any elements of `itr`.
 any(p,itr)
 
 doc"""
-```rst
-..  plan_ifft(A [, dims]; flags=FFTW.ESTIMATE;  timelimit=Inf)
+    cosc(x)
 
-Same as :func:`plan_fft`, but produces a plan that performs inverse transforms
-:func:`ifft`.
-```
-"""
-plan_ifft
-
-doc"""
-```rst
-..  cosc(x)
-
-Compute :math:`\cos(\pi x) / x - \sin(\pi x) / (\pi x^2)` if :math:`x \neq 0`, and :math:`0`
-if :math:`x = 0`. This is the derivative of ``sinc(x)``.
-```
+Compute $\cos(\pi x) / x - \sin(\pi x) / (\pi x^2)$ if $x \neq 0$, and $0$
+if $x = 0$. This is the derivative of `sinc(x)`.
 """
 cosc
 
@@ -10960,20 +9991,16 @@ Return the key matching argument `key` if one exists in `collection`, otherwise 
 getkey
 
 doc"""
-```rst
-..  At_ldiv_Bt(...)
+    At_ldiv_Bt(A, B)
 
-Matrix operator A\ :sup:`T` \\ B\ :sup:`T`
-```
+For matrices or vectors $A$ and $B$, calculates $Aᵀ$ \ $Bᵀ$
 """
 At_ldiv_Bt
 
 doc"""
-```rst
-..  Ac_mul_Bc(...)
+    Ac_mul_Bc(A, B)
 
-Matrix operator A\ :sup:`H` B\ :sup:`H`
-```
+For matrices or vectors $A$ and $B$, calculates $Aᴴ Bᴴ$
 """
 Ac_mul_Bc
 
@@ -11006,39 +10033,24 @@ Create a `Symbol` by concatenating the string representations of the arguments t
 symbol
 
 doc"""
-```rst
-..  zeta(s)
+    zeta(s)
 
-Riemann zeta function :math:`\zeta(s)`.
-```
+Riemann zeta function $\zeta(s)$.
 """
 zeta(s)
 
 doc"""
-```rst
-..  zeta(s, z)
+    zeta(s, z)
 
-Hurwitz zeta function :math:`\zeta(s, z)`.  (This is equivalent to
-the Riemann zeta function :math:`\zeta(s)` for the case of ``z=1``.)
-```
+Hurwitz zeta function $\zeta(s, z)$.  (This is equivalent to
+the Riemann zeta function $\zeta(s)$ for the case of `z=1`.)
 """
 zeta(s,z)
 
 doc"""
-```rst
-..  sprand([rng,] m,n,p [,rfn])
+    A_mul_Bt(A, B)
 
-Create a random ``m`` by ``n`` sparse matrix, in which the probability of any element being nonzero is independently given by ``p`` (and hence the mean density of nonzeros is also exactly ``p``). Nonzero values are sampled from the distribution specified by ``rfn``. The uniform distribution is used in case ``rfn`` is not specified. The optional ``rng`` argument specifies a random number generator, see :ref:`Random Numbers <random-numbers>`.
-```
-"""
-sprand
-
-doc"""
-```rst
-..  A_mul_Bt(...)
-
-Matrix operator A B\ :sup:`T`
-```
+For matrices or vectors $A$ and $B$, calculates $A⋅Bᵀ$
 """
 A_mul_Bt
 
@@ -11106,19 +10118,10 @@ An iterator that generates at most the first `n` elements of `iter`.
 take
 
 doc"""
-    combinations(array, n)
+    frexp(val)
 
-Generate all combinations of `n` elements from an indexable object. Because the number of combinations can be very large, this function returns an iterator object. Use `collect(combinations(array,n))` to get an array of all combinations.
-"""
-combinations
-
-doc"""
-```rst
-..  frexp(val)
-
-Return ``(x,exp)`` such that ``x`` has a magnitude in the interval :math:`[1/2, 1)` or 0,
-and val = :math:`x \times 2^{exp}`.
-```
+Return `(x,exp)` such that `x` has a magnitude in the interval $[1/2, 1)$ or 0,
+and val = $x \times 2^{exp}$.
 """
 frexp
 
@@ -11227,25 +10230,6 @@ k]``.)
 eigfact(A,B)
 
 doc"""
-```rst
-..  plan_brfft(A, d [, dims]; flags=FFTW.ESTIMATE;  timelimit=Inf)
-
-Pre-plan an optimized real-input unnormalized transform, similar to
-:func:`plan_rfft` except for :func:`brfft` instead of :func:`rfft`.
-The first two arguments and the size of the transformed result, are
-the same as for :func:`brfft`.
-```
-"""
-plan_brfft
-
-doc"""
-    rowvals(A)
-
-Return a vector of the row indices of `A`, and any modifications to the returned vector will mutate `A` as well. Given the internal storage format of sparse matrices, providing access to how the row indices are stored internally can be useful in conjuction with iterating over structural nonzero values. See `nonzeros(A)` and `nzrange(A, col)`.
-"""
-rowvals
-
-doc"""
     mkdir(path, [mode])
 
 Make a new directory with name `path` and permissions `mode`. `mode` defaults to 0o777, modified by the current file creation mask.
@@ -11327,11 +10311,9 @@ Fill the array `A` with normally-distributed (mean 0, standard deviation 1) rand
 randn!
 
 doc"""
-```rst
-..  ldexp(x, n)
+    ldexp(x, n)
 
-Compute :math:`x \times 2^n`
-```
+Compute $x \times 2^n$.
 """
 ldexp
 
@@ -11376,15 +10358,6 @@ doc"""
 Tests whether a character is a lowercase letter, or whether this is true for all elements of a string. A character is classified as lowercase if it belongs to Unicode category Ll, Letter: Lowercase.
 """
 islower
-
-doc"""
-```rst
-..  nthperm!(v, k)
-
-In-place version of :func:`nthperm`.
-```
-"""
-nthperm!
 
 doc"""
     cell(dims)
@@ -11439,11 +10412,9 @@ recommended.
 eig(A,B)
 
 doc"""
-```rst
-..  exp2(x)
+    exp2(x)
 
-Compute :math:`2^x`
-```
+Compute $2^x$.
 """
 exp2
 
@@ -11462,29 +10433,11 @@ Returns `true` if the value of the sign of `x` is negative, otherwise `false`.
 signbit
 
 doc"""
-    istaskstarted(task) -> Bool
-
-Tell whether a task has started executing.
-"""
-istaskstarted
-
-doc"""
     clamp(x, lo, hi)
 
 Return `x` if `lo <= x <= hi`. If `x < lo`, return `lo`. If `x > hi`, return `hi`. Arguments are promoted to a common type. Operates elementwise over `x` if it is an array.
 """
 clamp
-
-doc"""
-```rst
-..  plan_dct(A [, dims [, flags [, timelimit]]])
-
-Pre-plan an optimized discrete cosine transform (DCT), similar to
-:func:`plan_fft` except producing a function that computes :func:`dct`.
-The first two arguments have the same meaning as for :func:`dct`.
-```
-"""
-plan_dct
 
 doc"""
     cscd(x)
@@ -11529,13 +10482,6 @@ Quit (or control-D at the prompt). The default exit code is zero, indicating tha
 exit
 
 doc"""
-    nonzeros(A)
-
-Return a vector of the structural nonzero values in sparse matrix `A`. This includes zeros that are explicitly stored in the sparse matrix. The returned vector points directly to the internal nonzero storage of `A`, and any modifications to the returned vector will mutate `A` as well. See `rowvals(A)` and `nzrange(A, col)`.
-"""
-nonzeros
-
-doc"""
     istext(m::MIME)
 
 Determine whether a MIME type is text data.
@@ -11578,11 +10524,9 @@ Union each element of `iterable` into set `s` in-place.
 union!
 
 doc"""
-```rst
-..  At_ldiv_B(...)
+    At_ldiv_B(A, B)
 
-Matrix operator A\ :sup:`T` \\ B
-```
+For matrices or vectors $A$ and $B$, calculates $Aᵀ$ \ $B$
 """
 At_ldiv_B
 
@@ -11613,22 +10557,18 @@ While it isn't normally necessary, user-defined types can override the default `
 deepcopy
 
 doc"""
-```rst
-..  widen(type | x)
+    widen(type | x)
 
 If the argument is a type, return a "larger" type (for numeric types, this will be
 a type with at least as much range and precision as the argument, and usually more).
-Otherwise the argument ``x`` is converted to ``widen(typeof(x))``.
+Otherwise the argument `x` is converted to `widen(typeof(x))`.
 
-.. doctest::
+```jldoctest
+julia> widen(Int32)
+Int64
 
-   julia> widen(Int32)
-   Int64
-
-.. doctest::
-
-   julia> widen(1.5f0)
-   1.5
+julia> widen(1.5f0)
+1.5
 ```
 """
 widen
@@ -11658,13 +10598,11 @@ Should be used instead of :obj:`IntSet` for sparse integer sets, or for sets of 
 Set
 
 doc"""
-```rst
-..  erf(x)
+    erf(x)
 
-Compute the error function of ``x``, defined by
-:math:`\frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2} dt`
-for arbitrary complex ``x``.
-```
+Compute the error function of `x`, defined by
+$\frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2} dt$
+for arbitrary complex `x`.
 """
 erf
 
@@ -11690,11 +10628,9 @@ Split a path into a tuple of the directory name and file name.
 splitdir
 
 doc"""
-```rst
-..  sign(x)
+    sign(x)
 
-Return zero if ``x==0`` and :math:`x/|x|` otherwise (i.e., ±1 for real ``x``).
-```
+Return zero if `x==0` and $x/|x|$ otherwise (i.e., ±1 for real `x`).
 """
 sign
 
@@ -11713,9 +10649,9 @@ Create a "value type" out of `c`, which must be an `isbits` value. The intent of
 Val
 
 doc"""
-    iswritable(path) -> Bool
+    iswritable(io) -> Bool
 
-Returns `true` if the current user has permission to write to `path`, `false` otherwise.
+Returns `true` if the specified IO object is writable (if that can be determined).
 """
 iswritable
 
@@ -11748,41 +10684,38 @@ On Windows, split a path into the drive letter part and the path part. On Unix s
 splitdrive
 
 doc"""
-```rst
-..  pop!(collection, key[, default])
+    pop!(collection, key[, default])
 
-Delete and return the mapping for ``key`` if it exists in ``collection``, otherwise return ``default``, or throw an error if default is not specified.
-```
+Delete and return the mapping for `key` if it exists in `collection`,
+otherwise return `default`, or throw an error if default is not specified.
 """
 pop!(collection,key,?)
 
 doc"""
-```rst
-..  pop!(collection) -> item
+    pop!(collection) -> item
 
-Remove the last item in ``collection`` and return it.
+Remove the last item in `collection` and return it.
 
-.. doctest::
+```jldoctest
+julia> A=[1, 2, 3, 4, 5, 6]
+6-element Array{Int64,1}:
+ 1
+ 2
+ 3
+ 4
+ 5
+ 6
 
-  julia> A=[1, 2, 3, 4, 5, 6]
-  6-element Array{Int64,1}:
-   1
-   2
-   3
-   4
-   5
-   6
+julia> pop!(A)
+6
 
-  julia> pop!(A)
-  6
-
-  julia> A
-  5-element Array{Int64,1}:
-   1
-   2
-   3
-   4
-   5
+julia> A
+5-element Array{Int64,1}:
+ 1
+ 2
+ 3
+ 4
+ 5
 ```
 """
 pop!(collection)
@@ -11793,15 +10726,6 @@ doc"""
 Return a copy of `collection`, removing elements for which `function` is `false`. For associative collections, the function is passed two arguments (key and value).
 """
 filter
-
-doc"""
-```rst
-..  plan_idct!(A [, dims [, flags [, timelimit]]])
-
-Same as :func:`plan_idct`, but operates in-place on ``A``.
-```
-"""
-plan_idct!
 
 doc"""
 ```rst
@@ -11819,15 +10743,6 @@ doc"""
 Seek a stream to its end.
 """
 seekend
-
-doc"""
-```rst
-..  plan_ifft!(A [, dims]; flags=FFTW.ESTIMATE;  timelimit=Inf)
-
-Same as :func:`plan_ifft`, but operates in-place on ``A``.
-```
-"""
-plan_ifft!
 
 doc"""
     DivideError()
@@ -11852,31 +10767,11 @@ Performs a right rotation operation.
 ror
 
 doc"""
-```rst
-..  Ac_ldiv_Bc(...)
+    Ac_ldiv_Bc(A, B)
 
-Matrix operator A\ :sup:`H` \\ B\ :sup:`H`
-```
+For matrices or vectors $A$ and $B$, calculates $Aᴴ$ \ $Bᴴ$
 """
 Ac_ldiv_Bc
-
-doc"""
-```rst
-..  rfft(A [, dims])
-
-Multidimensional FFT of a real array ``A``, exploiting the fact that
-the transform has conjugate symmetry in order to save roughly half
-the computational time and storage costs compared with :func:`fft`.
-If ``A`` has size ``(n_1, ..., n_d)``, the result has size
-``(div(n_1,2)+1, ..., n_d)``.
-
-The optional ``dims`` argument specifies an iterable subset of one or
-more dimensions of ``A`` to transform, similar to :func:`fft`.  Instead
-of (roughly) halving the first dimension of ``A`` in the result, the
-``dims[1]`` dimension is (roughly) halved in the same way.
-```
-"""
-rfft
 
 doc"""
 ```rst
@@ -11926,21 +10821,22 @@ Remove a trailing newline from a string.
 chomp
 
 doc"""
-```rst
-..  enumerate(iter)
+    enumerate(iter)
 
-An iterator that yields ``(i, x)`` where ``i`` is an index starting at 1, and ``x`` is the ``i``\ th value from the given iterator. It's useful when you need not only the values ``x`` over which you are iterating, but also the index ``i`` of the iterations.
+An iterator that yields `(i, x)` where `i` is an index starting at 1, and
+`x` is the `i`th value from the given iterator. It's useful when you need
+not only the values `x` over which you are iterating, but also the index `i`
+of the iterations.
 
-.. doctest::
+```jldoctest
+julia> a = ["a", "b", "c"];
 
-	julia> a = ["a", "b", "c"];
-
-	julia> for (index, value) in enumerate(a)
-                println("$index $value")
-            end
-     1 a
-     2 b
-     3 c
+julia> for (index, value) in enumerate(a)
+           println("$index $value")
+       end
+1 a
+2 b
+3 c
 ```
 """
 enumerate
@@ -11954,12 +10850,10 @@ Greater-than-or-equals comparison operator.
 Base.(:(>=))
 
 doc"""
-```rst
-.. dawson(x)
+    dawson(x)
 
-Compute the Dawson function (scaled imaginary error function) of ``x``,
-defined by :math:`\frac{\sqrt{\pi}}{2} e^{-x^2} \operatorname{erfi}(x)`.
-```
+Compute the Dawson function (scaled imaginary error function) of `x`,
+defined by $\frac{\sqrt{\pi}}{2} e^{-x^2} \operatorname{erfi}(x)$.
 """
 dawson
 
@@ -12065,7 +10959,7 @@ the ``format`` string. The following codes can be used for constructing format s
 
 =============== ========= ===============================================================
 Code            Matches    Comment
---------------- --------- ---------------------------------------------------------------
+=============== ========= ===============================================================
 ``y``           1996, 96  Returns year of 1996, 0096
 ``m``           1, 01     Matches 1 or 2-digit months
 ``u``           Jan       Matches abbreviated months according to the ``locale`` keyword
@@ -12483,13 +11377,6 @@ Initialize `Pkg.dir()` as a package directory. This will be done automatically w
 Pkg.init()
 
 doc"""
-    publish()
-
-For each new package version tagged in `METADATA` not already published, make sure that the tagged package commits have been pushed to the repo at the registered URL for the package and if they all have, open a pull request to `METADATA`.
-"""
-Pkg.publish()
-
-doc"""
     pin(pkg)
 
 Pin `pkg` at the current version. To go back to using the newest compatible released version, use `Pkg.free(pkg)`
@@ -12523,13 +11410,6 @@ doc"""
 Returns the version numbers available for package `pkg`.
 """
 Pkg.available(pkg)
-
-doc"""
-    register(pkg, [url])
-
-Register `pkg` at the git URL `url`, defaulting to the configured origin URL of the git repo `Pkg.dir(pkg)`.
-"""
-Pkg.register(pkg, url=?)
 
 doc"""
     rm(pkg)
@@ -12576,9 +11456,9 @@ If `pkg` has a URL registered in `Pkg.dir("METADATA")`, clone it from that URL o
 Pkg.clone(pkg)
 
 doc"""
-    checkout(pkg, [branch="master"])
+    checkout(pkg, [branch="master"]; merge=true, pull=true)
 
-Checkout the `Pkg.dir(pkg)` repo to the branch `branch`. Defaults to checking out the "master" branch. To go back to using the newest compatible released version, use `Pkg.free(pkg)`
+Checkout the `Pkg.dir(pkg)` repo to the branch `branch`. Defaults to checking out the "master" branch. To go back to using the newest compatible released version, use `Pkg.free(pkg)`. Changes are merged (fast-forward only) if the keyword argument `merge == true`, and the latest version is pulled from the upsream repo if `pull == true`.
 """
 Pkg.checkout(pkg)
 
@@ -12597,13 +11477,6 @@ Add a requirement entry for `pkg` to `Pkg.dir("REQUIRE")` and call `Pkg.resolve(
 Pkg.add(pkg, vers...)
 
 doc"""
-    tag(pkg, [ver, [commit]])
-
-Tag `commit` as version `ver` of package `pkg` and create a version entry in `METADATA`. If not provided, `commit` defaults to the current commit of the `pkg` repo. If `ver` is one of the symbols `:patch`, `:minor`, `:major` the next patch, minor or major version is used. If `ver` is not provided, it defaults to `:patch`.
-"""
-Pkg.tag(pkg)
-
-doc"""
     test()
 
 Run the tests for all installed packages ensuring that each package's test dependencies are installed for the duration of the test. A package is tested by running its `test/runtests.jl` file and test dependencies are specified in `test/REQUIRE`.
@@ -12616,13 +11489,6 @@ doc"""
 Run the tests for each package in `pkgs` ensuring that each package's test dependencies are installed for the duration of the test. A package is tested by running its `test/runtests.jl` file and test dependencies are specified in `test/REQUIRE`.
 """
 Pkg.test(pkgs...)
-
-doc"""
-    generate(pkg,license)
-
-Generate a new package named `pkg` with one of these license keys: `"MIT"`, `"BSD"` or `"ASL"`. If you want to make a package with a different license, you can edit it afterwards. Generate creates a git repo at `Pkg.dir(pkg)` for the package and inside it `LICENSE.md`, `README.md`, `REQUIRE`, the julia entrypoint `$pkg/src/$pkg.jl`, and Travis and AppVeyor CI configuration files `.travis.yml` and `appveyor.yml`.
-"""
-Pkg.generate(pkg,license)
 
 doc"""
     dir() -> AbstractString
@@ -12679,3 +11545,36 @@ Bitwise exclusive or
 ```
 """
 Base.(:$)(x, y)
+
+doc"""
+    getsockname(sock::Union{TCPServer, TCPSocket}) -> (IPAddr,UInt16)
+
+Get the IP address and the port that the given TCP socket is connected to (or bound to, in the case of TCPServer).
+"""
+getsockname
+
+doc"""
+    Base.remoteref_id(r::AbstractRemoteRef) -> (whence, id)
+
+A low-level API which returns the unique identifying tuple for a remote reference. A reference id is a tuple of two
+elements - pid where the reference was created from and a one-up number from that node.
+"""
+Base.remoteref_id
+
+doc"""
+    Base.channel_from_id(refid) -> c
+
+A low-level API which returns the backing AbstractChannel for an id returned by `remoteref_id`. The call is valid only on the node where the backing channel exists.
+"""
+Base.channel_from_id
+
+doc"""
+    Base.worker_id_from_socket(s::IO) -> pid
+
+A low-level API which given a `IO` connection, returns the pid of the worker it is connected to. This is useful when writing custom `serialize` methods for a type, which
+optimizes the data written out depending on the receiving process id.
+"""
+Base.worker_id_from_socket
+
+
+

@@ -6,7 +6,7 @@ export FILE, TmStruct, strftime, strptime, getpid, gethostname, free, malloc, ca
     errno, strerror, flush_cstdio, systemsleep, time
 @windows_only export GetLastError, FormatMessage
 
-include("errno.jl")
+include(string(length(Core.ARGS)>=2?Core.ARGS[2]:"","errno_h.jl"))  # include($BUILDROOT/base/errno_h.jl)
 
 ## RawFD ##
 
@@ -77,6 +77,18 @@ flush_cstdio() = ccall(:jl_flush_cstdio, Void, ())
 @unix_only systemsleep(s::Real) = ccall(:usleep, Int32, (UInt32,), round(UInt32,s*1e6))
 @windows_only systemsleep(s::Real) = (ccall(:Sleep, stdcall, Void, (UInt32,), round(UInt32,s*1e3)); return Int32(0))
 
+immutable TimeVal
+   sec::Int64
+   usec::Int64
+end
+
+function TimeVal()
+    tv = Ref{TimeVal}()
+    status = ccall(:jl_gettimeofday, Cint, (Ref{TimeVal},), tv)
+    status != 0 && error("unable to determine current time: ", status)
+    return tv[]
+end
+
 type TmStruct
     sec::Int32
     min::Int32
@@ -121,7 +133,7 @@ end
 strptime(timestr::AbstractString) = strptime("%c", timestr)
 function strptime(fmt::AbstractString, timestr::AbstractString)
     tm = TmStruct()
-    r = ccall(:strptime, Ptr{UInt8}, (Cstring, Cstring, Ptr{TmStruct}),
+    r = ccall(:strptime, Cstring, (Cstring, Cstring, Ptr{TmStruct}),
               timestr, fmt, &tm)
     # the following would tell mktime() that this is a local time, and that
     # it should try to guess the timezone. not sure if/how this should be
@@ -143,7 +155,7 @@ end
 
 # system date in seconds
 time(tm::TmStruct) = Float64(ccall(:mktime, Int, (Ptr{TmStruct},), &tm))
-time() = ccall(:clock_now, Float64, ())
+time() = ccall(:jl_clock_now, Float64, ())
 
 ## process-related functions ##
 
@@ -163,29 +175,40 @@ end
 
 errno() = ccall(:jl_errno, Cint, ())
 errno(e::Integer) = ccall(:jl_set_errno, Void, (Cint,), e)
-strerror(e::Integer) = bytestring(ccall(:strerror, Ptr{UInt8}, (Int32,), e))
+strerror(e::Integer) = bytestring(ccall(:strerror, Cstring, (Int32,), e))
 strerror() = strerror(errno())
 
 @windows_only begin
-GetLastError() = ccall(:GetLastError,stdcall,UInt32,())
-function FormatMessage(e=GetLastError())
-    const FORMAT_MESSAGE_ALLOCATE_BUFFER = UInt32(0x100)
-    const FORMAT_MESSAGE_FROM_SYSTEM = UInt32(0x1000)
-    const FORMAT_MESSAGE_IGNORE_INSERTS = UInt32(0x200)
-    const FORMAT_MESSAGE_MAX_WIDTH_MASK = UInt32(0xFF)
-    lpMsgBuf = Array(Ptr{UInt16})
-    lpMsgBuf[1] = 0
-    len = ccall(:FormatMessageW,stdcall,UInt32,(Cint, Ptr{Void}, Cint, Cint, Ptr{Ptr{UInt16}}, Cint, Ptr{Void}),
-        FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_MAX_WIDTH_MASK,
-        C_NULL, e, 0, lpMsgBuf, 0, C_NULL)
-    p = lpMsgBuf[1]
-    len == 0 && return utf8("")
-    len = len + 1
-    buf = Array(UInt16, len)
-    unsafe_copy!(pointer(buf), p, len)
-    ccall(:LocalFree,stdcall,Ptr{Void},(Ptr{Void},),p)
-    return utf8(UTF16String(buf))
-end
+    @doc """
+        GetLastError()
+
+    Call the Win32 `GetLastError` function [only available on Windows].
+    """ ->
+    GetLastError() = ccall(:GetLastError,stdcall,UInt32,())
+
+    @doc """
+        FormatMessage(n=GetLastError())
+
+    Convert a Win32 system call error code to a descriptive string [only available on Windows].
+    """ ->
+    function FormatMessage(e=GetLastError())
+        const FORMAT_MESSAGE_ALLOCATE_BUFFER = UInt32(0x100)
+        const FORMAT_MESSAGE_FROM_SYSTEM = UInt32(0x1000)
+        const FORMAT_MESSAGE_IGNORE_INSERTS = UInt32(0x200)
+        const FORMAT_MESSAGE_MAX_WIDTH_MASK = UInt32(0xFF)
+        lpMsgBuf = Array(Ptr{UInt16})
+        lpMsgBuf[1] = 0
+        len = ccall(:FormatMessageW,stdcall,UInt32,(Cint, Ptr{Void}, Cint, Cint, Ptr{Ptr{UInt16}}, Cint, Ptr{Void}),
+                    FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_MAX_WIDTH_MASK,
+                    C_NULL, e, 0, lpMsgBuf, 0, C_NULL)
+        p = lpMsgBuf[1]
+        len == 0 && return utf8("")
+        len = len + 1
+        buf = Array(UInt16, len)
+        unsafe_copy!(pointer(buf), p, len)
+        ccall(:LocalFree,stdcall,Ptr{Void},(Ptr{Void},),p)
+        return utf8(UTF16String(buf))
+    end
 end
 
 ## Memory related ##

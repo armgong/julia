@@ -90,7 +90,7 @@ function gen_rand(r::MersenneTwister)
 end
 
 @inline reserve_1(r::MersenneTwister) = mt_empty(r) && gen_rand(r)
-# `reserve` allows to call `rand_inbounds` n times
+# `reserve` allows one to call `rand_inbounds` n times
 # precondition: n <= MTCacheLength
 @inline reserve(r::MersenneTwister, n::Int) = mt_avail(r) < n && gen_rand(r)
 
@@ -566,7 +566,7 @@ else
     end
 end
 
-rand{T<:Union{Signed,Unsigned,BigInt,Bool,Char}}(rng::AbstractRNG, r::UnitRange{T}) = rand(rng, RangeGenerator(r))
+rand{T<:Union{Signed,Unsigned,BigInt,Bool}}(rng::AbstractRNG, r::UnitRange{T}) = rand(rng, RangeGenerator(r))
 
 
 # Randomly draw a sample from an AbstractArray r
@@ -596,7 +596,7 @@ rand(rng::AbstractRNG, r::AbstractArray, dims::Int...) = rand(rng, r, dims)
 ## random BitArrays (AbstractRNG)
 
 function rand!(rng::AbstractRNG, B::BitArray)
-    length(B) == 0 && return B
+    isempty(B) && return B
     Bc = B.chunks
     rand!(rng, Bc)
     Bc[end] &= Base._msk_end(B)

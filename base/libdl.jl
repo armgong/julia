@@ -43,13 +43,10 @@ dlopen_e(s::AbstractString, flags::Integer = RTLD_LAZY | RTLD_DEEPBIND) =
     ccall(:jl_load_dynamic_library_e, Ptr{Void}, (Cstring,UInt32), s, flags)
 
 function dlclose(p::Ptr)
-    if p != C_NULL
-        ccall(:uv_dlclose,Void,(Ptr{Void},),p)
-        Libc.free(p)
-    end
+    0 == ccall(:jl_dlclose, Cint, (Ptr{Void},), p)
 end
 
-function find_library(libnames::Vector, extrapaths::Vector=ASCIIString[])
+function find_library(libnames, extrapaths=ASCIIString[])
     for lib in libnames
         for path in extrapaths
             l = joinpath(path, lib)
@@ -67,9 +64,11 @@ function find_library(libnames::Vector, extrapaths::Vector=ASCIIString[])
     end
     return ""
 end
+find_library(libname::Union{Symbol,AbstractString}, extrapaths=ASCIIString[]) =
+    find_library([string(libname)], extrapaths)
 
 function dlpath(handle::Ptr{Void})
-    p = ccall(:jl_pathname_for_handle, Ptr{UInt8}, (Ptr{Void},), handle)
+    p = ccall(:jl_pathname_for_handle, Cstring, (Ptr{Void},), handle)
     s = bytestring(p)
     @windows_only Libc.free(p)
     return s
@@ -131,7 +130,7 @@ function dllist()
 
         # start at 1 instead of 0 to skip self
         for i in 1:numImages-1
-            name = bytestring(ccall(:_dyld_get_image_name, Ptr{UInt8}, (UInt32,), i))
+            name = bytestring(ccall(:_dyld_get_image_name, Cstring, (UInt32,), i))
             push!(dynamic_libraries, name)
         end
     end

@@ -13,15 +13,24 @@ function writemime(io::IO, ::MIME"text/plain", f::Function)
     end
 end
 
+# writemime for ranges, e.g.
+#  3-element UnitRange{Int64,Int}
+#   1,2,3
+# or for more elements than fit on screen:
+#   1.0,2.0,3.0,…,6.0,7.0,8.0
+function writemime(io::IO, ::MIME"text/plain", r::Range)
+    print(io, summary(r))
+    if !isempty(r)
+        println(io, ":")
+        with_output_limit(()->print_range(io, r))
+    end
+end
+
 function writemime(io::IO, ::MIME"text/plain", v::AbstractVector)
-    if isa(v, Range)
-        show(io, v)
-    else
-        print(io, summary(v))
-        if !isempty(v)
-            println(io, ":")
-            with_output_limit(()->print_matrix(io, v))
-        end
+    print(io, summary(v))
+    if !isempty(v)
+        println(io, ":")
+        with_output_limit(()->print_matrix(io, v))
     end
 end
 
@@ -37,6 +46,14 @@ writemime(io::IO, ::MIME"text/plain", t::Associative) =
     showdict(io, t, limit=true)
 writemime(io::IO, ::MIME"text/plain", t::Union{KeyIterator, ValueIterator}) =
     showkv(io, t, limit=true)
+
+function writemime(io::IO, ::MIME"text/plain", t::Task)
+    show(io, t)
+    if t.state == :failed
+        println(io)
+        showerror(io, CapturedException(t.result, t.backtrace))
+    end
+end
 
 
 # showing exception objects as descriptive error messages
@@ -106,7 +123,7 @@ function showerror(io::IO, ex::DomainError, bt; backtrace=true)
         code = ccall(:jl_lookup_code_address, Any, (Ptr{Void}, Cint), b-1, true)
         if length(code) == 7 && !code[6]  # code[6] == fromC
             if code[1] in (:log, :log2, :log10, :sqrt) # TODO add :besselj, :besseli, :bessely, :besselk
-                print(io,"\n$(code[1]) will only return a complex result if called with a complex argument. Try $(code[1]) (complex(x)).")
+                print(io,"\n$(code[1]) will only return a complex result if called with a complex argument. Try $(code[1])(complex(x)).")
             elseif (code[1] == :^ && code[2] == symbol("intfuncs.jl")) || code[1] == :power_by_squaring #3024
                 print(io, "\nCannot raise an integer x to a negative power -n. \nMake x a float by adding a zero decimal (e.g. 2.0^-n instead of 2^-n), or write 1/x^n, float(x)^-n, or (x//1)^-n.")
             elseif code[1] == :^ && (code[2] == symbol("promotion.jl") || code[2] == symbol("math.jl"))
@@ -119,7 +136,13 @@ function showerror(io::IO, ex::DomainError, bt; backtrace=true)
     nothing
 end
 
-showerror(io::IO, ex::SystemError) = print(io, "SystemError: $(ex.prefix): $(Libc.strerror(ex.errnum))")
+function showerror(io::IO, ex::SystemError)
+    if ex.extrainfo == nothing
+        print(io, "SystemError: $(ex.prefix): $(Libc.strerror(ex.errnum))")
+    else
+        print(io, "SystemError (with $(ex.extrainfo)): $(ex.prefix): $(Libc.strerror(ex.errnum))")
+    end
+end
 showerror(io::IO, ::DivideError) = print(io, "DivideError: integer division error")
 showerror(io::IO, ::StackOverflowError) = print(io, "StackOverflowError:")
 showerror(io::IO, ::UndefRefError) = print(io, "UndefRefError: access to undefined reference")
@@ -145,16 +168,26 @@ function showerror(io::IO, ex::MethodError)
         f = ex.f
     end
     name = isgeneric(f) ? f.env.name : :anonymous
-    if isa(f, DataType)
-        print(io, "`$(f)` has no method matching $(f)(")
+    if f == Base.convert && length(arg_types_param) == 2 && !is_arg_types
+        # See #13033
+        T = striptype(ex.args[1])
+        if T == nothing
+            print(io, "First argument to `convert` must be a Type, got $(ex.args[1])")
+        else
+            print(io, "Cannot `convert` an object of type $(arg_types_param[2]) to an object of type $T")
+        end
     else
-        print(io, "`$(name)` has no method matching $(name)(")
+        if isa(f, DataType)
+            print(io, "`$(f)` has no method matching $(f)(")
+        else
+            print(io, "`$(name)` has no method matching $(name)(")
+        end
+        for (i, typ) in enumerate(arg_types_param)
+            print(io, "::$typ")
+            i == length(arg_types_param) || print(io, ", ")
+        end
+        print(io, ")")
     end
-    for (i, typ) in enumerate(arg_types_param)
-        print(io, "::$typ")
-        i == length(arg_types_param) || print(io, ", ")
-    end
-    print(io, ")")
     # Check for local functions that shadow methods in Base
     if isdefined(Base, name)
         basef = eval(Base, name)
@@ -188,8 +221,15 @@ function showerror(io::IO, ex::MethodError)
         print(io, "This may have arisen from a call to the constructor $construct_type(...),",
                   "\nsince type constructors fall back to convert methods.")
     end
-    show_method_candidates(io, ex)
+    try
+        show_method_candidates(io, ex)
+    catch
+        warn(io, "Error showing method candidates, aborted")
+    end
 end
+
+striptype{T}(::Type{T}) = T
+striptype(::Any) = nothing
 
 #Show an error by directly calling jl_printf.
 #Useful in Base submodule __init__ functions where STDERR isn't defined yet.
@@ -239,7 +279,7 @@ function show_method_candidates(io::IO, ex::MethodError)
             right_matches = 0
             tv = method.tvars
             if !isa(tv,SimpleVector)
-                tv = svec(tv)
+                tv = Any[tv]
             end
             if !isempty(tv)
                 show_delim_array(buf, tv, '{', ',', '}', false)
@@ -320,7 +360,7 @@ function show_method_candidates(io::IO, ex::MethodError)
         end
     end
 
-    if length(lines) != 0 # Display up to three closest candidates
+    if !isempty(lines) # Display up to three closest candidates
         Base.with_output_color(:normal, io) do io
             println(io)
             print(io, "Closest candidates are:")
@@ -377,7 +417,7 @@ function show_backtrace(io::IO, t, set=1:typemax(Int))
     # in case its name changes in the future
     show_backtrace(io,
                     try
-                        symbol(string(eval_user_input))
+                        eval_user_input.env.name
                     catch
                         :(:) #for when client.jl is not yet defined
                     end, t, set)
@@ -389,21 +429,27 @@ function show_backtrace(io::IO, top_function::Symbol, t, set)
     process_backtrace(process_entry, top_function, t, set)
 end
 
+function show_backtrace(io::IO, top_function::Symbol, t::Vector{Any}, set)
+    for entry in t
+        show_trace_entry(io, entry...)
+    end
+end
+
 # process the backtrace, up to (but not including) top_function
-function process_backtrace(process_func::Function, top_function::Symbol, t, set)
+function process_backtrace(process_func::Function, top_function::Symbol, t, set; skipC = true)
     n = 1
     lastfile = ""; lastline = -11; lastname = symbol("#");
     last_inlinedat_file = ""; last_inlinedat_line = -1
     local fname, file, line
     count = 0
     for i = 1:length(t)
-        lkup = ccall(:jl_lookup_code_address, Any, (Ptr{Void}, Cint), t[i]-1, true)
+        lkup = ccall(:jl_lookup_code_address, Any, (Ptr{Void}, Cint), t[i]-1, skipC)
         if lkup === nothing
             continue
         end
         fname, file, line, inlinedat_file, inlinedat_line, fromC = lkup
 
-        if fromC; continue; end
+        if fromC && skipC; continue; end
         if i == 1 && fname == :error; continue; end
         if fname == top_function; break; end
         count += 1

@@ -7,6 +7,8 @@
 All package manager functions are defined in the ``Pkg`` module. None of the ``Pkg`` module's functions are exported;
 to use them, you'll need to prefix each function call with an explicit ``Pkg.``, e.g. ``Pkg.status()`` or ``Pkg.dir()``.
 
+Functions for package development (e.g. ``tag``, ``publish``, etc.) have been moved to the `PkgDev <https://github.com/JuliaLang/PkgDev.jl>`_ package. See `PkgDev README <https://github.com/JuliaLang/PkgDev.jl/blob/master/README.md#usage>`_ for the documentation of those functions.
+
 .. function:: dir() -> AbstractString
 
    .. Docstring generated from Julia source
@@ -61,6 +63,12 @@ to use them, you'll need to prefix each function call with an explicit ``Pkg.``,
 
    If ``pkg`` has a URL registered in ``Pkg.dir("METADATA")``\ , clone it from that URL on the default branch. The package does not need to have any registered versions.
 
+.. function:: setprotocol!(proto)
+
+   .. Docstring generated from Julia source
+
+   Set the protocol used to access GitHub-hosted packages.  Defaults to 'https', with a blank ``proto`` delegating the choice to the package developer.
+
 .. function:: available() -> Vector{ASCIIString}
 
    .. Docstring generated from Julia source
@@ -97,11 +105,11 @@ to use them, you'll need to prefix each function call with an explicit ``Pkg.``,
 
    Update package the metadata repo – kept in ``Pkg.dir("METADATA")`` – then update any fixed packages that can safely be pulled from their origin; then call ``Pkg.resolve()`` to determine a new optimal set of packages versions.
 
-.. function:: checkout(pkg, [branch="master"])
+.. function:: checkout(pkg, [branch="master"]; merge=true, pull=true)
 
    .. Docstring generated from Julia source
 
-   Checkout the ``Pkg.dir(pkg)`` repo to the branch ``branch``\ . Defaults to checking out the "master" branch. To go back to using the newest compatible released version, use ``Pkg.free(pkg)``
+   Checkout the ``Pkg.dir(pkg)`` repo to the branch ``branch``\ . Defaults to checking out the "master" branch. To go back to using the newest compatible released version, use ``Pkg.free(pkg)``\ . Changes are merged (fast-forward only) if the keyword argument ``merge == true``\ , and the latest version is pulled from the upsream repo if ``pull == true``\ .
 
 .. function:: pin(pkg)
 
@@ -134,30 +142,6 @@ to use them, you'll need to prefix each function call with an explicit ``Pkg.``,
    .. Docstring generated from Julia source
 
    Run the build script in ``deps/build.jl`` for each package in ``pkgs`` and all of their dependencies in depth-first recursive order. This is called automatically by ``Pkg.resolve()`` on all installed or updated packages.
-
-.. function:: generate(pkg,license)
-
-   .. Docstring generated from Julia source
-
-   Generate a new package named ``pkg`` with one of these license keys: ``"MIT"``\ , ``"BSD"`` or ``"ASL"``\ . If you want to make a package with a different license, you can edit it afterwards. Generate creates a git repo at ``Pkg.dir(pkg)`` for the package and inside it ``LICENSE.md``\ , ``README.md``\ , ``REQUIRE``\ , the julia entrypoint ``$pkg/src/$pkg.jl``\ , and Travis and AppVeyor CI configuration files ``.travis.yml`` and ``appveyor.yml``\ .
-
-.. function:: register(pkg, [url])
-
-   .. Docstring generated from Julia source
-
-   Register ``pkg`` at the git URL ``url``\ , defaulting to the configured origin URL of the git repo ``Pkg.dir(pkg)``\ .
-
-.. function:: tag(pkg, [ver, [commit]])
-
-   .. Docstring generated from Julia source
-
-   Tag ``commit`` as version ``ver`` of package ``pkg`` and create a version entry in ``METADATA``\ . If not provided, ``commit`` defaults to the current commit of the ``pkg`` repo. If ``ver`` is one of the symbols ``:patch``\ , ``:minor``\ , ``:major`` the next patch, minor or major version is used. If ``ver`` is not provided, it defaults to ``:patch``\ .
-
-.. function:: publish()
-
-   .. Docstring generated from Julia source
-
-   For each new package version tagged in ``METADATA`` not already published, make sure that the tagged package commits have been pushed to the repo at the registered URL for the package and if they all have, open a pull request to ``METADATA``\ .
 
 .. function:: test()
 

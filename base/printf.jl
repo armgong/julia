@@ -856,7 +856,7 @@ function decode(b::Int, x::BigInt)
     pt = Base.ndigits(x, abs(b))
     length(DIGITS) < pt+1 && resize!(DIGITS, pt+1)
     neg && (x.size = -x.size)
-    ccall((:__gmpz_get_str, :libgmp), Ptr{UInt8},
+    ccall((:__gmpz_get_str, :libgmp), Cstring,
           (Ptr{UInt8}, Cint, Ptr{BigInt}), DIGITS, b, &x)
     neg && (x.size = -x.size)
     return Int32(pt), Int32(pt), neg
@@ -876,7 +876,7 @@ function decode_0ct(x::BigInt)
     length(DIGITS) < pt+1 && resize!(DIGITS, pt+1)
     neg && (x.size = -x.size)
     p = convert(Ptr{UInt8}, DIGITS) + 1
-    ccall((:__gmpz_get_str, :libgmp), Ptr{UInt8},
+    ccall((:__gmpz_get_str, :libgmp), Cstring,
           (Ptr{UInt8}, Cint, Ptr{BigInt}), p, 8, &x)
     neg && (x.size = -x.size)
     return neg, Int32(pt), Int32(pt)
@@ -1154,7 +1154,7 @@ function _printf(macroname, io, fmt, args)
 end
 
 macro printf(args...)
-    !isempty(args) || throw(ArgumentError("@printf: called with no arguments"))
+    isempty(args) && throw(ArgumentError("@printf: called with no arguments"))
     if isa(args[1], AbstractString) || is_str_expr(args[1])
         _printf("@printf", :STDOUT, args[1], args[2:end])
     else
@@ -1165,7 +1165,7 @@ macro printf(args...)
 end
 
 macro sprintf(args...)
-    !isempty(args) || throw(ArgumentError("@sprintf: called with zero arguments"))
+    isempty(args) && throw(ArgumentError("@sprintf: called with zero arguments"))
     isa(args[1], AbstractString) || is_str_expr(args[1]) ||
         throw(ArgumentError("@sprintf: first argument must be a format string"))
     letexpr = _printf("@sprintf", :(IOBuffer()), args[1], args[2:end])

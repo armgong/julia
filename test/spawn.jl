@@ -11,6 +11,8 @@
 #TODO:
 # - Windows:
 #   - Add a test whether coreutils are available and skip tests if not
+@windows_only oldpath = ENV["PATH"]
+@windows_only ENV["PATH"] = joinpath(JULIA_HOME,"..","Git","usr","bin")*";"*oldpath
 
 valgrind_off = ccall(:jl_running_on_valgrind,Cint,()) == 0
 
@@ -23,8 +25,8 @@ yes = `perl -le 'while (1) {print STDOUT "y"}'`
 @test length(spawn(pipeline(`echo hello`, `sort`)).processes) == 2
 
 out = readall(`echo hello` & `echo world`)
-@test search(out,"world") != (0,0)
-@test search(out,"hello") != (0,0)
+@test search(out,"world") != 0:-1
+@test search(out,"hello") != 0:-1
 @test readall(pipeline(`echo hello` & `echo world`, `sort`)) == "hello\nworld\n"
 
 @test (run(`printf "       \033[34m[stdio passthrough ok]\033[0m\n"`); true)
@@ -231,7 +233,7 @@ sleep(1)
 import Base.zzzInvalidIdentifier
 """
 try
-    (in,p) = open(`$exename -f`, "w")
+    (in,p) = open(pipeline(`$exename -f`, stderr=STDERR), "w")
     write(in,cmd)
     close(in)
     wait(p)
@@ -249,13 +251,49 @@ let bad = "bad\0name"
 end
 
 # issue #12829
-let out = Pipe()
+let out = Pipe(), echo = `$exename -f -e 'print(STDOUT, " 1\t", readall(STDIN))'`, ready = Condition()
     @test_throws ArgumentError write(out, "not open error")
-    open(`cat`, "w", out) do io
-        println(io, 1)
+    @async begin # spawn writer task
+        open(echo, "w", out) do in1
+            open(echo, "w", out) do in2
+                notify(ready)
+                write(in1, 'h')
+                write(in2, UInt8['w'])
+                println(in1, "ello")
+                write(in2, "orld\n")
+            end
+        end
+        show(out, out)
+        notify(ready)
+        @test isreadable(out)
+        @test iswritable(out)
+        close(out.in)
+        @test_throws ArgumentError write(out, "now closed error")
+        @test isreadable(out)
+        @test !iswritable(out)
+        @test isopen(out)
     end
-    close(out.in)
-    @test readline(out) == "1\n"
+    wait(ready) # wait for writer task to be ready before using `out`
+    @test nb_available(out) == 0
+    @test endswith(readuntil(out, '1'), '1')
+    @test read(out, UInt8) == '\t'
+    c = UInt8[0]
+    @test c == read!(out, c)
+    Base.wait_readnb(out, 1)
+    @test nb_available(out) > 0
+    ln1 = readline(out)
+    ln2 = readline(out)
+    desc = readall(out)
+    @test !isreadable(out)
+    @test !iswritable(out)
+    @test !isopen(out)
+    @test nb_available(out) == 0
+    @test c == ['w']
+    @test lstrip(ln2) == "1\thello\n"
+    @test ln1 == "orld\n"
+    @test isempty(readbytes(out))
+    @test eof(out)
+    @test desc == "Pipe(open => active, 0 bytes waiting)"
 end
 
 # issue #8529
@@ -271,3 +309,38 @@ let fname = tempname()
     @test success(pipeline(`cat $fname`, `$exename -e $code`))
     rm(fname)
 end
+
+# Ensure that quoting works
+@test Base.shell_split("foo bar baz") == ["foo", "bar", "baz"]
+@test Base.shell_split("foo\\ bar baz") == ["foo bar", "baz"]
+@test Base.shell_split("'foo bar' baz") == ["foo bar", "baz"]
+@test Base.shell_split("\"foo bar\" baz") == ["foo bar", "baz"]
+
+# "Over quoted"
+@test Base.shell_split("'foo\\ bar' baz") == ["foo\\ bar", "baz"]
+@test Base.shell_split("\"foo\\ bar\" baz") == ["foo\\ bar", "baz"]
+
+# Ensure that shell_split handles quoted spaces
+let cmd = ["/Volumes/External HD/program", "-a"]
+    @test Base.shell_split("/Volumes/External\\ HD/program -a") == cmd
+    @test Base.shell_split("'/Volumes/External HD/program' -a") == cmd
+    @test Base.shell_split("\"/Volumes/External HD/program\" -a") == cmd
+end
+
+# Backticks should automatically quote where necessary
+let cmd = ["foo bar", "baz"]
+    @test string(`$cmd`) == "`'foo bar' baz`"
+end
+
+@test Base.shell_split("\"\\\\\"") == ["\\"]
+
+# issue #13616
+@test_throws ErrorException collect(eachline(`cat _doesnt_exist__111_`))
+
+# make sure windows_verbatim strips quotes
+@windows_only readall(`cmd.exe /c dir /b spawn.jl`) == readall(Cmd(`cmd.exe /c dir /b "\"spawn.jl\""`, windows_verbatim=true))
+
+# make sure Cmd is nestable
+@test string(Cmd(Cmd(`ls`, detach=true))) == "`ls`"
+
+@windows_only ENV["PATH"] = oldpath

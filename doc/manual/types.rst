@@ -343,7 +343,7 @@ In mainstream
 object oriented languages, such as C++, Java, Python and Ruby, composite
 types also have named functions associated with them, and the
 combination is called an "object". In purer object-oriented languages,
-such as Python and Ruby, all values are objects whether they are
+such as Ruby or Smalltalk, all values are objects whether they are
 composites or not. In less pure object oriented languages, including C++
 and Java, some values, such as integers and floating-point values, are
 not objects, while instances of user-defined composite types are true
@@ -684,8 +684,8 @@ subtypes of each other:
 
 This last point is very important:
 
-    **Even though** ``Float64 <: Real`` **we DO NOT have**
-    ``Point{Float64} <: Point{Real}``\ **.**
+- **Even though** ``Float64 <: Real`` **we DO NOT have**
+  ``Point{Float64} <: Point{Real}``\ **.**
 
 In other words, in the parlance of type theory, Julia's type parameters
 are *invariant*, rather than being covariant (or even contravariant).
@@ -710,6 +710,21 @@ pointers to individually allocated :obj:`Real` objects — which may well be
 64-bit floating-point values, but also might be arbitrarily large,
 complex objects, which are declared to be implementations of the
 :obj:`Real` abstract type.
+
+Since ``Point{Float64}`` is not a subtype of ``Point{Real}``, the following method can't be applied to arguments of type ``Point{Float64}``::
+
+    function norm(p::Point{Real})
+       sqrt(p.x^2 + p.y^2)
+    end
+
+The correct way to define a method that accepts all arguments of type ``Point{T}`` where ``T`` is a subtype of ``Real`` is::
+
+    function norm{T<:Real}(p::Point{T})
+       sqrt(p.x^2 + p.y^2)
+    end
+
+More examples will be discussed later in :ref:`man-methods`.
+
 
 How does one construct a ``Point`` object? It is possible to define
 custom constructors for composite types, which will be discussed in
@@ -1283,7 +1298,7 @@ minimal interface designed to ensure that interactions with missing values
 are safe. At present, the interface consists of four possible interactions:
 
 - Construct a :obj:`Nullable` object.
-- Check if an :obj:`Nullable` object has a missing value.
+- Check if a :obj:`Nullable` object has a missing value.
 - Access the value of a :obj:`Nullable` object with a guarantee that a
   :exc:`NullException` will be thrown if the object's value is missing.
 - Access the value of a :obj:`Nullable` object with a guarantee that a default
@@ -1324,8 +1339,8 @@ Note the core distinction between these two ways of constructing a :obj:`Nullabl
 object: in one style, you provide a type, ``T``, as a function parameter; in
 the other style, you provide a single value of type ``T`` as an argument.
 
-Checking if an :obj:`Nullable` object has a value
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Checking if a :obj:`Nullable` object has a value
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 You can check if a :obj:`Nullable` object has any value using :func:`isnull`:
 
@@ -1337,10 +1352,10 @@ You can check if a :obj:`Nullable` object has any value using :func:`isnull`:
     julia> isnull(Nullable(0.0))
     false
 
-Safely accessing the value of an :obj:`Nullable` object
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Safely accessing the value of a :obj:`Nullable` object
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-You can safely access the value of an :obj:`Nullable` object using :func:`get`:
+You can safely access the value of a :obj:`Nullable` object using :func:`get`:
 
 .. doctest::
 

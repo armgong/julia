@@ -102,7 +102,7 @@ end
 serialize(s::SerializationState, x::Bool) = x ? writetag(s.io, TRUE_TAG) :
                                                 writetag(s.io, FALSE_TAG)
 
-serialize(s::SerializationState, ::Ptr) = error("cannot serialize a pointer")
+serialize(s::SerializationState, p::Ptr) = serialize_any(s, oftype(p, C_NULL))
 
 serialize(s::SerializationState, ::Tuple{}) = writetag(s.io, EMPTYTUPLE_TAG)
 
@@ -124,7 +124,7 @@ function serialize(s::SerializationState, v::SimpleVector)
     writetag(s.io, SIMPLEVECTOR_TAG)
     write(s.io, Int32(length(v)))
     for i = 1:length(v)
-        serialize(s.io, v[i])
+        serialize(s, v[i])
     end
 end
 
@@ -134,7 +134,7 @@ function serialize(s::SerializationState, x::Symbol)
         return write_as_tag(s.io, tag)
     end
     pname = unsafe_convert(Ptr{UInt8}, x)
-    ln = Int(ccall(:strlen, Csize_t, (Ptr{UInt8},), pname))
+    ln = Int(ccall(:strlen, Csize_t, (Cstring,), pname))
     if ln <= 255
         writetag(s.io, SYMBOL_TAG)
         write(s.io, UInt8(ln))
@@ -147,7 +147,7 @@ end
 
 function serialize_array_data(s::IO, a)
     elty = eltype(a)
-    if elty === Bool && length(a)>0
+    if elty === Bool && !isempty(a)
         last = a[1]
         count = 1
         for i = 2:length(a)
@@ -202,7 +202,7 @@ end
 
 function serialize{T<:AbstractString}(s::SerializationState, ss::SubString{T})
     # avoid saving a copy of the parent string, keeping the type of ss
-    invoke(serialize, Tuple{SerializationState,Any}, s, convert(SubString{T}, convert(T,ss)))
+    serialize_any(s, convert(SubString{T}, convert(T,ss)))
 end
 
 # Don't serialize the pointers
@@ -224,7 +224,7 @@ function serialize(s::SerializationState, n::BigFloat)
 end
 
 function serialize(s::SerializationState, ex::Expr)
-    serialize_cycle(s, e) && return
+    serialize_cycle(s, ex) && return
     l = length(ex.args)
     if l <= 255
         writetag(s.io, EXPR_TAG)
@@ -265,8 +265,6 @@ function serialize(s::SerializationState, m::Module)
 end
 
 function serialize(s::SerializationState, f::Function)
-    serialize_cycle(s, f) && return
-    writetag(s.io, FUNCTION_TAG)
     name = false
     if isgeneric(f)
         name = f.env.name
@@ -275,6 +273,7 @@ function serialize(s::SerializationState, f::Function)
     end
     if isa(name,Symbol)
         if isdefined(Base,name) && is(f,getfield(Base,name))
+            writetag(s.io, FUNCTION_TAG)
             write(s.io, UInt8(0))
             serialize(s, name)
             return
@@ -282,24 +281,31 @@ function serialize(s::SerializationState, f::Function)
         mod = ()
         if isa(f.env,Symbol)
             mod = Core
+        elseif isdefined(f.env, :module) && isa(f.env.module, Module)
+            mod = f.env.module
         elseif !is(f.env.defs, ())
             mod = f.env.defs.func.code.module
         end
         if mod !== ()
             if isdefined(mod,name) && is(f,getfield(mod,name))
                 # toplevel named func
+                writetag(s.io, FUNCTION_TAG)
                 write(s.io, UInt8(2))
                 serialize(s, mod)
                 serialize(s, name)
                 return
             end
         end
+        serialize_cycle(s, f) && return
+        writetag(s.io, FUNCTION_TAG)
         write(s.io, UInt8(3))
         serialize(s, f.env)
     else
+        serialize_cycle(s, f) && return
+        writetag(s.io, FUNCTION_TAG)
+        write(s.io, UInt8(1))
         linfo = f.code
         @assert isa(linfo,LambdaStaticData)
-        write(s.io, UInt8(1))
         serialize(s, linfo)
         serialize(s, f.env)
     end
@@ -326,9 +332,9 @@ function serialize(s::SerializationState, linfo::LambdaStaticData)
     serialize(s, lambda_number(linfo))
     serialize(s, uncompressed_ast(linfo))
     if isdefined(linfo.def, :roots)
-        serialize(s, linfo.def.roots)
+        serialize(s, linfo.def.roots::Vector{Any})
     else
-        serialize(s, [])
+        serialize(s, Any[])
     end
     serialize(s, linfo.sparams)
     serialize(s, linfo.inferred)
@@ -345,12 +351,15 @@ function serialize(s::SerializationState, t::Task)
     if istaskstarted(t) && !istaskdone(t)
         error("cannot serialize a running Task")
     end
+    state = [t.code,
+        t.storage,
+        t.state == :queued || t.state == :runnable ? (:runnable) : t.state,
+        t.result,
+        t.exception]
     writetag(s.io, TASK_TAG)
-    serialize(s, t.code)
-    serialize(s, t.storage)
-    serialize(s, t.state == :queued || t.state == :waiting ? (:runnable) : t.state)
-    serialize(s, t.result)
-    serialize(s, t.exception)
+    for fld in state
+        serialize(s, fld)
+    end
 end
 
 function serialize_type_data(s, t)
@@ -358,7 +367,7 @@ function serialize_type_data(s, t)
     serialize(s, tname)
     mod = t.name.module
     serialize(s, mod)
-    if length(t.parameters) > 0
+    if !isempty(t.parameters)
         if isdefined(mod,tname) && is(t,getfield(mod,tname))
             serialize(s, svec())
         else
@@ -396,7 +405,9 @@ function serialize(s::SerializationState, n::Int)
     write(s.io, n)
 end
 
-function serialize(s::SerializationState, x)
+serialize(s::SerializationState, x) = serialize_any(s, x)
+
+function serialize_any(s::SerializationState, x)
     tag = sertag(x)
     if tag > 0
         return write_as_tag(s.io, tag)
@@ -507,24 +518,31 @@ function deserialize(s::SerializationState, ::Type{Function})
     if b==0
         name = deserialize(s)::Symbol
         if !isdefined(Base,name)
-            return (args...)->error("function $name not defined on process $(myid())")
+            f = (args...)->error("function $name not defined on process $(myid())")
+        else
+            f = getfield(Base,name)::Function
         end
-        return getfield(Base,name)::Function
     elseif b==2
         mod = deserialize(s)::Module
         name = deserialize(s)::Symbol
         if !isdefined(mod,name)
-            return (args...)->error("function $name not defined on process $(myid())")
+            f = (args...)->error("function $name not defined on process $(myid())")
+        else
+            f = getfield(mod,name)::Function
         end
-        return getfield(mod,name)::Function
     elseif b==3
-        env = deserialize(s)
-        return ccall(:jl_new_gf_internal, Any, (Any,), env)::Function
+        f = ccall(:jl_new_gf_internal, Any, (Any,), nothing)::Function
+        deserialize_cycle(s, f)
+        f.env = deserialize(s)
+    else
+        f = ccall(:jl_new_closure, Any, (Ptr{Void}, Ptr{Void}, Any),
+                  cglobal(:jl_trampoline), C_NULL, nothing)::Function
+        deserialize_cycle(s, f)
+        f.code = li = deserialize(s)
+        f.fptr = ccall(:jl_linfo_fptr, Ptr{Void}, (Any,), li)
+        f.env = deserialize(s)
     end
-    linfo = deserialize(s)
-    f = ccall(:jl_new_closure, Any, (Ptr{Void}, Ptr{Void}, Any), C_NULL, C_NULL, linfo)::Function
-    deserialize_cycle(s, f)
-    f.env = deserialize(s)
+
     return f
 end
 
@@ -538,11 +556,11 @@ function deserialize(s::SerializationState, ::Type{LambdaStaticData})
         makenew = true
     end
     deserialize_cycle(s, linfo)
-    ast = deserialize(s)
-    roots = deserialize(s)
-    sparams = deserialize(s)
-    infr = deserialize(s)
-    mod = deserialize(s)
+    ast = deserialize(s)::Expr
+    roots = deserialize(s)::Vector{Any}
+    sparams = deserialize(s)::SimpleVector
+    infr = deserialize(s)::Bool
+    mod = deserialize(s)::Module
     capt = deserialize(s)
     if makenew
         linfo.ast = ast
@@ -551,7 +569,7 @@ function deserialize(s::SerializationState, ::Type{LambdaStaticData})
         linfo.module = mod
         linfo.roots = roots
         if !is(capt,nothing)
-            linfo.capt = capt
+            linfo.capt = capt::Vector{Any}
         end
         known_lambda_data[lnumber] = linfo
     end
@@ -624,7 +642,7 @@ function deserialize_datatype(s::SerializationState)
     name = deserialize(s)::Symbol
     mod = deserialize(s)::Module
     ty = getfield(mod,name)
-    if length(ty.parameters) == 0
+    if isempty(ty.parameters)
         t = ty
     else
         params = deserialize(s)
@@ -635,8 +653,6 @@ function deserialize_datatype(s::SerializationState)
     end
     deserialize(s, t)
 end
-
-deserialize{T}(s::SerializationState, ::Type{Ptr{T}}) = convert(Ptr{T}, 0)
 
 function deserialize(s::SerializationState, ::Type{Task})
     t = Task(()->nothing)

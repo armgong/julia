@@ -49,6 +49,13 @@ for elty in (Float32, Float64, Complex64, Complex128, Int)
     @test transpose(T) == Tridiagonal(du, d, dl)
     @test ctranspose(T) == Tridiagonal(conj(du), conj(d), conj(dl))
 
+    @test abs(T) == Tridiagonal(abs(dl),abs(d),abs(du))
+    @test real(T) == Tridiagonal(real(dl),real(d),real(du))
+    @test imag(T) == Tridiagonal(imag(dl),imag(d),imag(du))
+    @test abs(Ts) == SymTridiagonal(abs(d),abs(dl))
+    @test real(Ts) == SymTridiagonal(real(d),real(dl))
+    @test imag(Ts) == SymTridiagonal(imag(d),imag(dl))
+
     # test interconversion of Tridiagonal and SymTridiagonal
     @test Tridiagonal(dl, d, dl) == SymTridiagonal(d, dl)
     @test SymTridiagonal(d, dl) == Tridiagonal(dl, d, dl)
@@ -79,12 +86,12 @@ for elty in (Float32, Float64, Complex64, Complex128, Int)
         Fs = full(Ts)
         invFsv = Fs\v
         Tldlt = factorize(Ts)
-        x = Tldlt\v
+        x = Ts\v
         @test_approx_eq x invFsv
         @test_approx_eq full(full(Tldlt)) Fs
         @test_throws DimensionMismatch Tldlt\rand(elty,n+1)
         @test size(Tldlt) == size(Ts)
-        if elty <: FloatingPoint
+        if elty <: AbstractFloat
             @test typeof(convert(Base.LinAlg.LDLt{Float32},Tldlt)) == Base.LinAlg.LDLt{Float32,SymTridiagonal{elty}}
         end
     end
@@ -220,9 +227,13 @@ let n = 12 #Size of matrix problem to test
         debug && println("Rounding to Ints")
         if elty <: Real
             @test round(Int,A) == round(Int,fA)
+            @test isa(round(Int,A), SymTridiagonal)
             @test trunc(Int,A) == trunc(Int,fA)
+            @test isa(trunc(Int,A), SymTridiagonal)
             @test ceil(Int,A) == ceil(Int,fA)
+            @test isa(ceil(Int,A), SymTridiagonal)
             @test floor(Int,A) == floor(Int,fA)
+            @test isa(floor(Int,A), SymTridiagonal)
         end
 
         debug && println("Tridiagonal/SymTridiagonal mixing ops")
@@ -334,9 +345,13 @@ let n = 12 #Size of matrix problem to test
         debug && println("Rounding to Ints")
         if elty <: Real
             @test round(Int,A) == round(Int,fA)
+            @test isa(round(Int,A), Tridiagonal)
             @test trunc(Int,A) == trunc(Int,fA)
+            @test isa(trunc(Int,A), Tridiagonal)
             @test ceil(Int,A) == ceil(Int,fA)
+            @test isa(ceil(Int,A), Tridiagonal)
             @test floor(Int,A) == floor(Int,fA)
+            @test isa(floor(Int,A), Tridiagonal)
         end
 
         debug && println("Binary operations")
@@ -385,3 +400,11 @@ SymTridiagonal([1, 2], [0])^3 == [1 0; 0 8]
 #test convert for SymTridiagonal
 @test convert(SymTridiagonal{Float64},SymTridiagonal(ones(Float32,5),ones(Float32,4))) == SymTridiagonal(ones(Float64,5),ones(Float64,4))
 @test convert(AbstractMatrix{Float64},SymTridiagonal(ones(Float32,5),ones(Float32,4))) == SymTridiagonal(ones(Float64,5),ones(Float64,4))
+
+# Test constructors from matrix
+@test SymTridiagonal([1 2 3; 2 5 6; 0 6 9]) == [1 2 0; 2 5 6; 0 6 9]
+@test Tridiagonal([1 2 3; 4 5 6; 7 8 9]) == [1 2 0; 4 5 6; 0 8 9]
+
+# Test constructors with range and other abstract vectors
+@test SymTridiagonal(1:3, 1:2) == [1 1 0; 1 2 2; 0 2 3]
+@test Tridiagonal(4:5, 1:3, 1:2) == [1 1 0; 4 2 2; 0 5 3]

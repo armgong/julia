@@ -14,8 +14,6 @@
 extern "C" {
 #endif
 
-extern int jl_lineno;
-
 static jl_value_t *eval(jl_value_t *e, jl_value_t **locals, size_t nl, size_t ngensym);
 static jl_value_t *eval_body(jl_array_t *stmts, jl_value_t **locals, size_t nl, size_t ngensym,
                              int start, int toplevel);
@@ -27,8 +25,10 @@ jl_value_t *jl_interpret_toplevel_expr(jl_value_t *e)
     return eval(e, NULL, 0, 0);
 }
 
-DLLEXPORT jl_value_t *jl_interpret_toplevel_expr_in(jl_module_t *m, jl_value_t *e,
-                                                    jl_value_t **locals, size_t nl)
+JL_DLLEXPORT jl_value_t *jl_interpret_toplevel_expr_in(jl_module_t *m,
+                                                       jl_value_t *e,
+                                                       jl_value_t **locals,
+                                                       size_t nl)
 {
     jl_value_t *v=NULL;
     jl_module_t *last_m = jl_current_module;
@@ -102,7 +102,8 @@ static int equiv_type(jl_datatype_t *dta, jl_datatype_t *dtb)
 static void check_can_assign_type(jl_binding_t *b)
 {
     if (b->constp && b->value != NULL && !jl_is_datatype(b->value))
-        jl_errorf("invalid redefinition of constant %s", b->name->name);
+        jl_errorf("invalid redefinition of constant %s",
+                  jl_symbol_name(b->name));
 }
 
 static jl_value_t *eval(jl_value_t *e, jl_value_t **locals, size_t nl, size_t ngensym)
@@ -371,11 +372,12 @@ static jl_value_t *eval(jl_value_t *e, jl_value_t **locals, size_t nl, size_t ng
         assert(jl_is_svec(para));
         vnb  = eval(args[2], locals, nl, ngensym);
         if (!jl_is_long(vnb))
-            jl_errorf("invalid declaration of bits type %s", ((jl_sym_t*)name)->name);
+            jl_errorf("invalid declaration of bits type %s",
+                      jl_symbol_name((jl_sym_t*)name));
         ssize_t nb = jl_unbox_long(vnb);
         if (nb < 1 || nb>=(1<<23) || (nb&7) != 0)
             jl_errorf("invalid number of bits in type %s",
-                      ((jl_sym_t*)name)->name);
+                      jl_symbol_name((jl_sym_t*)name));
         dt = jl_new_bitstype(name, jl_any_type, (jl_svec_t*)para, nb);
         jl_binding_t *b = jl_get_binding_wr(jl_current_module, (jl_sym_t*)name);
         temp = b->value;
@@ -421,7 +423,9 @@ static jl_value_t *eval(jl_value_t *e, jl_value_t **locals, size_t nl, size_t ng
             for(size_t i=0; i < jl_svec_len(dt->types); i++) {
                 jl_value_t *elt = jl_svecref(dt->types, i);
                 if (!jl_is_type(elt) && !jl_is_typevar(elt))
-                    jl_type_error_rt(dt->name->name->name, "type definition", (jl_value_t*)jl_type_type, elt);
+                    jl_type_error_rt(jl_symbol_name(dt->name->name),
+                                     "type definition",
+                                     (jl_value_t*)jl_type_type, elt);
             }
             super = eval(args[3], locals, nl, ngensym);
             jl_set_datatype_super(dt, super);
@@ -493,14 +497,16 @@ static jl_value_t *eval(jl_value_t *e, jl_value_t **locals, size_t nl, size_t ng
     else if (ex->head == meta_sym) {
         return (jl_value_t*)jl_nothing;
     }
-    jl_errorf("unsupported or misplaced expression %s", ex->head->name);
+    else if (ex->head == inert_sym) {
+        return args[0];
+    }
+    jl_errorf("unsupported or misplaced expression %s", jl_symbol_name(ex->head));
     return (jl_value_t*)jl_nothing;
 }
 
-static int label_idx(jl_value_t *tgt, jl_array_t *stmts)
+static int label_idx(long ltgt, jl_array_t *stmts)
 {
     size_t j;
-    long ltgt = jl_unbox_long(tgt);
     for(j=0; j < stmts->nrows; j++) {
         jl_value_t *l = jl_cellref(stmts,j);
         if (jl_is_labelnode(l) && jl_labelnode_label(l)==ltgt)
@@ -538,7 +544,7 @@ static jl_value_t *eval_body(jl_array_t *stmts, jl_value_t **locals, size_t nl, 
     while (1) {
         jl_value_t *stmt = jl_cellref(stmts,i);
         if (jl_is_gotonode(stmt)) {
-            i = label_idx(jl_fieldref(stmt,0), stmts);
+            i = label_idx(jl_gotonode_label(stmt), stmts);
             continue;
         }
         if (jl_is_expr(stmt)) {
@@ -546,7 +552,7 @@ static jl_value_t *eval_body(jl_array_t *stmts, jl_value_t **locals, size_t nl, 
             if (head == goto_ifnot_sym) {
                 jl_value_t *cond = eval(jl_exprarg(stmt,0), locals, nl, ngensym);
                 if (cond == jl_false) {
-                    i = label_idx(jl_exprarg(stmt,1), stmts);
+                    i = label_idx(jl_unbox_long(jl_exprarg(stmt, 1)), stmts);
                     continue;
                 }
                 else if (cond != jl_true) {
@@ -571,7 +577,7 @@ static jl_value_t *eval_body(jl_array_t *stmts, jl_value_t **locals, size_t nl, 
                     if (jl_exception_in_transit == jl_stackovf_exception)
                         _resetstkoflw();
 #endif
-                    i = label_idx(jl_exprarg(stmt,0), stmts);
+                    i = label_idx(jl_unbox_long(jl_exprarg(stmt,0)), stmts);
                     continue;
                 }
             }

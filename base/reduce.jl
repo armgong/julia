@@ -36,10 +36,10 @@ function mapfoldl_impl(f, op, v0, itr, i)
     # Unroll the while loop once; if v0 is known, the call to op may
     # be evaluated at compile time
     if done(itr, i)
-        return v0
+        return r_promote(op, v0)
     else
         (x, i) = next(itr, i)
-        v = op(v0, f(x))
+        v = op(r_promote(op, v0), f(x))
         while !done(itr, i)
             (x, i) = next(itr, i)
             v = op(v, f(x))
@@ -71,10 +71,10 @@ function mapfoldr_impl(f, op, v0, itr, i::Integer)
     # Unroll the while loop once; if v0 is known, the call to op may
     # be evaluated at compile time
     if i == 0
-        return v0
+        return r_promote(op, v0)
     else
         x = itr[i]
-        v  = op(f(x), v0)
+        v  = op(f(x), r_promote(op, v0))
         while i > 1
             x = itr[i -= 1]
             v = op(f(x), v)
@@ -131,7 +131,9 @@ mr_empty(::Abs2Fun, op::MaxFun, T) = abs2(zero(T)::T)
 mr_empty(f, op::AndFun, T) = true
 mr_empty(f, op::OrFun, T) = false
 
-function _mapreduce{T}(f, op, A::AbstractArray{T})
+_mapreduce(f, op, A::AbstractArray) = _mapreduce(f, op, linearindexing(A), A)
+
+function _mapreduce{T}(f, op, ::LinearFast, A::AbstractArray{T})
     n = Int(length(A))
     if n == 0
         return mr_empty(f, op, T)
@@ -152,7 +154,9 @@ function _mapreduce{T}(f, op, A::AbstractArray{T})
     end
 end
 
-mapreduce(f, op, A::AbstractArray) = _mapreduce(f, op, A)
+_mapreduce{T}(f, op, ::LinearSlow, A::AbstractArray{T}) = mapfoldl(f, op, A)
+
+mapreduce(f, op, A::AbstractArray) = _mapreduce(f, op, linearindexing(A), A)
 mapreduce(f, op, a::Number) = f(a)
 
 mapreduce(f, op::Function, A::AbstractArray) = mapreduce(f, specialized_binary(op), A)
@@ -389,18 +393,8 @@ end
 
 function count(pred, itr)
     n = 0
-    for x in itr
-        pred(x) && (n += 1)
-    end
-    return n
-end
-
-function count(pred, a::AbstractArray)
-    n = 0
-    for i = 1:length(a)
-        @inbounds if pred(a[i])
-            n += 1
-        end
+    @inbounds for x in itr
+        n += pred(x)
     end
     return n
 end
@@ -408,4 +402,10 @@ end
 immutable NotEqZero <: Func{1} end
 call(::NotEqZero, x) = x != 0
 
+"""
+    countnz(A)
+
+Counts the number of nonzero values in array `A` (dense or sparse). Note that this is not a constant-time operation.
+For sparse matrices, one should usually use `nnz`, which returns the number of stored values.
+"""
 countnz(a) = count(NotEqZero(), a)

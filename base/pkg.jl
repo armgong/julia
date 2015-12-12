@@ -2,15 +2,18 @@
 
 module Pkg
 
-export Git, Dir, GitHub, Types, Reqs, Cache, Read, Query, Resolve, Write, Generate, Entry
+export Dir, Types, Reqs, Cache, Read, Query, Resolve, Write, Entry, Git
 export dir, init, rm, add, available, installed, status, clone, checkout,
-       update, resolve, register, tag, publish, generate, test,
-       build, free, pin
+       update, resolve, test, build, free, pin, PkgError, setprotocol!
 
-const DEFAULT_META = "git://github.com/JuliaLang/METADATA.jl"
+const DEFAULT_META = "https://github.com/JuliaLang/METADATA.jl"
 const META_BRANCH = "metadata-v2"
 
-for file in split("git dir github types reqs cache read query resolve write generate entry")
+type PkgError <: Exception
+    msg::AbstractString
+end
+
+for file in split("dir types reqs cache read query resolve write entry git")
     include("pkg/$file.jl")
 end
 const cd = Dir.cd
@@ -45,31 +48,45 @@ pin(pkg::AbstractString, ver::VersionNumber) = cd(Entry.pin,pkg,ver)
 update() = cd(Entry.update,Dir.getmetabranch())
 resolve() = cd(Entry.resolve)
 
-register(pkg::AbstractString) = cd(Entry.register,pkg)
-register(pkg::AbstractString, url::AbstractString) = cd(Entry.register,pkg,url)
-
-tag(pkg::AbstractString, sym::Symbol=:patch) = cd(Entry.tag,pkg,sym)
-tag(pkg::AbstractString, sym::Symbol, commit::AbstractString) = cd(Entry.tag,pkg,sym,false,commit)
-
-tag(pkg::AbstractString, ver::VersionNumber; force::Bool=false) = cd(Entry.tag,pkg,ver,force)
-tag(pkg::AbstractString, ver::VersionNumber, commit::AbstractString; force::Bool=false) =
-    cd(Entry.tag,pkg,ver,force,commit)
-
-submit(pkg::AbstractString) = cd(Entry.submit,pkg)
-submit(pkg::AbstractString, commit::AbstractString) = cd(Entry.submit,pkg,commit)
-
-publish() = cd(Entry.publish,Dir.getmetabranch())
-
 build() = cd(Entry.build)
 build(pkgs::AbstractString...) = cd(Entry.build,[pkgs...])
-
-generate(pkg::AbstractString, license::AbstractString; force::Bool=false, authors::Union{AbstractString,Array} = [], config::Dict=Dict()) =
-    cd(Generate.package,pkg,license,force=force,authors=authors,config=config)
-
 
 test(;coverage::Bool=false) = cd(Entry.test; coverage=coverage)
 test(pkgs::AbstractString...; coverage::Bool=false) = cd(Entry.test,AbstractString[pkgs...]; coverage=coverage)
 
 dependents(packagename::AbstractString) = Reqs.dependents(packagename)
+
+doc"""
+    setprotocol!(proto)
+
+Set the protocol used to access GitHub-hosted packages.  Defaults to 'https', with a blank `proto` delegating the choice to the package developer.
+"""
+setprotocol!(proto::AbstractString) = Cache.setprotocol!(proto)
+
+
+# point users to PkgDev
+register(args...) =
+    error("Pkg.register(pkg,[url]) has been moved to the package PkgDev.jl.\n",
+          "Run Pkg.add(\"PkgDev\") to install PkgDev on Julia v0.5-")
+
+tag(pkg, ver=nothing, commit=nothing) =
+    error("Pkg.tag(pkg, [ver, [commit]]) has been moved to the package PkgDev.jl.\n",
+          "Run Pkg.add(\"PkgDev\") to install PkgDev on Julia v0.5-")
+
+publish() =
+    error("Pkg.publish() has been moved to the package PkgDev.jl.\n",
+          "Run Pkg.add(\"PkgDev\") to install PkgDev on Julia v0.5-")
+
+generate(pkg, license) =
+    error("Pkg.generate(pkg, license) has been moved to the package PkgDev.jl.\n",
+          "Run Pkg.add(\"PkgDev\") to install PkgDev on Julia v0.5-")
+
+license(lic=nothing) =
+    error("Pkg.license([lic]) has been moved to the package PkgDev.jl.\n",
+          "Run Pkg.add(\"PkgDev\") to install PkgDev on Julia v0.5-")
+
+submit(pkg, commit=nothing) =
+    error("Pkg.submit(pkg[, commit]) has been moved to the package PkgDev.jl.\n",
+          "Run Pkg.add(\"PkgDev\") to install PkgDev on Julia v0.5-")
 
 end # module

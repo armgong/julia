@@ -1,10 +1,31 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-## core stream types ##
+# Generic IO stubs
 
-# the first argument to any IO MUST be a POINTER (to a JL_STREAM) or using show on it will cause memory corruption
+lock(::IO) = nothing
+unlock(::IO) = nothing
+reseteof(x::IO) = nothing
 
-# Generic IO functions
+const SZ_UNBUFFERED_IO = 65536
+buffer_writes(x::IO, bufsize=SZ_UNBUFFERED_IO) = nothing
+
+function isopen end
+function close end
+function flush end
+function wait_connected end
+function wait_readnb end
+function wait_readbyte end
+function wait_close end
+function nb_available end
+function readavailable end
+function isreadable end
+function iswritable end
+function copy end
+function eof end
+
+# all subtypes should implement this
+read(s::IO, ::Type{UInt8}) = error(typeof(s)," does not support byte I/O")
+write(s::IO, x::UInt8) = error(typeof(s)," does not support byte I/O")
 
 ## byte-order mark, ntoh & hton ##
 
@@ -28,9 +49,6 @@ isreadonly(s) = isreadable(s) && !iswritable(s)
 
 ## binary I/O ##
 
-# all subtypes should implement this
-write(s::IO, x::UInt8) = error(typeof(s)," does not support byte I/O")
-
 write(io::IO, x) = throw(MethodError(write, (io, x)))
 function write(io::IO, xs...)
     local written::Int = 0
@@ -41,7 +59,7 @@ function write(io::IO, xs...)
 end
 
 if ENDIAN_BOM == 0x01020304
-    function write(s::IO, x::Integer)
+    function write(s::IO, x::Union{Int8,Int16,UInt16,Int32,UInt32,Int64,UInt64,Int128,UInt128})
         sz = sizeof(x)
         local written::Int = 0
         for n = sz:-1:1
@@ -50,7 +68,7 @@ if ENDIAN_BOM == 0x01020304
         return written
     end
 else
-    function write(s::IO, x::Integer)
+    function write(s::IO, x::Union{Int8,Int16,UInt16,Int32,UInt32,Int64,UInt64,Int128,UInt128})
         sz = sizeof(x)
         local written::Int = 0
         for n = 1:sz
@@ -64,6 +82,8 @@ write(s::IO, x::Bool)    = write(s, UInt8(x))
 write(s::IO, x::Float16) = write(s, reinterpret(Int16,x))
 write(s::IO, x::Float32) = write(s, reinterpret(Int32,x))
 write(s::IO, x::Float64) = write(s, reinterpret(Int64,x))
+
+write(to::IO, p::Ptr) = write(to, convert(UInt, p))
 
 function write(s::IO, a::AbstractArray)
     nb = 0
@@ -104,15 +124,12 @@ end
 
 function write(io::IO, s::Symbol)
     pname = unsafe_convert(Ptr{UInt8}, s)
-    return write(io, pname, Int(ccall(:strlen, Csize_t, (Ptr{UInt8},), pname)))
+    return write(io, pname, Int(ccall(:strlen, Csize_t, (Cstring,), pname)))
 end
-
-# all subtypes should implement this
-read(s::IO, ::Type{UInt8}) = error(typeof(s)," does not support byte I/O")
 
 read(s::IO, ::Type{Int8}) = reinterpret(Int8, read(s,UInt8))
 
-function read{T <: Integer}(s::IO, ::Type{T})
+function read{T <: Union{Int16,UInt16,Int32,UInt32,Int64,UInt64,Int128,UInt128}}(s::IO, ::Type{T})
     x = zero(T)
     for n = 1:sizeof(x)
         x |= (convert(T,read(s,UInt8))<<((n-1)<<3))
@@ -125,15 +142,29 @@ read(s::IO, ::Type{Float16}) = box(Float16,unbox(Int16,read(s,Int16)))
 read(s::IO, ::Type{Float32}) = box(Float32,unbox(Int32,read(s,Int32)))
 read(s::IO, ::Type{Float64}) = box(Float64,unbox(Int64,read(s,Int64)))
 
+read{T}(s::IO, ::Type{Ptr{T}}) = convert(Ptr{T}, read(s,UInt))
+
 read{T}(s::IO, t::Type{T}, d1::Int, dims::Int...) = read(s, t, tuple(d1,dims...))
 read{T}(s::IO, t::Type{T}, d1::Integer, dims::Integer...) =
     read(s, t, convert(Tuple{Vararg{Int}},tuple(d1,dims...)))
 
 read{T}(s::IO, ::Type{T}, dims::Dims) = read!(s, Array(T, dims))
 
+function read!(s::IO, a::Vector{UInt8})
+    for i in 1:length(a)
+        a[i] = read(s, UInt8)
+    end
+    return a
+end
+
 function read!{T}(s::IO, a::Array{T})
-    for i in eachindex(a)
-        a[i] = read(s, T)
+    if isbits(T)
+        nb::Int = length(a) * sizeof(T)
+        read!(s, reinterpret(UInt8, a, (nb,)))
+    else
+        for i in eachindex(a)
+            a[i] = read(s, T)
+        end
     end
     return a
 end
@@ -219,7 +250,7 @@ function readuntil(s::IO, t::AbstractString)
     return takebuf_string(out)
 end
 
-
+readline() = readline(STDIN)
 readline(s::IO) = readuntil(s, '\n')
 readchomp(x) = chomp!(readall(x))
 
@@ -303,8 +334,3 @@ function reset{T<:IO}(io::T)
 end
 
 ismarked(io::IO) = io.mark >= 0
-
-# Generic IO stubs
-
-lock(::IO) = nothing
-unlock(::IO) = nothing

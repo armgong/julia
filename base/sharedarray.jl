@@ -3,7 +3,7 @@
 type SharedArray{T,N} <: DenseArray{T,N}
     dims::NTuple{N,Int}
     pids::Vector{Int}
-    refs::Vector{RemoteRef}
+    refs::Vector
 
     # The segname is currently used only in the test scripts to ensure that
     # the shmem segment has been unlinked.
@@ -23,6 +23,17 @@ type SharedArray{T,N} <: DenseArray{T,N}
 
     SharedArray(d,p,r,sn) = new(d,p,r,sn)
 end
+
+call{T,N}(::Type{SharedArray{T}}, d::NTuple{N,Int}; kwargs...) =
+    SharedArray(T, d; kwargs...)
+call{T}(::Type{SharedArray{T}}, d::Integer...; kwargs...) =
+    SharedArray(T, d; kwargs...)
+call{T}(::Type{SharedArray{T}}, m::Integer; kwargs...) =
+    SharedArray(T, m; kwargs...)
+call{T}(::Type{SharedArray{T}}, m::Integer, n::Integer; kwargs...) =
+    SharedArray(T, m, n; kwargs...)
+call{T}(::Type{SharedArray{T}}, m::Integer, n::Integer, o::Integer; kwargs...) =
+    SharedArray(T, m, n, o; kwargs...)
 
 function SharedArray(T::Type, dims::NTuple; init=false, pids=Int[])
     N = length(dims)
@@ -44,14 +55,17 @@ function SharedArray(T::Type, dims::NTuple; init=false, pids=Int[])
         else
             # The shared array is created on a remote machine....
             shmmem_create_pid = pids[1]
-            remotecall_fetch(pids[1], () -> begin shm_mmap_array(T, dims, shm_seg_name, JL_O_CREAT | JL_O_RDWR); nothing end)
+            remotecall_fetch(pids[1]) do
+                shm_mmap_array(T, dims, shm_seg_name, JL_O_CREAT | JL_O_RDWR)
+                nothing
+            end
         end
 
         func_mapshmem = () -> shm_mmap_array(T, dims, shm_seg_name, JL_O_RDWR)
 
-        refs = Array(RemoteRef, length(pids))
+        refs = Array(Future, length(pids))
         for (i, p) in enumerate(pids)
-            refs[i] = remotecall(p, func_mapshmem)
+            refs[i] = remotecall(func_mapshmem, p)
         end
 
         # Wait till all the workers have mapped the segment
@@ -64,35 +78,17 @@ function SharedArray(T::Type, dims::NTuple; init=false, pids=Int[])
             if onlocalhost
                 rc = shm_unlink(shm_seg_name)
             else
-                rc = remotecall_fetch(shmmem_create_pid, shm_unlink, shm_seg_name)
+                rc = remotecall_fetch(shm_unlink, shmmem_create_pid, shm_seg_name)
             end
             systemerror("Error unlinking shmem segment " * shm_seg_name, rc != 0)
         end
         S = SharedArray{T,N}(dims, pids, refs, shm_seg_name)
+        initialize_shared_array(S, s, onlocalhost, init, pids)
         shm_seg_name = ""
-
-        if onlocalhost
-            init_loc_flds(S)
-
-            # In the event that myid() is not part of pids, s will not be set
-            # in the init function above, hence setting it here if available.
-            S.s = s
-        else
-            S.pidx = 0
-        end
-
-        # if present init function is called on each of the parts
-        if isa(init, Function)
-            @sync begin
-                for p in pids
-                    @async remotecall_wait(p, init, S)
-                end
-            end
-        end
 
     finally
         if shm_seg_name != ""
-            remotecall_fetch(shmmem_create_pid, shm_unlink, shm_seg_name)
+            remotecall_fetch(shm_unlink, shmmem_create_pid, shm_seg_name)
         end
     end
     S
@@ -108,7 +104,7 @@ function SharedArray{T,N}(filename::AbstractString, ::Type{T}, dims::NTuple{N,In
     pids, onlocalhost = shared_pids(pids)
 
     # If not supplied, determine the appropriate mode
-    have_file = onlocalhost ? isfile(filename) : remotecall_fetch(pids[1], isfile, filename)
+    have_file = onlocalhost ? isfile(filename) : remotecall_fetch(isfile, pids[1], filename)
     if mode == nothing
         mode = have_file ? "r+" : "w+"
     end
@@ -120,21 +116,27 @@ function SharedArray{T,N}(filename::AbstractString, ::Type{T}, dims::NTuple{N,In
     mode == "r" && !isfile(filename) && throw(ArgumentError("file $filename does not exist, but mode $mode cannot create it"))
 
     # Create the file if it doesn't exist, map it if it does
-    refs = Array(RemoteRef, length(pids))
+    refs = Array(Future, length(pids))
     func_mmap = mode -> open(filename, mode) do io
         Mmap.mmap(io, Array{T,N}, dims, offset; shared=true)
     end
     local s
     if onlocalhost
         s = func_mmap(mode)
-        refs[1] = remotecall(pids[1], () -> func_mmap(workermode))
+        refs[1] = remotecall(pids[1]) do
+            func_mmap(workermode)
+        end
     else
-        refs[1] = remotecall_wait(pids[1], () -> func_mmap(mode))
+        refs[1] = remotecall_wait(pids[1]) do
+            func_mmap(mode)
+        end
     end
 
     # Populate the rest of the workers
     for i = 2:length(pids)
-        refs[i] = remotecall(pids[i], () -> func_mmap(workermode))
+        refs[i] = remotecall(pids[i]) do
+            func_mmap(workermode)
+        end
     end
 
     # Wait till all the workers have mapped the segment
@@ -143,7 +145,11 @@ function SharedArray{T,N}(filename::AbstractString, ::Type{T}, dims::NTuple{N,In
     end
 
     S = SharedArray{T,N}(dims, pids, refs, filename)
+    initialize_shared_array(S, s, onlocalhost, init, pids)
+    S
+end
 
+function initialize_shared_array(S, s, onlocalhost, init, pids)
     if onlocalhost
         init_loc_flds(S)
         # In the event that myid() is not part of pids, s will not be set
@@ -157,10 +163,23 @@ function SharedArray{T,N}(filename::AbstractString, ::Type{T}, dims::NTuple{N,In
     if isa(init, Function)
         @sync begin
             for p in pids
-                @async remotecall_wait(p, init, S)
+                @async remotecall_wait(init, p, S)
             end
         end
     end
+
+    finalizer(S, finalize_refs)
+    S
+end
+
+function finalize_refs{T,N}(S::SharedArray{T,N})
+    for r in S.refs
+        finalize(r)
+    end
+    empty!(S.pids)
+    empty!(S.refs)
+    init_loc_flds(S)
+    S.s = Array(T, ntuple(d->0,N))
     S
 end
 
@@ -173,9 +192,11 @@ linearindexing{S<:SharedArray}(::Type{S}) = LinearFast()
 
 function reshape{T,N}(a::SharedArray{T}, dims::NTuple{N,Int})
     (length(a) != prod(dims)) && throw(DimensionMismatch("dimensions must be consistent with array size"))
-    refs = Array(RemoteRef, length(a.pids))
+    refs = Array(Future, length(a.pids))
     for (i, p) in enumerate(a.pids)
-        refs[i] = remotecall(p, (r,d)->reshape(fetch(r),d), a.refs[i], dims)
+        refs[i] = remotecall(p, a.refs[i], dims) do r,d
+            reshape(fetch(r),d)
+        end
     end
 
     A = SharedArray{T,N}(dims, a.pids, refs, a.segname)
@@ -248,7 +269,13 @@ sub_1dim(S::SharedArray, pidx) = sub(S.s, range_1dim(S, pidx))
 function init_loc_flds{T,N}(S::SharedArray{T,N})
     if myid() in S.pids
         S.pidx = findfirst(S.pids, myid())
-        S.s = fetch(S.refs[S.pidx])
+        if isa(S.refs[1], Future)
+            refid = remoteref_id(S.refs[S.pidx])
+        else
+            refid = S.refs[S.pidx]
+        end
+        c = channel_from_id(refid)
+        S.s = fetch(c)
         S.loc_subarr_1d = sub_1dim(S, S.pidx)
     else
         S.pidx = 0
@@ -265,6 +292,15 @@ function serialize(s::SerializationState, S::SharedArray)
     for n in SharedArray.name.names
         if n in [:s, :pidx, :loc_subarr_1d]
             Serializer.writetag(s.io, Serializer.UNDEFREF_TAG)
+        elseif n == :refs
+            v = getfield(S, n)
+            if isa(v[1], Future)
+                # convert to ids to avoid distributed GC overhead
+                ids = [remoteref_id(x) for x in v]
+                serialize(s, ids)
+            else
+                serialize(s, v)
+            end
         else
             serialize(s, getfield(S, n))
         end
@@ -280,15 +316,15 @@ end
 convert(::Type{Array}, S::SharedArray) = S.s
 
 # pass through getindex and setindex! - unlike DArrays, these always work on the complete array
-getindex(S::SharedArray, I::Real) = getindex(S.s, I)
+getindex(S::SharedArray, i::Real) = getindex(S.s, i)
 
-setindex!(S::SharedArray, x, I::Real) = setindex!(S.s, x, I)
+setindex!(S::SharedArray, x, i::Real) = setindex!(S.s, x, i)
 
 function fill!(S::SharedArray, v)
     vT = convert(eltype(S), v)
     f = S->fill!(S.loc_subarr_1d, vT)
     @sync for p in procs(S)
-        @async remotecall_wait(p, f, S)
+        @async remotecall_wait(f, p, S)
     end
     return S
 end
@@ -296,7 +332,7 @@ end
 function rand!{T}(S::SharedArray{T})
     f = S->map!(x->rand(T), S.loc_subarr_1d)
     @sync for p in procs(S)
-        @async remotecall_wait(p, f, S)
+        @async remotecall_wait(f, p, S)
     end
     return S
 end
@@ -304,7 +340,7 @@ end
 function randn!(S::SharedArray)
     f = S->map!(x->randn(), S.loc_subarr_1d)
     @sync for p in procs(S)
-        @async remotecall_wait(p, f, S)
+        @async remotecall_wait(f, p, S)
     end
     return S
 end
@@ -334,10 +370,10 @@ function shmem_randn(dims; kwargs...)
 end
 shmem_randn(I::Int...; kwargs...) = shmem_randn(I; kwargs...)
 
-similar(S::SharedArray, T, dims::Dims) = SharedArray(T, dims; pids=procs(S))
-similar(S::SharedArray, T) = similar(S, T, size(S))
-similar(S::SharedArray, dims::Dims) = similar(S, eltype(S), dims)
-similar(S::SharedArray) = similar(S, eltype(S), size(S))
+similar(S::SharedArray, T, dims::Dims) = similar(S.s, T, dims)
+similar(S::SharedArray, T) = similar(S.s, T, size(S))
+similar(S::SharedArray, dims::Dims) = similar(S.s, eltype(S), dims)
+similar(S::SharedArray) = similar(S.s, eltype(S), size(S))
 
 map(f, S::SharedArray) = (S2 = similar(S); S2[:] = S[:]; map!(f, S2); S2)
 

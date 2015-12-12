@@ -2,11 +2,15 @@
 
 module LinAlg
 
-importall Base
-importall ..Base.Operators
-import Base: USE_BLAS64, size, copy, copy_transpose!, power_by_squaring,
-             print_matrix, transpose!, unsafe_getindex, unsafe_setindex!,
-             isapprox
+import Base: \, /, *, ^, +, -, ==, ./, .*
+import Base: A_mul_Bt, At_ldiv_Bt, A_rdiv_Bc, At_ldiv_B, Ac_mul_Bc, A_mul_Bc, Ac_mul_B,
+    Ac_ldiv_B, Ac_ldiv_Bc, At_mul_Bt, A_rdiv_Bt, At_mul_B
+import Base: USE_BLAS64, abs, big, ceil, conj, convert, copy, copy!, copy_transpose!,
+    ctranspose, ctranspose!, eltype, eye, findmax, findmin, fill!, floor, full, getindex,
+    imag, inv, isapprox, kron, ndims, power_by_squaring, print_matrix, promote_rule, real,
+    round, setindex!, show, similar, size, transpose, transpose!, trunc, unsafe_getindex,
+    unsafe_setindex!
+using Base: promote_op, MulFun
 
 export
 # Modules
@@ -92,6 +96,8 @@ export
     lufact!,
     lyap,
     norm,
+    normalize,
+    normalize!,
     nullspace,
     ordschur!,
     ordschur,
@@ -189,16 +195,15 @@ function chksquare(A...)
     return sizes
 end
 
-# Check that upper/lower (for special matrices) is correctly specified
-macro chkuplo()
-   :((uplo=='U' || uplo=='L') || throw(ArgumentError("""invalid uplo = $uplo
-
-Valid choices are 'U' (upper) or 'L' (lower).""")))
+function char_uplo(uplo::Symbol)
+    if uplo == :U
+        'U'
+    elseif uplo == :L
+        'L'
+    else
+        throw(ArgumentError("uplo argument must be either :U (upper) or :L (lower)"))
+    end
 end
-
-const CHARU = 'U'
-const CHARL = 'L'
-char_uplo(uplo::Symbol) = uplo == :U ? CHARU : (uplo == :L ? CHARL : throw(ArgumentError("uplo argument must be either :U or :L")))
 
 copy_oftype{T,N}(A::AbstractArray{T,N}, ::Type{T}) = copy(A)
 copy_oftype{T,N,S}(A::AbstractArray{T,N}, ::Type{S}) = convert(AbstractArray{S,N}, A)

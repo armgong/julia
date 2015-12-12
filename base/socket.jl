@@ -143,7 +143,7 @@ function parseipv4(str)
     i = 1
     ret = 0
     for f in fields
-        if length(f) == 0
+        if isempty(f)
             throw(ArgumentError("empty field in IPv4 address"))
         end
         if f[1] == '0'
@@ -233,24 +233,16 @@ macro ip_str(str)
     return parseip(str)
 end
 
-type InetAddr
-    host::IPAddr
+immutable InetAddr{T<:IPAddr}
+    host::T
     port::UInt16
-
-    function InetAddr(host, port::Integer)
-        if !(0 <= port <= typemax(UInt16))
-            throw(ArgumentError("port out of range, must be 0 ≤ port ≤ 65535, got $port"))
-        end
-        new(host,UInt16(port))
-    end
 end
 
+InetAddr(ip::IPAddr, port) = InetAddr{typeof(ip)}(ip, port)
 
 ## SOCKETS ##
 
-abstract Socket <: AsyncStream
-
-type TCPSocket <: Socket
+type TCPSocket <: LibuvStream
     handle::Ptr{Void}
     status::Int
     line_buffered::Bool
@@ -294,10 +286,7 @@ function TCPSocket()
     this
 end
 
-lock(s::TCPSocket) = lock(s.lock)
-unlock(s::TCPSocket) = unlock(s.lock)
-
-type TCPServer <: UVServer
+type TCPServer <: LibuvServer
     handle::Ptr{Void}
     status::Int
     ccb::Callback
@@ -328,13 +317,8 @@ function TCPServer()
     this
 end
 
-isreadable(io::TCPSocket) = true
-iswritable(io::TCPSocket) = true
-
-show(io::IO,sock::TCPSocket) = print(io,"TCPSocket(",uv_status_string(sock),", ",
-    nb_available(sock.buffer)," bytes waiting)")
-
-show(io::IO,sock::TCPServer) = print(io,"TCPServer(",uv_status_string(sock),")")
+isreadable(io::TCPSocket) = isopen(io) || nb_available(io) > 0
+iswritable(io::TCPSocket) = isopen(io) && io.status != StatusClosing
 
 ## VARIOUS METHODS TO BE MOVED TO BETTER LOCATION
 
@@ -353,19 +337,9 @@ accept(server::TCPServer) = accept(server, TCPSocket())
 accept(server::PipeServer) = accept(server, init_pipe!(PipeEndpoint();
     readable=false, writable=false, julia_only=true))
 
-##
-
-bind(sock::TCPServer, addr::InetAddr) = bind(sock,addr.host,addr.port)
-
-_bind(sock::TCPServer, host::IPv4, port::UInt16) = ccall(:jl_tcp_bind, Int32, (Ptr{Void}, UInt16, UInt32, Cuint),
-            sock.handle, hton(port), hton(host.host), 0)
-
-_bind(sock::TCPServer, host::IPv6, port::UInt16) = ccall(:jl_tcp_bind6, Int32, (Ptr{Void}, UInt16, Ptr{UInt128}, Cuint),
-            sock.handle, hton(port), &hton(host.host), 0)
-
 # UDP
 
-type UDPSocket <: Socket
+type UDPSocket <: LibuvStream
     handle::Ptr{Void}
     status::Int
     recvnotify::Condition
@@ -412,6 +386,9 @@ function _uv_hook_close(sock::UDPSocket)
     notify_error(sock.recvnotify,EOFError())
 end
 
+# Disables dual stack mode.
+const UV_TCP_IPV6ONLY = 1
+
 # Disables dual stack mode. Only available when using ipv6 binf
 const UV_UDP_IPV6ONLY = 1
 
@@ -419,13 +396,41 @@ const UV_UDP_IPV6ONLY = 1
 # remainder was discarded by the OS.
 const UV_UDP_PARTIAL = 2
 
-function bind(sock::Union{TCPServer,UDPSocket}, host::IPv4, port::Integer)
+# Indicates if SO_REUSEADDR will be set when binding the handle in uv_udp_bind. This sets
+# the SO_REUSEPORT socket flag on the BSDs and OS X. On other Unix platforms, it sets the
+# SO_REUSEADDR flag. What that means is that multiple threads or processes can bind to the
+# same address without error (provided they all set the flag) but only the last one to bind
+# will receive any traffic, in effect "stealing" the port from the previous listener.
+const UV_UDP_REUSEADDR = 4
+
+##
+
+_bind(sock::TCPServer, host::IPv4, port::UInt16, flags::UInt32 = UInt32(0)) = ccall(:jl_tcp_bind, Int32, (Ptr{Void}, UInt16, UInt32, Cuint),
+            sock.handle, hton(port), hton(host.host), flags)
+
+_bind(sock::TCPServer, host::IPv6, port::UInt16, flags::UInt32 = UInt32(0)) = ccall(:jl_tcp_bind6, Int32, (Ptr{Void}, UInt16, Ptr{UInt128}, Cuint),
+            sock.handle, hton(port), Ref(hton(host.host)), flags)
+
+_bind(sock::UDPSocket, host::IPv4, port::UInt16, flags::UInt32 = UInt32(0)) = ccall(:jl_udp_bind, Int32, (Ptr{Void}, UInt16, UInt32, UInt32),
+            sock.handle, hton(port), hton(host.host), flags)
+
+_bind(sock::UDPSocket, host::IPv6, port::UInt16, flags::UInt32 = UInt32(0)) = ccall(:jl_udp_bind6, Int32, (Ptr{Void}, UInt16, Ptr{UInt128}, UInt32),
+            sock.handle, hton(port), Ref(hton(host.host)), flags)
+
+function bind(sock::Union{TCPServer, UDPSocket}, host::IPAddr, port::Integer; ipv6only = false, reuseaddr = false, kws...)
     if sock.status != StatusInit
         error("$(typeof(sock)) is not initialized")
     end
-    err = _bind(sock,host,UInt16(port))
+    flags = 0
+    if isa(host,IPv6) && ipv6only
+        flags |= isa(sock, UDPSocket) ? UV_UDP_IPV6ONLY : UV_TCP_IPV6ONLY
+    end
+    if isa(sock, UDPSocket) && reuseaddr
+        flags |= UV_UDP_REUSEADDR
+    end
+    err = _bind(sock,host,UInt16(port),UInt32(flags))
     if err < 0
-        if err != UV_EADDRINUSE && err != UV_EACCES
+        if err != UV_EADDRINUSE && err != UV_EACCES && err != UV_EADDRNOTAVAIL
             #TODO: this codepath is not currently tested
             throw(UVError("bind",err))
         else
@@ -433,32 +438,11 @@ function bind(sock::Union{TCPServer,UDPSocket}, host::IPv4, port::Integer)
         end
     end
     sock.status = StatusOpen
+    isa(sock, UDPSocket) && setopt(sock; kws...)
     true
 end
 
-_bind(sock::UDPSocket, host::IPv4, port::UInt16) = ccall(:jl_udp_bind, Int32, (Ptr{Void}, UInt16, UInt32, UInt32),
-            sock.handle, hton(port), hton(host.host), 0)
-
-_bind(sock::UDPSocket, host::IPv6, port::UInt16, flags::UInt32 = UInt32(0)) = ccall(:jl_udp_bind6, Int32, (Ptr{Void}, UInt16, Ptr{UInt128}, UInt32),
-            sock.handle, hton(port), &hton(host.host), flags)
-
-function bind(sock::UDPSocket, host::IPv6, port::UInt16; ipv6only = false)
-    if sock.status != StatusInit
-        error("UDPSocket is not initialized")
-    end
-    err = _bind(sock,host,port, UInt32(ipv6only ? UV_UDP_IPV6ONLY : 0))
-    if err < 0
-        if err != UV_EADDRINUSE && err != UV_EACCES
-            #TODO: this codepath is not currently tested
-            throw(UVError("bind",err))
-        else
-            return false
-        end
-    end
-    sock.status = StatusOpen
-    true
-end
-
+bind(sock::TCPServer, addr::InetAddr) = bind(sock,addr.host,addr.port)
 
 function setopt(sock::UDPSocket; multicast_loop = nothing, multicast_ttl=nothing, enable_broadcast=nothing, ttl=nothing)
     if sock.status == StatusUninit
@@ -694,7 +678,7 @@ end
 
 ##
 
-listen(sock::UVServer; backlog::Integer=BACKLOG_DEFAULT) = (uv_error("listen",_listen(sock;backlog=backlog)); sock)
+listen(sock::LibuvServer; backlog::Integer=BACKLOG_DEFAULT) = (uv_error("listen",_listen(sock;backlog=backlog)); sock)
 
 function listen(addr; backlog::Integer=BACKLOG_DEFAULT)
     sock = TCPServer()
@@ -706,7 +690,7 @@ listen(port::Integer; backlog::Integer=BACKLOG_DEFAULT) = listen(IPv4(UInt32(0))
 listen(host::IPAddr, port::Integer; backlog::Integer=BACKLOG_DEFAULT) = listen(InetAddr(host,port);backlog=backlog)
 
 listen(cb::Callback,args...; backlog::Integer=BACKLOG_DEFAULT) = (sock=listen(args...;backlog=backlog);sock.ccb=cb;sock)
-listen(cb::Callback,sock::Socket; backlog::Integer=BACKLOG_DEFAULT) = (sock.ccb=cb;listen(sock;backlog=backlog))
+listen(cb::Callback,sock::Union{TCPSocket,UDPSocket}; backlog::Integer=BACKLOG_DEFAULT) = (sock.ccb=cb;listen(sock;backlog=backlog))
 
 ##
 
@@ -736,9 +720,41 @@ function listenany(default_port)
             return (addr.port,sock)
         end
         close(sock)
-        addr.port += 1
+        addr = InetAddr(addr.host, addr.port + 1)
         if addr.port==default_port
             error("no ports available")
         end
     end
+end
+
+function getsockname(sock::Union{TCPServer,TCPSocket})
+    rport = Ref{Cushort}(0)
+    raddress = zeros(UInt8, 16)
+    rfamily = Ref{Cuint}(0)
+    r = if isa(sock, TCPServer)
+        ccall(:jl_tcp_getsockname, Int32,
+                (Ptr{Void}, Ref{Cushort}, Ptr{Void}, Ref{Cuint}),
+                sock.handle, rport, raddress, rfamily)
+    else
+        ccall(:jl_tcp_getpeername, Int32,
+                (Ptr{Void}, Ref{Cushort}, Ptr{Void}, Ref{Cuint}),
+                sock.handle, rport, raddress, rfamily)
+    end
+    uv_error("cannot obtain socket name", r);
+    if r == 0
+        port = ntoh(rport[])
+        if rfamily[] == 2 # AF_INET
+            addrv4 = raddress[1:4]
+            naddr = ntoh(unsafe_load(Ptr{Cuint}(pointer(addrv4)), 1))
+            addr = IPv4(naddr)
+        elseif rfamily[] == @windows? 23 : (@osx? 30 : 10) # AF_INET6
+            naddr = ntoh(unsafe_load(Ptr{UInt128}(pointer(raddress)), 1))
+            addr = IPv6(naddr)
+        else
+            error("unsupported address family: $(getindex(rfamily))")
+        end
+    else
+        error("cannot obtain socket name")
+    end
+    return addr, port
 end

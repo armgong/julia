@@ -67,18 +67,16 @@ macro eval(x)
 end
 
 macro inline(ex)
-    esc(_inline(ex))
+    esc(isa(ex, Expr) ? pushmeta!(ex, :inline) : ex)
 end
-
-_inline(ex::Expr) = pushmeta!(ex, :inline)
-_inline(arg) = arg
 
 macro noinline(ex)
-    esc(_noinline(ex))
+    esc(isa(ex, Expr) ? pushmeta!(ex, :noinline) : ex)
 end
 
-_noinline(ex::Expr) = pushmeta!(ex, :noinline)
-_noinline(arg) = arg
+macro pure(ex)
+    esc(isa(ex, Expr) ? pushmeta!(ex, :pure) : ex)
+end
 
 ## some macro utilities ##
 
@@ -114,7 +112,7 @@ function localize_vars(expr, esca)
 end
 
 function pushmeta!(ex::Expr, sym::Symbol, args::Any...)
-    if length(args) == 0
+    if isempty(args)
         tag = sym
     else
         tag = Expr(sym, args...)

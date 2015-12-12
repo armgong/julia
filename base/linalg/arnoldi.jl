@@ -3,10 +3,111 @@
 using .ARPACK
 
 ## eigs
+doc"""
+```rst
+..  eigs(A; nev=6, ncv=max(20,2*nev+1), which="LM", tol=0.0, maxiter=300, sigma=nothing, ritzvec=true, v0=zeros((0,))) -> (d,[v,],nconv,niter,nmult,resid)
 
-eigs(A; args...) = eigs(A, I; args...)
+Computes eigenvalues ``d`` of ``A`` using Lanczos or Arnoldi iterations for
+real symmetric or general nonsymmetric matrices respectively.
 
-function eigs(A, B;
+The following keyword arguments are supported:
+
+* ``nev``: Number of eigenvalues
+* ``ncv``: Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrix ``A``. The default is ``ncv = max(20,2*nev+1)``.
+  Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
+* ``which``: type of eigenvalues to compute. See the note below.
+
+  ========= ======================================================================================================================
+  ``which`` type of eigenvalues
+  ========= ======================================================================================================================
+  ``:LM``   eigenvalues of largest magnitude (default)
+  ``:SM``   eigenvalues of smallest magnitude
+  ``:LR``   eigenvalues of largest real part
+  ``:SR``   eigenvalues of smallest real part
+  ``:LI``   eigenvalues of largest imaginary part (nonsymmetric or complex ``A`` only)
+  ``:SI``   eigenvalues of smallest imaginary part (nonsymmetric or complex ``A`` only)
+  ``:BE``   compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only)
+  ========= ======================================================================================================================
+
+* ``tol``: tolerance (:math:`tol \le 0.0` defaults to ``DLAMCH('EPS')``)
+* ``maxiter``: Maximum number of iterations (default = 300)
+* ``sigma``: Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
+* ``ritzvec``: Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
+* ``v0``: starting vector from which to start the iterations
+
+``eigs`` returns the ``nev`` requested eigenvalues in ``d``, the corresponding Ritz vectors ``v`` (only if ``ritzvec=true``), the number of converged eigenvalues ``nconv``, the number of iterations ``niter`` and the number of matrix vector multiplications ``nmult``, as well as the final residual vector ``resid``.
+
+.. note:: The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do _not_ necessarily refer to the eigenvalues of ``A``, but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``.
+
+   =============== ================================== ==================================
+   ``sigma``       iteration mode                     ``which`` refers to eigenvalues of
+   =============== ================================== ==================================
+   ``nothing``     ordinary (forward)                 :math:`A`
+   real or complex inverse with level shift ``sigma`` :math:`(A - \sigma I )^{-1}`
+   =============== ================================== ==================================
+```
+"""
+eigs(A; kwargs...) = eigs(A, I; kwargs...)
+eigs{T<:BlasFloat}(A::AbstractMatrix{T}, ::UniformScaling; kwargs...) = _eigs(A, I; kwargs...)
+
+eigs{T<:BlasFloat}(A::AbstractMatrix{T}, B::AbstractMatrix{T}; kwargs...) = _eigs(A, B; kwargs...)
+eigs(A::AbstractMatrix{BigFloat}, B::AbstractMatrix...; kwargs...) = throw(MethodError(eigs, Any[A,B,kwargs...]))
+eigs(A::AbstractMatrix{BigFloat}, B::UniformScaling; kwargs...) = throw(MethodError(eigs, Any[A,B,kwargs...]))
+function eigs{T}(A::AbstractMatrix{T}, ::UniformScaling; kwargs...)
+    Tnew = typeof(zero(T)/sqrt(one(T)))
+    eigs(convert(AbstractMatrix{Tnew}, A), I; kwargs...)
+end
+function eigs(A::AbstractMatrix, B::AbstractMatrix; kwargs...)
+    T = promote_type(eltype(A), eltype(B))
+    Tnew = typeof(zero(T)/sqrt(one(T)))
+    eigs(convert(AbstractMatrix{Tnew}, A), convert(AbstractMatrix{Tnew}, B); kwargs...)
+end
+doc"""
+```rst
+..  eigs(A, B; nev=6, ncv=max(20,2*nev+1), which="LM", tol=0.0, maxiter=300, sigma=nothing, ritzvec=true, v0=zeros((0,))) -> (d,[v,],nconv,niter,nmult,resid)
+
+Computes generalized eigenvalues ``d`` of ``A`` and ``B`` using Lanczos or Arnoldi iterations for
+real symmetric or general nonsymmetric matrices respectively.
+
+The following keyword arguments are supported:
+
+* ``nev``: Number of eigenvalues
+* ``ncv``: Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrices ``A`` and ``B``. The default is ``ncv = max(20,2*nev+1)``.
+  Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
+* ``which``: type of eigenvalues to compute. See the note below.
+
+  ========= ======================================================================================================================
+  ``which`` type of eigenvalues
+  ========= ======================================================================================================================
+  ``:LM``   eigenvalues of largest magnitude (default)
+  ``:SM``   eigenvalues of smallest magnitude
+  ``:LR``   eigenvalues of largest real part
+  ``:SR``   eigenvalues of smallest real part
+  ``:LI``   eigenvalues of largest imaginary part (nonsymmetric or complex ``A`` only)
+  ``:SI``   eigenvalues of smallest imaginary part (nonsymmetric or complex ``A`` only)
+  ``:BE``   compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only)
+  ========= ======================================================================================================================
+
+* ``tol``: tolerance (:math:`tol \le 0.0` defaults to ``DLAMCH('EPS')``)
+* ``maxiter``: Maximum number of iterations (default = 300)
+* ``sigma``: Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
+* ``ritzvec``: Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
+* ``v0``: starting vector from which to start the iterations
+
+``eigs`` returns the ``nev`` requested eigenvalues in ``d``, the corresponding Ritz vectors ``v`` (only if ``ritzvec=true``), the number of converged eigenvalues ``nconv``, the number of iterations ``niter`` and the number of matrix vector multiplications ``nmult``, as well as the final residual vector ``resid``.
+
+.. note:: The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do _not_ necessarily refer to the eigenvalue problem :math:`Av = Bv\lambda`, but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``.
+
+   =============== ================================== ==================================
+   ``sigma``       iteration mode                     ``which`` refers to the problem
+   =============== ================================== ==================================
+   ``nothing``     ordinary (forward)                 :math:`Av = Bv\lambda`
+   real or complex inverse with level shift ``sigma`` :math:`(A - \sigma B )^{-1}B = v\nu`
+   =============== ================================== ==================================
+```
+"""
+eigs(A, B; kwargs...) = _eigs(A, B; kwargs...)
+function _eigs(A, B;
               nev::Integer=6, ncv::Integer=max(20,2*nev+1), which=:LM,
               tol=0.0, maxiter::Integer=300, sigma=nothing, v0::Vector=zeros(eltype(A),(0,)),
               ritzvec::Bool=true)
@@ -46,7 +147,7 @@ function eigs(A, B;
     end
     if (which != :LM && which != :SM && which != :LR && which != :SR &&
         which != :LI && which != :SI && which != :BE)
-       throw(ArgumentError("which must be :LM, :SM, :LR, :SR, :LI, :SI, or :BE, got $(repr(which))"))
+        throw(ArgumentError("which must be :LM, :SM, :LR, :SR, :LI, :SI, or :BE, got $(repr(which))"))
     end
     if which == :BE && !sym
         throw(ArgumentError("which=:BE only possible for real symmetric problem"))
@@ -141,12 +242,19 @@ end
 
 
 ## svds
-
-type SVDOperator{T,S} <: AbstractArray{T, 2}
+### Restrict operator to BlasFloat because ARPACK only supports that. Loosen restriction
+### when we switch to our own implementation
+type SVDOperator{T<:BlasFloat,S} <: AbstractArray{T, 2}
     X::S
     m::Int
     n::Int
-    SVDOperator(X::S) = new(X, size(X,1), size(X,2))
+    SVDOperator(X::AbstractMatrix) = new(X, size(X, 1), size(X, 2))
+end
+
+function SVDOperator{T}(A::AbstractMatrix{T})
+    Tnew = typeof(zero(T)/sqrt(one(T)))
+    Anew = convert(AbstractMatrix{Tnew}, A)
+    SVDOperator{Tnew,typeof(Anew)}(Anew)
 end
 
 ## v = [ left_singular_vector; right_singular_vector ]
@@ -154,7 +262,14 @@ end
 size(s::SVDOperator)  = s.m + s.n, s.m + s.n
 issym(s::SVDOperator) = true
 
-function svds{S}(X::S; nsv::Int = 6, ritzvec::Bool = true, tol::Float64 = 0.0, maxiter::Int = 1000)
+svds{T<:BlasFloat}(A::AbstractMatrix{T}; kwargs...) = _svds(A; kwargs...)
+svds(A::AbstractMatrix{BigFloat}; kwargs...) = throw(MethodError(svds, Any[A, kwargs...]))
+function svds{T}(A::AbstractMatrix{T}; kwargs...)
+    Tnew = typeof(zero(T)/sqrt(one(T)))
+    svds(convert(AbstractMatrix{Tnew}, A); kwargs...)
+end
+svds(A; kwargs...) = _svds(A; kwargs...)
+function _svds(X; nsv::Int = 6, ritzvec::Bool = true, tol::Float64 = 0.0, maxiter::Int = 1000)
     if nsv < 1
         throw(ArgumentError("number of singular values (nsv) must be ≥ 1, got $nsv"))
     end
@@ -162,7 +277,7 @@ function svds{S}(X::S; nsv::Int = 6, ritzvec::Bool = true, tol::Float64 = 0.0, m
         throw(ArgumentError("number of singular values (nsv) must be ≤ $(minimum(size(X))), got $nsv"))
     end
     otype = eltype(X)
-    ex    = eigs(SVDOperator{otype,S}(X), I; ritzvec = ritzvec, nev = 2*nsv, tol = tol, maxiter = maxiter)
+    ex    = eigs(SVDOperator(X), I; ritzvec = ritzvec, nev = 2*nsv, tol = tol, maxiter = maxiter)
     ind   = [1:2:nsv*2;]
     sval  = abs(ex[1][ind])
 

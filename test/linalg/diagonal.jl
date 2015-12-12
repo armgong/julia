@@ -27,6 +27,10 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
     @test typeof(convert(Diagonal{Complex64},D)) == Diagonal{Complex64}
     @test typeof(convert(AbstractMatrix{Complex64},D))   == Diagonal{Complex64}
 
+    @test full(real(D)) == real(DM)
+    @test full(abs(D)) == abs(DM)
+    @test full(imag(D)) == imag(DM)
+
     debug && println("Linear solve")
     @test_approx_eq_eps D*v DM*v n*eps(relty)*(elty<:Complex ? 2:1)
     @test_approx_eq_eps D*U DM*U n^2*eps(relty)*(elty<:Complex ? 2:1)
@@ -210,3 +214,11 @@ let d = randn(n), D = Diagonal(d)
     @test inv(D) ≈ inv(full(D))
 end
 @test_throws SingularException inv(Diagonal(zeros(n)))
+
+# allow construct from range
+@test Diagonal(linspace(1,3,3)) == Diagonal([1.,2.,3.])
+
+# Issue 12803
+for t in (Float32, Float64, Int, Complex{Float64}, Rational{Int})
+    @test Diagonal(Matrix{t}[ones(t, 2, 2), ones(t, 3, 3)])[2,1] == zeros(t, 3, 2)
+end

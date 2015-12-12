@@ -68,18 +68,20 @@ First, acquire the source code by cloning the git repository:
 
 Be sure to also configure your system to use the appropriate proxy settings, e.g. by setting the `https_proxy` and `http_proxy` variables.)
 
-By default you will be building the latest unstable version of Julia. However, most users should use the most recent stable version of Julia, which is currently the `0.3` series of releases. You can get this version by changing to the Julia directory and running
+By default you will be building the latest unstable version of Julia. However, most users should use the most recent stable version of Julia, which is currently the `0.4` series of releases. You can get this version by changing to the Julia directory and running
 
-    git checkout release-0.3
+    git checkout release-0.4
 
 Now run `make` to build the `julia` executable. To perform a parallel build, use `make -j N` and supply the maximum number of concurrent processes.
 When compiled the first time, it will automatically download and build its [external dependencies](#Required-Build-Tools-External-Libraries).
 This takes a while, but only has to be done once. If the defaults in the build do not work for you, and you need to set specific make parameters, you can save them in `Make.user`. The build will automatically check for the existence of `Make.user` and use it if it exists.
 Building Julia requires 1.5GiB of disk space and approximately 700MiB of virtual memory.
 
+For builds of julia starting with 0.5.0-dev, you can create out-of-tree builds of Julia by specifying `make O=<build-directory> configure` on the command line. This will create a directory mirror, with all of the necessary Makefiles to build Julia, in the specified directory. These builds will share the source files in Julia and `deps/srccache`. Each out-of-tree build directory can have its own `Make.user` file to override the global `Make.user` file in the toplevel folder.
+
 If you need to build Julia in an environment that does not allow access to the outside world, use `make -C deps getall` to download all the necessary files. Then, copy the `julia` directory over to the target environment and build with `make`.
 
-**Note:** the build process will not work if any of the build directory's parent directories have spaces in their names (this is due to a limitation in GNU make).
+**Note:** the build process fail badly if any of the build directory's parent directories have spaces or other shell meta-characters such as `$` or `:` in their names (this is due to a limitation in GNU make).
 
 Once it is built, you can run the `julia` executable using its full path in the directory created above (the `julia` directory), or, to run it from anywhere, either
 
@@ -256,6 +258,7 @@ Building Julia requires that the following software be installed:
 - **[m4]**                      — needed to build GMP.
 - **[patch]**                   — for modifying source code.
 - **[cmake]**                   — needed to build `libgit2`.
+- **[openssl]**                 — needed for HTTPS support in `libgit2` on Linux, install via `apt-get install libssl-dev` or `yum install openssl-devel`.
 
 Julia uses the following external libraries, which are automatically downloaded (or in a few cases, included in the Julia source repository) and then compiled from source the first time you run `make`:
 
@@ -315,6 +318,7 @@ For a longer overview of Julia's dependencies, see these [slides](https://github
 [libosxunwind]: https://github.com/JuliaLang/libosxunwind
 [libunwind]:    http://www.nongnu.org/libunwind
 [Rmath-julia]:  https://github.com/JuliaLang/Rmath-julia
+[openssl]:      https://www.openssl.org
 
 <a name="System-Provided-Libraries">
 ### System Provided Libraries
@@ -397,7 +401,7 @@ The following distributions include julia, but the versions may be out of date d
   * Git package for openSUSE: [OBS page](https://build.opensuse.org/package/show/science/julia-unstable), [1 Click Install](http://software.opensuse.org/download.html?project=science&package=julia-unstable)
 * [NixOS](https://github.com/NixOS/nixpkgs/blob/master/pkgs/development/compilers/julia)
 * Ubuntu
-  * [Ubuntu 13.04 (Raring Ringtail)](http://packages.ubuntu.com/raring/julia)
+  * [Ubuntu](http://packages.ubuntu.com/search?keywords=julia)
   * [Nightly builds PPA](https://launchpad.net/~staticfloat/+archive/julianightlies) (depends on the [julia-deps PPA](https://launchpad.net/~staticfloat/+archive/julia-deps/))
 * [OS X Homebrew Tap](https://github.com/staticfloat/homebrew-julia/)
 

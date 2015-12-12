@@ -56,8 +56,7 @@ end
 
 # Check if a particular symbol is exported from a standard library module
 function is_exported_from_stdlib(name::Symbol, mod::Module)
-    if (mod === Base && name in names(Base)) ||
-       (mod === Core && name in names(Core))
+    if (mod === Base || mod === Core) && isexported(mod, name)
         return true
     end
     parent = module_parent(mod)
@@ -70,7 +69,7 @@ end
 
 function show(io::IO, f::Function)
     if isgeneric(f)
-        if is_exported_from_stdlib(f.env.name, f.env.module) || f.env.module === Main
+        if !isdefined(f.env, :module) || is_exported_from_stdlib(f.env.name, f.env.module) || f.env.module === Main
             print(io, f.env.name)
         else
             print(io, f.env.module, ".", f.env.name)
@@ -104,7 +103,7 @@ end
 
 function show(io::IO, x::DataType)
     show(io, x.name)
-    if (length(x.parameters) > 0 || x.name === Tuple.name) && x !== Tuple
+    if (!isempty(x.parameters) || x.name === Tuple.name) && x !== Tuple
         print(io, '{')
         n = length(x.parameters)
         for i = 1:n
@@ -188,7 +187,7 @@ function show_delim_array(io::IO, itr::AbstractArray, op, delim, cl, delim_one, 
                 multiline = false
             else
                 x = itr[i]
-                multiline = isa(x,AbstractArray) && ndims(x)>1 && length(x)>0
+                multiline = isa(x,AbstractArray) && ndims(x)>1 && !isempty(x)
                 newline && multiline && println(io)
                 if !isbits(x) && is(x, itr)
                     print(io, "#= circular reference =#")
@@ -228,7 +227,7 @@ function show_delim_array(io::IO, itr, op, delim, cl, delim_one, compact=false, 
     if !done(itr,state)
         while true
             x, state = next(itr,state)
-            multiline = isa(x,AbstractArray) && ndims(x)>1 && length(x)>0
+            multiline = isa(x,AbstractArray) && ndims(x)>1 && !isempty(x)
             newline && multiline && println(io)
             if !isbits(x) && is(x, itr)
                 print(io, "#= circular reference =#")
@@ -342,6 +341,20 @@ is_quoted(ex::Expr)      = is_expr(ex, :quote, 1) || is_expr(ex, :inert, 1)
 
 unquoted(ex::QuoteNode)  = ex.value
 unquoted(ex::Expr)       = ex.args[1]
+
+function is_intrinsic_expr(x::ANY)
+    isa(x, IntrinsicFunction) && return true
+    if isa(x, GlobalRef)
+        x = x::GlobalRef
+        return (x.mod == Base && isdefined(Base, x.name) &&
+                isa(getfield(Base, x.name), IntrinsicFunction))
+    elseif isa(x, TopNode)
+        x = x::TopNode
+        return (isdefined(Base, x.name) &&
+                isa(getfield(Base, x.name), IntrinsicFunction))
+    end
+    return false
+end
 
 ## AST printing helpers ##
 
@@ -520,7 +533,7 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         head !== :row && print(io, cl)
 
     # function call
-    elseif head == :call && nargs >= 1
+    elseif head === :call && nargs >= 1
         func = args[1]
         fname = isa(func,GlobalRef) ? func.name : func
         func_prec = operator_precedence(fname)
@@ -529,7 +542,9 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         end
         func_args = args[2:end]
 
-        if in(ex.args[1], (:box, TopNode(:box), :throw)) || ismodulecall(ex)
+        if (in(ex.args[1], (GlobalRef(Base, :box), TopNode(:box), :throw)) ||
+            ismodulecall(ex) ||
+            (ex.typ === Any && is_intrinsic_expr(ex.args[1])))
             show_type = task_local_storage(:TYPEEMPHASIZE, false)
         end
 
@@ -729,7 +744,13 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
 
     # transpose
     elseif (head === symbol('\'') || head === symbol(".'")) && length(args) == 1
-        show_unquoted(io, args[1])
+        if isa(args[1], Symbol)
+            show_unquoted(io, args[1])
+        else
+            print(io, "(")
+            show_unquoted(io, args[1])
+            print(io, ")")
+        end
         print(io, head)
 
     elseif is(head, :import) || is(head, :importall) || is(head, :using)
@@ -888,7 +909,7 @@ function dumptype(io::IO, x, n::Int, indent)
                          any(map(tt -> string(x.name) == typargs(tt), t.body.types)))
                         targs = join(t.parameters, ",")
                         println(io, indent, "  ", s,
-                                length(t.parameters) > 0 ? "{$targs}" : "",
+                                !isempty(t.parameters) ? "{$targs}" : "",
                                 " = ", t)
                     end
                 elseif isa(t, Union)
@@ -957,14 +978,21 @@ dump(io::IO, x::DataType) = dump(io, x, 5, "")
 dump(io::IO, x::TypeVar, n::Int, indent) = println(io, x.name)
 
 
+"""
+`alignment(X)` returns a tuple (left,right) showing how many characters are
+needed on either side of an alignment feature such as a decimal point.
+"""
 alignment(x::Any) = (0, length(sprint(showcompact_lim, x)))
 alignment(x::Number) = (length(sprint(showcompact_lim, x)), 0)
+"`alignment(42)` yields (2,0)"
 alignment(x::Integer) = (length(sprint(showcompact_lim, x)), 0)
+"`alignment(4.23)` yields (1,3) for `4` and `.23`"
 function alignment(x::Real)
     m = match(r"^(.*?)((?:[\.eE].*)?)$", sprint(showcompact_lim, x))
     m === nothing ? (length(sprint(showcompact_lim, x)), 0) :
                    (length(m.captures[1]), length(m.captures[2]))
 end
+"`alignment(1 + 10im)` yields (3,5) for `1 +` and `_10im` (plus sign on left, space on right)"
 function alignment(x::Complex)
     m = match(r"^(.*[\+\-])(.*)$", sprint(showcompact_lim, x))
     m === nothing ? (length(sprint(showcompact_lim, x)), 0) :
@@ -979,26 +1007,37 @@ end
 const undef_ref_str = "#undef"
 const undef_ref_alignment = (3,3)
 
+"""
+`alignment(X, rows, cols, cols_if_complete, cols_otherwise, sep)` returns the
+alignment for specified parts of array `X`, returning the (left,right) info.
+It will look in X's `rows`, `cols` (both lists of indices)
+and figure out what's needed to be fully aligned, for example looking all
+the way down a column and finding out the maximum size of each element.
+Parameter `sep::Integer` is number of spaces to put between elements.
+`cols_if_complete` and `cols_otherwise` indicate screen width to use.
+Alignment is reported as a vector of (left,right) tuples, one for each
+column going across the screen.
+"""
 function alignment(
     X::AbstractVecOrMat,
     rows::AbstractVector, cols::AbstractVector,
     cols_if_complete::Integer, cols_otherwise::Integer, sep::Integer
 )
-    a = []
-    for j in cols
+    a = Tuple{Int, Int}[]
+    for j in cols # need to go down each column one at a time
         l = r = 0
-        for i in rows
+        for i in rows # plumb down and see what largest element sizes are
             if isassigned(X,i,j)
                 aij = alignment(X[i,j])
             else
                 aij = undef_ref_alignment
             end
-            l = max(l, aij[1])
-            r = max(r, aij[2])
+            l = max(l, aij[1]) # left characters
+            r = max(r, aij[2]) # right characters
         end
-        push!(a, (l, r))
+        push!(a, (l, r)) # one tuple per column of X, pruned to screen width
         if length(a) > 1 && sum(map(sum,a)) + sep*length(a) >= cols_if_complete
-            pop!(a)
+            pop!(a) # remove this latest tuple if we're already beyond screen width
             break
         end
     end
@@ -1010,13 +1049,20 @@ function alignment(
     return a
 end
 
+"""
+`print_matrix_row(io, X, A, i, cols, sep)` produces the aligned output for
+a single matrix row X[i, cols] where the desired list of columns is given.
+The corresponding alignment A is used, and the separation between elements
+is specified as string sep.
+`print_matrix_row` will also respect compact output for elements.
+"""
 function print_matrix_row(io::IO,
     X::AbstractVecOrMat, A::Vector,
     i::Integer, cols::AbstractVector, sep::AbstractString
 )
     for k = 1:length(A)
         j = cols[k]
-        if isassigned(X,i,j)
+        if isassigned(X,Int(i),Int(j)) # isassigned accepts only `Int` indices
             x = X[i,j]
             a = alignment(x)
             sx = sprint(showcompact_lim, x)
@@ -1024,13 +1070,18 @@ function print_matrix_row(io::IO,
             a = undef_ref_alignment
             sx = undef_ref_str
         end
-        l = repeat(" ", A[k][1]-a[1])
+        l = repeat(" ", A[k][1]-a[1]) # pad on left and right as needed
         r = repeat(" ", A[k][2]-a[2])
         print(io, l, sx, r)
         if k < length(A); print(io, sep); end
     end
 end
 
+"""
+`print_matrix_vdots` is used to show a series of vertical ellipsis instead
+of a bunch of rows for long matrices. Not only is the string vdots shown
+but it also repeated every M elements if desired.
+"""
 function print_matrix_vdots(io::IO,
     vdots::AbstractString, A::Vector, sep::AbstractString, M::Integer, m::Integer
 )
@@ -1047,79 +1098,98 @@ function print_matrix_vdots(io::IO,
     end
 end
 
+"""
+`print_matrix(io, X)` composes an entire matrix, taking into account the screen size.
+If X is too big, it will be nine-sliced with vertical, horizontal, or diagonal
+ellipsis inserted as appropriate.
+Optional parameters are screen size tuple sz such as (24,80),
+string pre prior to the matrix (e.g. opening bracket), which will cause
+a corresponding same-size indent on following rows,
+string post on the end of the last row of the matrix.
+Also options to use different ellipsis characters hdots,
+vdots, ddots. These are repeated every hmod or vmod elements.
+"""
 function print_matrix(io::IO, X::AbstractVecOrMat,
                       sz::Tuple{Integer, Integer} = (s = tty_size(); (s[1]-4, s[2])),
-                      pre::AbstractString = " ",
-                      sep::AbstractString = "  ",
-                      post::AbstractString = "",
+                      pre::AbstractString = " ",  # pre-matrix string
+                      sep::AbstractString = "  ", # separator between elements
+                      post::AbstractString = "",  # post-matrix string
                       hdots::AbstractString = "  \u2026  ",
                       vdots::AbstractString = "\u22ee",
                       ddots::AbstractString = "  \u22f1  ",
                       hmod::Integer = 5, vmod::Integer = 5)
-    rows, cols = sz
-    cols -= length(pre) + length(post)
-    presp = repeat(" ", length(pre))
+    screenheight, screenwidth = sz
+    screenwidth -= length(pre) + length(post)
+    presp = repeat(" ", length(pre))  # indent each row to match pre string
     postsp = ""
     @assert strwidth(hdots) == strwidth(ddots)
-    ss = length(sep)
+    sepsize = length(sep)
     m, n = size(X,1), size(X,2)
-    if m <= rows # rows fit
-        A = alignment(X,1:m,1:n,cols,cols,ss)
-        if n <= length(A) # rows and cols fit
-            for i = 1:m
+    # To figure out alignments, only need to look at as many rows as could
+    # fit down screen. If screen has at least as many rows as A, look at A.
+    # If not, then we only need to look at the first and last chunks of A,
+    # each half a screen height in size.
+    halfheight = div(screenheight,2)
+    rowsA = m <= screenheight ? (1:m) : [1:halfheight; m-div(screenheight-1,2)+1:m]
+    # Similarly for columns, only necessary to get alignments for as many
+    # columns as could conceivably fit across the screen
+    maxpossiblecols = div(screenwidth, 1+sepsize)
+    colsA = n <= maxpossiblecols ? (1:n) : [1:maxpossiblecols; (n-maxpossiblecols+1):n]
+    A = alignment(X,rowsA,colsA,screenwidth,screenwidth,sepsize)
+    # Nine-slicing is accomplished using print_matrix_row repeatedly
+    if m <= screenheight # rows fit vertically on screen
+        if n <= length(A) # rows and cols fit so just print whole matrix in one piece
+            for i in rowsA
                 print(io, i == 1 ? pre : presp)
-                print_matrix_row(io, X,A,i,1:n,sep)
+                print_matrix_row(io, X,A,i,colsA,sep)
                 print(io, i == m ? post : postsp)
                 if i != m; println(io, ); end
             end
-        else # rows fit, cols don't
-            c = div(cols-length(hdots)+1,2)+1
-            R = reverse(alignment(X,1:m,n:-1:1,c,c,ss))
-            c = cols - sum(map(sum,R)) - (length(R)-1)*ss - length(hdots)
-            L = alignment(X,1:m,1:n,c,c,ss)
-            for i = 1:m
+        else # rows fit down screen but cols don't, so need horizontal ellipsis
+            c = div(screenwidth-length(hdots)+1,2)+1  # what goes to right of ellipsis
+            Ralign = reverse(alignment(X,rowsA,reverse(colsA),c,c,sepsize)) # alignments for right
+            c = screenwidth - sum(map(sum,Ralign)) - (length(Ralign)-1)*sepsize - length(hdots)
+            Lalign = alignment(X,rowsA,colsA,c,c,sepsize) # alignments for left of ellipsis
+            for i in rowsA
                 print(io, i == 1 ? pre : presp)
-                print_matrix_row(io, X,L,i,1:length(L),sep)
+                print_matrix_row(io, X,Lalign,i,1:length(Lalign),sep)
                 print(io, i % hmod == 1 ? hdots : repeat(" ", length(hdots)))
-                print_matrix_row(io, X,R,i,n-length(R)+1:n,sep)
+                print_matrix_row(io, X,Ralign,i,n-length(Ralign)+colsA,sep)
                 print(io, i == m ? post : postsp)
                 if i != m; println(io, ); end
             end
         end
-    else # rows don't fit
-        t = div(rows,2)
-        I = [1:t; m-div(rows-1,2)+1:m]
-        A = alignment(X,I,1:n,cols,cols,ss)
-        if n <= length(A) # rows don't fit, cols do
-            for i in I
+    else # rows don't fit so will need vertical ellipsis
+        if n <= length(A) # rows don't fit, cols do, so only vertical ellipsis
+            for i in rowsA
                 print(io, i == 1 ? pre : presp)
-                print_matrix_row(io, X,A,i,1:n,sep)
+                print_matrix_row(io, X,A,i,colsA,sep)
                 print(io, i == m ? post : postsp)
-                if i != I[end]; println(io, ); end
-                if i == t
+                if i != rowsA[end]; println(io, ); end
+                if i == halfheight
                     print(io, i == 1 ? pre : presp)
                     print_matrix_vdots(io, vdots,A,sep,vmod,1)
                     println(io, i == m ? post : postsp)
                 end
             end
-        else # neither rows nor cols fit
-            c = div(cols-length(hdots)+1,2)+1
-            R = reverse(alignment(X,I,n:-1:1,c,c,ss))
-            c = cols - sum(map(sum,R)) - (length(R)-1)*ss - length(hdots)
-            L = alignment(X,I,1:n,c,c,ss)
-            r = mod((length(R)-n+1),vmod)
-            for i in I
+        else # neither rows nor cols fit, so use all 3 kinds of dots
+            c = div(screenwidth-length(hdots)+1,2)+1
+            Ralign = reverse(alignment(X,rowsA,reverse(colsA),c,c,sepsize))
+            c = screenwidth - sum(map(sum,Ralign)) - (length(Ralign)-1)*sepsize - length(hdots)
+            Lalign = alignment(X,rowsA,colsA,c,c,sepsize)
+            r = mod((length(Ralign)-n+1),vmod) # where to put dots on right half
+            for i in rowsA
                 print(io, i == 1 ? pre : presp)
-                print_matrix_row(io, X,L,i,1:length(L),sep)
+                print_matrix_row(io, X,Lalign,i,1:length(Lalign),sep)
                 print(io, i % hmod == 1 ? hdots : repeat(" ", length(hdots)))
-                print_matrix_row(io, X,R,i,n-length(R)+1:n,sep)
+                print_matrix_row(io, X,Ralign,i,n-length(Ralign)+colsA,sep)
                 print(io, i == m ? post : postsp)
-                if i != I[end]; println(io, ); end
-                if i == t
+                if i != rowsA[end]; println(io, ); end
+                if i == halfheight
                     print(io, i == 1 ? pre : presp)
-                    print_matrix_vdots(io, vdots,L,sep,vmod,1)
+                    print_matrix_vdots(io, vdots,Lalign,sep,vmod,1)
                     print(io, ddots)
-                    print_matrix_vdots(io, vdots,R,sep,vmod,r)
+                    print_matrix_vdots(io, vdots,Ralign,sep,vmod,r)
                     println(io, i == m ? post : postsp)
                 end
             end
@@ -1127,15 +1197,27 @@ function print_matrix(io::IO, X::AbstractVecOrMat,
     end
 end
 
-summary(x) = string(typeof(x))
+doc"""
+    summary(x)
 
-dims2string(d) = length(d) == 0 ? "0-dimensional" :
+Return a string giving a brief description of a value. By default returns
+`string(typeof(x))`, e.g. `Int64`.
+
+For arrays, returns a string of size and type info,
+e.g. `10-element Array{Int64,1}`.
+"""
+summary(x) = string(typeof(x)) # e.g. Int64
+
+# sizes such as 0-dimensional, 4-dimensional, 2x3
+dims2string(d) = isempty(d) ? "0-dimensional" :
                  length(d) == 1 ? "$(d[1])-element" :
                  join(map(string,d), 'x')
 
+# anything array-like gets summarized e.g. 10-element Array{Int64,1}
 summary(a::AbstractArray) =
     string(dims2string(size(a)), " ", typeof(a))
 
+# n-dimensional arrays
 function show_nd(io::IO, a::AbstractArray, limit, print_matrix, label_slices)
     if isempty(a)
         return
@@ -1182,6 +1264,9 @@ end
 # for internal use in showing arrays.
 _limit_output = false
 
+"""
+`print_matrix_repr(io, X)` prints matrix X with opening and closing square brackets.
+"""
 function print_matrix_repr(io, X::AbstractArray)
     compact, prefix = array_eltype_show_how(X)
     prefix *= "["
@@ -1248,7 +1333,7 @@ end
 
 show(io::IO, X::AbstractArray) = showarray(io, X, header=_limit_output, repr=!_limit_output)
 
-function with_output_limit(thk, lim=true)
+function with_output_limit(thk, lim=true) # thk is usually show()
     global _limit_output
     last = _limit_output
     _limit_output = lim
@@ -1327,7 +1412,7 @@ print_bit_chunk(c::UInt64, l::Integer) = print_bit_chunk(STDOUT, c, l)
 print_bit_chunk(c::UInt64) = print_bit_chunk(STDOUT, c)
 
 function bitshow(io::IO, B::BitArray)
-    length(B) == 0 && return
+    isempty(B) && return
     Bc = B.chunks
     for i = 1:length(Bc)-1
         print_bit_chunk(io, Bc[i])

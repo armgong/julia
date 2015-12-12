@@ -12,8 +12,8 @@ type Bidiagonal{T} <: AbstractMatrix{T}
         new(dv, ev, isupper)
     end
 end
-Bidiagonal{T}(dv::AbstractVector{T}, ev::AbstractVector{T}, isupper::Bool) = Bidiagonal{T}(dv, ev, isupper)
-Bidiagonal{T}(dv::AbstractVector{T}, ev::AbstractVector{T}) = throw(ArgumentError("did you want an upper or lower Bidiagonal? Try again with an additional true (upper) or false (lower) argument."))
+Bidiagonal{T}(dv::AbstractVector{T}, ev::AbstractVector{T}, isupper::Bool) = Bidiagonal{T}(collect(dv), collect(ev), isupper)
+Bidiagonal(dv::AbstractVector, ev::AbstractVector) = throw(ArgumentError("did you want an upper or lower Bidiagonal? Try again with an additional true (upper) or false (lower) argument."))
 
 #Convert from BLAS uplo flag to boolean internal
 Bidiagonal(dv::AbstractVector, ev::AbstractVector, uplo::Char) = begin
@@ -24,7 +24,7 @@ Bidiagonal(dv::AbstractVector, ev::AbstractVector, uplo::Char) = begin
     else
         throw(ArgumentError("Bidiagonal uplo argument must be upper 'U' or lower 'L', got $(repr(uplo))"))
     end
-    Bidiagonal(copy(dv), copy(ev), isupper)
+    Bidiagonal(collect(dv), collect(ev), isupper)
 end
 function Bidiagonal{Td,Te}(dv::AbstractVector{Td}, ev::AbstractVector{Te}, isupper::Bool)
     T = promote_type(Td,Te)
@@ -109,7 +109,7 @@ function size(M::Bidiagonal, d::Integer)
 end
 
 #Elementary operations
-for func in (:conj, :copy, :round, :trunc, :floor, :ceil)
+for func in (:conj, :copy, :round, :trunc, :floor, :ceil, :real, :imag, :abs)
     @eval ($func)(M::Bidiagonal) = Bidiagonal(($func)(M.dv), ($func)(M.ev), M.isupper)
 end
 for func in (:round, :trunc, :floor, :ceil)

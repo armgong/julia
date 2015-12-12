@@ -2,22 +2,14 @@
 
 ## linalg.jl: Some generic Linear Algebra definitions
 
-scale(X::AbstractArray, s::Number) = scale!(copy(X), s)
-scale(s::Number, X::AbstractArray) = scale!(copy(X), s)
-
-function scale{R<:Real,S<:Complex}(X::AbstractArray{R}, s::S)
-    Y = Array(promote_type(R,S), size(X))
-    copy!(Y, X)
-    scale!(Y, s)
-end
-
-scale{R<:Real}(s::Complex, X::AbstractArray{R}) = scale(X, s)
+scale(X::AbstractArray, s::Number) = X*s
+scale(s::Number, X::AbstractArray) = s*X
 
 # For better performance when input and output are the same array
 # See https://github.com/JuliaLang/julia/issues/8415#issuecomment-56608729
 function generic_scale!(X::AbstractArray, s::Number)
-    for i = 1:length(X)
-        @inbounds X[i] *= s
+    @simd for I in eachindex(X)
+        @inbounds X[I] *= s
     end
     X
 end
@@ -26,8 +18,14 @@ function generic_scale!(C::AbstractArray, X::AbstractArray, s::Number)
     if length(C) != length(X)
         throw(DimensionMismatch("first array has length $(length(C)) which does not match the length of the second, $(length(X))."))
     end
-    for i = 1:length(X)
-        @inbounds C[i] = X[i]*s
+    if size(C) == size(X)
+        for I in eachindex(C, X)
+            @inbounds C[I] = X[I]*s
+        end
+    else
+        for (IC, IX) in zip(eachindex(C), eachindex(X))
+            @inbounds C[IC] = X[IX]*s
+        end
     end
     C
 end
@@ -244,17 +242,23 @@ end
 
 @inline norm(x::Number, p::Real=2) = vecnorm(x, p)
 
-function vecdot(x::AbstractVector, y::AbstractVector)
+function vecdot(x::AbstractArray, y::AbstractArray)
     lx = length(x)
     if lx != length(y)
-        throw(DimensionMismatch("vector x has length $lx, but vector y has length $(length(y))"))
+        throw(DimensionMismatch("first array has length $(lx) which does not match the length of the second, $(length(y))."))
     end
     if lx == 0
         return dot(zero(eltype(x)), zero(eltype(y)))
     end
-    s = dot(x[1], y[1])
-    @inbounds for i = 2:lx
-        s += dot(x[i], y[i])
+    s = zero(dot(x[1], y[1]))
+    if size(x) == size(y)
+        for I in eachindex(x, y)
+            @inbounds s += dot(x[I], y[I])
+        end
+    else
+        for (Ix, Iy) in zip(eachindex(x), eachindex(y))
+            @inbounds  s += dot(x[Ix], y[Iy])
+        end
     end
     s
 end
@@ -321,19 +325,26 @@ function inv{T}(A::AbstractMatrix{T})
     A_ldiv_B!(factorize(convert(AbstractMatrix{S}, A)), eye(S, chksquare(A)))
 end
 
-function \{T}(A::AbstractMatrix{T}, B::AbstractVecOrMat{T})
-    if size(A,1) != size(B,1)
-        throw(DimensionMismatch("left and right hand sides should have the same number of rows, left hand side has $(size(A,1)) rows, but right hand side has $(size(B,1)) rows."))
+function (\)(A::AbstractMatrix, B::AbstractVecOrMat)
+    m, n = size(A)
+    if m == n
+        if istril(A)
+            if istriu(A)
+                return Diagonal(A) \ B
+            else
+                return LowerTriangular(A) \ B
+            end
+        end
+        if istriu(A)
+            return UpperTriangular(A) \ B
+        end
+        return lufact(A) \ B
     end
-    factorize(A)\B
-end
-function \{TA,TB}(A::AbstractMatrix{TA}, B::AbstractVecOrMat{TB})
-    TC = typeof(one(TA)/one(TB))
-    convert(AbstractMatrix{TC}, A)\convert(AbstractArray{TC}, B)
+    return qrfact(A,Val{true}) \ B
 end
 
-\(a::AbstractVector, b::AbstractArray) = reshape(a, length(a), 1) \ b
-/(A::AbstractVecOrMat, B::AbstractVecOrMat) = (B' \ A')'
+(\)(a::AbstractVector, b::AbstractArray) = reshape(a, length(a), 1) \ b
+(/)(A::AbstractVecOrMat, B::AbstractVecOrMat) = (B' \ A')'
 # \(A::StridedMatrix,x::Number) = inv(A)*x Should be added at some point when the old elementwise version has been deprecated long enough
 # /(x::Number,A::StridedMatrix) = x*inv(A)
 
@@ -435,20 +446,20 @@ function peakflops(n::Integer=2000; parallel::Bool=false)
     parallel ? sum(pmap(peakflops, [ n for i in 1:nworkers()])) : (2*Float64(n)^3/t)
 end
 
-# BLAS-like in-place y=alpha*x+y function (see also the version in blas.jl
+# BLAS-like in-place y = x*α+y function (see also the version in blas.jl
 #                                          for BlasFloat Arrays)
-function axpy!(alpha, x::AbstractArray, y::AbstractArray)
+function axpy!(α, x::AbstractArray, y::AbstractArray)
     n = length(x)
     if n != length(y)
         throw(DimensionMismatch("x has length $n, but y has length $(length(y))"))
     end
     for i = 1:n
-        @inbounds y[i] += alpha * x[i]
+        @inbounds y[i] += x[i]*α
     end
     y
 end
 
-function axpy!{Ti<:Integer,Tj<:Integer}(alpha, x::AbstractArray, rx::AbstractArray{Ti}, y::AbstractArray, ry::AbstractArray{Tj})
+function axpy!{Ti<:Integer,Tj<:Integer}(α, x::AbstractArray, rx::AbstractArray{Ti}, y::AbstractArray, ry::AbstractArray{Tj})
     if length(x) != length(y)
         throw(DimensionMismatch("x has length $(length(x)), but y has length $(length(y))"))
     elseif minimum(rx) < 1 || maximum(rx) > length(x)
@@ -459,7 +470,7 @@ function axpy!{Ti<:Integer,Tj<:Integer}(alpha, x::AbstractArray, rx::AbstractArr
         throw(ArgumentError("rx has length $(length(rx)), but ry has length $(length(ry))"))
     end
     for i = 1:length(rx)
-        @inbounds y[ry[i]] += alpha * x[rx[i]]
+        @inbounds y[ry[i]] += x[rx[i]]*α
     end
     y
 end
@@ -524,4 +535,76 @@ logabsdet(A::AbstractMatrix) = logabsdet(lufact(A))
 function isapprox{T<:Number,S<:Number}(x::AbstractArray{T}, y::AbstractArray{S}; rtol::Real=Base.rtoldefault(T,S), atol::Real=0, norm::Function=vecnorm)
     d = norm(x - y)
     return isfinite(d) ? d <= atol + rtol*max(norm(x), norm(y)) : x == y
+end
+
+"""
+    normalize!(v, [p=2])
+
+Normalize the vector `v` in-place with respect to the `p`-norm.
+
+Inputs:
+
+- `v::AbstractVector` - vector to be normalized
+- `p::Real` - The `p`-norm to normalize with respect to. Default: 2
+
+Output:
+
+- `v` - A unit vector being the input vector, rescaled to have norm 1.
+        The input vector is modified in-place.
+
+See also:
+
+`normalize`, `qr`
+
+"""
+function normalize!(v::AbstractVector, p::Real=2)
+    nrm = norm(v, p)
+    __normalize!(v, nrm)
+end
+
+@inline function __normalize!(v::AbstractVector, nrm::AbstractFloat)
+    #The largest positive floating point number whose inverse is less than
+    #infinity
+    δ = inv(prevfloat(typemax(nrm)))
+
+    if nrm ≥ δ #Safe to multiply with inverse
+        invnrm = inv(nrm)
+        scale!(v, invnrm)
+
+    else # scale elements to avoid overflow
+        εδ = eps(one(nrm))/δ
+        scale!(v, εδ)
+        scale!(v, inv(nrm*εδ))
+    end
+
+    v
+end
+
+"""
+    normalize(v, [p=2])
+
+Normalize the vector `v` with respect to the `p`-norm.
+
+Inputs:
+
+- `v::AbstractVector` - vector to be normalized
+- `p::Real` - The `p`-norm to normalize with respect to. Default: 2
+
+Output:
+
+- `v` - A unit vector being a copy of the input vector, scaled to have norm 1
+
+See also:
+
+`normalize!`, `qr`
+"""
+function normalize(v::AbstractVector, p::Real = 2)
+    nrm = norm(v, p)
+    if !isempty(v)
+        vv = copy_oftype(v, typeof(v[1]/nrm))
+        return __normalize!(vv, nrm)
+    else
+        T = typeof(zero(eltype(v))/nrm)
+        return T[]
+    end
 end

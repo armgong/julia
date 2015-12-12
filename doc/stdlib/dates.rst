@@ -25,7 +25,7 @@ Dates and Time Types
 
 .. data:: UTInstant{T}
 
-   The ``UTInstant`` represents a machine timeline based on `UT` time (1 day = one revolution of the earth). The ``T`` is a ``Period`` parameter that indicates the resolution or precision of the instant.
+   The ``UTInstant`` represents a machine timeline based on UT time (1 day = one revolution of the earth). The ``T`` is a ``Period`` parameter that indicates the resolution or precision of the instant.
 
 .. data:: TimeType
 
@@ -43,8 +43,8 @@ Dates Functions
 ---------------
 
 All Dates functions are defined in the ``Dates`` module; note that only the ``Date``, ``DateTime``, and ``now`` functions are exported;
-to use all other ``Dates`` functions, you'll need to prefix each function call with an explicit ``Dates.``, e.g. ``Dates.dayofweek(dt)``;
-alternatively, you could call ``using Dates`` to bring all exported functions into ``Main`` to be used without the ``Dates.`` prefix.
+to use all other ``Dates`` functions, you'll need to prefix each function call with an explicit ``Dates.``, e.g. ``Dates.dayofweek(dt)``.
+Alternatively, you can write ``using Base.Dates`` to bring all exported functions into ``Main`` to be used without the ``Dates.`` prefix.
 
 
 .. function:: DateTime(y, [m, d, h, mi, s, ms]) -> DateTime
@@ -86,7 +86,7 @@ alternatively, you could call ``using Dates`` to bring all exported functions in
 
    =============== ========= ===============================================================
    Code            Matches    Comment
-   --------------- --------- ---------------------------------------------------------------
+   =============== ========= ===============================================================
    ``y``           1996, 96  Returns year of 1996, 0096
    ``m``           1, 01     Matches 1 or 2-digit months
    ``u``           Jan       Matches abbreviated months according to the ``locale`` keyword
@@ -476,7 +476,7 @@ Days of the Week:
 
 =============== ========= =============
 Variable        Abbr.     Value (Int)
---------------- --------- -------------
+=============== ========= =============
 ``Monday``      ``Mon``   1
 ``Tuesday``     ``Tue``   2
 ``Wednesday``   ``Wed``   3
@@ -490,7 +490,7 @@ Months of the Year:
 
 =============== ========= =============
 Variable        Abbr.     Value (Int)
---------------- --------- -------------
+=============== ========= =============
 ``January``     ``Jan``   1
 ``February``    ``Feb``   2
 ``March``       ``Mar``   3

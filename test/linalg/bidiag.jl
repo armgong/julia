@@ -49,6 +49,9 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
         @test full(T) == diagm(dv) + diagm(ev, isupper?1:-1)
         @test Bidiagonal(full(T), isupper) == T
         @test big(T) == T
+        @test full(abs(T)) == abs(diagm(dv)) + abs(diagm(ev, isupper?1:-1))
+        @test full(real(T)) == real(diagm(dv)) + real(diagm(ev, isupper?1:-1))
+        @test full(imag(T)) == imag(diagm(dv)) + imag(diagm(ev, isupper?1:-1))
         z = zeros(elty, n)
 
         debug && println("Idempotent tests")
@@ -109,9 +112,13 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
         debug && println("Round,float,trunc,ceil")
         if elty <: BlasReal
             @test floor(Int,T) == Bidiagonal(floor(Int,T.dv),floor(Int,T.ev),T.isupper)
+            @test isa(floor(Int,T), Bidiagonal)
             @test trunc(Int,T) == Bidiagonal(trunc(Int,T.dv),trunc(Int,T.ev),T.isupper)
+            @test isa(trunc(Int,T), Bidiagonal)
             @test round(Int,T) == Bidiagonal(round(Int,T.dv),round(Int,T.ev),T.isupper)
+            @test isa(round(Int,T), Bidiagonal)
             @test ceil(Int,T) == Bidiagonal(ceil(Int,T.dv),ceil(Int,T.ev),T.isupper)
+            @test isa(ceil(Int,T), Bidiagonal)
         end
 
         debug && println("Generic Mat-vec ops")
@@ -177,9 +184,13 @@ let A = Bidiagonal([1,2,3], [0,0], true)
     @test isdiag(A)
 end
 
+# test construct from range
+@test Bidiagonal(1:3, 1:2, true) == [1 1 0; 0 2 2; 0 0 3]
+
 #test promote_rule
 A = Bidiagonal(ones(Float32,10),ones(Float32,9),true)
 B = rand(Float64,10,10)
 C = Tridiagonal(rand(Float64,9),rand(Float64,10),rand(Float64,9))
+@test promote_rule(Matrix{Float64}, Bidiagonal{Float64}) == Matrix{Float64}
 @test promote(B,A) == (B,convert(Matrix{Float64},full(A)))
 @test promote(C,A) == (C,Tridiagonal(zeros(Float64,9),convert(Vector{Float64},A.dv),convert(Vector{Float64},A.ev)))

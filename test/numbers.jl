@@ -55,6 +55,9 @@
 @test min(1.0,1) == 1
 
 # min, max and minmax
+@test min(1) === 1
+@test max(1) === 1
+@test minmax(1) === (1, 1)
 @test minmax(5, 3) == (3, 5)
 @test minmax(3., 5.) == (3., 5.)
 @test minmax(5., 3.) == (3., 5.)
@@ -470,6 +473,120 @@ end
 @test signbit(-0//1) == 0
 @test signbit(1//0) == 0
 @test signbit(-1//0) == 1
+
+@test copysign(big(1.0),big(-2.0)) == big(-1.0)
+
+#copysign
+@test copysign(-1,1) == 1
+@test copysign(1,-1) == -1
+
+@test copysign(-1,1.0) == 1
+@test copysign(1,-1.0) == -1
+
+@test copysign(-1,1//2) == 1
+@test copysign(1,-1//2) == -1
+
+@test copysign(1.0,-1) == -1.0
+@test copysign(-1.0,1) == 1.0
+
+@test copysign(1.0,-1.0) == -1.0
+@test copysign(-1.0,1.0) == 1.0
+
+@test copysign(1.0,-1//2) == -1.0
+@test copysign(-1.0,1//2) == 1.0
+
+@test copysign(1//2,-1) == -1//2
+@test copysign(-1//2,1) == 1//2
+
+@test copysign(1//2,-1//2) == -1//2
+@test copysign(-1//2,1//2) == 1//2
+
+@test copysign(1//2,-1.0) == -1//2
+@test copysign(-1//2,1.0) == 1//2
+
+# verify type stability with integer (x is negative)
+@test eltype(copysign(-1,1)) <: Integer
+@test eltype(copysign(-1,BigInt(1))) <: Integer
+@test eltype(copysign(-1,1.0)) <: Integer
+@test eltype(copysign(-1,1//2)) <: Integer
+@test eltype(copysign(-BigInt(1),1)) <: Integer
+@test eltype(copysign(-BigInt(1),1.0)) <: Integer
+@test eltype(copysign(-BigInt(1),1//2)) <: Integer
+@test eltype(copysign(-BigInt(1),BigInt(1))) <: Integer
+@test eltype(copysign(-1,-1)) <: Integer
+@test eltype(copysign(-1,-BigInt(1))) <: Integer
+@test eltype(copysign(-1,-1.0)) <: Integer
+@test eltype(copysign(-1,-1//2)) <: Integer
+@test eltype(copysign(-BigInt(1),-1)) <: Integer
+@test eltype(copysign(-BigInt(1),-1.0)) <: Integer
+@test eltype(copysign(-BigInt(1),-1//2)) <: Integer
+@test eltype(copysign(-BigInt(1),-BigInt(1))) <: Integer
+
+# verify type stability with integer (x is positive)
+@test eltype(copysign(1,1)) <: Integer
+@test eltype(copysign(1,BigInt(1))) <: Integer
+@test eltype(copysign(1,1.0)) <: Integer
+@test eltype(copysign(1,1//2)) <: Integer
+@test eltype(copysign(BigInt(1),1)) <: Integer
+@test eltype(copysign(BigInt(1),1.0)) <: Integer
+@test eltype(copysign(BigInt(1),1//2)) <: Integer
+@test eltype(copysign(BigInt(1),BigInt(1))) <: Integer
+@test eltype(copysign(1,-1)) <: Integer
+@test eltype(copysign(1,-BigInt(1))) <: Integer
+@test eltype(copysign(1,-1.0)) <: Integer
+@test eltype(copysign(1,-1//2)) <: Integer
+@test eltype(copysign(BigInt(1),-1)) <: Integer
+@test eltype(copysign(BigInt(1),-1.0)) <: Integer
+@test eltype(copysign(BigInt(1),-1//2)) <: Integer
+@test eltype(copysign(BigInt(1),-BigInt(1))) <: Integer
+
+# verify type stability with real (x is negative)
+@test eltype(copysign(-1.0,1)) <: Real
+@test eltype(copysign(-1.0,BigInt(1))) <: Real
+@test eltype(copysign(-1.0,1.0)) <: Real
+@test eltype(copysign(-1.0,1//2)) <: Real
+@test eltype(copysign(-1.0,-1)) <: Real
+@test eltype(copysign(-1.0,-BigInt(1))) <: Real
+@test eltype(copysign(-1.0,-1.0)) <: Real
+@test eltype(copysign(-1.0,-1//2)) <: Real
+
+# Verify type stability with real (x is positive)
+@test eltype(copysign(1.0,1)) <: Real
+@test eltype(copysign(1.0,BigInt(1))) <: Real
+@test eltype(copysign(1.0,1.0)) <: Real
+@test eltype(copysign(1.0,1//2)) <: Real
+@test eltype(copysign(1.0,-1)) <: Real
+@test eltype(copysign(1.0,-BigInt(1))) <: Real
+@test eltype(copysign(1.0,-1.0)) <: Real
+@test eltype(copysign(1.0,-1//2)) <: Real
+
+# Verify type stability with rational (x is negative)
+@test eltype(copysign(-1//2,1)) <: Rational
+@test eltype(copysign(-1//2,BigInt(1))) <: Rational
+@test eltype(copysign(-1//2,1.0)) <: Rational
+@test eltype(copysign(-1//2,1//2)) <: Rational
+@test eltype(copysign(-1//2,-1)) <: Rational
+@test eltype(copysign(-1//2,-BigInt(1))) <: Rational
+@test eltype(copysign(-1//2,-1.0)) <: Rational
+@test eltype(copysign(-1//2,-1//2)) <: Rational
+
+# Verify type stability with rational (x is positive)
+@test eltype(copysign(-1//2,1)) <: Rational
+@test eltype(copysign(-1//2,BigInt(1))) <: Rational
+@test eltype(copysign(-1//2,1.0)) <: Rational
+@test eltype(copysign(-1//2,1//2)) <: Rational
+@test eltype(copysign(-1//2,-1)) <: Rational
+@test eltype(copysign(-1//2,-BigInt(1))) <: Rational
+@test eltype(copysign(-1//2,-1.0)) <: Rational
+@test eltype(copysign(-1//2,-1//2)) <: Rational
+
+# test x = NaN
+@test isnan(copysign(0/0,1))
+@test isnan(copysign(0/0,-1))
+
+# test x = Inf
+@test isinf(copysign(1/0,1))
+@test isinf(copysign(1/0,-1))
 
 @test isnan(1)     == false
 @test isnan(1.0)   == false
@@ -2124,6 +2241,11 @@ end
 @test !isprime(0xffffffffffffffc7)
 @test !isprime(0xffffffffffffffc9)
 
+for T in [Int8,UInt8,Int16,UInt16,Int128,UInt128]
+    @test isprime(T(2))
+    @test !isprime(T(4))
+end
+
 # issue #5210
 @test prod([ k^v for (k,v) in factor(typemax(UInt32)) ]) == typemax(UInt32)
 @test prod([ k^v for (k,v) in factor(typemax(Int8)) ]) == typemax(Int8)
@@ -2265,10 +2387,6 @@ end
 @test nextprod([2,3,5],30) == 30
 @test nextprod([2,3,5],33) == 36
 
-@test_throws ArgumentError prevprod([2,3,5],Int128(typemax(Int))+1)
-@test prevprod([2,3,5],30) == 30
-@test prevprod([2,3,5],33) == 32
-
 @test nextfloat(0.0) == 5.0e-324
 @test prevfloat(0.0) == -5.0e-324
 @test nextfloat(-0.0) == 5.0e-324
@@ -2351,6 +2469,12 @@ end
 # issue #7508
 @test_throws ErrorException reinterpret(Int, 0x01)
 
+# issue #12832
+@test_throws ErrorException reinterpret(Float64, Complex{Int64}(1))
+@test_throws ErrorException reinterpret(Float64, Complex64(1))
+@test_throws ErrorException reinterpret(Complex64, Float64(1))
+@test_throws ErrorException reinterpret(Int32, false)
+
 # issue #41
 ndigf(n) = Float64(log(Float32(n)))
 @test Float64(log(Float32(256))) == ndigf(256) == 5.545177459716797
@@ -2406,6 +2530,9 @@ end
 # test second branch, after all small primes in list have been searched
 @test factor(10009 * Int128(1000000000000037)) == Dict(10009=>1,1000000000000037=>1)
 
+@test all(x -> (m=mod1(x,3); 0<m<=3), -5:+5)
+@test all(x -> x == (fld1(x,3)-1)*3 + mod1(x,3), -5:+5)
+@test all(x -> fldmod1(x,3) == (fld1(x,3), mod1(x,3)), -5:+5)
 #Issue #5570
 @test map(x -> Int(mod1(UInt(x),UInt(5))), 0:15) == [5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5, 1, 2, 3, 4, 5]
 
@@ -2442,17 +2569,33 @@ for x in [1.23, 7, e, 4//5] #[FP, Int, Irrational, Rat]
     @test getindex(x) == x
 end
 
-#copysign(x::Real, y::Real) = ifelse(signbit(x)!=signbit(y), -x, x)
-#same sign
-for x in [1.23, 7, e, 4//5]
-    for y in [1.23, 7, e, 4//5]
-        @test copysign(x,y) == x
-    end
+#getindex(x::Number,-1) throws BoundsError
+#getindex(x::Number,0) throws BoundsError
+#getindex(x::Number,2) throws BoundsError
+#getindex(x::Array,-1) throws BoundsError
+#getindex(x::Array,0 throws BoundsError
+#getindex(x::Array,length(x::Array)+1) throws BoundsError
+for x in [1.23, 7, e, 4//5] #[FP, Int, Irrational, Rat]
+    @test_throws BoundsError getindex(x,-1)
+    @test_throws BoundsError getindex(x,0)
+    @test_throws BoundsError getindex(x,2)
+    @test_throws BoundsError getindex([x x],-1)
+    @test_throws BoundsError getindex([x x],0)
+    @test_throws BoundsError getindex([x x],length([x,x])+1)
 end
-#different sign
+
+# copysign(x::Real, y::Real) = ifelse(signbit(x)!=signbit(y), -x, x)
+# flipsign(x::Real, y::Real) = ifelse(signbit(y), -x, x)
 for x in [1.23, 7, e, 4//5]
     for y in [1.23, 7, e, 4//5]
+        @test copysign(x, y) == x
         @test copysign(x, -y) == -x
+        @test copysign(-x, y) == x
+        @test copysign(-x, -y) == -x
+        @test flipsign(x, y) == x
+        @test flipsign(x, -y) == -x
+        @test flipsign(-x, y) == -x
+        @test flipsign(-x, -y) == x
     end
 end
 
@@ -2469,11 +2612,13 @@ end
 @test in(1+2im, 1+2im) == true #Imag
 @test in(3, 3.0) == true #mixed
 
-#map(f::Callable, x::Number) = f(x)
+#map(f::Callable, x::Number, ys::Number...) = f(x)
 @test map(sin, 3) == sin(3)
 @test map(cos, 3) == cos(3)
 @test map(tan, 3) == tan(3)
 @test map(log, 3) == log(3)
+@test map(copysign, 1.0, -2.0) == -1.0
+@test map(muladd, 2, 3, 4) == 10
 
 @test_throws InexactError convert(UInt8, big(300))
 
@@ -2516,8 +2661,6 @@ for (d,B) in ((4//2+1im,Rational{BigInt}),(3.0+1im,BigFloat),(2+1im,BigInt))
     @test typeof(big([d])) == Vector{Complex{B}}
     @test big([d]) == [d]
 end
-
-@test 0x2^9 === 0x2^big(9) === 0x0
 
 # issue #12536
 @test Rational{Int16}(1,2) === Rational(Int16(1),Int16(2))

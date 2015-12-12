@@ -2,6 +2,84 @@
 
 # Base.require is the implementation for the `import` statement
 
+# Cross-platform case-sensitive path canonicalization
+
+if OS_NAME ∈ (:Linux, :FreeBSD)
+    # Case-sensitive filesystems, don't have to do anything
+    isfile_casesensitive(path) = isfile(path)
+elseif OS_NAME == :Windows
+    # GetLongPathName Win32 function returns the case-preserved filename on NTFS.
+    function isfile_casesensitive(path)
+        isfile(path) || return false  # Fail fast
+        Filesystem.longpath(path) == path
+    end
+elseif OS_NAME == :Darwin
+    # HFS+ filesystem is case-preserving. The getattrlist API returns
+    # a case-preserved filename. In the rare event that HFS+ is operating
+    # in case-sensitive mode, this will still work but will be redundant.
+
+    # Constants from <sys/attr.h>
+    const ATRATTR_BIT_MAP_COUNT = 5
+    const ATTR_CMN_NAME = 1
+    const BITMAPCOUNT = 1
+    const COMMONATTR = 5
+    const FSOPT_NOFOLLOW = 1  # Don't follow symbolic links
+
+    const attr_list = zeros(UInt8, 24)
+    attr_list[BITMAPCOUNT] = ATRATTR_BIT_MAP_COUNT
+    attr_list[COMMONATTR] = ATTR_CMN_NAME
+
+    # This essentially corresponds to the following C code:
+    # attrlist attr_list;
+    # memset(&attr_list, 0, sizeof(attr_list));
+    # attr_list.bitmapcount = ATTR_BIT_MAP_COUNT;
+    # attr_list.commonattr = ATTR_CMN_NAME;
+    # struct Buffer {
+    #    u_int32_t total_length;
+    #    u_int32_t filename_offset;
+    #    u_int32_t filename_length;
+    #    char filename[max_filename_length];
+    # };
+    # Buffer buf;
+    # getattrpath(path, &attr_list, &buf, sizeof(buf), FSOPT_NOFOLLOW);
+    function isfile_casesensitive(path)
+        isfile(path) || return false
+        path_basename = bytestring(basename(path))
+        local casepreserved_basename
+        const header_size = 12
+        buf = Array(UInt8, length(path_basename) + header_size + 1)
+        while true
+            ret = ccall(:getattrlist, Cint,
+                        (Cstring, Ptr{Void}, Ptr{Void}, Csize_t, Culong),
+                        path, attr_list, buf, sizeof(buf), FSOPT_NOFOLLOW)
+            systemerror(:getattrlist, ret ≠ 0)
+            filename_length = unsafe_load(
+              convert(Ptr{UInt32}, pointer(buf) + 8))
+            if (filename_length + header_size) > length(buf)
+                resize!(buf, filename_length + header_size)
+                continue
+            end
+            casepreserved_basename =
+              sub(buf, (header_size+1):(header_size+filename_length-1))
+            break
+        end
+        # Hack to compensate for inability to create a string from a subarray with no allocations.
+        path_basename.data == casepreserved_basename && return true
+
+        # If there is no match, it's possible that the file does exist but HFS+
+        # performed unicode normalization. See  https://developer.apple.com/library/mac/qa/qa1235/_index.html.
+        isascii(path_basename) && return false
+        normalize_string(path_basename, :NFD).data == casepreserved_basename
+    end
+else
+    # Generic fallback that performs a slow directory listing.
+    function isfile_casesensitive(path)
+        isfile(path) || return false
+        dir, filename = splitdir(path)
+        any(readdir(dir) .== filename)
+    end
+end
+
 # `wd` is a working directory to search. defaults to current working directory.
 # if `wd === nothing`, no extra path is searched.
 function find_in_path(name::AbstractString, wd = pwd())
@@ -13,15 +91,15 @@ function find_in_path(name::AbstractString, wd = pwd())
         name = string(base,".jl")
     end
     if wd !== nothing
-        isfile(joinpath(wd,name)) && return joinpath(wd,name)
+        isfile_casesensitive(joinpath(wd,name)) && return joinpath(wd,name)
     end
     for prefix in [Pkg.dir(); LOAD_PATH]
         path = joinpath(prefix, name)
-        isfile(path) && return abspath(path)
+        isfile_casesensitive(path) && return abspath(path)
         path = joinpath(prefix, base, "src", name)
-        isfile(path) && return abspath(path)
+        isfile_casesensitive(path) && return abspath(path)
         path = joinpath(prefix, name, "src", name)
-        isfile(path) && return abspath(path)
+        isfile_casesensitive(path) && return abspath(path)
     end
     return nothing
 end
@@ -30,7 +108,7 @@ function find_in_node_path(name, srcpath, node::Int=1)
     if myid() == node
         find_in_path(name, srcpath)
     else
-        remotecall_fetch(node, find_in_path, name, srcpath)
+        remotecall_fetch(find_in_path, node, name, srcpath)
     end
 end
 
@@ -47,7 +125,7 @@ function find_all_in_cache_path(mod::Symbol)
     paths = AbstractString[]
     for prefix in LOAD_CACHE_PATH
         path = joinpath(prefix, name*".ji")
-        if isfile(path)
+        if isfile_casesensitive(path)
             push!(paths, path)
         end
     end
@@ -60,6 +138,9 @@ end
 
 # returns an array of modules loaded, or nothing if failed
 function _require_from_serialized(node::Int, mod::Symbol, path_to_try::ByteString, toplevel_load::Bool)
+    if JLOptions().use_compilecache == 0
+        return nothing
+    end
     restored = nothing
     if toplevel_load && myid() == 1 && nprocs() > 1
         recompile_stale(mod, path_to_try)
@@ -67,7 +148,7 @@ function _require_from_serialized(node::Int, mod::Symbol, path_to_try::ByteStrin
         if node == myid()
             content = open(readbytes, path_to_try)
         else
-            content = remotecall_fetch(node, open, readbytes, path_to_try)
+            content = remotecall_fetch(open, node, readbytes, path_to_try)
         end
         restored = _include_from_serialized(content)
         if restored !== nothing
@@ -83,7 +164,7 @@ function _require_from_serialized(node::Int, mod::Symbol, path_to_try::ByteStrin
         myid() == 1 && recompile_stale(mod, path_to_try)
         restored = ccall(:jl_restore_incremental, Any, (Ptr{UInt8},), path_to_try)
     else
-        content = remotecall_fetch(node, open, readbytes, path_to_try)
+        content = remotecall_fetch(open, node, readbytes, path_to_try)
         restored = _include_from_serialized(content)
     end
     # otherwise, continue search
@@ -99,6 +180,9 @@ function _require_from_serialized(node::Int, mod::Symbol, path_to_try::ByteStrin
 end
 
 function _require_from_serialized(node::Int, mod::Symbol, toplevel_load::Bool)
+    if JLOptions().use_compilecache == 0
+        return nothing
+    end
     if node == myid()
         paths = find_all_in_cache_path(mod)
     else
@@ -118,7 +202,6 @@ end
 
 # to synchronize multiple tasks trying to import/using something
 const package_locks = Dict{Symbol,Condition}()
-const package_loaded = Set{Symbol}()
 
 # used to optionally track dependencies when requiring a module:
 const _require_dependencies = Tuple{ByteString,Float64}[]
@@ -157,9 +240,47 @@ precompilableerror(ex, c) = false
 # to be prevent it from being precompiled (false).  __precompile__(true) is
 # ignored except within "require" call.
 function __precompile__(isprecompilable::Bool=true)
-    if myid() == 1 && isprecompilable != (0 != ccall(:jl_generating_output, Cint, ())) &&
-        !(isprecompilable && toplevel_load::Bool)
+    if (myid() == 1 &&
+        JLOptions().use_compilecache != 0 &&
+        isprecompilable != (0 != ccall(:jl_generating_output, Cint, ())) &&
+        !(isprecompilable && toplevel_load::Bool))
         throw(PrecompilableError(isprecompilable))
+    end
+end
+
+function require_modname(name::AbstractString)
+    # This function can be deleted when the deprecation for `require`
+    # is deleted.
+    # While we could also strip off the absolute path, the user may be
+    # deliberately directing to a different file than what got
+    # cached. So this takes a conservative approach.
+    if Bool(JLOptions().use_compilecache)
+        if endswith(name, ".jl")
+            tmp = name[1:end-3]
+            for prefix in LOAD_CACHE_PATH
+                path = joinpath(prefix, tmp*".ji")
+                if isfile(path)
+                    return tmp
+                end
+            end
+        end
+    end
+    return name
+end
+
+"""
+    reload(name::AbstractString)
+
+Force reloading of a package, even if it has been loaded before. This is intended for use
+during package development as code is modified.
+"""
+function reload(name::AbstractString)
+    if isfile(name) || contains(name,Filesystem.path_separator)
+        # for reload("path/file.jl") just ask for include instead
+        error("use `include` instead of `reload` to load source files")
+    else
+        # reload("Package") is ok
+        require(symbol(require_modname(name)))
     end
 end
 
@@ -194,10 +315,11 @@ function require(mod::Symbol)
             end
             return
         end
-
         name = string(mod)
         path = find_in_node_path(name, nothing, 1)
-        path === nothing && throw(ArgumentError("$name not found in path"))
+        if path === nothing
+            throw(ArgumentError("$name not found in path.\nRun Pkg.add(\"$name\") to install the $name package"))
+        end
         try
             if last && myid() == 1 && nprocs() > 1
                 # include on node 1 first to check for PrecompilableErrors
@@ -234,9 +356,8 @@ include_string(txt::ByteString, fname::ByteString) =
     ccall(:jl_load_file_string, Any, (Ptr{UInt8},Csize_t,Ptr{UInt8},Csize_t),
           txt, sizeof(txt), fname, sizeof(fname))
 
-include_string(txt::AbstractString, fname::AbstractString) = include_string(bytestring(txt), bytestring(fname))
-
-include_string(txt::AbstractString) = include_string(txt, "string")
+include_string(txt::AbstractString, fname::AbstractString="string") =
+    include_string(bytestring(txt), bytestring(fname))
 
 function source_path(default::Union{AbstractString,Void}="")
     t = current_task()
@@ -271,7 +392,7 @@ function include_from_node1(_path::AbstractString)
             result = Core.include(path)
             nprocs()>1 && sleep(0.005)
         else
-            result = include_string(remotecall_fetch(1, readall, path), path)
+            result = include_string(remotecall_fetch(readall, 1, path), path)
         end
     finally
         if prev === nothing
@@ -294,16 +415,18 @@ end
 evalfile(path::AbstractString, args::Vector) = evalfile(path, UTF8String[args...])
 
 function create_expr_cache(input::AbstractString, output::AbstractString)
-    isfile(output) && rm(output)
+    try rm(output) end          # Remove file if it exists
     code_object = """
         while !eof(STDIN)
             eval(Main, deserialize(STDIN))
         end
         """
-    io, pobj = open(detach(`$(julia_cmd())
-                           --output-ji $output --output-incremental=yes
-                           --startup-file=no --history-file=no
-                           --eval $code_object`), "w", STDOUT)
+    io, pobj = open(pipeline(detach(`$(julia_cmd())
+                                    --output-ji $output --output-incremental=yes
+                                    --startup-file=no --history-file=no
+                                    --color=$(have_color ? "yes" : "no")
+                                    --eval $code_object`), stderr=STDERR),
+                    "w", STDOUT)
     try
         serialize(io, quote
                   empty!(Base.LOAD_PATH)
@@ -322,9 +445,7 @@ function create_expr_cache(input::AbstractString, output::AbstractString)
         serialize(io, :(Base._track_dependencies[1] = true))
         serialize(io, :(Base.include($(abspath(input)))))
         if source !== nothing
-            serialize(io, quote
-                      delete!(task_local_storage(), :SOURCE_PATH)
-                      end)
+            serialize(io, :(delete!(task_local_storage(), :SOURCE_PATH)))
         end
         close(io)
         wait(pobj)
@@ -396,7 +517,8 @@ function stale_cachefile(modpath, cachefile)
             return true # cache file was compiled from a different path
         end
         for (f,ftime) in files
-            if mtime(f) != ftime
+            # Issue #13606: compensate for Docker images rounding mtimes
+            if mtime(f) ∉ (ftime, floor(ftime))
                 return true
             end
         end

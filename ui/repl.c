@@ -34,6 +34,18 @@
 extern "C" {
 #endif
 
+#ifdef JULIA_ENABLE_THREADING
+static JL_CONST_FUNC jl_tls_states_t *jl_get_ptls_states_static(void)
+{
+#  if !defined(_COMPILER_MICROSOFT_)
+    static __thread jl_tls_states_t tls_states;
+#  else
+    static __declspec(thread) jl_tls_states_t tls_states;
+#  endif
+    return &tls_states;
+}
+#endif
+
 static int lisp_prompt = 0;
 static int codecov  = JL_LOG_NONE;
 static int malloclog= JL_LOG_NONE;
@@ -47,6 +59,7 @@ static const char opts[]  =
     // startup options
     " -J, --sysimage <file>     Start up with the given system image file\n"
     " --precompiled={yes|no}    Use precompiled code from system image if available\n"
+    " --compilecache={yes|no}   Enable/disable incremental precompilation of modules\n"
     " -H, --home <dir>          Set location of julia executable\n"
     " --startup-file={yes|no}   Load ~/.juliarc.jl\n"
     " -f, --no-startup          Don't load ~/.juliarc (deprecated, use --startup-file=no)\n"
@@ -115,9 +128,10 @@ void parse_opts(int *argcp, char ***argvp)
            opt_output_o,
            opt_output_ji,
            opt_use_precompiled,
+           opt_use_compilecache,
            opt_incremental
     };
-    static char* shortopts = "+vhqFfH:e:E:P:L:J:C:ip:Ob:";
+    static char* shortopts = "+vhqFfH:e:E:P:L:J:C:ip:O";
     static struct option longopts[] = {
         // exposed command line options
         // NOTE: This set of required arguments need to be kept in sync
@@ -132,6 +146,7 @@ void parse_opts(int *argcp, char ***argvp)
         { "load",            required_argument, 0, 'L' },
         { "sysimage",        required_argument, 0, 'J' },
         { "precompiled",     required_argument, 0, opt_use_precompiled },
+        { "compilecache",    required_argument, 0, opt_use_compilecache },
         { "cpu-target",      required_argument, 0, 'C' },
         { "procs",           required_argument, 0, 'p' },
         { "machinefile",     required_argument, 0, opt_machinefile },
@@ -160,27 +175,40 @@ void parse_opts(int *argcp, char ***argvp)
         { 0, 0, 0, 0 }
     };
     // getopt handles argument parsing up to -- delineator
-    int lastind = optind;
     int argc = *argcp;
+    char **argv = *argvp;
     if (argc > 0) {
         for (int i=0; i < argc; i++) {
-            if (!strcmp((*argvp)[i], "--")) {
+            if (!strcmp(argv[i], "--")) {
                 argc = i;
                 break;
             }
         }
     }
-    int c;
     char *endptr;
-    opterr = 0;
-    int skip = 0;
-    while ((c = getopt_long(argc,*argvp,shortopts,longopts,0)) != -1) {
+    opterr = 0; // suppress getopt warning messages
+    while (1) {
+        int lastind = optind;
+        int c = getopt_long(argc, argv, shortopts, longopts, 0);
+        if (c == -1) break;
         switch (c) {
         case 0:
             break;
         case '?':
-        if (optind != lastind) skip++;
-            lastind = optind;
+        case ':':
+            if (optopt) {
+                for (struct option *o = longopts; o->val; o++) {
+                    if (optopt == o->val) {
+                        if (strchr(shortopts, o->val))
+                            jl_errorf("option `-%c/--%s` is missing an argument", o->val, o->name);
+                        else
+                            jl_errorf("option `--%s` is missing an argument", o->name);
+                    }
+                }
+                jl_errorf("unknown option `-%c`", optopt);
+            } else {
+                jl_errorf("unknown option `%s`", argv[lastind]);
+            }
             break;
         case 'v': // version
             jl_printf(JL_STDOUT, "julia version %s\n", JULIA_VERSION_STRING);
@@ -217,6 +245,14 @@ void parse_opts(int *argcp, char ***argvp)
                 jl_options.use_precompiled = JL_OPTIONS_USE_PRECOMPILED_NO;
             else
                 jl_errorf("julia: invalid argument to --precompiled={yes|no} (%s)", optarg);
+            break;
+        case opt_use_compilecache:
+            if (!strcmp(optarg,"yes"))
+                jl_options.use_compilecache = JL_OPTIONS_USE_COMPILECACHE_YES;
+            else if (!strcmp(optarg,"no"))
+                jl_options.use_compilecache = JL_OPTIONS_USE_COMPILECACHE_NO;
+            else
+                jl_errorf("julia: invalid argument to --compilecache={yes|no} (%s)", optarg);
             break;
         case 'C': // cpu-target
             jl_options.cpu_target = strdup(optarg);
@@ -391,7 +427,6 @@ void parse_opts(int *argcp, char ***argvp)
     }
     jl_options.code_coverage = codecov;
     jl_options.malloc_log = malloclog;
-    optind -= skip;
     *argvp += optind;
     *argcp -= optind;
 }
@@ -454,13 +489,13 @@ static void print_profile(void)
 }
 #endif
 
-static int true_main(int argc, char *argv[])
+static NOINLINE int true_main(int argc, char *argv[])
 {
-    if (jl_base_module != NULL) {
-        jl_array_t *args = (jl_array_t*)jl_get_global(jl_base_module, jl_symbol("ARGS"));
+    if (jl_core_module != NULL) {
+        jl_array_t *args = (jl_array_t*)jl_get_global(jl_core_module, jl_symbol("ARGS"));
         if (args == NULL) {
             args = jl_alloc_cell_1d(0);
-            jl_set_const(jl_base_module, jl_symbol("ARGS"), (jl_value_t*)args);
+            jl_set_const(jl_core_module, jl_symbol("ARGS"), (jl_value_t*)args);
         }
         assert(jl_array_len(args) == 0);
         jl_array_grow_end(args, argc);
@@ -572,6 +607,14 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
         if (!WideCharToMultiByte(CP_UTF8, 0, warg, -1, arg, len, NULL, NULL)) return 1;
         argv[i] = (wchar_t*)arg;
     }
+#endif
+#ifdef JULIA_ENABLE_THREADING
+    // We need to make sure this function is called before any reference to
+    // TLS variables. Since the compiler is free to move calls to
+    // `jl_get_ptls_states()` around, we should avoid referencing TLS
+    // variables in this function. (Mark `true_main` as noinline for this
+    // reason).
+    jl_set_ptls_states_getter(jl_get_ptls_states_static);
 #endif
     libsupport_init();
     parse_opts(&argc, (char***)&argv);

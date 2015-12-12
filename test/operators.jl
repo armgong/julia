@@ -20,6 +20,7 @@ B = [true true false]
 
 @test reverse(Pair(1,2)) == Pair(2,1)
 @test reverse(Pair("13","24")) == Pair("24","13")
+@test typeof(reverse(Pair{ByteString,Int64}("a",1))) == Pair{Int64,ByteString}
 
 p = 1=>:foo
 @test first(p) == 1
@@ -28,3 +29,29 @@ p = 1=>:foo
 @test last(reverse(p))  == 1
 @test endof(p) == 2
 @test p[endof(p)] == p[end] == p[2] == :foo
+
+@test (|)(2) == 2
+@test ($)(2) == 2
+
+@test ctranspose('a') == 'a'
+
+@test_throws ArgumentError Base.scalarmin(['a','b'],['c','d'])
+@test_throws ArgumentError Base.scalarmin('a',['c','d'])
+@test_throws ArgumentError Base.scalarmin(['a','b'],'c')
+@test_throws ArgumentError Base.scalarmax(['a','b'],['c','d'])
+@test_throws ArgumentError Base.scalarmax('a',['c','d'])
+@test_throws ArgumentError Base.scalarmax(['a','b'],'c')
+
+@test lexless('a','b')
+
+@test 1 .!= 2
+@test 1 .== 1
+@test 1 .< 2
+@test 1 .<= 2
+
+# issue #13144: max() with 4 or more array arguments
+let xs = [[i:i+4;] for i in 1:10]
+    for n in 2:10
+        @test max(xs[1:n]...) == [n:n+4;]
+    end
+end

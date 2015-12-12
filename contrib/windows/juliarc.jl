@@ -1,6 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file should contain site-specific commands to be executed on Julia startup
+# Users should store their own personal commands in homedir(), in a file named .juliarc.jl
 
-let user_data_dir
-    ENV["PATH"] = JULIA_HOME*";"*joinpath(JULIA_HOME,"..","Git","bin")*";"*ENV["PATH"]
-    #haskey(ENV,"JULIA_EDITOR") || (ENV["JULIA_EDITOR"] = "start") #start is not a program, so this doesn't work
-end
+ENV["PATH"] = JULIA_HOME*";"*joinpath(JULIA_HOME,"..","Git","bin")*";"*ENV["PATH"]

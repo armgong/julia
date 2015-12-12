@@ -40,6 +40,26 @@ General I/O
     a+   read, write, create, append
    ==== =================================
 
+.. function:: open(command, mode::AbstractString="r", stdio=DevNull)
+
+   .. Docstring generated from Julia source
+
+   Start running ``command`` asynchronously, and return a tuple
+   ``(stream,process)``.  If ``mode`` is ``"r"``, then ``stream``
+   reads from the process's standard output and ``stdio`` optionally
+   specifies the process's standard input stream.  If ``mode`` is
+   ``"w"``, then ``stream`` writes to the process's standard input
+   and ``stdio`` optionally specifies the process's standard output
+   stream.
+
+.. function:: open(f::Function, command, mode::AbstractString="r", stdio=DevNull)
+
+   .. Docstring generated from Julia source
+
+   Similar to ``open(command, mode, stdio)``, but calls ``f(stream)``
+   on the resulting read or write stream, then closes the stream
+   and waits for the process to complete.  Returns the value returned
+   by ``f``.
 
 .. function:: open(f::Function, args...)
 
@@ -107,7 +127,14 @@ General I/O
 
    .. Docstring generated from Julia source
 
-   Write the canonical binary representation of a value to the given stream.
+   Write the canonical binary representation of a value to the given stream. Returns the number of bytes written into the stream.
+
+   You can write multiple values with the same :func:``write`` call. i.e. the following are equivalent:
+
+   .. code-block:: julia
+
+       write(stream, x, y...)
+       write(stream, x) + write(stream, y...)
 
 .. function:: read(stream, type)
 
@@ -220,6 +247,18 @@ General I/O
 
    Determine whether a stream is read-only.
 
+.. function:: iswritable(io) -> Bool
+
+   .. Docstring generated from Julia source
+
+   Returns ``true`` if the specified IO object is writable (if that can be determined).
+
+.. function:: isreadable(io) -> Bool
+
+   .. Docstring generated from Julia source
+
+   Returns ``true`` if the specified IO object is readable (if that can be determined).
+
 .. function:: isopen(object) -> Bool
 
    .. Docstring generated from Julia source
@@ -230,7 +269,7 @@ General I/O
 
    .. Docstring generated from Julia source
 
-   Write an arbitrary value to a stream in an opaque format, such that it can be read back by ``deserialize``\ . The read-back value will be as identical as possible to the original. In general, this process will not work if the reading and writing are done by different versions of Julia, or an instance of Julia with a different system image.
+   Write an arbitrary value to a stream in an opaque format, such that it can be read back by ``deserialize``\ . The read-back value will be as identical as possible to the original. In general, this process will not work if the reading and writing are done by different versions of Julia, or an instance of Julia with a different system image. ``Ptr`` values are serialized as all-zero bit patterns (``NULL``\ ).
 
 .. function:: deserialize(stream)
 
@@ -272,13 +311,13 @@ General I/O
 
    .. Docstring generated from Julia source
 
-   Create a pipe to which all C and Julia level STDOUT output will be redirected. Returns a tuple (rd,wr) representing the pipe ends. Data written to STDOUT may now be read from the rd end of the pipe. The wr end is given for convenience in case the old STDOUT object was cached by the user and needs to be replaced elsewhere.
+   Create a pipe to which all C and Julia level ``STDOUT`` output will be redirected. Returns a tuple ``(rd,wr)`` representing the pipe ends. Data written to ``STDOUT`` may now be read from the rd end of the pipe. The wr end is given for convenience in case the old ``STDOUT`` object was cached by the user and needs to be replaced elsewhere.
 
 .. function:: redirect_stdout(stream)
 
    .. Docstring generated from Julia source
 
-   Replace STDOUT by stream for all C and julia level output to STDOUT. Note that ``stream`` must be a TTY, a Pipe or a TcpSocket.
+   Replace ``STDOUT`` by stream for all C and julia level output to ``STDOUT``\ . Note that ``stream`` must be a TTY, a ``Pipe`` or a ``TCPSocket``\ .
 
 .. function:: redirect_stderr([stream])
 
@@ -359,7 +398,9 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   Return a string giving a brief description of a value. By default returns ``string(typeof(x))``\ . For arrays, returns strings like "2x2 Float64 Array".
+   Return a string giving a brief description of a value. By default returns ``string(typeof(x))``\ , e.g. ``Int64``\ .
+
+   For arrays, returns a string of size and type info, e.g. ``10-element Array{Int64,1}``\ .
 
 .. function:: print(x)
 
@@ -720,7 +761,7 @@ Memory-mapped I/O
 
    Optionally, you can specify an offset (in bytes) if, for example, you want to skip over a header in the file. The default value for the offset is the current stream position for an ``IOStream``.
 
-   The ``grow`` keyword argument specifies whether the disk file should be grown to accomodate the requested size of array (if the total file size is < requested array size). Write privileges are required to grow the file.
+   The ``grow`` keyword argument specifies whether the disk file should be grown to accommodate the requested size of array (if the total file size is < requested array size). Write privileges are required to grow the file.
 
    The ``shared`` keyword argument specifies whether the resulting ``Array`` and changes made to it will be visible to other processes mapping the same file.
 
@@ -766,7 +807,7 @@ Memory-mapped I/O
 Network I/O
 -----------
 
-.. function:: connect([host],port) -> TcpSocket
+.. function:: connect([host],port) -> TCPSocket
 
    .. Docstring generated from Julia source
 
@@ -778,7 +819,7 @@ Network I/O
 
    Connect to the Named Pipe / Domain Socket at ``path``
 
-.. function:: listen([addr,]port) -> TcpServer
+.. function:: listen([addr,]port) -> TCPServer
 
    .. Docstring generated from Julia source
 
@@ -795,6 +836,12 @@ Network I/O
    .. Docstring generated from Julia source
 
    Gets the IP address of the ``host`` (may have to do a DNS lookup)
+
+.. function:: getsockname(sock::Union{TCPServer, TCPSocket}) -> (IPAddr,UInt16)
+
+   .. Docstring generated from Julia source
+
+   Get the IP address and the port that the given TCP socket is connected to (or bound to, in the case of TCPServer).
 
 .. function:: parseip(addr)
 
@@ -826,11 +873,11 @@ Network I/O
 
    Accepts a connection on the given server and returns a connection to the client. An uninitialized client stream may be provided, in which case it will be used instead of creating a new stream.
 
-.. function:: listenany(port_hint) -> (UInt16,TcpServer)
+.. function:: listenany(port_hint) -> (UInt16,TCPServer)
 
    .. Docstring generated from Julia source
 
-   Create a TcpServer on any port, using hint as a starting point. Returns a tuple of the actual port that the server was created on and the server itself.
+   Create a ``TCPServer`` on any port, using hint as a starting point. Returns a tuple of the actual port that the server was created on and the server itself.
 
 .. function:: poll_fd(fd, timeout_s::Real; readable=false, writable=false)
 
@@ -862,11 +909,11 @@ Network I/O
 
    This behavior of this function varies slightly across platforms. See <https://nodejs.org/api/fs.html#fs_caveats> for more detailed information.
 
-.. function:: bind(socket::Union{UDPSocket, TCPSocket}, host::IPv4, port::Integer)
+.. function:: bind(socket::Union{UDPSocket, TCPSocket}, host::IPAddr, port::Integer; ipv6only=false)
 
    .. Docstring generated from Julia source
 
-   Bind ``socket`` to the given ``host:port``\ . Note that ``0.0.0.0`` will listen on all devices.
+   Bind ``socket`` to the given ``host:port``\ . Note that ``0.0.0.0`` will listen on all devices. ``ipv6only`` parameter disables dual stack mode. If it's ``true``\ , only IPv6 stack is created.
 
 .. function:: send(socket::UDPSocket, host::IPv4, port::Integer, msg)
 

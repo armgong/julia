@@ -79,6 +79,7 @@ let T = TypeVar(:T,true)
 
     testintersect(Tuple{Rational{T},T}, Tuple{Rational{Integer},Int}, Tuple{Rational{Integer},Int})
 
+    # issue #1631
     testintersect(Pair{T,Ptr{T}}, Pair{Ptr{S},S}, Bottom)
     testintersect(Tuple{T,Ptr{T}}, Tuple{Ptr{S},S}, Bottom)
 end
@@ -101,11 +102,11 @@ testintersect(Type{Any},Type{Complex}, Bottom)
 testintersect(Type{Any},Type{TypeVar(:T,Real)}, Bottom)
 @test !(Type{Array{Integer}} <: Type{AbstractArray{Integer}})
 @test !(Type{Array{Integer}} <: Type{Array{TypeVar(:T,Integer)}})
-testintersect(Type{Function},UnionType,Bottom)
+testintersect(Type{Function},Union,Bottom)
 testintersect(Type{Int32}, DataType, Type{Int32})
 @test !(Type <: TypeVar)
 testintersect(DataType, Type, Bottom, isnot)
-testintersect(UnionType, Type, Bottom, isnot)
+testintersect(Union, Type, Bottom, isnot)
 testintersect(DataType, Type{Int}, Bottom, isnot)
 testintersect(DataType, Type{TypeVar(:T,Int)}, Bottom, isnot)
 testintersect(DataType, Type{TypeVar(:T,Integer)}, Bottom, isnot)
@@ -142,11 +143,11 @@ end
 @test !issubtype(Array{Tuple{Int,Int}}, Array{NTuple})
 @test !issubtype(Type{Tuple{Void}}, Tuple{Type{Void}})
 
-# this is fancy: know that any type T<:Number must be either a DataType or a UnionType
-@test Type{TypeVar(:T,Number)} <: Union{DataType,UnionType}
+# this is fancy: know that any type T<:Number must be either a DataType or a Union
+@test Type{TypeVar(:T,Number)} <: Union{DataType,Union}
 @test !(Type{TypeVar(:T,Number)} <: DataType)
-@test !(Type{TypeVar(:T,Tuple)} <: Union{Tuple,UnionType})
-@test Type{TypeVar(:T,Tuple)} <: Union{DataType,UnionType}
+@test !(Type{TypeVar(:T,Tuple)} <: Union{Tuple,Union})
+@test Type{TypeVar(:T,Tuple)} <: Union{DataType,Union}
 
 # issue #2997
 let T = TypeVar(:T,Union{Float64,Array{Float64,1}},true)
@@ -822,7 +823,7 @@ let
     local baar, foor, boor
     # issue #1131
     baar(x::DataType) = 0
-    baar(x::UnionType) = 1
+    baar(x::Union) = 1
     baar(x::TypeConstructor) = 2
     @test baar(StridedArray) == 2
     @test baar(StridedArray.body) == 1
@@ -830,12 +831,12 @@ let
     @test baar(Vector.body) == 0
 
     boor(x) = 0
-    boor(x::UnionType) = 1
+    boor(x::Union) = 1
     @test boor(StridedArray) == 0
     @test boor(StridedArray.body) == 1
 
     # issue #1202
-    foor(x::UnionType) = 1
+    foor(x::Union) = 1
     @test_throws MethodError foor(StridedArray)
     @test foor(StridedArray.body) == 1
     @test_throws MethodError foor(StridedArray)
@@ -1593,6 +1594,12 @@ end
 h5142(true)
 @test_throws TypeError h5142(1)
 h5142(2)
+f5142() = h5142(1)
+try
+    # try running this code in a different context that triggers the codegen
+    # assertion `assert(isboxed || v.typ == typ)`.
+    f5142()
+end
 
 bitstype 8 Int5142b
 function h5142b(a::Int)
@@ -2173,6 +2180,21 @@ f9520c(::Any, ::Any, ::Any, ::Any, ::Any, ::Any, args...) = 46
 @test invoke(f9520c, (Any, Any, Any, Any, Any, Any), 1, 2, 3, 4, 5, 6) == 46
 @test invoke(f9520c, (Any, Any, Any, Any, Any, Any, Any), 1, 2, 3, 4, 5, 6, 7) == 46
 
+call_lambda1() = (()->x)(1)
+call_lambda2() = ((x)->x)()
+call_lambda3() = ((x)->x)(1,2)
+call_lambda4() = ((x,y...)->x)()
+@test (try call_lambda1(); false; catch e; (e::ErrorException).msg; end) == "wrong number of arguments"
+@test (try call_lambda2(); false; catch e; (e::ErrorException).msg; end) == "wrong number of arguments"
+@test (try call_lambda3(); false; catch e; (e::ErrorException).msg; end) == "wrong number of arguments"
+@test (try call_lambda4(); false; catch e; (e::ErrorException).msg; end) == "too few arguments"
+call_lambda5() = ((x...)->x)()
+call_lambda6() = ((x...)->x)(1)
+call_lambda7() = ((x...)->x)(1,2)
+@test call_lambda5() == ()
+@test call_lambda6() == (1,)
+@test call_lambda7() == (1,2)
+
 # jl_new_bits testing
 let x = [1,2,3]
     @test ccall(:jl_new_bits, Any, (Any,Ptr{Void},), Int, x) === 1
@@ -2185,7 +2207,11 @@ end
 # sig 2 is SIGINT per the POSIX.1-1990 standard
 if Base.is_unix(OS_NAME)
     ccall(:jl_exit_on_sigint, Void, (Cint,), 0)
-    @test_throws InterruptException ccall(:raise, Void, (Cint,), 2)
+    @test_throws InterruptException begin
+        #ccall(:raise, Void, (Cint,), 2) # llvm installs a custom version on Darwin that resolves to pthread_kill(pthread_self(), sig), which isn't what we want
+        ccall(:kill, Void, (Cint, Cint,), getpid(), 2)
+        Libc.systemsleep(0.1) # wait for SIGINT to arrive
+    end
     ccall(:jl_exit_on_sigint, Void, (Cint,), 1)
 end
 
@@ -3043,6 +3069,15 @@ let a = UInt8[1, 107, 66, 88, 2, 99, 254, 13, 0, 0, 0, 0]
     f11813(p) = (Int8(1),(Int8(2),Int32(3))) === unsafe_load(convert(Ptr{Tuple{Int8,Tuple{Int8,Int32}}},p))
     @test f11813(p) === true # redundant comparison test seems to make this test more reliable, don't remove
 end
+# issue #13037
+let a = UInt8[0, 0, 0, 0, 0x66, 99, 254, 13, 0, 0, 0, 0]
+    u32 = UInt32[0x3]
+    a[1:4] = reinterpret(UInt8, u32)
+    p = pointer(a)
+    @test ((Int32(3),UInt8(0x66)),Int32(0)) === unsafe_load(convert(Ptr{Tuple{Tuple{Int32,UInt8},Int32}},p))
+    f11813(p) = ((Int32(3),UInt8(0x66)),Int32(0)) === unsafe_load(convert(Ptr{Tuple{Tuple{Int32,UInt8},Int32}},p))
+    @test f11813(p) === true # redundant comparison test seems to make this test more reliable, don't remove
+end
 let a = (1:1000...),
     b = (1:1000...)
     @test a == b
@@ -3099,15 +3134,25 @@ Base.convert(::Type{Foo11874},x::Int) = float(x)
 
 # issue #9233
 let
-    err = @test_throws TypeError NTuple{Int, 1}
-    @test err.func == :NTuple
-    @test err.expected == Int
-    @test err.got == Int
+    try
+        NTuple{Int, 1}
+        @test false
+    catch err
+        @test isa(err, TypeError)
+        @test err.func == :NTuple
+        @test err.expected == Int
+        @test err.got == Int
+    end
 
-    err = @test_throws TypeError NTuple{0x1, Int}
-    @test err.func == :NTuple
-    @test err.expected == Int
-    @test err.got == 0x1
+    try
+        NTuple{0x1, Int}
+        @test false
+    catch err
+        @test isa(err, TypeError)
+        @test err.func == :NTuple
+        @test err.expected == Int
+        @test err.got == 0x1
+    end
 end
 
 # 11996
@@ -3147,12 +3192,6 @@ f12092(x::Int, y) = 0
 f12092(x::Int,) = 1
 f12092(x::Int, y::Int...) = 2
 @test f12092(1) == 1
-
-# issue #12096
-let a = Val{Val{TypeVar(:_,Int,true)}}
-    @test_throws UndefRefError a.instance
-    @test !isleaftype(a)
-end
 
 # PR #12058
 let N = TypeVar(:N,true)
@@ -3211,6 +3250,18 @@ let x = Array(Empty12394,1), y = [Empty12394()]
     @test_throws UndefRefError y==x
 end
 
+module TestRecursiveConstGlobalStructCtor
+const x = (1,2)
+const y = (x,(3,4))
+f() = (x,y,(5,6))
+end
+@test TestRecursiveConstGlobalStructCtor.f() == ((1,2),((1,2),(3,4)),(5,6))
+
+const const_array_int1 = Array{Int}
+const const_array_int2 = Array{Int}
+test_eq_array_int() = is(const_array_int1, const_array_int2)
+@test test_eq_array_int()
+
 # object_id of haspadding field
 immutable HasPadding
     x::Bool
@@ -3259,7 +3310,7 @@ Base.return_types(getindex, (Vector{nothing},))
 module MyColors
 
 abstract Paint{T}
-immutable RGB{T<:FloatingPoint} <: Paint{T}
+immutable RGB{T<:AbstractFloat} <: Paint{T}
     r::T
     g::T
     b::T
@@ -3301,3 +3352,187 @@ code_typed(A12612.f2, Tuple{})
 # issue #12826
 f12826{I<:Integer}(v::Vector{I}) = v[1]
 @test Base.return_types(f12826,Tuple{Array{TypeVar(:I, Integer),1}})[1] == Integer
+
+# issue #13007
+call13007{T,N}(::Type{Array{T,N}}) = 0
+call13007(::Type{Array}) = 1
+@test length(Base._methods(call13007, Tuple{Type{TypeVar(:_,Array)}}, 4)) == 2
+
+# detecting cycles during type intersection, e.g. #1631
+cycle_in_solve_tvar_constraints{S}(::Type{Nullable{S}}, x::S) = 0
+cycle_in_solve_tvar_constraints{T}(::Type{T}, x::Val{T}) = 1
+@test length(methods(cycle_in_solve_tvar_constraints)) == 2
+
+# issue #12967
+foo12967(x, ::ANY) = 1
+typealias TupleType12967{T<:Tuple} Type{T}
+foo12967(x, ::TupleType12967) = 2
+@test foo12967(1, Int) == 1
+@test foo12967(1, Tuple{}) == 2
+
+# issue #13083
+@test Void() === nothing
+
+# issue discovered in #11973
+for j = 1:1
+    x = try
+        error()
+        2
+    catch
+        continue
+    end
+end
+
+# PR 11888
+immutable A11888{T}
+    a::NTuple{16,T}
+end
+
+typealias B11888{T} A11888{A11888{A11888{T}}}
+
+@test sizeof(B11888{B11888{Int64}}) == (1 << 24) * 8
+
+# issue #13175
+immutable EmptyImmutable13175 end
+immutable EmptyIIOtherField13175
+    x::EmptyImmutable13175
+    y::Float64
+end
+@test EmptyIIOtherField13175(EmptyImmutable13175(), 1.0) == EmptyIIOtherField13175(EmptyImmutable13175(), 1.0)
+@test EmptyIIOtherField13175(EmptyImmutable13175(), 1.0) != EmptyIIOtherField13175(EmptyImmutable13175(), 2.0)
+
+# issue #13183
+gg13183{X}(x::X...) = 1==0 ? gg13183(x, x) : 0
+@test gg13183(5) == 0
+
+# issue 8932 (llvm return type legalizer error)
+immutable Vec3_8932
+   x::Float32
+   y::Float32
+   z::Float32
+end
+f8932(a::Vec3_8932, b::Vec3_8932) = Vec3_8932(a.x % b.x, a.y % b.y, a.z % b.z)
+a8932 = Vec3_8932(1,1,1)
+b8932 = Vec3_8932(2,2,2)
+@test f8932(a8932, b8932) == Vec3_8932(1.0, 1.0, 1.0)
+
+# issue #13261
+f13261() = (x = (error("oops"),); +(x...))
+g13261() = f13261()
+@test_throws ErrorException g13261()
+
+# issue 13432
+@noinline function f13432(x)
+    offset = x ? Base.Bottom : 1
+    return is(offset, Base.Bottom)
+end
+@test f13432(true) == true
+@test f13432(false) == false
+@noinline function f13432b(x)
+    a = x ? 1 : 1.0
+    b = x ? 1 : 1.0f0
+    return is(a, b)
+end
+@test f13432b(true) == true
+@test f13432b(false) == false
+
+#13433, read!(::IO, a::Vector{UInt8}) should return a
+type IO13433 <: IO end
+Base.read(::IO13433, ::Type{UInt8}) = 0x01
+@test read!(IO13433(), Array(UInt8, 4)) == [0x01, 0x01, 0x01, 0x01]
+
+# issue #13647, comparing boxed isbits immutables
+immutable X13647
+    a::Int
+    b::Bool
+end
+function f13647(x, y)
+   z = false
+   z = y
+   x === z
+end
+@test f13647(X13647(1, false), X13647(1, false))
+@test !f13647(X13647(1, false), X13647(1, true))
+@test !f13647(X13647(2, false), X13647(1, false))
+
+# issue #13636
+module I13636
+foo(x) = 1
+end
+let cache = Dict()
+    function I13636.foo(y::Int;k::Int=1)
+        cache[1] = y+k
+    end
+end
+@test I13636.foo(1,k=2) == 3
+
+# issue #11327 and #13547
+@test_throws MethodError convert(Type{Int}, Float32)
+# TODO: this should probably be a MethodError in `convert`; not sure what's going on
+@test_throws TypeError Array{Type{Int64}}([Float32])
+abstract A11327
+abstract B11327 <: A11327
+f11327{T}(::Type{T},x::T) = x
+@test_throws MethodError f11327(Type{A11327},B11327)
+let T=TypeVar(:T,true)
+    @test typeintersect(Tuple{Type{T},T}, Tuple{Type{Type{Float64}},Type{Int}}) === Union{}
+end
+
+# issue 13855
+@eval @noinline function foo13855(x)
+    $(Expr(:localize, :(() -> () -> x)))
+end
+@test foo13855(Base.AddFun())() == Base.AddFun()
+@test foo13855(Base.MulFun())() == Base.MulFun()
+
+# issue #8487
+@test [x for x in 1:3] == [x for x ∈ 1:3] == [x for x = 1:3]
+let A = Array(Int, 4,3)
+    for i ∈ 1:size(A,1), j ∈ 1:size(A,2)
+        A[i,j] = 17*i + 51*j
+    end
+    @test A == [17*i + 51*j for i ∈ 1:size(A,1), j ∈ 1:size(A,2)]
+end
+
+# check if finalizers for the old gen can be triggered manually
+# issue #13986
+let
+    obj = Ref(1)
+    finalized = 0
+    finalizer(obj, (obj) -> (finalized = 1))
+    # obj should be marked for promotion after the second gc and be promoted
+    # after the third GC
+    # GC_CLEAN; age = 0
+    gc(false)
+    # GC_CLEAN; age = 1
+    gc(false)
+    # GC_QUEUED; age = 1
+    gc(false)
+    # GC_MARKED; age = 1
+    finalize(obj)
+    @test finalized == 1
+end
+
+# check if finalizers for the old gen can be triggered manually
+# PR #14181
+let
+    # The following three `gc(false)` clears the `finalizer_list`. It is
+    # not strictly necessary to make the test pass but should make the failure
+    # more repeatable if something breaks.
+    gc(false)
+    # At least: GC_CLEAN; age = 1
+    gc(false)
+    # At least: GC_QUEUED; age = 1
+    gc(false)
+    # all objects in `finalizer_list` are now moved to `finalizer_list_marked`
+
+    obj1 = Ref(1)
+    obj2 = Ref(1)
+    finalized = 0
+    finalizer(obj1, (obj) -> (finalized += 1))
+    finalizer(obj1, (obj) -> (finalized += 1))
+    finalizer(obj2, (obj) -> (finalized += 1; finalize(obj1)))
+    finalizer(obj2, (obj) -> (finalized += 1; finalize(obj1)))
+    finalize(obj2)
+    @test finalized == 4
+end

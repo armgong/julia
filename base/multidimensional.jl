@@ -164,7 +164,7 @@ index_lengths_dim(A, dim, ::Colon) = (trailingsize(A, dim),)
 @inline index_lengths_dim(A, dim, i::AbstractArray{Bool}, I...) = (sum(i), index_lengths_dim(A, dim+1, I...)...)
 @inline index_lengths_dim(A, dim, i::AbstractArray, I...) = (length(i), index_lengths_dim(A, dim+1, I...)...)
 
-# shape of array to create for getindex() with indexes I, dropping trailing scalars
+# shape of array to create for getindex() with indexes I, dropping scalars
 index_shape(A::AbstractArray, I::AbstractArray) = size(I) # Linear index reshape
 index_shape(A::AbstractArray, I::AbstractArray{Bool}) = (sum(I),) # Logical index
 index_shape(A::AbstractArray, I::Colon) = (length(A),)
@@ -172,7 +172,7 @@ index_shape(A::AbstractArray, I::Colon) = (length(A),)
 index_shape_dim(A, dim, I::Real...) = ()
 index_shape_dim(A, dim, ::Colon) = (trailingsize(A, dim),)
 @inline index_shape_dim(A, dim, ::Colon, i, I...) = (size(A, dim), index_shape_dim(A, dim+1, i, I...)...)
-@inline index_shape_dim(A, dim, ::Real, I...) = (1, index_shape_dim(A, dim+1, I...)...)
+@inline index_shape_dim(A, dim, ::Real, I...) = (index_shape_dim(A, dim+1, I...)...)
 @inline index_shape_dim(A, dim, i::AbstractVector{Bool}, I...) = (sum(i), index_shape_dim(A, dim+1, I...)...)
 @inline index_shape_dim(A, dim, i::AbstractVector, I...) = (length(i), index_shape_dim(A, dim+1, I...)...)
 
@@ -185,14 +185,14 @@ index_shape_dim(A, dim, ::Colon) = (trailingsize(A, dim),)
     checkbounds(A, I...)
     _unsafe_getindex(l, A, I...)
 end
-@generated function _unsafe_getindex(l::LinearIndexing, A::AbstractArray, I::Union{Real, AbstractArray, Colon}...)
+@generated function _unsafe_getindex(::LinearIndexing, A::AbstractArray, I::Union{Real, AbstractArray, Colon}...)
     N = length(I)
     quote
         # This is specifically *not* inlined.
         @nexprs $N d->(I_d = to_index(I[d]))
         dest = similar(A, @ncall $N index_shape A I)
         @ncall $N checksize dest I
-        @ncall $N _unsafe_getindex! dest l A I
+        @ncall $N _unsafe_getindex! dest A I
     end
 end
 
@@ -219,7 +219,7 @@ end
 
 # Indexing with an array of indices is inherently linear in the source, but
 # might be able to be optimized with fast dividing integers
-@inline function _unsafe_getindex!(dest::AbstractArray, ::LinearIndexing, src::AbstractArray, I::AbstractArray)
+@inline function _unsafe_getindex!(dest::AbstractArray, src::AbstractArray, I::AbstractArray)
     D = eachindex(dest)
     Ds = start(D)
     for idx in I
@@ -229,32 +229,15 @@ end
     dest
 end
 
-# Fast source - compute the linear index
-@generated function _unsafe_getindex!(dest::AbstractArray, ::LinearFast, src::AbstractArray, I::Union{Real, AbstractVector, Colon}...)
-    N = length(I)
-    quote
-        $(Expr(:meta, :inline))
-        stride_1 = 1
-        @nexprs $N d->(stride_{d+1} = stride_d*size(src, d))
-        $(symbol(:offset_, N)) = 1
-        D = eachindex(dest)
-        Ds = start(D)
-        @nloops $N i dest d->(offset_{d-1} = offset_d + (unsafe_getindex(I[d], i_d)-1)*stride_d) begin
-            d, Ds = next(D, Ds)
-            unsafe_setindex!(dest, unsafe_getindex(src, offset_0), d)
-        end
-        dest
-    end
-end
-# Slow source - index with the indices provided.
-# TODO: this may not be the full dimensionality; that case could be optimized
-@generated function _unsafe_getindex!(dest::AbstractArray, ::LinearSlow, src::AbstractArray, I::Union{Real, AbstractVector, Colon}...)
+# Always index with the exactly indices provided.
+@generated function _unsafe_getindex!(dest::AbstractArray, src::AbstractArray, I::Union{Real, AbstractVector, Colon}...)
     N = length(I)
     quote
         $(Expr(:meta, :inline))
         D = eachindex(dest)
         Ds = start(D)
-        @nloops $N i dest d->(j_d = unsafe_getindex(I[d], i_d)) begin
+        idxlens = index_lengths(src, I...) # TODO: unsplat?
+        @nloops $N i d->(1:idxlens[d]) d->(j_d = unsafe_getindex(I[d], i_d)) begin
             d, Ds = next(D, Ds)
             v = @ncall $N unsafe_getindex src j
             unsafe_setindex!(dest, v, d)
@@ -264,18 +247,18 @@ end
 end
 
 # checksize ensures the output array A is the correct size for the given indices
-checksize(A::AbstractArray, I::AbstractArray) = size(A) == size(I) || throw(DimensionMismatch("index 1 has size $(size(I)), but size(A) = $(size(A))"))
-checksize(A::AbstractArray, I::AbstractArray{Bool}) = length(A) == sum(I) || throw(DimensionMismatch("index 1 selects $(sum(I)) elements, but length(A) = $(length(A))"))
-@generated function checksize(A::AbstractArray, I...)
-    N = length(I)
-    quote
-        @nexprs $N d->(_checksize(A, d, I[d]) || throw(DimensionMismatch("index $d selects $(length(I[d])) elements, but size(A, $d) = $(size(A,d))")))
-    end
-end
-_checksize(A::AbstractArray, dim, I) = size(A, dim) == length(I)
-_checksize(A::AbstractArray, dim, I::AbstractVector{Bool}) = size(A, dim) == sum(I)
-_checksize(A::AbstractArray, dim, ::Colon) = true
-_checksize(A::AbstractArray, dim, ::Real) = size(A, dim) == 1
+@noinline throw_checksize_error(arr, dim, idx) = throw(DimensionMismatch("index $d selects $(length(I[d])) elements, but size(A, $d) = $(size(A,d))"))
+
+checksize(A::AbstractArray, I::AbstractArray) = size(A) == size(I) || throw_checksize_error(A, 1, I)
+checksize(A::AbstractArray, I::AbstractArray{Bool}) = length(A) == sum(I) || throw_checksize_error(A, 1, I)
+
+checksize(A::AbstractArray, I...) = _checksize(A, 1, I...)
+_checksize(A::AbstractArray, dim) = true
+# Skip scalars
+_checksize(A::AbstractArray, dim, ::Real, J...) = _checksize(A, dim, J...)
+_checksize(A::AbstractArray, dim, I, J...) = (size(A, dim) == length(I) || throw_checksize_error(A, dim, I); _checksize(A, dim+1, J...))
+_checksize(A::AbstractArray, dim, I::AbstractVector{Bool}, J...) = (size(A, dim) == sum(I) || throw_checksize_error(A, dim, I); _checksize(A, dim+1, J...))
+_checksize(A::AbstractArray, dim, ::Colon, J...) = _checksize(A, dim+1, J...)
 
 @inline unsafe_setindex!(v::BitArray, x::Bool, ind::Int) = (Base.unsafe_bitsetindex!(v.chunks, x, ind); v)
 @inline unsafe_setindex!(v::BitArray, x, ind::Real) = (Base.unsafe_bitsetindex!(v.chunks, convert(Bool, x), to_index(ind)); v)
@@ -290,8 +273,8 @@ _iterable(v) = repeated(v)
     checkbounds(A, J...)
     _unsafe_setindex!(l, A, x, J...)
 end
-@inline function _unsafe_setindex!(l::LinearIndexing, A::AbstractArray, x, J::Union{Real,AbstractArray,Colon}...)
-    _unsafe_batchsetindex!(l, A, _iterable(x), to_indexes(J...)...)
+@inline function _unsafe_setindex!(::LinearIndexing, A::AbstractArray, x, J::Union{Real,AbstractArray,Colon}...)
+    _unsafe_batchsetindex!(A, _iterable(x), to_indexes(J...)...)
 end
 
 # 1-d logical indexing: override the above to avoid calling find (in to_index)
@@ -313,25 +296,7 @@ function _unsafe_setindex!(::LinearIndexing, A::AbstractArray, x, I::AbstractArr
     A
 end
 
-# Use iteration over X so we don't need to worry about its storage
-@generated function _unsafe_batchsetindex!(::LinearFast, A::AbstractArray, X, I::Union{Real,AbstractArray,Colon}...)
-    N = length(I)
-    quote
-        @nexprs $N d->(I_d = I[d])
-        idxlens = @ncall $N index_lengths A I
-        @ncall $N setindex_shape_check X (d->idxlens[d])
-        Xs = start(X)
-        stride_1 = 1
-        @nexprs $N d->(stride_{d+1} = stride_d*size(A,d))
-        $(symbol(:offset_, N)) = 1
-        @nloops $N i d->(1:idxlens[d]) d->(offset_{d-1} = offset_d + (unsafe_getindex(I_d, i_d)-1)*stride_d) begin
-            v, Xs = next(X, Xs)
-            unsafe_setindex!(A, v, offset_0)
-        end
-        A
-    end
-end
-@generated function _unsafe_batchsetindex!(::LinearSlow, A::AbstractArray, X, I::Union{Real,AbstractArray,Colon}...)
+@generated function _unsafe_batchsetindex!(A::AbstractArray, X, I::Union{Real,AbstractArray,Colon}...)
     N = length(I)
     quote
         @nexprs $N d->(I_d = I[d])
@@ -619,7 +584,8 @@ end
 
         storeind = 1
         Xc, Bc = X.chunks, B.chunks
-        @nloops($N, i, d->1:size(X, d+1),
+        idxlens = index_lengths(B, I0, I...) # TODO: unsplat?
+        @nloops($N, i, d->(1:idxlens[d+1]),
                 d->nothing, # PRE
                 d->(ind += stride_lst_d - gap_lst_d), # POST
                 begin # BODY
@@ -642,7 +608,8 @@ end
         $(symbol(:offset_, N)) = 1
         ind = 0
         Xc, Bc = X.chunks, B.chunks
-        @nloops $N i X d->(offset_{d-1} = offset_d + (unsafe_getindex(I[d], i_d)-1)*stride_d) begin
+        idxlens = index_lengths(B, I...) # TODO: unsplat?
+        @nloops $N i d->(1:idxlens[d]) d->(offset_{d-1} = offset_d + (unsafe_getindex(I[d], i_d)-1)*stride_d) begin
             ind += 1
             unsafe_bitsetindex!(Xc, unsafe_bitgetindex(Bc, offset_0), ind)
         end
@@ -674,7 +641,7 @@ end
 @generated function unsafe_setindex!(B::BitArray, X::BitArray, I0::UnitRange{Int}, I::Union{Int,UnitRange{Int}}...)
     N = length(I)
     quote
-        length(X) == 0 && return B
+        isempty(X) && return B
         f0 = first(I0)
         l0 = length(I0)
 
@@ -708,7 +675,7 @@ end
         f0 = first(I0)
         l0 = length(I0)
         l0 == 0 && return B
-        @nexprs $N d->(length(I[d]) == 0 && return B)
+        @nexprs $N d->(isempty(I[d]) && return B)
 
         gap_lst_1 = 0
         @nexprs $N d->(gap_lst_{d+1} = length(I[d]))
@@ -818,6 +785,13 @@ immutable Prehashed
 end
 hash(x::Prehashed) = x.hash
 
+doc"""
+    unique(itr[, dim])
+
+Returns an array containing only the unique elements of the iterable `itr`, in
+the order that the first of each set of equivalent elements originally appears.
+If `dim` is specified, returns unique regions of the array `itr` along `dim`.
+"""
 @generated function unique{T,N}(A::AbstractArray{T,N}, dim::Int)
     quote
         1 <= dim <= $N || return copy(A)

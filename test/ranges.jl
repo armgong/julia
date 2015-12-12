@@ -108,8 +108,14 @@ end
 @test intersect(reverse(typemin(Int):2:typemax(Int)),typemin(Int):2:typemax(Int)) == reverse(typemin(Int):2:typemax(Int))
 @test intersect(typemin(Int):2:typemax(Int),reverse(typemin(Int):2:typemax(Int))) == typemin(Int):2:typemax(Int)
 
-@test 0 in UInt(0):100:typemax(Uint)
-@test last(UInt(0):100:typemax(Uint)) in UInt(0):100:typemax(Uint)
+@test intersect(UnitRange(1,2),3) == UnitRange(3,2)
+@test intersect(UnitRange(1,2), UnitRange(1,5), UnitRange(3,7), UnitRange(4,6)) == UnitRange(4,3)
+
+@test sort(UnitRange(1,2)) == UnitRange(1,2)
+@test sort!(UnitRange(1,2)) == UnitRange(1,2)
+
+@test 0 in UInt(0):100:typemax(UInt)
+@test last(UInt(0):100:typemax(UInt)) in UInt(0):100:typemax(UInt)
 @test -9223372036854775790 in -9223372036854775790:100:9223372036854775710
 @test -9223372036854775690 in -9223372036854775790:100:9223372036854775710
 @test -90 in -9223372036854775790:100:9223372036854775710
@@ -183,6 +189,12 @@ let s = 0
     end
     @test s == 256
 
+    s = 0
+    for i = typemin(UInt8):one(UInt8):typemax(UInt8)
+        s += 1
+    end
+    @test s == 256
+
     # loops past typemax(Int)
     n = 0
     s = Int128(0)
@@ -237,6 +249,7 @@ end
 @test (1:2:6) + 0.3 == 1+0.3:2:5+0.3
 @test (1:2:6) - 1 == 0:2:4
 @test (1:2:6) - 0.3 == 1-0.3:2:5-0.3
+@test 2 .- (1:3) == 1:-1:-1
 
 # operations between ranges and arrays
 @test all(([1:5;] + (5:-1:1)) .== 6)
@@ -517,6 +530,8 @@ end
 @test convert(StepRange, 0:5) === 0:1:5
 @test convert(StepRange{Int128,Int128}, 0.:5) === Int128(0):Int128(1):Int128(5)
 
+@test_throws ArgumentError StepRange(1.1,1,5.1)
+
 @test promote(0f0:inv(3f0):1f0, 0.:2.:5.) === (0:1/3:1, 0.:2.:5.)
 @test convert(FloatRange{Float64}, 0:1/3:1) === 0:1/3:1
 @test convert(FloatRange{Float64}, 0f0:inv(3f0):1f0) === 0:1/3:1
@@ -543,6 +558,21 @@ for x in r
     i += 2
 end
 @test i == 7
+
+# stringmime/writemime should display the range or linspace nicely
+# to test print_range in range.jl
+replstr(x) = stringmime("text/plain", x)
+@test replstr(1:4) == "4-element UnitRange{$Int}:\n 1,2,3,4"
+@test replstr(linspace(1,5,7)) == "7-element LinSpace{Float64}:\n 1.0,1.66667,2.33333,3.0,3.66667,4.33333,5.0"
+@test replstr(0:100.) == "101-element FloatRange{Float64}:\n 0.0,1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0,9.0,…,94.0,95.0,96.0,97.0,98.0,99.0,100.0"
+# next is to test a very large range, which should be fast because print_range
+# only examines spacing of the left and right edges of the range, sufficient
+# to cover the designated screen size.
+@test replstr(0:10^9) == "1000000001-element UnitRange{$Int}:\n 0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,…,999999998,999999999,1000000000"
+
+@test sprint(io -> show(io,UnitRange(1,2))) == "1:2"
+@test sprint(io -> show(io,StepRange(1,2,5))) == "1:2:5"
+
 
 # Issue 11049 and related
 @test promote(linspace(0f0, 1f0, 3), linspace(0., 5., 2)) ===
@@ -663,4 +693,13 @@ test_range_sum_diff(1.:5., linspace(0, 8, 5),
 # Issue #12388
 let r = 0x02:0x05
     @test r[2:3] == 0x03:0x04
+end
+
+# Issue #13738
+for r in (big(1):big(2), UInt128(1):UInt128(2), 0x1:0x2)
+    rr = r[r]
+    @test typeof(rr) == typeof(r)
+    @test r[r] == r
+    # these calls to similar must not throw:
+    @test size(similar(r, size(r))) == size(similar(r, length(r)))
 end

@@ -171,10 +171,10 @@ function gen_getindex_data()
     m1, m2 = rand_m1m2()
     produce((m1, m2, Bool))
     m1, m2 = rand_m1m2()
-    produce((m1, 1:m2, BitMatrix))
-    produce((m1, :, BitMatrix))
+    produce((m1, 1:m2, BitVector))
+    produce((m1, :, BitVector))
     m1, m2 = rand_m1m2()
-    produce((m1, randperm(m2), BitMatrix))
+    produce((m1, randperm(m2), BitVector))
     m1, m2 = rand_m1m2()
     produce((1:m1, m2, BitVector))
     produce((:, m2, BitVector))
@@ -1128,6 +1128,7 @@ for m = 1 : v1 - 1
     @check_bit_operation vcat(b1[1:m], b1[m+1:end]) BitVector
 end
 @test_throws DimensionMismatch hcat(b1,trues(n1+1))
+@test_throws DimensionMismatch hcat(hcat(b1, b2),trues(n1+1))
 
 b1 = bitrand(n1, n2)
 b2 = bitrand(n1)
@@ -1135,6 +1136,7 @@ b3 = bitrand(n1, n2)
 b4 = bitrand(1, n2)
 @check_bit_operation hcat(b1, b2, b3) BitMatrix
 @check_bit_operation vcat(b1, b4, b3) BitMatrix
+@test_throws DimensionMismatch vcat(b1, b4, trues(n1,n2+1))
 
 b1 = bitrand(s1, s2, s3, s4)
 b2 = bitrand(s1, s3, s3, s4)

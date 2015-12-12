@@ -30,7 +30,7 @@ for exceptions.
 Julia includes code from the following projects, which have their own licenses:
 - [LDC](https://github.com/ldc-developers/ldc/blob/master/LICENSE) (for ccall/cfunction ABI definitions) [BSD-3]. The portion of code that Julia uses from LDC is [BSD-3] licensed.
 - [MUSL](http://git.musl-libc.org/cgit/musl/tree/COPYRIGHT) (for getopt implementations on Windows) [MIT]
-- [NetBSD](http://www.netbsd.org/about/redistribution.html) (for setjmp/longjmp implementations on Windows) [BSD-3]
+- [NetBSD](http://www.netbsd.org/about/redistribution.html) (for setjmp, longjmp, and strptime implementations on Windows) [BSD-3]
 
 The Julia language links to the following external libraries, which have their
 own licenses:
@@ -83,7 +83,9 @@ Julia's build process uses the following external tools:
 Julia bundles the following external programs and libraries on some platforms:
 
 - [7-Zip](http://www.7-zip.org/license.txt)
-- [BUSYBOX](https://github.com/rmyorston/busybox-w32/blob/master/LICENSE)
 - [GIT](http://git-scm.com/about/free-and-open-source)
 - [ZLIB](http://zlib.net/zlib_license.html)
 - [LIBEXPAT](http://expat.cvs.sourceforge.net/viewvc/expat/expat/README)
+- [OPENSSL](https://github.com/openssl/openssl/blob/master/LICENSE)
+
+On some platforms, distributions of Julia contain SSL certificate authority certificates, released under the [Mozilla Public License](https://en.wikipedia.org/wiki/Mozilla_Public_License).

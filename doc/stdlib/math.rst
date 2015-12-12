@@ -34,8 +34,7 @@ Mathematical Operators
 
    .. Docstring generated from Julia source
 
-   Multiplication operator. ``x*y*z*...`` calls this function with all arguments, i.e.
-   ``*(x, y, z, ...)``.
+   Multiplication operator. ``x*y*z*...`` calls this function with all arguments, i.e. ``*(x, y, z, ...)``\ .
 
 .. _/:
 .. function:: /(x, y)
@@ -136,7 +135,11 @@ Mathematical Operators
 
    .. Docstring generated from Julia source
 
-   Modulus after division, returning in the range [0,``y``\ ), if ``y`` is positive, or (``y``\ ,0] if ``y`` is negative.
+   Modulus after flooring division, returning in the range [0,``y``\ ), if ``y`` is positive, or (``y``\ ,0] if ``y`` is negative.
+
+   .. code-block:: julia
+
+       x == fld(x,y)*y + mod(x,y)
 
 .. function:: mod2pi(x)
 
@@ -153,11 +156,15 @@ Mathematical Operators
 
    Remainder from Euclidean division, returning a value of the same sign as ``x``\ , and smaller in magnitude than ``y``\ . This value is always exact.
 
+   .. code-block:: julia
+
+       x == div(x,y)*y + rem(x,y)
+
 .. function:: divrem(x, y)
 
    .. Docstring generated from Julia source
 
-   The quotient and remainder from Euclidean division. Equivalent to ``(x÷y, x%y)``\ .
+   The quotient and remainder from Euclidean division. Equivalent to ``(div(x,y), rem(x,y))`` or ``(x÷y, x%y)``\ .
 
 .. function:: fldmod(x, y)
 
@@ -165,17 +172,35 @@ Mathematical Operators
 
    The floored quotient and modulus after division. Equivalent to ``(fld(x,y), mod(x,y))``\ .
 
-.. function:: mod1(x,m)
+.. function:: fld1(x, y)
 
    .. Docstring generated from Julia source
 
-   Modulus after division, returning in the range (0,m]
+   Flooring division, returning a value consistent with ``mod1(x,y)``
 
-.. function:: rem1(x,m)
+   .. code-block:: julia
+
+       x == fld(x,y)*y + mod(x,y)
+
+       x == (fld1(x,y)-1)*y + mod1(x,y)
+
+.. function:: mod1(x, y)
 
    .. Docstring generated from Julia source
 
-   Remainder after division, returning in the range (0,m]
+   Modulus after flooring division, returning a value in the range ``(0,y\]``
+
+.. function:: fldmod1(x, y)
+
+   .. Docstring generated from Julia source
+
+   Return ``(fld1(x,y), mod1(x,y))``
+
+.. function:: rem1(x, y)
+
+   .. Docstring generated from Julia source
+
+   (Deprecated.) Remainder after division, returning in the range ``(0,y\]``
 
 .. _//:
 .. function:: //(num, den)
@@ -410,129 +435,128 @@ Mathematical Operators
 
    Short-circuiting boolean OR
 
-.. function:: A_ldiv_Bc(a,b)
+.. function:: A_ldiv_Bc(A, B)
 
    .. Docstring generated from Julia source
 
-   Matrix operator A \\ B\ :sup:`H`
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A` \\ :math:`Bᴴ`
 
-.. function:: A_ldiv_Bt(a,b)
+.. function:: A_ldiv_Bt(A, B)
 
    .. Docstring generated from Julia source
 
-   Matrix operator A \\ B\ :sup:`T`
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A` \\ :math:`Bᵀ`
 
 .. function:: A_mul_B!(Y, A, B) -> Y
 
    .. Docstring generated from Julia source
 
-   Calculates the matrix-matrix or matrix-vector product *A B* and stores the
-   result in *Y*, overwriting the existing value of *Y*.
+   Calculates the matrix-matrix or matrix-vector product :math:`A⋅B` and stores the result in ``Y``\ , overwriting the existing value of ``Y``\ . Note that ``Y`` must not be aliased with either ``A`` or ``B``\ .
 
    .. doctest::
 
-      julia> A=[1.0 2.0; 3.0 4.0]; B=[1.0 1.0; 1.0 1.0]; A_mul_B!(B, A, B);
+       julia> A=[1.0 2.0; 3.0 4.0]; B=[1.0 1.0; 1.0 1.0]; Y = similar(B); A_mul_B!(Y, A, B);
 
-      julia> B
-      2x2 Array{Float64,2}:
-       3.0  3.0
-       7.0  7.0
+       julia> Y
+       2x2 Array{Float64,2}:
+        3.0  3.0
+        7.0  7.0
 
-.. function:: A_mul_Bc(...)
-
-   .. Docstring generated from Julia source
-
-   Matrix operator A B\ :sup:`H`
-
-.. function:: A_mul_Bt(...)
+.. function:: A_mul_Bc(A, B)
 
    .. Docstring generated from Julia source
 
-   Matrix operator A B\ :sup:`T`
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A⋅Bᴴ`
 
-.. function:: A_rdiv_Bc(...)
-
-   .. Docstring generated from Julia source
-
-   Matrix operator A / B\ :sup:`H`
-
-.. function:: A_rdiv_Bt(a,b)
+.. function:: A_mul_Bt(A, B)
 
    .. Docstring generated from Julia source
 
-   Matrix operator A / B\ :sup:`T`
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A⋅Bᵀ`
 
-.. function:: Ac_ldiv_B(...)
-
-   .. Docstring generated from Julia source
-
-   Matrix operator A\ :sup:`H` \\ B
-
-.. function:: Ac_ldiv_Bc(...)
+.. function:: A_rdiv_Bc(A, B)
 
    .. Docstring generated from Julia source
 
-   Matrix operator A\ :sup:`H` \\ B\ :sup:`H`
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A / Bᴴ`
 
-.. function:: Ac_mul_B(...)
-
-   .. Docstring generated from Julia source
-
-   Matrix operator A\ :sup:`H` B
-
-.. function:: Ac_mul_Bc(...)
+.. function:: A_rdiv_Bt(A, B)
 
    .. Docstring generated from Julia source
 
-   Matrix operator A\ :sup:`H` B\ :sup:`H`
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A / Bᵀ`
 
-.. function:: Ac_rdiv_B(a,b)
-
-   .. Docstring generated from Julia source
-
-   Matrix operator A\ :sup:`H` / B
-
-.. function:: Ac_rdiv_Bc(a,b)
+.. function:: Ac_ldiv_B(A, B)
 
    .. Docstring generated from Julia source
 
-   Matrix operator A\ :sup:`H` / B\ :sup:`H`
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ` \\ :math:`B`
 
-.. function:: At_ldiv_B(...)
-
-   .. Docstring generated from Julia source
-
-   Matrix operator A\ :sup:`T` \\ B
-
-.. function:: At_ldiv_Bt(...)
+.. function:: Ac_ldiv_Bc(A, B)
 
    .. Docstring generated from Julia source
 
-   Matrix operator A\ :sup:`T` \\ B\ :sup:`T`
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ` \\ :math:`Bᴴ`
 
-.. function:: At_mul_B(...)
-
-   .. Docstring generated from Julia source
-
-   Matrix operator A\ :sup:`T` B
-
-.. function:: At_mul_Bt(...)
+.. function:: Ac_mul_B(A, B)
 
    .. Docstring generated from Julia source
 
-   Matrix operator A\ :sup:`T` B\ :sup:`T`
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ⋅B`
 
-.. function:: At_rdiv_B(a,b)
-
-   .. Docstring generated from Julia source
-
-   Matrix operator A\ :sup:`T` / B
-
-.. function:: At_rdiv_Bt(a,b)
+.. function:: Ac_mul_Bc(A, B)
 
    .. Docstring generated from Julia source
 
-   Matrix operator A\ :sup:`T` / B\ :sup:`T`
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ Bᴴ`
+
+.. function:: Ac_rdiv_B(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ / B`
+
+.. function:: Ac_rdiv_Bc(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ / Bᴴ`
+
+.. function:: At_ldiv_B(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ` \\ :math:`B`
+
+.. function:: At_ldiv_Bt(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ` \\ :math:`Bᵀ`
+
+.. function:: At_mul_B(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ⋅B`
+
+.. function:: At_mul_Bt(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ⋅Bᵀ`
+
+.. function:: At_rdiv_B(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ / B`
+
+.. function:: At_rdiv_Bt(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ / Bᵀ`
 
 Mathematical Functions
 ----------------------
@@ -589,13 +613,13 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Compute :math:`\sin(\pi x)` more accurately than ``sin(pi*x)``, especially for large ``x``.
+   Compute :math:`\sin(\pi x)` more accurately than ``sin(pi*x)``\ , especially for large ``x``\ .
 
 .. function:: cospi(x)
 
    .. Docstring generated from Julia source
 
-   Compute :math:`\cos(\pi x)` more accurately than ``cos(pi*x)``, especially for large ``x``.
+   Compute :math:`\cos(\pi x)` more accurately than ``cos(pi*x)``\ , especially for large ``x``\ .
 
 .. function:: sinh(x)
 
@@ -787,14 +811,13 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Compute :math:`\sin(\pi x) / (\pi x)` if :math:`x \neq 0`, and :math:`1` if :math:`x = 0`.
+   Compute :math:`\sin(\pi x) / (\pi x)` if :math:`x \neq 0`\ , and :math:`1` if :math:`x = 0`\ .
 
 .. function:: cosc(x)
 
    .. Docstring generated from Julia source
 
-   Compute :math:`\cos(\pi x) / x - \sin(\pi x) / (\pi x^2)` if :math:`x \neq 0`, and :math:`0`
-   if :math:`x = 0`. This is the derivative of ``sinc(x)``.
+   Compute :math:`\cos(\pi x) / x - \sin(\pi x) / (\pi x^2)` if :math:`x \neq 0`\ , and :math:`0` if :math:`x = 0`\ . This is the derivative of ``sinc(x)``\ .
 
 .. function:: deg2rad(x)
 
@@ -852,32 +875,31 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Return ``(x,exp)`` such that ``x`` has a magnitude in the interval :math:`[1/2, 1)` or 0,
-   and val = :math:`x \times 2^{exp}`.
+   Return ``(x,exp)`` such that ``x`` has a magnitude in the interval :math:`[1/2, 1)` or 0, and val = :math:`x \times 2^{exp}`\ .
 
 .. function:: exp(x)
 
    .. Docstring generated from Julia source
 
-   Compute :math:`e^x`
+   Compute :math:`e^x`\ .
 
 .. function:: exp2(x)
 
    .. Docstring generated from Julia source
 
-   Compute :math:`2^x`
+   Compute :math:`2^x`\ .
 
 .. function:: exp10(x)
 
    .. Docstring generated from Julia source
 
-   Compute :math:`10^x`
+   Compute :math:`10^x`\ .
 
 .. function:: ldexp(x, n)
 
    .. Docstring generated from Julia source
 
-   Compute :math:`x \times 2^n`
+   Compute :math:`x \times 2^n`\ .
 
 .. function:: modf(x)
 
@@ -889,14 +911,14 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Accurately compute :math:`e^x-1`
+   Accurately compute :math:`e^x-1`\ .
 
 .. function:: round([T,] x, [digits, [base]], [r::RoundingMode])
 
    .. Docstring generated from Julia source
 
    ``round(x)`` rounds ``x`` to an integer value according to the default
-   rounding mode (see :func:`get_rounding`), returning a value of the same type as
+   rounding mode (see :func:`rounding`), returning a value of the same type as
    ``x``. By default (:obj:`RoundNearest`), this will round to the nearest
    integer, with ties (fractional values of 0.5) being rounded to the even
    integer.
@@ -1074,7 +1096,49 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Absolute value of ``x``
+   The absolute value of ``x``\ .
+
+   When ``abs`` is applied to signed integers, overflow may occur, resulting in the return of a negative value. This overflow occurs only when ``abs`` is applied to the minimum representable value of a signed integer. That is, when ``x == typemin(typeof(x))``\ , ``abs(x) == x < 0``\ , not ``-x`` as might be expected.
+
+.. function:: Base.checked_abs(x)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``abs(x)``\ , checking for overflow errors where applicable. For example, standard two's complement signed integers (e.g. ``Int``\ ) cannot represent ``abs(typemin(Int))``\ , thus leading to an overflow.
+
+   The overflow protection may impose a perceptible performance penalty.
+
+.. function:: Base.checked_neg(x)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``-x``\ , checking for overflow errors where applicable. For example, standard two's complement signed integers (e.g. ``Int``\ ) cannot represent ``-typemin(Int)``\ , thus leading to an overflow.
+
+   The overflow protection may impose a perceptible performance penalty.
+
+.. function:: Base.checked_add(x, y)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``x+y``\ , checking for overflow errors where applicable.
+
+   The overflow protection may impose a perceptible performance penalty.
+
+.. function:: Base.checked_sub(x, y)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``x-y``\ , checking for overflow errors where applicable.
+
+   The overflow protection may impose a perceptible performance penalty.
+
+.. function:: Base.checked_mul(x, y)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``x*y``\ , checking for overflow errors where applicable.
+
+   The overflow protection may impose a perceptible performance penalty.
 
 .. function:: abs2(x)
 
@@ -1092,7 +1156,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Return zero if ``x==0`` and :math:`x/|x|` otherwise (i.e., ±1 for real ``x``).
+   Return zero if ``x==0`` and :math:`x/|x|` otherwise (i.e., ±1 for real ``x``\ ).
 
 .. function:: signbit(x)
 
@@ -1110,7 +1174,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Return :math:`\sqrt{x}`. Throws ``DomainError`` for negative ``Real`` arguments. Use complex negative arguments instead.  The prefix operator ``√`` is equivalent to ``sqrt``.
+   Return :math:`\sqrt{x}`\ . Throws ``DomainError`` for negative ``Real`` arguments. Use complex negative arguments instead.  The prefix operator ``√`` is equivalent to ``sqrt``\ .
 
 .. function:: isqrt(n)
 
@@ -1122,59 +1186,49 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Return :math:`x^{1/3}`.  The prefix operator ``∛`` is equivalent to ``cbrt``.
+   Return :math:`x^{1/3}`\ .  The prefix operator ``∛`` is equivalent to ``cbrt``\ .
 
 .. function:: erf(x)
 
    .. Docstring generated from Julia source
 
-   Compute the error function of ``x``, defined by
-   :math:`\frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2} dt`
-   for arbitrary complex ``x``.
+   Compute the error function of ``x``\ , defined by :math:`\frac{2}{\sqrt{\pi}} \int_0^x e^{-t^2} dt` for arbitrary complex ``x``\ .
 
 .. function:: erfc(x)
 
    .. Docstring generated from Julia source
 
-   Compute the complementary error function of ``x``,
-   defined by :math:`1 - \operatorname{erf}(x)`.
+   Compute the complementary error function of ``x``\ , defined by :math:`1 - \operatorname{erf}(x)`\ .
 
 .. function:: erfcx(x)
 
    .. Docstring generated from Julia source
 
-   Compute the scaled complementary error function of ``x``,
-   defined by :math:`e^{x^2} \operatorname{erfc}(x)`.  Note
-   also that :math:`\operatorname{erfcx}(-ix)` computes the
-   Faddeeva function :math:`w(x)`.
+   Compute the scaled complementary error function of ``x``\ , defined by :math:`e^{x^2} \operatorname{erfc}(x)`\ .  Note also that :math:`\operatorname{erfcx}(-ix)` computes the Faddeeva function :math:`w(x)`\ .
 
 .. function:: erfi(x)
 
    .. Docstring generated from Julia source
 
-   Compute the imaginary error function of ``x``,
-   defined by :math:`-i \operatorname{erf}(ix)`.
+   Compute the imaginary error function of ``x``\ , defined by :math:`-i \operatorname{erf}(ix)`\ .
 
 .. function:: dawson(x)
 
    .. Docstring generated from Julia source
 
-   Compute the Dawson function (scaled imaginary error function) of ``x``,
-   defined by :math:`\frac{\sqrt{\pi}}{2} e^{-x^2} \operatorname{erfi}(x)`.
+   Compute the Dawson function (scaled imaginary error function) of ``x``\ , defined by :math:`\frac{\sqrt{\pi}}{2} e^{-x^2} \operatorname{erfi}(x)`\ .
 
 .. function:: erfinv(x)
 
    .. Docstring generated from Julia source
 
-   Compute the inverse error function of a real ``x``,
-   defined by :math:`\operatorname{erf}(\operatorname{erfinv}(x)) = x`.
+   Compute the inverse error function of a real ``x``\ , defined by :math:`\operatorname{erf}(\operatorname{erfinv}(x)) = x`\ .
 
 .. function:: erfcinv(x)
 
    .. Docstring generated from Julia source
 
-   Compute the inverse error complementary function of a real ``x``,
-   defined by :math:`\operatorname{erfc}(\operatorname{erfcinv}(x)) = x`.
+   Compute the inverse error complementary function of a real ``x``\ , defined by :math:`\operatorname{erfc}(\operatorname{erfcinv}(x)) = x`\ .
 
 .. function:: real(z)
 
@@ -1210,7 +1264,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Return :math:`\exp(iz)`.
+   Return :math:`\exp(iz)`\ .
 
 .. function:: binomial(n,k)
 
@@ -1239,14 +1293,14 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Compute the prime factorization of an integer ``n``. Returns a dictionary. The keys of the dictionary correspond to the factors, and hence are of the same type as ``n``. The value associated with each key indicates the number of times the factor appears in the factorization.
+   Compute the prime factorization of an integer ``n``\ . Returns a dictionary. The keys of the dictionary correspond to the factors, and hence are of the same type as ``n``\ . The value associated with each key indicates the number of times the factor appears in the factorization.
 
    .. doctest::
 
-      julia> factor(100) # == 2*2*5*5
-      Dict{Int64,Int64} with 2 entries:
-        2 => 2
-        5 => 2
+       julia> factor(100) # == 2*2*5*5
+       Dict{Int64,Int64} with 2 entries:
+         2 => 2
+         5 => 2
 
 .. function:: gcd(x,y)
 
@@ -1314,25 +1368,21 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Next integer not less than ``n`` that can be written as :math:`\prod k_i^{p_i}` for integers :math:`p_1`, :math:`p_2`, etc.
+   Next integer not less than ``n`` that can be written as :math:`\prod k_i^{p_i}` for integers :math:`p_1`\ , :math:`p_2`\ , etc.
 
-.. function:: prevprod([k_1,k_2,...], n)
-
-   .. Docstring generated from Julia source
-
-   Previous integer not greater than ``n`` that can be written as :math:`\prod k_i^{p_i}` for integers :math:`p_1`, :math:`p_2`, etc.
+   For a list of integers i1, i2, i3, find the smallest     i1^n1 * i2^n2 * i3^n3 >= x for integer n1, n2, n3
 
 .. function:: invmod(x,m)
 
    .. Docstring generated from Julia source
 
-   Take the inverse of ``x`` modulo ``m``: ``y`` such that :math:`xy = 1 \pmod m`
+   Take the inverse of ``x`` modulo ``m``\ : ``y`` such that :math:`xy = 1 \pmod m`\ .
 
 .. function:: powermod(x, p, m)
 
    .. Docstring generated from Julia source
 
-   Compute :math:`x^p \pmod m`
+   Compute :math:`x^p \pmod m`\ .
 
 .. function:: gamma(x)
 
@@ -1382,115 +1432,115 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   kth derivative of the Airy function :math:`\operatorname{Ai}(x)`.
+   The ``k``\ th derivative of the Airy function :math:`\operatorname{Ai}(x)`\ .
 
 .. function:: airyai(x)
 
    .. Docstring generated from Julia source
 
-   Airy function :math:`\operatorname{Ai}(x)`.
+   Airy function :math:`\operatorname{Ai}(x)`\ .
 
 .. function:: airyprime(x)
 
    .. Docstring generated from Julia source
 
-   Airy function derivative :math:`\operatorname{Ai}'(x)`.
+   Airy function derivative :math:`\operatorname{Ai}'(x)`\ .
 
 .. function:: airyaiprime(x)
 
    .. Docstring generated from Julia source
 
-   Airy function derivative :math:`\operatorname{Ai}'(x)`.
+   Airy function derivative :math:`\operatorname{Ai}'(x)`\ .
 
 .. function:: airybi(x)
 
    .. Docstring generated from Julia source
 
-   Airy function :math:`\operatorname{Bi}(x)`.
+   Airy function :math:`\operatorname{Bi}(x)`\ .
 
 .. function:: airybiprime(x)
 
    .. Docstring generated from Julia source
 
-   Airy function derivative :math:`\operatorname{Bi}'(x)`.
+   Airy function derivative :math:`\operatorname{Bi}'(x)`\ .
 
 .. function:: airyx(k,x)
 
    .. Docstring generated from Julia source
 
-   scaled kth derivative of the Airy function, return :math:`\operatorname{Ai}(x) e^{\frac{2}{3} x \sqrt{x}}` for ``k == 0 || k == 1``, and :math:`\operatorname{Ai}(x) e^{- \left| \operatorname{Re} \left( \frac{2}{3} x \sqrt{x} \right) \right|}` for ``k == 2 || k == 3``.
+   scaled ``k``\ th derivative of the Airy function, return :math:`\operatorname{Ai}(x) e^{\frac{2}{3} x \sqrt{x}}` for ``k == 0 || k == 1``\ , and :math:`\operatorname{Ai}(x) e^{- \left| \operatorname{Re} \left( \frac{2}{3} x \sqrt{x} \right) \right|}` for ``k == 2 || k == 3``\ .
 
 .. function:: besselj0(x)
 
    .. Docstring generated from Julia source
 
-   Bessel function of the first kind of order 0, :math:`J_0(x)`.
+   Bessel function of the first kind of order 0, :math:`J_0(x)`\ .
 
 .. function:: besselj1(x)
 
    .. Docstring generated from Julia source
 
-   Bessel function of the first kind of order 1, :math:`J_1(x)`.
+   Bessel function of the first kind of order 1, :math:`J_1(x)`\ .
 
 .. function:: besselj(nu, x)
 
    .. Docstring generated from Julia source
 
-   Bessel function of the first kind of order ``nu``, :math:`J_\nu(x)`.
+   Bessel function of the first kind of order ``nu``\ , :math:`J_\nu(x)`\ .
 
 .. function:: besseljx(nu, x)
 
    .. Docstring generated from Julia source
 
-   Scaled Bessel function of the first kind of order ``nu``, :math:`J_\nu(x) e^{- | \operatorname{Im}(x) |}`.
+   Scaled Bessel function of the first kind of order ``nu``\ , :math:`J_\nu(x) e^{- | \operatorname{Im}(x) |}`\ .
 
 .. function:: bessely0(x)
 
    .. Docstring generated from Julia source
 
-   Bessel function of the second kind of order 0, :math:`Y_0(x)`.
+   Bessel function of the second kind of order 0, :math:`Y_0(x)`\ .
 
 .. function:: bessely1(x)
 
    .. Docstring generated from Julia source
 
-   Bessel function of the second kind of order 1, :math:`Y_1(x)`.
+   Bessel function of the second kind of order 1, :math:`Y_1(x)`\ .
 
 .. function:: bessely(nu, x)
 
    .. Docstring generated from Julia source
 
-   Bessel function of the second kind of order ``nu``, :math:`Y_\nu(x)`.
+   Bessel function of the second kind of order ``nu``\ , :math:`Y_\nu(x)`\ .
 
 .. function:: besselyx(nu, x)
 
    .. Docstring generated from Julia source
 
-   Scaled Bessel function of the second kind of order ``nu``, :math:`Y_\nu(x) e^{- | \operatorname{Im}(x) |}`.
+   Scaled Bessel function of the second kind of order ``nu``\ , :math:`Y_\nu(x) e^{- | \operatorname{Im}(x) |}`\ .
 
 .. function:: hankelh1(nu, x)
 
    .. Docstring generated from Julia source
 
-   Bessel function of the third kind of order ``nu``, :math:`H^{(1)}_\nu(x)`.
+   Bessel function of the third kind of order ``nu``\ , :math:`H^{(1)}_\nu(x)`\ .
 
 .. function:: hankelh1x(nu, x)
 
    .. Docstring generated from Julia source
 
-   Scaled Bessel function of the third kind of order ``nu``, :math:`H^{(1)}_\nu(x) e^{-x i}`.
+   Scaled Bessel function of the third kind of order ``nu``\ , :math:`H^{(1)}_\nu(x) e^{-x i}`\ .
 
 .. function:: hankelh2(nu, x)
 
    .. Docstring generated from Julia source
 
-   Bessel function of the third kind of order ``nu``, :math:`H^{(2)}_\nu(x)`.
+   Bessel function of the third kind of order ``nu``\ , :math:`H^{(2)}_\nu(x)`\ .
 
 .. function:: hankelh2x(nu, x)
 
    .. Docstring generated from Julia source
 
-   Scaled Bessel function of the third kind of order ``nu``, :math:`H^{(2)}_\nu(x) e^{x i}`.
+   Scaled Bessel function of the third kind of order ``nu``\ , :math:`H^{(2)}_\nu(x) e^{x i}`\ .
 
 .. function:: besselh(nu, k, x)
 
@@ -1502,56 +1552,55 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Modified Bessel function of the first kind of order ``nu``, :math:`I_\nu(x)`.
+   Modified Bessel function of the first kind of order ``nu``\ , :math:`I_\nu(x)`\ .
 
 .. function:: besselix(nu, x)
 
    .. Docstring generated from Julia source
 
-   Scaled modified Bessel function of the first kind of order ``nu``, :math:`I_\nu(x) e^{- | \operatorname{Re}(x) |}`.
+   Scaled modified Bessel function of the first kind of order ``nu``\ , :math:`I_\nu(x) e^{- | \operatorname{Re}(x) |}`\ .
 
 .. function:: besselk(nu, x)
 
    .. Docstring generated from Julia source
 
-   Modified Bessel function of the second kind of order ``nu``, :math:`K_\nu(x)`.
+   Modified Bessel function of the second kind of order ``nu``\ , :math:`K_\nu(x)`\ .
 
 .. function:: besselkx(nu, x)
 
    .. Docstring generated from Julia source
 
-   Scaled modified Bessel function of the second kind of order ``nu``, :math:`K_\nu(x) e^x`.
+   Scaled modified Bessel function of the second kind of order ``nu``\ , :math:`K_\nu(x) e^x`\ .
 
 .. function:: beta(x, y)
 
    .. Docstring generated from Julia source
 
-   Euler integral of the first kind :math:`\operatorname{B}(x,y) = \Gamma(x)\Gamma(y)/\Gamma(x+y)`.
+   Euler integral of the first kind :math:`\operatorname{B}(x,y) = \Gamma(x)\Gamma(y)/\Gamma(x+y)`\ .
 
 .. function:: lbeta(x, y)
 
    .. Docstring generated from Julia source
 
-   Natural logarithm of the absolute value of the beta function :math:`\log(|\operatorname{B}(x,y)|)`.
+   Natural logarithm of the absolute value of the beta function :math:`\log(|\operatorname{B}(x,y)|)`\ .
 
 .. function:: eta(x)
 
    .. Docstring generated from Julia source
 
-   Dirichlet eta function :math:`\eta(s) = \sum^\infty_{n=1}(-)^{n-1}/n^{s}`.
+   Dirichlet eta function :math:`\eta(s) = \sum^\infty_{n=1}(-)^{n-1}/n^{s}`\ .
 
 .. function:: zeta(s)
 
    .. Docstring generated from Julia source
 
-   Riemann zeta function :math:`\zeta(s)`.
+   Riemann zeta function :math:`\zeta(s)`\ .
 
 .. function:: zeta(s, z)
 
    .. Docstring generated from Julia source
 
-   Hurwitz zeta function :math:`\zeta(s, z)`.  (This is equivalent to
-   the Riemann zeta function :math:`\zeta(s)` for the case of ``z=1``.)
+   Hurwitz zeta function :math:`\zeta(s, z)`\ .  (This is equivalent to the Riemann zeta function :math:`\zeta(s)` for the case of ``z=1``\ .)
 
 .. function:: ndigits(n, b)
 
@@ -1569,11 +1618,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Evaluate the polynomial :math:`\sum_k c[k] z^{k-1}` for the
-   coefficients ``c[1]``, ``c[2]``, ...; that is, the coefficients are
-   given in ascending order by power of ``z``.  This macro expands to
-   efficient inline code that uses either Horner's method or, for
-   complex ``z``, a more efficient Goertzel-like algorithm.
+   Evaluate the polynomial :math:`\sum_k c[k] z^{k-1}` for the coefficients ``c[1]``\ , ``c[2]``\ , ...; that is, the coefficients are given in ascending order by power of ``z``\ .  This macro expands to efficient inline code that uses either Horner's method or, for complex ``z``\ , a more efficient Goertzel-like algorithm.
 
 Statistics
 ----------
@@ -1606,7 +1651,7 @@ Statistics
 
    .. Docstring generated from Julia source
 
-   Compute the sample variance of a vector or array ``v``\ , optionally along dimensions in ``region``\ . The algorithm will return an estimator of the generative distribution's variance under the assumption that each entry of ``v`` is an IID drawn from that generative distribution. This computation is equivalent to calculating ``sum((v - mean(v)).^2) / (length(v) - 1)``\ . Note: Julia does not ignore ``NaN`` values in the computation. For applications requiring the handling of missing data, the ``DataArray`` package is recommended.
+   Compute the sample variance of a vector or array ``v``\ , optionally along dimensions in ``region``\ . The algorithm will return an estimator of the generative distribution's variance under the assumption that each entry of ``v`` is an IID drawn from that generative distribution. This computation is equivalent to calculating ``sumabs2(v - mean(v)) / (length(v) - 1)``\ . Note: Julia does not ignore ``NaN`` values in the computation. For applications requiring the handling of missing data, the ``DataArray`` package is recommended.
 
 .. function:: varm(v, m)
 
@@ -1642,7 +1687,7 @@ Statistics
 
    .. Docstring generated from Julia source
 
-   Compute the median of whole array ``v``\ , or optionally along the dimensions in ``region``\ . ``NaN`` is returned if the data contains any ``NaN`` values. For applications requiring the handling of missing data, the ``DataArrays`` package is recommended.
+   Compute the median of whole array ``v``\ , or optionally along the dimensions in ``region``\ . For even number of elements no exact median element exists, so the result is equivalent to calculating mean of two median elements. ``NaN`` is returned if the data contains any ``NaN`` values. For applications requiring the handling of missing data, the ``DataArrays`` package is recommended.
 
 .. function:: median!(v)
 
@@ -1710,29 +1755,53 @@ Statistics
 
    Like ``quantile``\ , but overwrites the input vector.
 
-.. function:: cov(v1[, v2][, vardim=1, corrected=true, mean=nothing])
+.. function:: cov(x[, corrected=true])
 
    .. Docstring generated from Julia source
 
-   Compute the Pearson covariance between the vector(s) in ``v1`` and ``v2``\ . Here, ``v1`` and ``v2`` can be either vectors or matrices.
+   Compute the variance of the vector ``x``\ . If ``corrected`` is ``true`` (the default) then the sum is scaled with ``n-1`` wheares the sum is scaled with ``n`` if ``corrected`` is ``false`` where ``n = length(x)``\ .
 
-   This function accepts three keyword arguments:
-
-     *   ``vardim``\ : the dimension of variables. When ``vardim = 1``\ , variables are considered in columns while observations in rows; when ``vardim = 2``\ , variables are in rows while observations in columns. By default, it is set to ``1``\ .
-     *   ``corrected``\ : whether to apply Bessel's correction (divide by ``n-1`` instead of ``n``\ ). By default, it is set to ``true``\ .
-     *   ``mean``\ : allow users to supply mean values that are known. By default, it is set to ``nothing``\ , which indicates that the mean(s) are unknown, and the function will compute the mean. Users can use ``mean=0`` to indicate that the input data are centered, and hence there's no need to subtract the mean.
-
-   The size of the result depends on the size of ``v1`` and ``v2``\ . When both ``v1`` and ``v2`` are vectors, it returns the covariance between them as a scalar. When either one is a matrix, it returns a covariance matrix of size ``(n1, n2)``\ , where ``n1`` and ``n2`` are the numbers of slices in ``v1`` and ``v2``\ , which depend on the setting of ``vardim``\ .
-
-   Note: ``v2`` can be omitted, which indicates ``v2 = v1``\ .
-
-.. function:: cor(v1[, v2][, vardim=1, mean=nothing])
+.. function:: cov(X[, vardim=1, corrected=true])
 
    .. Docstring generated from Julia source
 
-   Compute the Pearson correlation between the vector(s) in ``v1`` and ``v2``\ .
+   Compute the covariance matrix of the matrix ``X`` along the dimension ``vardim``\ . If ``corrected`` is ``true`` (the default) then the sum is scaled with ``n-1`` wheares the sum is scaled with ``n`` if ``corrected`` is ``false`` where ``n = size(X, vardim)``\ .
 
-   Users can use the keyword argument ``vardim`` to specify the variable dimension, and ``mean`` to supply pre-computed mean values.
+.. function:: cov(x, y[, corrected=true])
+
+   .. Docstring generated from Julia source
+
+   Compute the covariance between the vectors ``x`` and ``y``\ . If ``corrected`` is ``true`` (the default) then the sum is scaled with ``n-1`` wheares the sum is scaled with ``n`` if ``corrected`` is ``false`` where ``n = length(x) = length(y)``\ .
+
+.. function:: cov(X, Y[, vardim=1, corrected=true])
+
+   .. Docstring generated from Julia source
+
+   Compute the covariance between the vectors or matrices ``X`` and ``Y`` along the dimension ``vardim``\ . If ``corrected`` is ``true`` (the default) then the sum is scaled with ``n-1`` wheares the sum is scaled with ``n`` if ``corrected`` is ``false`` where ``n = size(X, vardim) = size(Y, vardim)``\ .
+
+.. function:: cor(x)
+
+   .. Docstring generated from Julia source
+
+   Return the number one.
+
+.. function:: cor(X[, vardim=1])
+
+   .. Docstring generated from Julia source
+
+   Compute the Pearson correlation matrix of the matrix ``X`` along the dimension ``vardim``\ .
+
+.. function:: cor(x, y)
+
+   .. Docstring generated from Julia source
+
+   Compute the Pearson correlation between the vectors ``x`` and ``y``\ .
+
+.. function:: cor(X, Y[, vardim=1])
+
+   .. Docstring generated from Julia source
+
+   Compute the Pearson correlation between the vectors or matrices ``X`` and ``Y`` along the dimension ``vardim``\ .
 
 Signal Processing
 -----------------
@@ -1779,11 +1848,11 @@ multi-threading. Use ``FFTW.set_num_threads(np)`` to use ``np`` threads.
 
    .. math::
 
-      \operatorname{IDFT}(A)[k] = \frac{1}{\operatorname{length}(A)}
-      \sum_{n=1}^{\operatorname{length}(A)} \exp\left(+i\frac{2\pi (n-1)(k-1)}
-      {\operatorname{length}(A)} \right) A[n].
+       \operatorname{IDFT}(A)[k] = \frac{1}{\operatorname{length}(A)}
+       \sum_{n=1}^{\operatorname{length}(A)} \exp\left(+i\frac{2\pi (n-1)(k-1)}
+       {\operatorname{length}(A)} \right) A[n].
 
-   A multidimensional inverse FFT simply performs this operation along each transformed dimension of ``A``.
+   A multidimensional inverse FFT simply performs this operation along each transformed dimension of ``A``\ .
 
 .. function:: ifft!(A [, dims])
 

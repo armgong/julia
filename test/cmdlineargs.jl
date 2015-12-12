@@ -152,6 +152,40 @@ let exename = `$(joinpath(JULIA_HOME, Base.julia_exename())) --precompiled=yes`
         foo()
     " --depwarn=error`)
 
+    # test deprecated bindings, #13269
+    let code = """
+        module Foo
+            import Base: @deprecate_binding
+
+            const NotDeprecated = true
+            @deprecate_binding Deprecated NotDeprecated
+        end
+
+        Foo.Deprecated
+        """
+
+        @test !success(`$exename -E "$code" --depwarn=error`)
+
+        # FIXME these should also be run on windows once the bug causing them to hang gets fixed
+        @unix_only let out  = Pipe(),
+                       proc = spawn(pipeline(`$exename -E "$code" --depwarn=yes`, stderr=out))
+
+            wait(proc)
+            close(out.in)
+            @test success(proc)
+            @test readchomp(out) == "WARNING: Foo.Deprecated is deprecated.\n  likely near no file:5"
+        end
+
+        @unix_only let out  = Pipe(),
+                       proc = spawn(pipeline(`$exename -E "$code" --depwarn=no`, stderr=out))
+
+            wait(proc)
+            close(out.in)
+            @test success(proc)
+            @test isempty(readall(out))
+        end
+    end
+
     # --inline
     @test readchomp(`$exename -E "Bool(Base.JLOptions().can_inline)"`) == "true"
     @test readchomp(`$exename --inline=yes -E "Bool(Base.JLOptions().can_inline)"`) == "true"
@@ -193,4 +227,18 @@ let exename = `$(joinpath(JULIA_HOME, Base.julia_exename())) --precompiled=yes`
     # issue #10562
     @test readchomp(`$exename -e 'println(ARGS);' ''`) == "UTF8String[\"\"]"
 
+    # issue #12679
+    extrapath = @windows? joinpath(JULIA_HOME,"..","Git","usr","bin")*";" : ""
+    withenv("PATH" => extrapath * ENV["PATH"]) do
+        @test readchomp(pipeline(ignorestatus(`$exename -f --compile=yes -foo`),stderr=`cat`)) == "ERROR: unknown option `-o`"
+        @test readchomp(pipeline(ignorestatus(`$exename -f -p`),stderr=`cat`)) == "ERROR: option `-p/--procs` is missing an argument"
+        @test readchomp(pipeline(ignorestatus(`$exename -f --inline`),stderr=`cat`)) == "ERROR: option `--inline` is missing an argument"
+        @test readchomp(pipeline(ignorestatus(`$exename -f -e "@show ARGS" -now -- julia RUN.jl`),stderr=`cat`)) == "ERROR: unknown option `-n`"
+    end
+
+    # --compilecache={yes|no}
+    @test readchomp(`$exename -E "Bool(Base.JLOptions().use_compilecache)"`) == "true"
+    @test readchomp(`$exename --compilecache=yes -E "Bool(Base.JLOptions().use_compilecache)"`) == "true"
+    @test readchomp(`$exename --compilecache=no -E "Bool(Base.JLOptions().use_compilecache)"`) == "false"
+    @test !success(`$exename --compilecache=foo -e "exit(0)"`)
 end

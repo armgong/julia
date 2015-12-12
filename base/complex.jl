@@ -26,6 +26,13 @@ promote_rule{T<:Real,S<:Real}(::Type{Complex{T}}, ::Type{S}) =
 promote_rule{T<:Real,S<:Real}(::Type{Complex{T}}, ::Type{Complex{S}}) =
     Complex{promote_type(T,S)}
 
+promote_op{T<:Real,S<:Real}(op, ::Type{Complex{T}}, ::Type{Complex{S}}) =
+    Complex{promote_op(op,T,S)}
+promote_op{T<:Real,S<:Real}(op, ::Type{Complex{T}}, ::Type{S}) =
+    Complex{promote_op(op,T,S)}
+promote_op{T<:Real,S<:Real}(op, ::Type{T}, ::Type{Complex{S}}) =
+    Complex{promote_op(op,T,S)}
+
 widen{T}(::Type{Complex{T}}) = Complex{widen(T)}
 
 real(z::Complex) = z.re
@@ -36,6 +43,9 @@ reim(z) = (real(z), imag(z))
 
 real{T<:Real}(::Type{T}) = T
 real{T<:Real}(::Type{Complex{T}}) = T
+
+complex{T<:Real}(::Type{T}) = Complex{T}
+complex{T<:Real}(::Type{Complex{T}}) = Complex{T}
 
 isreal(x::Real) = true
 isreal(z::Complex) = imag(z) == 0
@@ -75,8 +85,7 @@ function read{T<:Real}(s::IO, ::Type{Complex{T}})
     Complex{T}(r,i)
 end
 function write(s::IO, z::Complex)
-    write(s,real(z))
-    write(s,imag(z))
+    write(s,real(z),imag(z))
 end
 
 ## equality and hashing of complex numbers ##
@@ -552,6 +561,13 @@ function sin(z::Complex)
     if !isfinite(zr) && zi == 0 return Complex(oftype(zr, NaN), zi) end
     if !isfinite(zr) && isfinite(zi) return Complex(oftype(zr, NaN), oftype(zi, NaN)) end
     if !isfinite(zr) && !isfinite(zi) return Complex(zr, oftype(zi, NaN)) end
+    _sin(z)
+end
+
+sin{T<:Integer}(z::Complex{T}) = _sin(z)
+
+function _sin(z::Complex)
+    zr, zi = reim(z)
     Complex(sin(zr)*cosh(zi), cos(zr)*sinh(zi))
 end
 
@@ -568,6 +584,13 @@ function cos(z::Complex)
         return Complex(oftype(zr, NaN), zi==0 ? -copysign(zi, zr) : oftype(zi, NaN))
     end
     if isnan(zr) && zi==0 return Complex(zr, abs(zi)) end
+    _cos(z)
+end
+
+cos{T<:Integer}(z::Complex{T}) = _cos(z)
+
+function _cos(z::Complex)
+    zr, zi = reim(z)
     Complex(cos(zr)*cosh(zi), -sin(zr)*sinh(zi))
 end
 

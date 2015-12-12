@@ -34,10 +34,10 @@ end
 <(x::Float32, y::Irrational) = x <= Float32(y,RoundDown)
 <(x::Irrational, y::Float16) = Float32(x,RoundUp) <= y
 <(x::Float16, y::Irrational) = x <= Float32(y,RoundDown)
-<(x::Irrational, y::BigFloat) = with_bigfloat_precision(precision(y)+32) do
+<(x::Irrational, y::BigFloat) = setprecision(precision(y)+32) do
     big(x) < y
 end
-<(x::BigFloat, y::Irrational) = with_bigfloat_precision(precision(x)+32) do
+<(x::BigFloat, y::Irrational) = setprecision(precision(x)+32) do
     x < big(y)
 end
 
@@ -122,10 +122,9 @@ const golden = φ
 for T in (Irrational, Rational, Integer, Number)
     ^(::Irrational{:e}, x::T) = exp(x)
 end
-for T in (Range, BitArray, SparseMatrixCSC, StridedArray, AbstractArray)
+for T in (Range, BitArray, StridedArray, AbstractArray)
     .^(::Irrational{:e}, x::T) = exp(x)
 end
-^(::Irrational{:e}, x::AbstractMatrix) = expm(x)
 
 log(::Irrational{:e}) = 1 # use 1 to correctly promote expressions like log(x)/log(e)
 log(::Irrational{:e}, x) = log(x)

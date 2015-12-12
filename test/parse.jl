@@ -293,3 +293,24 @@ parse("""
 
 # issue #12771
 @test -(3)^2 == -9
+
+# issue #13302
+let p = parse("try
+           a
+       catch
+           b, c = t
+       end")
+    @test isa(p,Expr) && p.head === :try
+    @test p.args[2] === false
+    @test p.args[3].args[end] == parse("b,c = t")
+end
+
+# pr #13078
+@test parse("a in b in c") == Expr(:comparison, :a, :in, :b, :in, :c)
+@test parse("a||b→c&&d") == Expr(:call, :→,
+                                 Expr(symbol("||"), :a, :b),
+                                 Expr(symbol("&&"), :c, :d))
+
+# issue #11988 -- normalize \r and \r\n in literal strings to \n
+@test "foo\nbar" == parse("\"\"\"\r\nfoo\r\nbar\"\"\"") == parse("\"\"\"\nfoo\nbar\"\"\"") == parse("\"\"\"\rfoo\rbar\"\"\"") == parse("\"foo\r\nbar\"") == parse("\"foo\rbar\"") == parse("\"foo\nbar\"")
+@test '\r' == first("\r") == first("\r\n") # still allow explicit \r

@@ -3,7 +3,7 @@
 srand(123)
 using Base.Test
 
-using Base.SparseMatrix.CHOLMOD
+using Base.SparseArrays.CHOLMOD
 
 # based on deps/SuiteSparse-4.0.2/CHOLMOD/Demo/
 
@@ -174,7 +174,6 @@ let # Issue 9160
     end
 end
 
-
 # Issue #9915
 @test speye(2)\speye(2) == eye(2)
 
@@ -318,8 +317,8 @@ for elty in (Float64, Complex{Float64})
     A1pdSparse = CHOLMOD.Sparse(
         A1pd.m,
         A1pd.n,
-        Base.SparseMatrix.decrement(A1pd.colptr),
-        Base.SparseMatrix.decrement(A1pd.rowval),
+        Base.SparseArrays.decrement(A1pd.colptr),
+        Base.SparseArrays.decrement(A1pd.rowval),
         A1pd.nzval)
 
     ## High level interface
@@ -564,7 +563,7 @@ b = rand(3)
 Asp = As[p,p]
 LDp = sparse(ldltfact(Asp, perm=[1,2,3])[:LD])
 # LDp = sparse(Fs[:LD])
-Lp, dp = Base.SparseMatrix.CHOLMOD.getLd!(copy(LDp))
+Lp, dp = Base.SparseArrays.CHOLMOD.getLd!(copy(LDp))
 Dp = spdiagm(dp)
 @test_approx_eq Fs\b Af\b
 @test_approx_eq Fs[:UP]\(Fs[:PtLD]\b) Af\b
@@ -597,3 +596,27 @@ Base.writemime(IOBuffer(), MIME"text/plain"(), cholfact(sparse(Float64[ 10 1 1 1
 # Element promotion and type inference
 @inferred cholfact(As)\ones(Int, size(As, 1))
 @inferred ldltfact(As)\ones(Int, size(As, 1))
+
+# Issue 14076
+@test cholfact(sparse([1,2,3,4], [1,2,3,4], Float32[1,4,16,64]))\[1,4,16,64] == ones(4)
+
+# Issue 14134
+A = SparseArrays.CHOLMOD.Sparse(sprandn(10,5,0.1) + I |> t -> t't)
+b = IOBuffer()
+serialize(b, A)
+seekstart(b)
+Anew = deserialize(b)
+@test_throws ArgumentError show(Anew)
+@test_throws ArgumentError size(Anew)
+@test_throws ArgumentError Anew[1]
+@test_throws ArgumentError Anew[2,1]
+F = cholfact(A)
+serialize(b, F)
+seekstart(b)
+Fnew = deserialize(b)
+@test_throws ArgumentError Fnew\ones(5)
+@test_throws ArgumentError show(Fnew)
+@test_throws ArgumentError size(Fnew)
+@test_throws ArgumentError diag(Fnew)
+@test_throws ArgumentError logdet(Fnew)
+

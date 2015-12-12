@@ -2,49 +2,65 @@
 
 # editing files
 
-function edit(file::AbstractString, line::Integer)
+doc"""
+    editor()
+
+Determines the editor to use when running functions like `edit`. Returns an Array compatible
+for use within backticks. You can change the editor by setting JULIA_EDITOR, VISUAL, or
+EDITOR as an environmental variable.
+"""
+function editor()
     if OS_NAME == :Windows || OS_NAME == :Darwin
         default_editor = "open"
-    elseif isreadable("/etc/alternatives/editor")
+    elseif isfile("/etc/alternatives/editor")
         default_editor = "/etc/alternatives/editor"
     else
         default_editor = "emacs"
     end
-    editor = get(ENV,"JULIA_EDITOR", get(ENV,"VISUAL", get(ENV,"EDITOR", default_editor)))
-    if ispath(editor)
-        if isreadable(editor)
-            edpath = realpath(editor)
-            edname = basename(edpath)
-        else
-            error("can't find \"$editor\"")
-        end
-    else
-        edpath = edname = editor
-    end
-    issrc = length(file)>2 && file[end-2:end] == ".jl"
+    # Note: the editor path can include spaces (if escaped) and flags.
+    args = shell_split(get(ENV,"JULIA_EDITOR", get(ENV,"VISUAL", get(ENV,"EDITOR", default_editor))))
+    isempty(args) && error("editor is empty")
+    return args
+end
+
+function edit(path::AbstractString, line::Integer=0)
+    command = editor()
+    name = basename(first(command))
+    issrc = length(path)>2 && path[end-2:end] == ".jl"
     if issrc
-        f = find_source_file(file)
-        f !== nothing && (file = f)
+        f = find_source_file(path)
+        f !== nothing && (path = f)
     end
-    const no_line_msg = "Unknown editor: no line number information passed.\nThe method is defined at line $line."
-    if startswith(edname, "emacs") || edname == "gedit"
-        spawn(`$edpath +$line $file`)
-    elseif edname == "vi" || edname == "vim" || edname == "nvim" || edname == "mvim" || edname == "nano"
-        run(`$edpath +$line $file`)
-    elseif edname == "textmate" || edname == "mate" || edname == "kate"
-        spawn(`$edpath $file -l $line`)
-    elseif startswith(edname, "subl") || edname == "atom"
-        spawn(`$(shell_split(edpath)) $file:$line`)
-    elseif OS_NAME == :Windows && (edname == "start" || edname == "open")
-        spawn(`cmd /c start /b $file`)
-        println(no_line_msg)
-    elseif OS_NAME == :Darwin && (edname == "start" || edname == "open")
-        spawn(`open -t $file`)
-        println(no_line_msg)
+    background = true
+    line_unsupported = false
+    if startswith(name, "emacs") || name == "gedit"
+        cmd = line != 0 ? `$command +$line $path` : `$command $path`
+    elseif startswith(name, "vim.") || name == "vi" || name == "vim" || name == "nvim" || name == "mvim" || name == "nano"
+        cmd = line != 0 ? `$command +$line $path` : `$command $path`
+        background = false
+    elseif name == "textmate" || name == "mate" || name == "kate"
+        cmd = line != 0 ? `$command $path -l $line` : `$command $path`
+    elseif startswith(name, "subl") || name == "atom"
+        cmd = line != 0 ? `$command $path:$line` : `$command $path`
+    elseif OS_NAME == :Windows && (name == "start" || name == "open")
+        cmd = `cmd /c start /b $path`
+        line_unsupported = true
+    elseif OS_NAME == :Darwin && (name == "start" || name == "open")
+        cmd = `open -t $path`
+        line_unsupported = true
     else
-        run(`$(shell_split(edpath)) $file`)
-        println(no_line_msg)
+        cmd = `$command $path`
+        background = false
+        line_unsupported = true
     end
+
+    if background
+        spawn(pipeline(cmd, stderr=STDERR))
+    else
+        run(cmd)
+    end
+    line != 0 && line_unsupported && println("Unknown editor: no line number information passed.\nThe method is defined at line $line.")
+
     nothing
 end
 
@@ -53,7 +69,6 @@ function edit(m::Method)
     edit(string(file), line)
 end
 
-edit(file::AbstractString) = edit(file, 1)
 edit(f)          = edit(functionloc(f)...)
 edit(f, t::ANY)  = edit(functionloc(f,t)...)
 edit(file, line::Integer) = error("could not find source file for function")
@@ -74,7 +89,7 @@ less(file, line::Integer) = error("could not find source file for function")
 
 @osx_only begin
     function clipboard(x)
-        open(`pbcopy`, "w") do io
+        open(pipeline(`pbcopy`, stderr=STDERR), "w") do io
             print(io, x)
         end
     end
@@ -96,7 +111,7 @@ end
         cmd = c == :xsel  ? `xsel --nodetach --input --clipboard` :
               c == :xclip ? `xclip -quiet -in -selection clipboard` :
             error("unexpected clipboard command: $c")
-        open(cmd, "w") do io
+        open(pipeline(cmd, stderr=STDERR), "w") do io
             print(io, x)
         end
     end
@@ -105,7 +120,7 @@ end
         cmd = c == :xsel  ? `xsel --nodetach --output --clipboard` :
               c == :xclip ? `xclip -quiet -out -selection clipboard` :
             error("unexpected clipboard command: $c")
-        readall(cmd)
+        readall(pipeline(cmd, stderr=STDERR))
     end
 end
 
@@ -238,20 +253,17 @@ function gen_call_with_extracted_types(fcn, ex0)
         return Expr(:call, fcn, esc(args[1]),
                     Expr(:call, typesof, map(esc, args[2:end])...))
     end
+    exret = Expr(:none)
     ex = expand(ex0)
-    if isa(ex, Expr) && ex.head == :call
-        return Expr(:call, fcn, esc(ex.args[1]),
-                    Expr(:call, typesof, map(esc, ex.args[2:end])...))
-    end
-    exret = Expr(:call, :error, "expression is not a function call or symbol")
     if !isa(ex, Expr)
-        # do nothing -> error
+        exret = Expr(:call, :error, "expression is not a function call or symbol")
     elseif ex.head == :call
         if any(e->(isa(e, Expr) && e.head==:(...)), ex0.args) &&
-            isa(ex.args[1], TopNode) && ex.args[1].name == :apply
-            exret = Expr(:call, ex.args[1], fcn,
-                         Expr(:tuple, esc(ex.args[2])),
-                         Expr(:call, typesof, map(esc, ex.args[3:end])...))
+            isa(ex.args[1], TopNode) && ex.args[1].name == :_apply
+            # check for splatting
+            exret = Expr(:call, ex.args[1], ex.args[2], fcn,
+                        Expr(:tuple, esc(ex.args[3]),
+                            Expr(:call, typesof, map(esc, ex.args[4:end])...)))
         else
             exret = Expr(:call, fcn, esc(ex.args[1]),
                          Expr(:call, typesof, map(esc, ex.args[2:end])...))
@@ -265,9 +277,10 @@ function gen_call_with_extracted_types(fcn, ex0)
                              Expr(:call, typesof, map(esc, a1.args[2:end])...))
             end
         end
-    elseif ex.head == :thunk
+    end
+    if ex.head == :thunk || exret.head == :none
         exret = Expr(:call, :error, "expression is not a function call, "
-                                  * "or is too complex for @which to analyze; "
+                                  * "or is too complex for @$fcn to analyze; "
                                   * "break it down to simpler parts if possible")
     end
     exret
@@ -437,8 +450,6 @@ function whos(io::IO=STDOUT, m::Module=current_module(), pattern::Regex=r"")
                     @printf(head, "%6d KB     ", bytes ÷ (1024))
                 end
                 print(head, summary(value))
-                print(head, " : ")
-                show(head, value)
             catch e
                 print(head, "#=ERROR: unable to show value=#")
             end
@@ -468,13 +479,10 @@ whos(pat::Regex) = whos(STDOUT, current_module(), pat)
 #################################################################################
 
 """
-    Base.summarysize(obj, recurse) -> Int
+    Base.summarysize(obj; exclude=Union{Module,Function,DataType,TypeName}) -> Int
 
-`summarysize` is an estimate of the size of the object as if all iterables were
-allocated inline in general, this forms a conservative lower bound n the memory
-"controlled" by the object if recurse is `true`, then simply reachable memory
-should also be included, otherwise, only directly used memory should be included
-you should never ignore recurse in cases where recursion is possible
+Compute the amount of memory used by all unique objects reachable from the argument.
+Keyword argument `exclude` specifies a type of objects to exclude from the traversal.
 """
 summarysize(obj; exclude = Union{Module,Function,DataType,TypeName}) =
     summarysize(obj, ObjectIdDict(), exclude)

@@ -6,8 +6,6 @@ typealias Callable Union{Function,DataType}
 
 const Bottom = Union{}
 
-call(::Type{Union}, args...) = Union{args...}
-
 # The real @inline macro is not available until after array.jl, so this
 # internal macro splices the meta Expr directly into the function body.
 macro _inline_meta()
@@ -15,6 +13,9 @@ macro _inline_meta()
 end
 macro _noinline_meta()
     Expr(:meta, :noinline)
+end
+macro _pure_meta()
+    Expr(:meta, :pure)
 end
 
 
@@ -51,9 +52,9 @@ call(T::Type{Task}, f::Function) = Core.call(T, f)
 call(T::Type{GenSym}, n::Int) = Core.call(T, n)
 call(T::Type{WeakRef}) = Core.call(T)
 call(T::Type{WeakRef}, v::ANY) = Core.call(T, v)
+call(T::Type{Void}) = Core.call(Void)
 
-# The specialization for 1 arg is important
-# when running with --inline=no, see #11158
+# The specialization for 1 arg is important when running with --inline=no, see #11158
 call{T}(::Type{T}, arg) = convert(T, arg)::T
 call{T}(::Type{T}, args...) = convert(T, args...)::T
 
@@ -76,7 +77,8 @@ macro generated(f)
 end
 
 
-@generated function tuple_type_head{T<:Tuple}(::Type{T})
+function tuple_type_head{T<:Tuple}(::Type{T})
+    @_pure_meta
     T.parameters[1]
 end
 
@@ -84,7 +86,8 @@ isvarargtype(t::ANY) = isa(t,DataType)&&is((t::DataType).name,Vararg.name)
 isvatuple(t::DataType) = (n = length(t.parameters); n > 0 && isvarargtype(t.parameters[n]))
 unwrapva(t::ANY) = isvarargtype(t) ? t.parameters[1] : t
 
-@generated function tuple_type_tail{T<:Tuple}(::Type{T})
+function tuple_type_tail{T<:Tuple}(::Type{T})
+    @_pure_meta
     if isvatuple(T) && length(T.parameters) == 1
         return T
     end
@@ -113,7 +116,7 @@ cconvert{P<:Ptr}(::Type{P}, x) = x # but defer the conversion to Ptr to unsafe_c
 unsafe_convert{T}(::Type{T}, x::T) = x # unsafe_convert (like convert) defaults to assuming the convert occurred
 unsafe_convert{P<:Ptr}(::Type{P}, x::Ptr) = convert(P, x)
 
-reinterpret{T,S}(::Type{T}, x::S) = box(T,unbox(S,x))
+reinterpret{T}(::Type{T}, x) = box(T, x)
 
 sizeof(x) = Core.sizeof(x)
 
