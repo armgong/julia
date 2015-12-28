@@ -1593,6 +1593,41 @@ end
 @test signed(cld(typemax(UInt),typemin(Int)>>1))     == -3
 @test signed(cld(typemax(UInt),(typemin(Int)>>1)+1)) == -4
 
+# Test exceptions and special cases
+for T in (Int8,Int16,Int32,Int64,Int128, UInt8,UInt16,UInt32,UInt64,UInt128)
+    @test_throws DivideError div(T(1), T(0))
+    @test_throws DivideError fld(T(1), T(0))
+    @test_throws DivideError cld(T(1), T(0))
+    @test_throws DivideError rem(T(1), T(0))
+    @test_throws DivideError mod(T(1), T(0))
+end
+for T in (Int8,Int16,Int32,Int64,Int128)
+    @test_throws DivideError div(typemin(T), T(-1))
+    @test_throws DivideError fld(typemin(T), T(-1))
+    @test_throws DivideError cld(typemin(T), T(-1))
+    @test rem(typemin(T), T(-1)) === T(0)
+    @test mod(typemin(T), T(-1)) === T(0)
+end
+
+# Test return types
+for T in (Int8,Int16,Int32,Int64,Int128, UInt8,UInt16,UInt32,UInt64,UInt128)
+    z, o = T(0), T(1)
+    @test typeof(+z) === T
+    @test typeof(-z) === T
+    @test typeof(abs(z)) === T
+    @test typeof(sign(z)) === T
+    @test typeof(copysign(z,z)) === T
+    @test typeof(flipsign(z,z)) === T
+    @test typeof(z+z) === T
+    @test typeof(z-z) === T
+    @test typeof(z*z) === T
+    @test typeof(z÷o) === T
+    @test typeof(z%o) === T
+    @test typeof(fld(z,o)) === T
+    @test typeof(mod(z,o)) === T
+    @test typeof(cld(z,o)) === T
+end
+
 # issue #4156
 @test fld(1.4,0.35667494393873234) == 3.0
 @test div(1.4,0.35667494393873234) == 3.0
@@ -2297,25 +2332,32 @@ for T in (Int32,Int64), ii = -20:20, jj = -20:20
     end
 end
 
-# check powermod function against GMP
+# check powermod function against few types (in particular [U]Int128 and BigInt)
 for i = -10:10, p = 0:5, m = -10:10
-    if m != 0
-        @test powermod(i,p,m) == powermod(i,p,big(m)) == powermod(big(i),big(p),big(m))
-        @test mod(i^p,m) == powermod(i,p,m) == mod(big(i)^p,big(m))
+    m == 0 && continue
+    x = powermod(i, p, m)
+    for T in [Int32, Int64, Int128, UInt128, BigInt]
+        T <: Unsigned && m < 0 && continue
+        let xT = powermod(i, p, T(m))
+            @test x == xT
+            @test isa(xT, T)
+        end
+        T <: Unsigned && i < 0 && continue
+        @test x == mod(T(i)^p, T(m))
     end
 end
 
 # with m==1 should give 0
 @test powermod(1,0,1) == 0
-@test powermod(big(1),0,1) == 0
+@test powermod(1,0,big(1)) == 0
 @test powermod(1,0,-1) == 0
-@test powermod(big(1),0,-1) == 0
+@test powermod(1,0,big(-1)) == 0
 # divide by zero error
 @test_throws DivideError powermod(1,0,0)
-@test_throws DivideError powermod(big(1),0,0)
+@test_throws DivideError powermod(1,0,big(0))
 # negative power domain error
 @test_throws DomainError powermod(1,-2,1)
-@test_throws DomainError powermod(big(1),-2,1)
+@test_throws DomainError powermod(1,-2,big(1))
 
 # other divide-by-zero errors
 @test_throws DivideError div(1,0)
@@ -2439,7 +2481,7 @@ end
 # widen
 @test widen(1.5f0) === 1.5
 @test widen(Int32(42)) === Int64(42)
-@test widen(Int8) === Int
+@test widen(Int8) === Int32
 @test widen(Float32) === Float64
 ## Note: this should change to e.g. Float128 at some point
 @test widen(Float64) === BigFloat

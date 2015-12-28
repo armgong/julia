@@ -20,7 +20,7 @@ let err = nothing
     catch err
         io = IOBuffer()
         showerror(io, err)
-        @test takebuf_string(io) == "SystemError (with $file): mkdir: File exists"
+        @test startswith(takebuf_string(io), "SystemError (with $file): mkdir:")
     end
 end
 
@@ -1106,6 +1106,18 @@ function test_read_nbyte()
     rm(fn)
 end
 test_read_nbyte()
+
+let s = "qwerty"
+    @test readbytes(IOBuffer(s)) == s.data
+    @test readbytes(IOBuffer(s), 10) == s.data
+    @test readbytes(IOBuffer(s), 1) == s.data[1:1]
+
+    # Test growing output array
+    x = UInt8[]
+    n = readbytes!(IOBuffer(s), x, 10)
+    @test x == s.data
+    @test n == length(x)
+end
 
 # DevNull
 @test !isreadable(DevNull)
