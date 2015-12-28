@@ -216,9 +216,10 @@ void ti_threadfun(void *arg)
 
     // initialize this thread (set tid, create heap, etc.)
     ti_initthread(ta->tid);
+    jl_init_stack_limits();
 
     // set up tasking
-    jl_init_root_task(0,0);
+    jl_init_root_task(jl_stack_lo, jl_stack_hi - jl_stack_lo);
 #ifdef COPY_STACKS
     jl_set_base_ctx((char*)&arg);
 #endif
@@ -421,7 +422,7 @@ JL_DLLEXPORT jl_value_t *jl_threading_run(jl_function_t *f, jl_svec_t *args)
         argtypes = (jl_tupletype_t*)jl_typeof(jl_emptytuple);
     else
         argtypes = arg_type_tuple(jl_svec_data(args), jl_svec_len(args));
-    fun = jl_get_specialization(f, argtypes);
+    fun = jl_get_specialization(f, argtypes, NULL);
     if (fun == NULL)
         fun = f;
     jl_generate_fptr(fun);

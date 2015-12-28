@@ -1,5 +1,7 @@
 // This file is a part of Julia. License is MIT: http://julialang.org/license
 
+#include <iostream>
+
 // utility procedures used in code generation
 
 template<class T> // for GlobalObject's
@@ -28,46 +30,153 @@ static Instruction *tbaa_decorate(MDNode* md, Instruction* load_or_store)
 }
 
 // Fixing up references to other modules for MCJIT
+std::set<llvm::GlobalValue*> pending_globals;
 static GlobalVariable *prepare_global(GlobalVariable *G)
 {
-#ifdef USE_MCJIT
-    if (G->getParent() != jl_Module) {
-        GlobalVariable *gv = jl_Module->getGlobalVariable(G->getName());
-        if (!gv) {
-            gv = new GlobalVariable(*jl_Module, G->getType()->getElementType(),
-                                    G->isConstant(), GlobalVariable::ExternalLinkage,
-                                    NULL, G->getName(), NULL, G->getThreadLocalMode());
-        }
-        return gv;
-    }
-#endif
+    pending_globals.insert(G);
     return G;
 }
 
 static llvm::Value *prepare_call(llvm::Value* Callee)
 {
-#ifdef USE_MCJIT
     llvm::Function *F = dyn_cast<Function>(Callee);
     if (!F)
         return Callee;
-    if (F->getParent() != jl_Module) {
-        Function *ModuleF = jl_Module->getFunction(F->getName());
-        if (ModuleF) {
-            return ModuleF;
-        }
-        else {
-            Function *func = Function::Create(F->getFunctionType(),
-                                              Function::ExternalLinkage,
-                                              F->getName(),
-                                              jl_Module);
-            func->setAttributes(AttributeSet());
-            func->copyAttributesFrom(F);
-            return func;
-        }
-    }
-#endif
+    pending_globals.insert(F);
     return Callee;
 }
+
+#if defined(USE_MCJIT) || defined(USE_ORCJIT)
+static GlobalValue *realize_pending_global(Instruction *User, GlobalValue *G, std::map<llvm::Module*,llvm::GlobalValue*> &FixedGlobals)
+{
+    Function *UsedInHere = User->getParent()->getParent();
+    assert(UsedInHere);
+    Module *M = UsedInHere->getParent();
+    if (M == G->getParent() && M != builtins_module) { // can happen during bootstrap
+        //std::cout << "Skipping " << std::string(G->getName()) << " due to parentage" << std::endl;
+        return nullptr;
+    }
+    // If we come across a function that is still being constructed,
+    // this use needs to remain pending
+    if (!M || M == builtins_module) {
+        pending_globals.insert(G);
+        //std::cout << "Skipping " << std::string(G->getName()) << " due to construction" << std::endl;
+        return nullptr;
+    }
+    if (!FixedGlobals.count(M)) {
+        if (GlobalVariable *GV = dyn_cast<GlobalVariable>(G)) {
+            GlobalVariable *NewGV = M->getGlobalVariable(GV->getName());
+            if (!NewGV) {
+                NewGV = new GlobalVariable(*M, GV->getType()->getElementType(),
+                                        GV->isConstant(), GlobalVariable::ExternalLinkage,
+                                        NULL, GV->getName(), NULL, GV->getThreadLocalMode(),
+                                        GV->getType()->getAddressSpace());
+                NewGV->setUnnamedAddr(GV->hasUnnamedAddr());
+                // Move over initializer
+                if (GV->hasInitializer()) {
+                    NewGV->setInitializer(GV->getInitializer());
+                    GV->setInitializer(nullptr);
+                }
+            }
+            FixedGlobals[M] = NewGV;
+        } else {
+            Function *F = cast<Function>(G);
+            //std::cout << "Realizing " << std::string(F->getName()) << std::endl;
+            //if (!F->getParent()) {
+                //std::cout << "Skipping" << std::endl;
+            //    return nullptr;
+            //}
+            Function *NewF = nullptr;
+            if (!F->isDeclaration() && F->getParent() == builtins_module) {
+                // It's a definition. Actually move the function and create a
+                // declaration in the original module
+                NewF = F;
+                F->removeFromParent();
+                M->getFunctionList().push_back(F);
+                Function::Create(F->getFunctionType(),
+                    Function::ExternalLinkage,
+                    F->getName(),
+                    active_module);
+            } else {
+                assert(F);
+                NewF = M->getFunction(F->getName());
+                if (!NewF) {
+                    NewF = Function::Create(F->getFunctionType(),
+                                Function::ExternalLinkage,
+                                F->getName(),
+                                M);
+                }
+            }
+            FixedGlobals[M] = NewF;
+        }
+    }
+    return FixedGlobals[M];
+}
+
+struct ExprChain {
+    ConstantExpr *Expr;
+    unsigned OpNo;
+    struct ExprChain *Next;
+};
+
+static void handleUse(Use &Use1,llvm::GlobalValue *G,std::map<llvm::Module*,llvm::GlobalValue*> &FixedGlobals,struct ExprChain *Chain, struct ExprChain *ChainEnd)
+{
+    Instruction *User = dyn_cast<Instruction>(Use1.getUser());
+    if (!User) {
+        ConstantExpr *Expr = cast<ConstantExpr>(Use1.getUser());
+        Value::use_iterator UI2 = Expr->use_begin(), E2 = Expr->use_end();
+        for (; UI2 != E2;) {
+            Use &Use2 = *UI2;
+            ++UI2;
+            struct ExprChain NextChain;
+            NextChain.Expr = Expr;
+            NextChain.OpNo = Use1.getOperandNo();
+            NextChain.Next = nullptr;
+            if (ChainEnd)
+               ChainEnd->Next = &NextChain;
+            handleUse(Use2,G,FixedGlobals,Chain ? Chain : &NextChain,&NextChain);
+        }
+        return;
+    }
+    llvm::Constant *Replacement = realize_pending_global(User,G,FixedGlobals);
+    if (!Replacement)
+        return;
+    while (Chain) {
+        Replacement = Chain->Expr->getWithOperandReplaced(Chain->OpNo,Replacement);
+        Chain->Expr = cast<ConstantExpr>(Replacement);
+        Chain = Chain->Next;
+    }
+    Use1.set(Replacement);
+}
+
+// RAUW, but only for those users which live in a module, and create a module
+// specific copy
+static void realize_pending_globals()
+{
+    std::set<llvm::GlobalValue *> local_pending_globals;
+    std::swap(local_pending_globals,pending_globals);
+    std::map<llvm::Module*,llvm::GlobalValue*> FixedGlobals;
+    for (auto *G : local_pending_globals) {
+        Value::use_iterator UI = G->use_begin(), E = G->use_end();
+        for (; UI != E;)
+            handleUse(*(UI++),G,FixedGlobals,nullptr,nullptr);
+        FixedGlobals.clear();
+    }
+}
+
+static void realize_cycle(jl_cyclectx_t *cyclectx)
+{
+    // These need to be resolved together
+    for (auto *F : cyclectx->functions) {
+        F->removeFromParent();
+        active_module->getFunctionList().push_back(F);
+    }
+    for (auto *CU : cyclectx->CUs) {
+        NamedMDNode *NMD = active_module->getOrInsertNamedMetadata("llvm.dbg.cu");
+        NMD->addOperand(CU);
+    }
+}
+#endif
 
 #ifdef LLVM35
 static inline void add_named_global(GlobalObject *gv, void *addr, bool dllimport = true)
@@ -122,6 +231,19 @@ extern "C" {
     extern int jl_in_inference;
 }
 
+#if defined(USE_MCJIT) || defined(USE_ORCJIT)
+static GlobalVariable *global_proto(GlobalVariable *G) {
+    GlobalVariable *proto = new GlobalVariable(G->getType()->getElementType(),
+            G->isConstant(), GlobalVariable::ExternalLinkage,
+            NULL, G->getName(), G->getThreadLocalMode());
+    return proto;
+}
+#else
+static GlobalVariable *global_proto(GlobalVariable *G) {
+    return G;
+}
+#endif
+
 static GlobalVariable *stringConst(const std::string &txt)
 {
     GlobalVariable *gv = stringConstants[txt];
@@ -135,7 +257,7 @@ static GlobalVariable *stringConst(const std::string &txt)
         ssno << strno;
         vname += "_j_str";
         vname += ssno.str();
-        gv = new GlobalVariable(*jl_Module,
+        gv = new GlobalVariable(*active_module,
                                 ArrayType::get(T_int8, txt.length()+1),
                                 true,
                                 imaging_mode ? GlobalVariable::PrivateLinkage : GlobalVariable::ExternalLinkage,
@@ -145,8 +267,11 @@ static GlobalVariable *stringConst(const std::string &txt)
                                                        txt.length()+1)),
                                 vname);
         gv->setUnnamedAddr(true);
+        gv = imaging_mode ? gv : prepare_global(global_proto(gv));
         stringConstants[txt] = gv;
         strno++;
+    } else {
+        prepare_global(gv);
     }
     return gv;
 
@@ -162,7 +287,26 @@ JL_DLLEXPORT std::map<Value *, void*> jl_llvm_to_jl_value;
 // because this is queried in the hot path
 static std::map<Function *, uint64_t> emitted_function_symtab;
 
-#ifdef USE_MCJIT
+#if defined(USE_MCJIT) || defined(USE_ORCJIT)
+static Function *function_proto(Function *F) {
+    Function *NewF = Function::Create(F->getFunctionType(),
+                            Function::ExternalLinkage,
+                            F->getName());
+    NewF->setAttributes(AttributeSet());
+
+    // FunctionType does not include any attributes. Copy them over manually
+    // as codegen may make decisions based on the presence of certain attributes
+    NewF->copyAttributesFrom(F);
+
+#ifdef LLVM37
+    // Declarations are not allowed to have personality routines, but
+    // copyAttributesFrom sets them anyway, so clear them again manually
+    NewF->setPersonalityFn(nullptr);
+#endif
+
+    return NewF;
+}
+
 class FunctionMover : public ValueMaterializer
 {
 public:
@@ -179,6 +323,7 @@ public:
 
     Function *CloneFunctionProto(Function *F)
     {
+        assert(!F->isDeclaration());
         Function *NewF = Function::Create(F->getFunctionType(),
                                           Function::ExternalLinkage,
                                           F->getName(),
@@ -227,46 +372,19 @@ public:
 
     Value *InjectFunctionProto(Function *F)
     {
-	//return destModule->getOrInsertFunction(F->getName(), F->getFunctionType());
         Function *NewF = destModule->getFunction(F->getName());
         if (!NewF) {
-            NewF = Function::Create(F->getFunctionType(),
-                                          Function::ExternalLinkage,
-                                          F->getName(),destModule);
-            NewF->setAttributes(AttributeSet());
-
-            // FunctionType does not include any attributes. Copy them over manually
-            // as codegen may make decisions based on the presence of certain attributes
-            NewF->copyAttributesFrom(F);
-
-            #ifdef LLVM37
-            // Declarations are not allowed to have personality routines, but
-            // copyAttributesFrom sets them anyway, so clear them again manually
-            NewF->setPersonalityFn(nullptr);
-            #endif
-
-            AttributeSet OldAttrs = F->getAttributes();
-            // Clone any argument attributes that are present in the VMap.
-            auto ArgI = NewF->arg_begin();
-            for (const Argument &OldArg : F->args()) {
-                AttributeSet attrs =
-                    OldAttrs.getParamAttributes(OldArg.getArgNo() + 1);
-                if (attrs.getNumSlots() > 0)
-                    ArgI->addAttr(attrs);
-                ++ArgI;
-            }
-
-            NewF->setAttributes(
-              NewF->getAttributes()
-                  .addAttributes(NewF->getContext(), AttributeSet::ReturnIndex,
-                                 OldAttrs.getRetAttributes())
-                  .addAttributes(NewF->getContext(), AttributeSet::FunctionIndex,
-                                 OldAttrs.getFnAttributes()));
+            NewF = function_proto(F);
+            destModule->getFunctionList().push_back(NewF);
         }
-	return NewF;
+        return NewF;
     }
 
+#ifdef LLVM38
+    virtual Value *materializeDeclFor(Value *V)
+#else
     virtual Value *materializeValueFor (Value *V)
+#endif
     {
         Function *F = dyn_cast<Function>(V);
         if (F) {
@@ -292,11 +410,13 @@ public:
                     if (oldF)
                         return oldF;
 
+#ifndef USE_ORCJIT
                     // Also check if this function is pending in any other module
                     if (jl_ExecutionEngine->FindFunctionNamed(F->getName().data()))
                         return InjectFunctionProto(F);
+#endif
 
-                    return CloneFunctionProto(F);
+                    return CloneFunctionProto(shadow);
                 }
                 else if (!F->isDeclaration()) {
                     return CloneFunctionProto(F);
@@ -345,6 +465,10 @@ public:
         return NULL;
     };
 };
+#else
+static Function *function_proto(Function *F) {
+    return F;
+}
 #endif
 
 #ifdef LLVM37
@@ -513,6 +637,12 @@ static void jl_gen_llvm_globaldata(llvm::Module *mod, ValueToValueMapTy &VMap, c
 
 static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, size_t sysimg_len, bool dump_as_bc)
 {
+#if defined(USE_MCJIT) || defined(USE_ORCJIT)
+    realize_pending_globals();
+#endif
+    //shadow_module->dump();
+    verifyModule(*shadow_module);
+
 #ifdef LLVM36
     std::error_code err;
     StringRef fname_ref = StringRef(fname);
@@ -595,7 +725,11 @@ static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, 
 
     // now copy the module, since PM.run may modify it
     ValueToValueMapTy VMap;
+#ifdef LLVM38
+    Module *clone = CloneModule(shadow_module, VMap).release();
+#else
     Module *clone = CloneModule(shadow_module, VMap);
+#endif
 #ifdef LLVM37
     // Reset the target triple to make sure it matches the new target machine
     clone->setTargetTriple(TM->getTargetTriple().str());
@@ -633,12 +767,12 @@ static Value *julia_gv(const char *cname, void *addr)
     // first see if there already is a GlobalVariable for this address
     it = jl_value_to_llvm.find(addr);
     if (it != jl_value_to_llvm.end())
-        return builder.CreateLoad(it->second.gv);
+        return builder.CreateLoad(prepare_global((llvm::GlobalVariable*)it->second.gv));
 
     std::stringstream gvname;
     gvname << cname << globalUnique++;
     // no existing GlobalVariable, create one and store it
-    GlobalVariable *gv = new GlobalVariable(*jl_Module, T_pjlvalue,
+    GlobalVariable *gv = new GlobalVariable(imaging_mode ? *shadow_module : *builtins_module, T_pjlvalue,
                            false, imaging_mode ? GlobalVariable::InternalLinkage : GlobalVariable::ExternalLinkage,
                            ConstantPointerNull::get((PointerType*)T_pjlvalue), gvname.str());
     addComdat(gv);
@@ -653,7 +787,7 @@ static Value *julia_gv(const char *cname, void *addr)
     // make the pointer valid for future sessions
     jl_sysimg_gvars.push_back(ConstantExpr::getBitCast(gv, T_psize));
     jl_value_llvm gv_struct;
-    gv_struct.gv = gv;
+    gv_struct.gv = prepare_global(gv);
     gv_struct.index = jl_sysimg_gvars.size();
     jl_value_to_llvm[addr] = gv_struct;
     return builder.CreateLoad(gv);

@@ -48,6 +48,8 @@ include("operators.jl")
 include("pointer.jl")
 include("refpointer.jl")
 include("functors.jl")
+include("checked.jl")
+importall .Checked
 
 # array structures
 include("abstractarray.jl")
@@ -222,6 +224,7 @@ include("i18n.jl")
 using .I18n
 
 # frontend
+include("initdefs.jl")
 include("Terminals.jl")
 include("LineEdit.jl")
 include("REPLCompletions.jl")
