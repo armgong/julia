@@ -43,13 +43,16 @@ extern "C" {
 #if defined(__GNUC__)
 #  define JL_NORETURN __attribute__ ((noreturn))
 #  define JL_CONST_FUNC __attribute__((const))
+#  define JL_MARK_INITIALIZED(var) asm("" : "=rm" (var))
 #elif defined(_COMPILER_MICROSOFT_)
 #  define JL_NORETURN __declspec(noreturn)
 // This is the closest I can find for __attribute__((const))
 #  define JL_CONST_FUNC __declspec(noalias)
+#  define JL_MARK_INITIALIZED(var) do {} while (0)
 #else
 #  define JL_NORETURN
 #  define JL_CONST_FUNC
+#  define JL_MARK_INITIALIZED(var) do {} while (0)
 #endif
 
 #define container_of(ptr, type, member) \
@@ -234,6 +237,14 @@ typedef jl_value_t *(*jl_fptr_t)(jl_value_t*, jl_value_t**, uint32_t);
 
 typedef struct _jl_datatype_t jl_tupletype_t;
 
+typedef struct _jl_llvm_functions_t {
+    void *functionObject;       // jlcall llvm Function
+    void *cFunctionList;        // c callable llvm Functions
+
+    // specialized llvm Function (common core for the other two)
+    void *specFunctionObject;
+} jl_llvm_functions_t;
+
 typedef struct _jl_lambda_info_t {
     JL_DATA_TYPE
     // this holds the static data for a function:
@@ -266,11 +277,13 @@ typedef struct _jl_lambda_info_t {
     uint8_t inInference : 1;
     uint8_t inCompile : 1;
     jl_fptr_t fptr;             // jlcall entry point
-    void *functionObject;       // jlcall llvm Function
-    void *cFunctionList;        // c callable llvm Functions
 
-    // specialized llvm Function (common core for the other two)
-    void *specFunctionObject;
+    // On the old JIT, handles to all Functions generated for this linfo
+    // For the new JITs, handles to declarations in the shadow module
+    // with the same name as the generated functions for this linfo, suitable
+    // for referencing in LLVM IR
+    jl_llvm_functions_t functionObjects;
+
     int32_t functionID; // index that this function will have in the codegen table
     int32_t specFunctionID; // index that this specFunction will have in the codegen table
 } jl_lambda_info_t;
@@ -1418,8 +1431,11 @@ typedef struct _jl_tls_states_t {
     jl_task_t *root_task;
     jl_value_t *volatile task_arg_in_transit;
     void *stackbase;
+    char *stack_lo;
+    char *stack_hi;
     jl_jmp_buf *volatile jmp_target;
     jl_jmp_buf base_ctx; // base context of stack
+    int8_t in_jl_;
     int16_t tid;
     size_t bt_size;
     ptrint_t bt_data[JL_MAX_BT_SIZE + 1];

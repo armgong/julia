@@ -308,6 +308,8 @@ JL_DLLEXPORT int jl_fs_chmod(char *path, int mode)
 JL_DLLEXPORT int jl_fs_write(int handle, const char *data, size_t len,
                              int64_t offset)
 {
+    if (jl_in_jl_)
+        return write(handle, data, len);
     uv_fs_t req;
     uv_buf_t buf[1];
     buf[0].base = (char*)data;
@@ -828,6 +830,51 @@ JL_DLLEXPORT int jl_tty_set_mode(uv_tty_t *handle, int mode)
 {
     if (handle->type != UV_TTY) return 0;
     return uv_tty_set_mode(handle, mode);
+}
+
+typedef int (*work_cb_t)(void *, void *);
+typedef void (*notify_cb_t)(int);
+
+struct work_baton {
+    uv_work_t req;
+    work_cb_t work_func;
+    void      *work_args;
+    void      *work_retval;
+    notify_cb_t notify_func;
+    pid_t     tid;
+    int       notify_idx;
+};
+
+#ifdef _OS_LINUX_
+#include <sys/syscall.h>
+#endif
+
+void jl_work_wrapper(uv_work_t *req) {
+    struct work_baton *baton = (struct work_baton*) req->data;
+    baton->work_func(baton->work_args, baton->work_retval);
+}
+
+void jl_work_notifier(uv_work_t *req, int status) {
+    struct work_baton *baton = (struct work_baton*) req->data;
+    baton->notify_func(baton->notify_idx);
+    free(baton);
+}
+
+JL_DLLEXPORT int jl_queue_work(
+    void *work_func, void *work_args, void *work_retval,
+    void *notify_func, int notify_idx)
+{
+    struct work_baton *baton = (struct work_baton*) malloc(sizeof(struct work_baton));
+    baton->req.data = (void*) baton;
+    baton->work_func = (work_cb_t)work_func;
+    baton->work_args = work_args;
+    baton->work_retval = work_retval;
+    baton->notify_func = (notify_cb_t)notify_func;
+    baton->notify_idx = notify_idx;
+
+    uv_queue_work(jl_io_loop, &baton->req, jl_work_wrapper, jl_work_notifier);
+
+    return 0;
 }
 
 #ifndef _OS_WINDOWS_

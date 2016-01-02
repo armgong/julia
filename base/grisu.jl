@@ -116,7 +116,7 @@ function _show(io::IO, x::AbstractFloat, mode, n::Int, typed, nanstr, infstr)
     nothing
 end
 
-Base.show(io::IO, x::AbstractFloat) = _show(io, x, SHORTEST, 0, true)
+Base.show(io::IO, x::AbstractFloat) = Base.limit_output(io) ? showcompact(io, x) : _show(io, x, SHORTEST, 0, true)
 
 Base.print(io::IO, x::Float32) = _show(io, x, SHORTEST, 0, false)
 Base.print(io::IO, x::Float16) = _show(io, x, SHORTEST, 0, false)
@@ -127,7 +127,7 @@ Base.showcompact(io::IO, x::Float16) = _show(io, x, PRECISION, 5, false)
 
 # normal:
 #   0 < pt < len        ####.####           len+1
-#   pt <= 0             .000########        len-pt+1
+#   pt <= 0             0.000########       len-pt+1
 #   len <= pt (dot)     ########000.        pt+1
 #   len <= pt (no dot)  ########000         pt
 # exponential:
@@ -149,8 +149,8 @@ function _print_shortest(io::IO, x::AbstractFloat, dot::Bool, mode, n::Int)
         write(io, dec(e))
         return
     elseif pt <= 0
-        # => .000########
-        write(io, '.')
+        # => 0.000########
+        write(io, "0.")
         while pt < 0
             write(io, '0')
             pt += 1

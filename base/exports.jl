@@ -1145,9 +1145,12 @@ export
     getsockname,
     htol,
     hton,
+    IOContext,
+    iosize,
     ismarked,
     isopen,
     isreadonly,
+    limit_output,
     listen,
     listenany,
     ltoh,
@@ -1395,6 +1398,7 @@ export
     @sync,
     @async,
     @task,
+    @threadcall,
 
     # multiprocessing
     @spawn,

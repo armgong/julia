@@ -3468,8 +3468,7 @@ end
 
 # issue #11327 and #13547
 @test_throws MethodError convert(Type{Int}, Float32)
-# TODO: this should probably be a MethodError in `convert`; not sure what's going on
-@test_throws TypeError Array{Type{Int64}}([Float32])
+@test_throws MethodError Array{Type{Int64}}([Float32])
 abstract A11327
 abstract B11327 <: A11327
 f11327{T}(::Type{T},x::T) = x
@@ -3535,4 +3534,80 @@ let
     finalizer(obj2, (obj) -> (finalized += 1; finalize(obj1)))
     finalize(obj2)
     @test finalized == 4
+end
+
+# issue #14323
+@test_throws ErrorException eval(Expr(:body, :(1)))
+
+# issue #14339
+f14339{T<:Union{}}(x::T, y::T) = 0
+@test_throws MethodError f14339(1, 2)
+
+# Make sure jlcall objects are rooted
+# PR #14301
+module JLCall14301
+
+# Define f
+f() = 1
+
+let i = Any[[1.23], [2.34]]
+    # f() with capture variables
+    # Intentionally type unstable so that the dynamic dispatch will
+    # read the corrupted tag if the object is incorrectly GC'd.
+    global f() = i[1][1] * i[2][1]
+end
+
+# Another function that use f()
+g() = f() * 100
+# Compile it
+g()
+
+let i = 9.0
+    # Override f()
+    global f() = i + 1
+end
+
+# Make sure the old f() method is GC'd if it was not rooted properly
+gc()
+gc()
+gc()
+
+# Run again.
+g()
+
+end
+
+# make sure codegen doesn't remove argument to `isa`
+@noinline __g_isa_test_1(a) = push!(a,1)
+function __f_isa_arg_1()
+    a = []
+    isa(__g_isa_test_1(a), Any)
+    length(a)
+end
+@test __f_isa_arg_1() == 1
+
+# non-terminating inference, issue #14009
+type A14009{T}; end
+A14009{T}(a::T) = A14009{T}()
+f14009(a) = rand(Bool) ? f14009(A14009(a)) : a
+code_typed(f14009, (Int,))
+
+type B14009{T}; end
+g14009(a) = g14009(B14009{a})
+code_typed(g14009, (Type{Int},))
+
+# issue #14477
+immutable Z14477
+    fld::Z14477
+    Z14477() = new(new())
+end
+let z1 = Z14477()
+    @test isa(z1, Z14477)
+    @test isa(z1.fld, Z14477)
+end
+
+# issue #14482
+let T = TypeVar(:T, true)
+    @test typeintersect(T, Type{Int8}) == Type{Int8}
+    @test typeintersect(Tuple{T}, Tuple{Type{Int8}}) == Tuple{Type{Int8}}
 end

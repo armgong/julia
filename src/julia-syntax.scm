@@ -26,6 +26,7 @@
 
 (define (deparse e)
   (cond ((or (symbol? e) (number? e)) (string e))
+        ((string? e) (print-to-string e))
         ((eq? e #t) "true")
         ((eq? e #f) "false")
         ((eq? (typeof e) 'julia_value)
@@ -886,11 +887,13 @@
                       (pattern-lambda
                        (call (-/ new) . args)
                        (new-call Tname type-params params
-                                 args field-names field-types mutabl))
+                                 (map (lambda (a) (ctor-body a type-params)) args)
+				 field-names field-types mutabl))
                       (pattern-lambda
                        (call (curly (-/ new) . p) . args)
                        (new-call Tname p params
-                                 args field-names field-types mutabl)))
+                                 (map (lambda (a) (ctor-body a type-params)) args)
+				 field-names field-types mutabl)))
                      body))
   (pattern-replace
    (pattern-set

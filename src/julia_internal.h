@@ -11,12 +11,13 @@ extern "C" {
 #endif
 
 extern size_t jl_page_size;
-extern char *jl_stack_lo;
-extern char *jl_stack_hi;
+#define jl_stack_lo (jl_get_ptls_states()->stack_lo)
+#define jl_stack_hi (jl_get_ptls_states()->stack_hi)
 extern jl_function_t *jl_typeinf_func;
 #if defined(JL_USE_INTEL_JITEVENTS)
 extern unsigned sig_stack_size;
 #endif
+#define jl_in_jl_ jl_get_ptls_states()->in_jl_
 
 JL_DLLEXPORT extern int jl_lineno;
 JL_DLLEXPORT extern const char *jl_filename;
@@ -169,7 +170,7 @@ int jl_start_parsing_file(const char *fname);
 void jl_stop_parsing(void);
 jl_value_t *jl_parse_next(void);
 jl_lambda_info_t *jl_wrap_expr(jl_value_t *expr);
-void jl_compile_linfo(jl_lambda_info_t *li);
+void jl_compile_linfo(jl_lambda_info_t *li, void *cyclectx);
 jl_value_t *jl_eval_global_var(jl_module_t *m, jl_sym_t *e);
 jl_value_t *jl_parse_eval_all(const char *fname, size_t len);
 jl_value_t *jl_interpret_toplevel_thunk(jl_lambda_info_t *lam);
@@ -227,6 +228,7 @@ void jl_init_primitives(void);
 void jl_init_codegen(void);
 void jl_init_intrinsic_functions(void);
 void jl_init_tasks(void);
+void jl_init_stack_limits(int ismaster);
 void jl_init_root_task(void *stack, size_t ssize);
 void jl_init_serializer(void);
 void jl_gc_init(void);
@@ -237,7 +239,6 @@ void _julia_init(JL_IMAGE_SEARCH rel);
 #define jl_stackbase (jl_get_ptls_states()->stackbase)
 #endif
 
-void jl_set_stackbase(char *__stk);
 void jl_set_base_ctx(char *__stk);
 
 void jl_init_threading(void);
@@ -253,7 +254,7 @@ int32_t jl_get_llvm_gv(jl_value_t *p);
 void jl_idtable_rehash(jl_array_t **pa, size_t newsz);
 
 jl_lambda_info_t *jl_add_static_parameters(jl_lambda_info_t *l, jl_svec_t *sp, jl_tupletype_t *types);
-jl_function_t *jl_get_specialization(jl_function_t *f, jl_tupletype_t *types);
+jl_function_t *jl_get_specialization(jl_function_t *f, jl_tupletype_t *types, void *cyclectx);
 jl_function_t *jl_module_get_initializer(jl_module_t *m);
 void jl_generate_fptr(jl_function_t *f);
 void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig);
@@ -351,7 +352,6 @@ JL_DLLEXPORT jl_value_t *jl_sdiv_int(jl_value_t *a, jl_value_t *b);
 JL_DLLEXPORT jl_value_t *jl_udiv_int(jl_value_t *a, jl_value_t *b);
 JL_DLLEXPORT jl_value_t *jl_srem_int(jl_value_t *a, jl_value_t *b);
 JL_DLLEXPORT jl_value_t *jl_urem_int(jl_value_t *a, jl_value_t *b);
-JL_DLLEXPORT jl_value_t *jl_smod_int(jl_value_t *a, jl_value_t *b);
 
 JL_DLLEXPORT jl_value_t *jl_neg_float(jl_value_t *a);
 JL_DLLEXPORT jl_value_t *jl_add_float(jl_value_t *a, jl_value_t *b);
@@ -407,12 +407,16 @@ JL_DLLEXPORT jl_value_t *jl_checked_trunc_sint(jl_value_t *ty, jl_value_t *a);
 JL_DLLEXPORT jl_value_t *jl_checked_trunc_uint(jl_value_t *ty, jl_value_t *a);
 
 JL_DLLEXPORT jl_value_t *jl_check_top_bit(jl_value_t *a);
-JL_DLLEXPORT jl_value_t *jl_checked_sadd(jl_value_t *a, jl_value_t *b);
-JL_DLLEXPORT jl_value_t *jl_checked_uadd(jl_value_t *a, jl_value_t *b);
-JL_DLLEXPORT jl_value_t *jl_checked_ssub(jl_value_t *a, jl_value_t *b);
-JL_DLLEXPORT jl_value_t *jl_checked_usub(jl_value_t *a, jl_value_t *b);
-JL_DLLEXPORT jl_value_t *jl_checked_smul(jl_value_t *a, jl_value_t *b);
-JL_DLLEXPORT jl_value_t *jl_checked_umul(jl_value_t *a, jl_value_t *b);
+JL_DLLEXPORT jl_value_t *jl_checked_sadd_int(jl_value_t *a, jl_value_t *b);
+JL_DLLEXPORT jl_value_t *jl_checked_uadd_int(jl_value_t *a, jl_value_t *b);
+JL_DLLEXPORT jl_value_t *jl_checked_ssub_int(jl_value_t *a, jl_value_t *b);
+JL_DLLEXPORT jl_value_t *jl_checked_usub_int(jl_value_t *a, jl_value_t *b);
+JL_DLLEXPORT jl_value_t *jl_checked_smul_int(jl_value_t *a, jl_value_t *b);
+JL_DLLEXPORT jl_value_t *jl_checked_umul_int(jl_value_t *a, jl_value_t *b);
+JL_DLLEXPORT jl_value_t *jl_checked_sdiv_int(jl_value_t *a, jl_value_t *b);
+JL_DLLEXPORT jl_value_t *jl_checked_udiv_int(jl_value_t *a, jl_value_t *b);
+JL_DLLEXPORT jl_value_t *jl_checked_srem_int(jl_value_t *a, jl_value_t *b);
+JL_DLLEXPORT jl_value_t *jl_checked_urem_int(jl_value_t *a, jl_value_t *b);
 
 JL_DLLEXPORT jl_value_t *jl_nan_dom_err(jl_value_t *a, jl_value_t *b);
 JL_DLLEXPORT jl_value_t *jl_ceil_llvm(jl_value_t *a);
