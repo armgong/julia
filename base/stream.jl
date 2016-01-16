@@ -50,8 +50,8 @@ end
 # A dict of all libuv handles that are being waited on somewhere in the system
 # and should thus not be garbage collected
 const uvhandles = ObjectIdDict()
-preserve_handle(x) = uvhandles[x] = get(uvhandles,x,0)+1
-unpreserve_handle(x) = (v = uvhandles[x]; v == 1 ? pop!(uvhandles,x) : (uvhandles[x] = v-1); nothing)
+preserve_handle(x) = uvhandles[x] = get(uvhandles,x,0)::Int+1
+unpreserve_handle(x) = (v = uvhandles[x]::Int; v == 1 ? pop!(uvhandles,x) : (uvhandles[x] = v-1); nothing)
 
 function stream_wait(x, c...) # for x::LibuvObject
     preserve_handle(x)
@@ -87,8 +87,13 @@ end
 nb_available(s::LibuvStream) = nb_available(s.buffer)
 
 function eof(s::LibuvStream)
+    if isopen(s) # fast path
+        nb_available(s) > 0 && return false
+    else
+        return nb_available(s) <= 0
+    end
     wait_readnb(s,1)
-    !isopen(s) && nb_available(s)<=0
+    !isopen(s) && nb_available(s) <= 0
 end
 
 const DEFAULT_READ_BUFFER_SZ = 10485760           # 10 MB
@@ -330,6 +335,11 @@ function wait_connected(x::Union{LibuvStream, LibuvServer})
 end
 
 function wait_readbyte(x::LibuvStream, c::UInt8)
+    if isopen(x) # fast path
+        search(x.buffer, c) > 0 && return
+    else
+        return
+    end
     preserve_handle(x)
     try
         while isopen(x) && search(x.buffer, c) <= 0
@@ -342,9 +352,15 @@ function wait_readbyte(x::LibuvStream, c::UInt8)
         end
         unpreserve_handle(x)
     end
+    nothing
 end
 
 function wait_readnb(x::LibuvStream, nb::Int)
+    if isopen(x) # fast path
+        nb_available(x.buffer) >= nb && return
+    else
+        return
+    end
     oldthrottle = x.throttle
     preserve_handle(x)
     try
@@ -362,12 +378,14 @@ function wait_readnb(x::LibuvStream, nb::Int)
         end
         unpreserve_handle(x)
     end
+    nothing
 end
 
 function wait_close(x::Union{LibuvStream, LibuvServer})
     if isopen(x)
         stream_wait(x, x.closenotify)
     end
+    nothing
 end
 
 function close(stream::Union{LibuvStream, LibuvServer})
@@ -383,15 +401,15 @@ end
     ispty(s::IO) = false
 end
 
-"    iosize(io) -> (lines, columns)
+"    displaysize(io) -> (lines, columns)
 Return the nominal size of the screen that may be used for rendering output to this io object"
-iosize(io::IO) = iosize()
-iosize() = (parse(Int, get(ENV, "LINES",   "24")),
-            parse(Int, get(ENV, "COLUMNS", "80")))::Tuple{Int, Int}
+displaysize(io::IO) = displaysize()
+displaysize() = (parse(Int, get(ENV, "LINES",   "24")),
+                 parse(Int, get(ENV, "COLUMNS", "80")))::Tuple{Int, Int}
 
-function iosize(io::TTY)
+function displaysize(io::TTY)
     local h::Int, w::Int
-    default_size = iosize()
+    default_size = displaysize()
 
     @windows_only if ispty(io)
         # io is actually a libuv pipe but a cygwin/msys2 pty
@@ -876,6 +894,14 @@ function stop_reading(stream::LibuvStream)
     end
 end
 
+function readbytes!(s::LibuvStream, b::AbstractArray{UInt8}, nb=length(b))
+    wait_readnb(s, nb)
+    nr = nb_available(s)
+    resize!(b, nr) # shrink to just contain input data if was resized
+    read!(s.buffer, b)
+    return nr
+end
+
 function readbytes(stream::LibuvStream)
     wait_readnb(stream, typemax(Int))
     return takebuf_array(stream.buffer)
@@ -1206,17 +1232,17 @@ write(s::BufferStream, c::Char) = write(s, string(c))
 function write{T}(s::BufferStream, a::Array{T})
     rv=write(s.buffer, a)
     !(s.buffer_writes) && notify(s.r_c; all=true);
-    rv
+    return rv
 end
 function write(s::BufferStream, p::Ptr, nb::Integer)
     rv=write(s.buffer, p, nb)
     !(s.buffer_writes) && notify(s.r_c; all=true);
-    rv
+    return rv
 end
 
-function eof(s::LibuvStream)
+function eof(s::BufferStream)
     wait_readnb(s,1)
-    !isopen(s) && nb_available(s)<=0
+    return !isopen(s) && nb_available(s)<=0
 end
 
 # If buffer_writes is called, it will delay notifying waiters till a flush is called.

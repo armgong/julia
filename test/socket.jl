@@ -14,17 +14,17 @@
 @test_throws InexactError Int16(IPv4("1.2.3.4"))
 @test_throws InexactError Int64(IPv6("2001:1::2"))
 
-let ipv = parseip("127.0.0.1")
+let ipv = parse(IPAddr, "127.0.0.1")
     @test isa(ipv, IPv4)
     @test ipv == ip"127.0.0.1"
 end
 
-@test_throws ArgumentError Base.parseipv4("192.0xFFFFFFF")
+@test_throws ArgumentError parse(IPv4, "192.0xFFFFFFF")
 @test_throws ArgumentError IPv4(192,255,255,-1)
 @test_throws ArgumentError IPv4(192,255,255,256)
 
-@test_throws ArgumentError Base.parseipv4("192.0xFFFFFFFFF")
-@test_throws ArgumentError Base.parseipv4("192.")
+@test_throws ArgumentError parse(IPv4, "192.0xFFFFFFFFF")
+@test_throws ArgumentError parse(IPv4, "192.")
 
 @test ip"::1" == IPv6(1)
 @test ip"2605:2700:0:3::4713:93e3" == IPv6(parse(UInt128,"260527000000000300000000471393e3",16))
@@ -33,7 +33,7 @@ end
 
 @test ip"0:0:0:0:0:ffff:127.0.0.1" == IPv6(0xffff7f000001)
 
-let ipv = parseip("0:0:0:0:0:ffff:127.0.0.1")
+let ipv = parse(IPAddr, "0:0:0:0:0:ffff:127.0.0.1")
     @test isa(ipv, IPv6)
     @test ipv == ip"0:0:0:0:0:ffff:127.0.0.1"
 end
@@ -267,4 +267,25 @@ let
         end
     end
     [close(s) for s in [a, b, c]]
+end
+
+let P = Pipe()
+    Base.link_pipe(P)
+    write(P, "hello")
+    @test nb_available(P) == 0
+    @test !eof(P)
+    @test read(P, Char) === 'h'
+    @test !eof(P)
+    @test read(P, Char) === 'e'
+    @test isopen(P)
+    close(P.in)
+    @test isopen(P)
+    @test !eof(P)
+    @test readuntil(P, 'o') == "llo"
+    @test isopen(P)
+    @test eof(P)
+    @test !isopen(P)
+    close(P)
+    @test !isopen(P)
+    @test eof(P)
 end

@@ -491,6 +491,10 @@ endif
 
 BUILD_MACHINE := $(shell $(HOSTCC) -dumpmachine)
 
+# Clang spells mingw `-windows-gnu`, but autotools, etc
+# don't recognize that, so canonicalize to mingw32
+BUILD_MACHINE := $(subst windows-gnu,mingw32,$(BUILD_MACHINE))
+
 ifeq ($(ARCH),)
 override ARCH := $(shell $(CC) -dumpmachine | sed "s/\([^-]*\).*$$/\1/")
 else
@@ -599,7 +603,6 @@ JCFLAGS += -fsigned-char
 
 LLVM_ASSERTIONS=1
 #LLVM_FLAGS+="--with-float=hard --with-abi=aapcs-vfp"
-LLVM_VER:=3.7.0
 
 override USE_BLAS64:=0
 override OPENBLAS_DYNAMIC_ARCH:=0
@@ -615,6 +618,13 @@ CXX += -m$(BINARY)
 FC += -m$(BINARY)
 CC_ARG += -m$(BINARY)
 CXX_ARG += -m$(BINARY)
+endif
+endif
+
+ifeq ($(OS),WINNT)
+ifneq ($(ARCH),x86_64)
+JCFLAGS += -mincoming-stack-boundary=2
+JCXXFLAGS += -mincoming-stack-boundary=2
 endif
 endif
 

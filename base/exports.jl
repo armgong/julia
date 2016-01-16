@@ -58,7 +58,6 @@ export
     Enumerate,
     Factorization,
     FileMonitor,
-    FileOffset,
     Filter,
     FloatRange,
     Future,
@@ -137,7 +136,6 @@ export
     Cintmax_t,
     Clong,
     Clonglong,
-    Coff_t,
     Cptrdiff_t,
     Cshort,
     Csize_t,
@@ -1123,9 +1121,9 @@ export
 
 # IP address stuff
     @ip_str,
+    IPAddr,
     IPv4,
     IPv6,
-    parseip,
 
 # I/O and events
     accept,
@@ -1146,7 +1144,7 @@ export
     htol,
     hton,
     IOContext,
-    iosize,
+    displaysize,
     ismarked,
     isopen,
     isreadonly,

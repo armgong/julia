@@ -43,10 +43,17 @@ function sprint(size::Integer, f::Function, args...; env=nothing)
 end
 sprint(f::Function, args...) = sprint(0, f, args...)
 
+tostr_sizehint(x) = 0
+tostr_sizehint(x::AbstractString) = endof(x)
+tostr_sizehint(x::Float64) = 20
+tostr_sizehint(x::Float32) = 12
+
 function print_to_string(xs...; env=nothing)
     # specialized for performance reasons
-    s = IOBuffer(Array(UInt8,isa(xs[1],AbstractString) ? endof(xs[1]) : 0), true, true)
-    truncate(s,0)
+    s = IOBuffer(Array(UInt8,tostr_sizehint(xs[1])), true, true)
+    # specialized version of truncate(s,0)
+    s.size = 0
+    s.ptr = 1
     if env !== nothing
         env_io = IOContext(s, env)
         for x in xs
@@ -59,7 +66,7 @@ function print_to_string(xs...; env=nothing)
     end
     d = s.data
     resize!(d,s.size)
-    bytestring(d)
+    return isvalid(ASCIIString, d) ? ASCIIString(d) : UTF8String(d)
 end
 
 string_with_env(env, xs...) = print_to_string(xs...; env=env)

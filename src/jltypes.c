@@ -50,6 +50,7 @@ jl_datatype_t *jl_int32_type;
 jl_datatype_t *jl_uint32_type;
 jl_datatype_t *jl_int64_type;
 jl_datatype_t *jl_uint64_type;
+jl_datatype_t *jl_float16_type;
 jl_datatype_t *jl_float32_type;
 jl_datatype_t *jl_float64_type;
 jl_datatype_t *jl_floatingpoint_type;
@@ -368,9 +369,16 @@ static jl_value_t *intersect_union(jl_uniontype_t *a, jl_value_t *b,
                                    cenv_t *penv, cenv_t *eqc, variance_t var)
 {
     int eq0 = eqc->n, co0 = penv->n;
-    jl_svec_t *t = jl_alloc_svec(jl_svec_len(a->types));
+    size_t i, l = jl_svec_len(a->types);
+    // shortcut an easy case: union contains type b
+    if (!jl_is_typevar(b)) {
+        for(i=0; i < l; i++) {
+            if (jl_svecref(a->types,i) == b)
+                return b;
+        }
+    }
+    jl_svec_t *t = jl_alloc_svec(l);
     JL_GC_PUSH1(&t);
-    size_t i, l=jl_svec_len(t);
     for(i=0; i < l; i++) {
         int eq_l = eqc->n, co_l = penv->n;
         jl_value_t *ti = jl_type_intersect(jl_svecref(a->types,i), b,
@@ -1920,7 +1928,7 @@ static ssize_t lookup_type_idx(jl_typename_t *tn, jl_value_t **key, size_t n, in
 static jl_value_t *lookup_type(jl_typename_t *tn, jl_value_t **key, size_t n)
 {
     int ord = is_typekey_ordered(key, n);
-    JL_LOCK(typecache);
+    JL_LOCK(typecache); // Might GC
     ssize_t idx = lookup_type_idx(tn, key, n, ord);
     jl_value_t *t = (idx < 0) ? NULL : jl_svecref(ord ? tn->cache : tn->linearcache, idx);
     JL_UNLOCK(typecache);
@@ -2003,7 +2011,7 @@ jl_value_t *jl_cache_type_(jl_datatype_t *type)
 {
     if (is_cacheable(type)) {
         int ord = is_typekey_ordered(jl_svec_data(type->parameters), jl_svec_len(type->parameters));
-        JL_LOCK(typecache);
+        JL_LOCK(typecache); // Might GC
         ssize_t idx = lookup_type_idx(type->name, jl_svec_data(type->parameters),
                                       jl_svec_len(type->parameters), ord);
         if (idx >= 0)
@@ -3451,9 +3459,9 @@ void jl_init_types(void)
     jl_lambda_info_type =
         jl_new_datatype(jl_symbol("LambdaStaticData"),
                         jl_any_type, jl_emptysvec,
-                        jl_svec(15, jl_symbol("ast"), jl_symbol("sparams"),
-                                jl_symbol("tfunc"), jl_symbol("name"),
-                                jl_symbol("roots"),
+                        jl_svec(16, jl_symbol("ast"), jl_symbol("rettype"),
+                                jl_symbol("sparams"), jl_symbol("tfunc"),
+                                jl_symbol("name"), jl_symbol("roots"),
                                 /* jl_symbol("specTypes"),
                                    jl_symbol("unspecialized"),
                                    jl_symbol("specializations")*/
@@ -3463,7 +3471,8 @@ void jl_init_types(void)
                                 jl_symbol("file"), jl_symbol("line"),
                                 jl_symbol("inferred"),
                                 jl_symbol("pure")),
-                        jl_svec(15, jl_any_type, jl_simplevector_type,
+                        jl_svec(16, jl_any_type, jl_any_type,
+                                jl_simplevector_type,
                                 jl_any_type, jl_sym_type,
                                 jl_any_type, jl_any_type,
                                 jl_any_type, jl_array_any_type,
@@ -3569,7 +3578,6 @@ void jl_init_types(void)
     label_sym = jl_symbol("label");
     return_sym = jl_symbol("return");
     lambda_sym = jl_symbol("lambda");
-    macro_sym = jl_symbol("macro");
     module_sym = jl_symbol("module");
     export_sym = jl_symbol("export");
     import_sym = jl_symbol("import");
@@ -3600,6 +3608,7 @@ void jl_init_types(void)
     kw_sym = jl_symbol("kw");
     dot_sym = jl_symbol(".");
     boundscheck_sym = jl_symbol("boundscheck");
+    inbounds_sym = jl_symbol("inbounds");
     fastmath_sym = jl_symbol("fastmath");
     newvar_sym = jl_symbol("newvar");
     copyast_sym = jl_symbol("copyast");

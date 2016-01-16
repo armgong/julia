@@ -49,6 +49,9 @@ static void jl_critical_error(int sig, bt_context_t context, ptrint_t *bt_data, 
 // what to do on a critical error
 static void jl_critical_error(int sig, bt_context_t context, ptrint_t *bt_data, size_t *bt_size)
 {
+    // This function is not allowed to reference any TLS variables.
+    // We need to explicitly pass in the TLS buffer pointer when
+    // we make `jl_filename` and `jl_lineno` thread local.
     size_t n = *bt_size;
     if (sig)
         jl_safe_printf("\nsignal (%d): %s\n", sig, strsignal(sig));
@@ -56,7 +59,7 @@ static void jl_critical_error(int sig, bt_context_t context, ptrint_t *bt_data, 
     if (context)
         *bt_size = n = rec_backtrace_ctx(bt_data, JL_MAX_BT_SIZE, context);
     for(size_t i=0; i < n; i++)
-        gdblookup(bt_data[i]);
+        jl_gdblookup(bt_data[i]);
     gc_debug_print_status();
 }
 

@@ -404,7 +404,7 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   Show a more compact representation of a value. This is used for printing array elements. If a new type has a different compact representation, it should test ``Base.limit_output(io)`` in its ``show`` method.
+   Show a more compact representation of a value. This is used for printing array elements. If a new type has a different compact representation, it should test ``Base.limit_output(io)`` in its normal ``show`` method.
 
 .. function:: showall(x)
 
@@ -624,7 +624,7 @@ Text I/O
 
    Decodes the base64-encoded ``string`` and returns a ``Vector{UInt8}`` of the decoded bytes.
 
-.. function:: iosize(io) -> (lines, columns)
+.. function:: displaysize(io) -> (lines, columns)
 
    .. Docstring generated from Julia source
 
@@ -874,12 +874,6 @@ Network I/O
    .. Docstring generated from Julia source
 
    Get the IP address and the port that the given TCP socket is connected to (or bound to, in the case of TCPServer).
-
-.. function:: parseip(addr)
-
-   .. Docstring generated from Julia source
-
-   Parse a string specifying an IPv4 or IPv6 ip address.
 
 .. function:: IPv4(host::Integer) -> IPv4
 

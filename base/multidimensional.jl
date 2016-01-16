@@ -247,18 +247,25 @@ end
 end
 
 # checksize ensures the output array A is the correct size for the given indices
-@noinline throw_checksize_error(arr, dim, idx) = throw(DimensionMismatch("index $d selects $(length(I[d])) elements, but size(A, $d) = $(size(A,d))"))
+@noinline throw_checksize_error(A, dim, idx) = throw(DimensionMismatch("index $dim selects $(length(idx)) elements, but size(A, $dim) = $(size(A,dim))"))
+@noinline throw_checksize_error(A, dim, idx::AbstractArray{Bool}) = throw(DimensionMismatch("index $dim selects $(sum(idx)) elements, but size(A, $dim) = $(size(A,dim))"))
 
 checksize(A::AbstractArray, I::AbstractArray) = size(A) == size(I) || throw_checksize_error(A, 1, I)
 checksize(A::AbstractArray, I::AbstractArray{Bool}) = length(A) == sum(I) || throw_checksize_error(A, 1, I)
 
-checksize(A::AbstractArray, I...) = _checksize(A, 1, I...)
+@inline checksize(A::AbstractArray, I...) = _checksize(A, 1, I...)
 _checksize(A::AbstractArray, dim) = true
-# Skip scalars
-_checksize(A::AbstractArray, dim, ::Real, J...) = _checksize(A, dim, J...)
-_checksize(A::AbstractArray, dim, I, J...) = (size(A, dim) == length(I) || throw_checksize_error(A, dim, I); _checksize(A, dim+1, J...))
-_checksize(A::AbstractArray, dim, I::AbstractVector{Bool}, J...) = (size(A, dim) == sum(I) || throw_checksize_error(A, dim, I); _checksize(A, dim+1, J...))
-_checksize(A::AbstractArray, dim, ::Colon, J...) = _checksize(A, dim+1, J...)
+# Drop dimensions indexed by scalars, ignore colons
+@inline _checksize(A::AbstractArray, dim, ::Real, J...) = _checksize(A, dim, J...)
+@inline _checksize(A::AbstractArray, dim, ::Colon, J...) = _checksize(A, dim+1, J...)
+@inline function _checksize(A::AbstractArray, dim, I, J...)
+    size(A, dim) == length(I) || throw_checksize_error(A, dim, I)
+    _checksize(A, dim+1, J...)
+end
+@inline function _checksize(A::AbstractArray, dim, I::AbstractVector{Bool}, J...)
+    size(A, dim) == sum(I) || throw_checksize_error(A, dim, I)
+    _checksize(A, dim+1, J...)
+end
 
 @inline unsafe_setindex!(v::BitArray, x::Bool, ind::Int) = (Base.unsafe_bitsetindex!(v.chunks, x, ind); v)
 @inline unsafe_setindex!(v::BitArray, x, ind::Real) = (Base.unsafe_bitsetindex!(v.chunks, convert(Bool, x), to_index(ind)); v)
@@ -556,13 +563,13 @@ end
 
 # contiguous multidimensional indexing: if the first dimension is a range,
 # we can get some performance from using copy_chunks!
-@inline function _unsafe_getindex!(X::BitArray, ::LinearFast, B::BitArray, I0::Union{UnitRange{Int}, Colon})
+@inline function _unsafe_getindex!(X::BitArray, B::BitArray, I0::Union{UnitRange{Int}, Colon})
     copy_chunks!(X.chunks, 1, B.chunks, first(I0), index_lengths(B, I0)[1])
     return X
 end
 
 # Optimization where the inner dimension is contiguous improves perf dramatically
-@generated function _unsafe_getindex!(X::BitArray, ::LinearFast, B::BitArray, I0::Union{Colon,UnitRange{Int}}, I::Union{Int,UnitRange{Int},Colon}...)
+@generated function _unsafe_getindex!(X::BitArray, B::BitArray, I0::Union{Colon,UnitRange{Int}}, I::Union{Int,UnitRange{Int},Colon}...)
     N = length(I)
     quote
         $(Expr(:meta, :inline))
@@ -599,7 +606,7 @@ end
 # in the general multidimensional non-scalar case, can we do about 10% better
 # in most cases by manually hoisting the bitarray chunks access out of the loop
 # (This should really be handled by the compiler or with an immutable BitArray)
-@generated function _unsafe_getindex!(X::BitArray, ::LinearFast, B::BitArray, I::Union{Int,AbstractVector{Int},Colon}...)
+@generated function _unsafe_getindex!(X::BitArray, B::BitArray, I::Union{Int,AbstractVector{Int},Colon}...)
     N = length(I)
     quote
         $(Expr(:meta, :inline))

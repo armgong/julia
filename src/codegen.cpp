@@ -246,8 +246,10 @@ static IntegerType *T_uint64;
 static IntegerType *T_char;
 static IntegerType *T_size;
 
+static Type *T_float16;
 static Type *T_float32;
 static Type *T_float64;
+static Type *T_float128;
 
 static Type *T_pint8;
 static Type *T_pint16;
@@ -578,6 +580,7 @@ typedef struct {
     bool sret;
     int nReqArgs;
     std::vector<bool> boundsCheck;
+    std::vector<bool> inbounds;
 
     jl_gcinfo_t gc;
 
@@ -873,6 +876,7 @@ static Function *to_function(jl_lambda_info_t *li, jl_cyclectx_t *cyclectx)
     if (imaging_mode)
 #endif
         FPM->run(*f);
+
     if (old != NULL) {
         builder.SetInsertPoint(old);
         builder.SetCurrentDebugLocation(olddl);
@@ -891,27 +895,42 @@ static Function *to_function(jl_lambda_info_t *li, jl_cyclectx_t *cyclectx)
     return f;
 }
 
+#ifndef LLVM37
+static Value *getModuleFlag(Module *m, StringRef Key)
+{
+    SmallVector<Module::ModuleFlagEntry, 8> ModuleFlags;
+    m->getModuleFlagsMetadata(ModuleFlags);
+    SmallVector<Module::ModuleFlagEntry, 8>::iterator it = ModuleFlags.begin();
+    for (;it != ModuleFlags.end(); ++it) {
+        if (Key == it->Key->getString())
+            return it->Val;
+    }
+    return NULL;
+}
+#else
+#define getModuleFlag(m,str) m->getModuleFlag(str)
+#endif
+
 static void jl_setup_module(Module *m)
 {
-    m->addModuleFlag(llvm::Module::Warning, "Dwarf Version",2);
+    if (!getModuleFlag(m,"Dwarf Version"))
+        m->addModuleFlag(llvm::Module::Warning, "Dwarf Version",2);
 #ifdef LLVM34
-    m->addModuleFlag(llvm::Module::Error, "Debug Info Version",
-        llvm::DEBUG_METADATA_VERSION);
+    if (!getModuleFlag(m,"Debug Info Version"))
+        m->addModuleFlag(llvm::Module::Error, "Debug Info Version",
+            llvm::DEBUG_METADATA_VERSION);
 #endif
 #ifdef LLVM37
-    if (jl_ExecutionEngine) {
 #ifdef USE_ORCJIT
-        m->setDataLayout(jl_ExecutionEngine->getDataLayout());
+    m->setDataLayout(jl_ExecutionEngine->getDataLayout());
 #elif defined(LLVM38)
-        m->setDataLayout(jl_ExecutionEngine->getDataLayout().getStringRepresentation());
+    m->setDataLayout(jl_ExecutionEngine->getDataLayout().getStringRepresentation());
 #else
-        m->setDataLayout(jl_ExecutionEngine->getDataLayout()->getStringRepresentation());
+    m->setDataLayout(jl_ExecutionEngine->getDataLayout()->getStringRepresentation());
 #endif
-        m->setTargetTriple(jl_TargetMachine->getTargetTriple().str());
-    }
+    m->setTargetTriple(jl_TargetMachine->getTargetTriple().str());
 #elif defined(LLVM36)
-    if (jl_ExecutionEngine)
-        m->setDataLayout(jl_ExecutionEngine->getDataLayout());
+    m->setDataLayout(jl_ExecutionEngine->getDataLayout());
 #endif
 }
 
@@ -1152,7 +1171,7 @@ static Function *jl_cfunction_object(jl_function_t *f, jl_value_t *rt, jl_tuplet
             jl_errorf("cfunction: type signature of %s does not match specification",
                       jl_symbol_name(li->name));
         }
-        jl_value_t *astrt = jl_ast_rettype(li, li->ast);
+        jl_value_t *astrt = li->rettype;
         if (rt != NULL) {
             if (astrt == (jl_value_t*)jl_bottom_type) {
                 if (rt != (jl_value_t*)jl_void_type) {
@@ -2988,7 +3007,7 @@ static jl_cgval_t emit_call_function_object(jl_function_t *f, Value *theF, Value
 {
     if (f!=NULL && specialized && f->linfo!=NULL && f->linfo->functionObjects.specFunctionObject != NULL) {
         // emit specialized call site
-        jl_value_t *jlretty = jl_ast_rettype(f->linfo, f->linfo->ast);
+        jl_value_t *jlretty = f->linfo->rettype;
         bool retboxed;
         (void)julia_type_to_llvm(jlretty, &retboxed);
         Function *cf = (Function*)f->linfo->functionObjects.specFunctionObject;
@@ -3716,6 +3735,8 @@ static jl_cgval_t emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, b
             mn = (jl_value_t*)jl_symbolnode_sym(mn);
         }
         assert(jl_is_symbol(mn));
+        if (jl_symbol_name((jl_sym_t*)mn)[0] == '@')
+            jl_errorf("macro definition not allowed inside a local scope");
         int last_depth = ctx->gc.argDepth;
         Value *name = literal_pointer_val(mn);
         jl_binding_t *bnd = NULL;
@@ -3855,9 +3876,31 @@ static jl_cgval_t emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, b
 #endif
         builder.SetInsertPoint(tryblk);
     }
+    else if (head == inbounds_sym) {
+        // manipulate inbounds stack
+        // note that when entering an inbounds context, we must also update
+        // the boundsCheck context to be false
+        if (jl_array_len(ex->args) > 0) {
+            jl_value_t *arg = args[0];
+            if (arg == jl_true) {
+                ctx->inbounds.push_back(true);
+                ctx->boundsCheck.push_back(false);
+            }
+            else if (arg == jl_false) {
+                ctx->inbounds.push_back(false);
+                ctx->boundsCheck.push_back(false);
+            }
+            else {
+                if (!ctx->inbounds.empty())
+                    ctx->inbounds.pop_back();
+                if (!ctx->boundsCheck.empty())
+                    ctx->boundsCheck.pop_back();
+            }
+        }
+        return ghostValue(jl_void_type);
+    }
     else if (head == boundscheck_sym) {
-        if (jl_array_len(ex->args) > 0 &&
-            jl_options.check_bounds == JL_OPTIONS_CHECK_BOUNDS_DEFAULT) {
+        if (jl_array_len(ex->args) > 0) {
             jl_value_t *arg = args[0];
             if (arg == jl_true) {
                 ctx->boundsCheck.push_back(true);
@@ -3910,9 +3953,6 @@ static jl_cgval_t emit_expr(jl_value_t *expr, jl_codectx_t *ctx, bool isboxed, b
             if (head == abstracttype_sym || head == compositetype_sym ||
                 head == bitstype_sym) {
                 jl_errorf("type definition not allowed inside a local scope");
-            }
-            else if (head == macro_sym) {
-                jl_errorf("macro definition not allowed inside a local scope");
             }
             else {
                 jl_errorf("unsupported or misplaced expression \"%s\" in function %s",
@@ -3997,6 +4037,7 @@ emit_gcpops(jl_codectx_t *ctx)
 {
     Function *F = ctx->f;
     for(Function::iterator I = F->begin(), E = F->end(); I != E; ++I) {
+        assert(I->getTerminator() != NULL);
         if (isa<ReturnInst>(I->getTerminator())) {
             builder.SetInsertPoint(I->getTerminator()); // set insert *before* Ret
             Instruction *gcpop =
@@ -4016,7 +4057,6 @@ static void finalize_gc_frame(jl_codectx_t *ctx)
         clear_gc_frame(gc);
         return;
     }
-    BasicBlock::iterator bbi(gc->gcframe);
     AllocaInst *newgcframe = gc->gcframe;
     builder.SetInsertPoint(&*++gc->last_gcframe_inst); // set insert *before* point, e.g. after the gcframe
     // Allocate the real GC frame
@@ -4377,7 +4417,7 @@ static Function *gen_jlcall_wrapper(jl_lambda_info_t *lam, jl_expr_t *ast, Funct
     CallInst *call = builder.CreateCall(prepare_call(f), ArrayRef<Value*>(&args[0], nfargs));
     call->setAttributes(f->getAttributes());
 
-    jl_value_t *jlretty = jl_ast_rettype(lam, (jl_value_t*)ast);
+    jl_value_t *jlretty = lam->rettype;
     bool retboxed;
     (void)julia_type_to_llvm(jlretty, &retboxed);
     if (sret) { assert(!retboxed); }
@@ -4419,7 +4459,8 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
     ctx.funcName = jl_symbol_name(lam->name);
     ctx.vaName = NULL;
     ctx.vaStack = false;
-    ctx.boundsCheck.push_back(true);
+    ctx.inbounds.push_back(false);
+    ctx.boundsCheck.push_back(false);
     ctx.cyclectx = cyclectx;
 
     // step 2. process var-info lists to see what vars are captured, need boxing
@@ -4517,7 +4558,7 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
     mark_volatile_vars(stmts, ctx.vars);
 
     // step 4. determine function signature
-    jl_value_t *jlrettype = jl_ast_rettype(lam, (jl_value_t*)ast);
+    jl_value_t *jlrettype = lam->rettype;
     Function *f = NULL;
 
     bool specsig = false;
@@ -4658,7 +4699,7 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
     ctx.dbuilder = &dbuilder;
 #ifdef LLVM37
     DIFile *topfile = NULL;
-    DISubprogram *SP;
+    DISubprogram *SP = NULL;
     DICompileUnit *CU;
 #else
     DIFile topfile;
@@ -4680,7 +4721,6 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
         ctx.debug_enabled = false;
         do_coverage = false;
         do_malloc_log = false;
-        JL_MARK_INITIALIZED(SP);
     }
     else {
         // TODO: Fix when moving to new LLVM version
@@ -4880,14 +4920,15 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
                 addr.push_back(i * sizeof(void*));
                 addr.push_back(llvm::dwarf::DW_OP_deref);
                 prepare_call(Intrinsic::getDeclaration(builtins_module, Intrinsic::dbg_value));
+                ctx.dbuilder->insertDbgValueIntrinsic(
+                    argArray,
+                    0,
+                    ctx.vars[s].dinfo,
+                    ctx.dbuilder->createExpression(addr),
 #ifdef LLVM37
-                ctx.dbuilder->insertDbgValueIntrinsic(argArray, 0, ctx.vars[s].dinfo,
-                ctx.dbuilder->createExpression(addr),
-                builder.getCurrentDebugLocation().get(), builder.GetInsertBlock());
-#else
-                ctx.dbuilder->insertDbgValueIntrinsic(argArray, 0, ctx.vars[s].dinfo,
-                ctx.dbuilder->createExpression(addr), builder.GetInsertBlock());
+                    builder.getCurrentDebugLocation().get(),
 #endif
+                    builder.GetInsertBlock());
             }
         }
 #endif
@@ -5326,8 +5367,14 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
                 builder.SetInsertPoint(bb);
             }
         }
-        else {
-            (void)emit_expr(stmt, &ctx, false, false);
+        else if (jl_is_expr(stmt) && ((jl_expr_t*)stmt)->head == boundscheck_sym) {
+            // always emit expressions that update the boundscheck stack
+            emit_expr(stmt, &ctx, false, false);
+        }
+        else if (is_inbounds(&ctx) && is_bounds_check_block(&ctx)) {
+            // elide bounds check blocks
+        } else {
+            emit_expr(stmt, &ctx, false, false);
         }
     }
 
@@ -5336,6 +5383,14 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
     // sometimes we have dangling labels after the end
     if (builder.GetInsertBlock()->getTerminator() == NULL) {
         builder.CreateUnreachable();
+    }
+
+    // patch up dangling BasicBlocks from skipped labels
+    for (std::map<int,BasicBlock*>::iterator it = labels.begin(); it != labels.end(); ++it) {
+        if (it->second->getTerminator() == NULL) {
+            builder.SetInsertPoint(it->second);
+            builder.CreateUnreachable();
+        }
     }
 
     // step 16. fix up size of stack root list
@@ -5424,7 +5479,7 @@ extern "C" void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig)
         funcName = "julia_" + funcName;
         if (specsig) { // assumes !va
             std::vector<Type*> fsig(0);
-            jl_value_t *jlrettype = jl_ast_rettype(lam, (jl_value_t*)lam->ast);
+            jl_value_t *jlrettype = lam->rettype;
             bool retboxed;
             Type *rt;
             if (jlrettype == (jl_value_t*)jl_void_type) {
@@ -5512,10 +5567,12 @@ static void init_julia_llvm_env(Module *m)
     else
         T_size = T_uint32;
     T_psize = PointerType::get(T_size, 0);
+    T_float16 = Type::getHalfTy(getGlobalContext());
     T_float32 = Type::getFloatTy(getGlobalContext());
     T_pfloat32 = PointerType::get(T_float32, 0);
     T_float64 = Type::getDoubleTy(getGlobalContext());
     T_pfloat64 = PointerType::get(T_float64, 0);
+    T_float128 = Type::getFP128Ty(getGlobalContext());
     T_void = Type::getVoidTy(jl_LLVMContext);
     T_pvoidfunc = FunctionType::get(T_void, /*isVarArg*/false)->getPointerTo();
 
@@ -6212,25 +6269,19 @@ extern "C" void jl_init_codegen(void)
 #ifdef USE_MCJIT
     m = shadow_module = new Module("shadow", jl_LLVMContext);
     builtins_module = new Module("julia_builtins", jl_LLVMContext);
-    jl_setup_module(shadow_module);
-    jl_setup_module(builtins_module);
     if (imaging_mode) {
         engine_module = new Module("engine_module", jl_LLVMContext);
-        jl_setup_module(engine_module);
         active_module = shadow_module;
     }
     else {
         active_module = new Module("julia", jl_LLVMContext);
-        jl_setup_module(active_module);
         engine_module = m;
 #ifdef USE_ORCJIT
         engine_module = new Module("engine_module", jl_LLVMContext);
-        jl_setup_module(engine_module);
 #endif
     }
 #else
     engine_module = m = jl_Module = new Module("julia", jl_LLVMContext);
-    jl_setup_module(engine_module);
 #endif
 
     TargetOptions options = TargetOptions();
@@ -6317,17 +6368,6 @@ extern "C" void jl_init_codegen(void)
     jl_TargetMachine->setFastISel(true);
 #endif
 
-#if defined(LLVM38)
-    engine_module->setDataLayout(jl_TargetMachine->createDataLayout());
-    active_module->setDataLayout(jl_TargetMachine->createDataLayout());
-#elif defined(LLVM36) && !defined(LLVM37)
-    engine_module->setDataLayout(jl_TargetMachine->getSubtargetImpl()->getDataLayout());
-#elif defined(LLVM35) && !defined(LLVM37)
-    engine_module->setDataLayout(jl_TargetMachine->getDataLayout());
-#else
-    engine_module->setDataLayout(jl_TargetMachine->getDataLayout()->getStringRepresentation());
-#endif
-
 #ifdef USE_ORCJIT
     jl_ExecutionEngine = new JuliaOJIT(*jl_TargetMachine);
 #else
@@ -6346,26 +6386,14 @@ extern "C" void jl_init_codegen(void)
 
     mbuilder = new MDBuilder(getGlobalContext());
 
-#ifdef USE_ORCJIT
-    m->setDataLayout(jl_ExecutionEngine->getDataLayout());
-    engine_module->setDataLayout(jl_ExecutionEngine->getDataLayout());
-    m->setTargetTriple(jl_TargetMachine->getTargetTriple().str());
-    engine_module->setTargetTriple(jl_TargetMachine->getTargetTriple().str());
+    // Now that the execution engine exists, initialize all modules
+#ifdef USE_MCJIT
+    jl_setup_module(engine_module);
+    jl_setup_module(shadow_module);
+    jl_setup_module(active_module);
+    jl_setup_module(builtins_module);
 #else
-#ifdef LLVM37
-#ifdef LLVM38
-    m->setDataLayout(jl_ExecutionEngine->getDataLayout().getStringRepresentation());
-    engine_module->setDataLayout(jl_ExecutionEngine->getDataLayout().getStringRepresentation());
-#else
-    m->setDataLayout(jl_ExecutionEngine->getDataLayout()->getStringRepresentation());
-    engine_module->setDataLayout(jl_ExecutionEngine->getDataLayout()->getStringRepresentation());
-#endif
-    m->setTargetTriple(jl_TargetMachine->getTargetTriple().str());
-    engine_module->setTargetTriple(jl_TargetMachine->getTargetTriple().str());
-#elif defined(LLVM36)
-    m->setDataLayout(jl_ExecutionEngine->getDataLayout());
-    engine_module->setDataLayout(jl_ExecutionEngine->getDataLayout());
-#endif
+    jl_setup_module(engine_module);
 #endif
 
     if (imaging_mode)

@@ -528,6 +528,7 @@ void _julia_init(JL_IMAGE_SEARCH rel)
 #ifdef JULIA_ENABLE_THREADING
     // Make sure we finalize the tls callback before starting any threads.
     jl_get_ptls_states_getter();
+    jl_gc_signal_init();
 #endif
     libsupport_init();
     jl_io_loop = uv_default_loop(); // this loop will internal events (spawning process etc.),
@@ -676,6 +677,7 @@ void _julia_init(JL_IMAGE_SEARCH rel)
             jl_current_module;
     }
 
+    // This needs to be after jl_start_threads
     if (jl_options.handle_signals == JL_OPTIONS_HANDLE_SIGNALS_ON)
         jl_install_default_signal_handlers();
 
@@ -748,16 +750,16 @@ static void julia_save(void)
                 ios_t f;
                 if (ios_file(&f, jl_options.outputji, 1, 1, 1, 1) == NULL)
                     jl_errorf("cannot open system image file \"%s\" for writing", jl_options.outputji);
-                ios_write(&f, (const char*)s->buf, s->size);
+                ios_write(&f, (const char*)s->buf, (size_t)s->size);
                 ios_close(&f);
             }
         }
 
         if (jl_options.outputbc)
-            jl_dump_bitcode((char*)jl_options.outputbc, (const char*)s->buf, s->size);
+            jl_dump_bitcode((char*)jl_options.outputbc, (const char*)s->buf, (size_t)s->size);
 
         if (jl_options.outputo)
-            jl_dump_objfile((char*)jl_options.outputo, 0, (const char*)s->buf, s->size);
+            jl_dump_objfile((char*)jl_options.outputo, 0, (const char*)s->buf, (size_t)s->size);
     }
     JL_GC_POP();
 }
@@ -801,6 +803,7 @@ void jl_get_builtin_hooks(void)
     jl_uint32_type  = (jl_datatype_t*)core("UInt32");
     jl_uint64_type  = (jl_datatype_t*)core("UInt64");
 
+    jl_float16_type = (jl_datatype_t*)core("Float16");
     jl_float32_type = (jl_datatype_t*)core("Float32");
     jl_float64_type = (jl_datatype_t*)core("Float64");
     jl_floatingpoint_type = (jl_datatype_t*)core("AbstractFloat");

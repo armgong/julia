@@ -98,7 +98,7 @@ function showdict{K,V}(io::IO, t::Associative{K,V}; compact = false)
     isempty(t) && return
     print(io, ":")
     if limit
-        sz = iosize(io)
+        sz = displaysize(io)
         rows, cols = sz[1] - 3, sz[2]
         rows < 2   && (print(io, " …"); return)
         cols < 12  && (cols = 12) # Minimum widths of 2 for key, 4 for value
@@ -158,7 +158,7 @@ function showkv{T<:Union{KeyIterator,ValueIterator}}(io::IO, iter::T)
     print(io, ". ", T<:KeyIterator ? "Keys" : "Values", ":")
     limit::Bool = limit_output(io)
     if limit
-        sz = iosize(io)
+        sz = displaysize(io)
         rows, cols = sz[1] - 3, sz[2]
         rows < 2 && (print(io, " …"); return)
         cols < 4 && (cols = 4)
@@ -282,7 +282,7 @@ end
 
 const hasha_seed = UInt === UInt64 ? 0x6d35bb51952d5539 : 0x952d5539
 function hash(a::Associative, h::UInt)
-    h += hasha_seed
+    h = hash(hasha_seed, h)
     for (k,v) in a
         h $= hash(k, hash(v))
     end

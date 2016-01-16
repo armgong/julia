@@ -537,7 +537,7 @@ Ac_rdiv_B
 
 
 """
-    linspace(start, stop, n=100)
+    linspace(start, stop, n=50)
 
 Construct a range of `n` linearly spaced elements from `start` to `stop`.
 """
@@ -4047,13 +4047,6 @@ Get the multiplicative identity element for the type of `x` (`x` can also specif
 itself). For matrices, returns an identity matrix of the appropriate size and type.
 """
 one
-
-"""
-    parseip(addr)
-
-Parse a string specifying an IPv4 or IPv6 ip address.
-"""
-parseip
 
 """
     rationalize([Type=Int,] x; tol=eps(x))
@@ -8744,22 +8737,6 @@ Equivalent to `stat(file).mtime`.
 mtime
 
 """
-    SharedArray(T::Type, dims::NTuple; init=false, pids=Int[])
-
-Construct a `SharedArray` of a bitstype `T` and size `dims` across the processes specified
-by `pids` - all of which have to be on the same host.
-
-If `pids` is left unspecified, the shared array will be mapped across all processes on the
-current host, including the master. But, `localindexes` and `indexpids` will only refer to
-worker processes. This facilitates work distribution code to use workers for actual
-computation with the master process acting as a driver.
-
-If an `init` function of the type `initfn(S::SharedArray)` is specified, it is called on all
-the participating workers.
-"""
-SharedArray
-
-"""
     logspace(start, stop, n=50)
 
 Construct a vector of `n` logarithmically spaced numbers from `10^start` to `10^stop`.
@@ -9944,7 +9921,7 @@ isvalid(::AbstractString,i)
     esc(e::ANY)
 
 Only valid in the context of an `Expr` returned from a macro. Prevents the macro hygiene
-pass from turning embedded variables into gensym variables. See the [marcro](:ref:`man-macros`)
+pass from turning embedded variables into gensym variables. See the [macro](:ref:`man-macros`)
 section of the Metaprogramming chapter of the manual for more details and examples.
 """
 esc
@@ -10686,7 +10663,7 @@ DivideError
 """
     AssertionError([msg])
 
-The asserted condition did not evalutate to `true`.
+The asserted condition did not evaluate to `true`.
 Optional argument `msg` is a descriptive error string.
 """
 AssertionError

@@ -29,7 +29,7 @@ import Base:
     flush,
     read,
     readuntil,
-    iosize,
+    displaysize,
     start_reading,
     stop_reading,
     write,
@@ -43,7 +43,7 @@ import Base:
 abstract TextTerminal <: Base.IO
 
 # INTERFACE
-iosize(::TextTerminal) = error("Unimplemented")
+displaysize(::TextTerminal) = error("Unimplemented")
 writepos(t::TextTerminal, x, y, s::Array{UInt8,1}) = error("Unimplemented")
 cmove(t::TextTerminal, x, y) = error("Unimplemented")
 getX(t::TextTerminal) = error("Unimplemented")
@@ -88,8 +88,8 @@ function writepos(t::TextTerminal, x, y, args...)
     cmove(t, x, y)
     write(t, args...)
 end
-width(t::TextTerminal) = iosize(t)[2]
-height(t::TextTerminal) = iosize(t)[1]
+width(t::TextTerminal) = displaysize(t)[2]
+height(t::TextTerminal) = displaysize(t)[1]
 
 # For terminals with buffers
 flush(t::TextTerminal) = nothing
@@ -158,8 +158,8 @@ disable_bracketed_paste(t::UnixTerminal) = write(t.out_stream, "$(CSI)?2004l")
 end_keypad_transmit_mode(t::UnixTerminal) = # tput rmkx
     write(t.out_stream, "$(CSI)?1l\x1b>")
 
-function Base.iosize(t::UnixTerminal)
-    return iosize(t.out_stream)
+function Base.displaysize(t::UnixTerminal)
+    return displaysize(t.out_stream)
 end
 
 clear(t::UnixTerminal) = write(t.out_stream, "\x1b[H\x1b[2J")
@@ -179,7 +179,14 @@ start_reading(t::UnixTerminal) = start_reading(t.in_stream)
 stop_reading(t::UnixTerminal) = stop_reading(t.in_stream)
 eof(t::UnixTerminal) = eof(t.in_stream)
 
-@unix_only hascolor(t::TTYTerminal) = (startswith(t.term_type, "xterm") || success(`tput setaf 0`))
+@unix_only function hascolor(t::TTYTerminal)
+    startswith(t.term_type, "xterm") && return true
+    try
+        return success(`tput setaf 0`)
+    catch
+        return false
+    end
+end
 @windows_only hascolor(t::TTYTerminal) = true
 
 end # module

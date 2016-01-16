@@ -21,6 +21,7 @@ extern unsigned sig_stack_size;
 
 JL_DLLEXPORT extern int jl_lineno;
 JL_DLLEXPORT extern const char *jl_filename;
+#define jl_in_finalizer (jl_get_ptls_states()->in_finalizer)
 
 STATIC_INLINE jl_value_t *newobj(jl_value_t *type, size_t nfields)
 {
@@ -166,13 +167,16 @@ void jl_add_method(jl_function_t *gf, jl_tupletype_t *types, jl_function_t *meth
                    jl_svec_t *tvars, int8_t isstaged);
 jl_function_t *jl_module_call_func(jl_module_t *m);
 int jl_is_submodule(jl_module_t *child, jl_module_t *parent);
-int jl_start_parsing_file(const char *fname);
-void jl_stop_parsing(void);
-jl_value_t *jl_parse_next(void);
+
+typedef struct _jl_ast_context_t jl_ast_context_t;
+jl_ast_context_t *jl_start_parsing_file(const char *fname);
+void jl_stop_parsing(jl_ast_context_t *ctx);
+jl_value_t *jl_parse_next(jl_ast_context_t *ctx);
+
 jl_lambda_info_t *jl_wrap_expr(jl_value_t *expr);
 void jl_compile_linfo(jl_lambda_info_t *li, void *cyclectx);
 jl_value_t *jl_eval_global_var(jl_module_t *m, jl_sym_t *e);
-jl_value_t *jl_parse_eval_all(const char *fname, size_t len);
+jl_value_t *jl_parse_eval_all(const char *fname, size_t len, jl_ast_context_t *ctx);
 jl_value_t *jl_interpret_toplevel_thunk(jl_lambda_info_t *lam);
 jl_value_t *jl_interpret_toplevel_thunk_with(jl_lambda_info_t *lam,
                                              jl_value_t **loc, size_t nl);
@@ -246,6 +250,8 @@ void jl_start_threads(void);
 void jl_shutdown_threading(void);
 #ifdef JULIA_ENABLE_THREADING
 jl_get_ptls_states_func jl_get_ptls_states_getter(void);
+void jl_gc_signal_init(void);
+void jl_gc_signal_wait(void);
 #endif
 
 void jl_dump_bitcode(char *fname, const char *sysimg_data, size_t sysimg_len);
@@ -282,14 +288,11 @@ JL_DLLEXPORT size_t rec_backtrace_ctx(ptrint_t *data, size_t maxsize, bt_context
 size_t rec_backtrace_ctx_dwarf(ptrint_t *data, size_t maxsize, bt_context_t ctx);
 #endif
 JL_DLLEXPORT void jl_raise_debugger(void);
-#ifdef _OS_DARWIN_
-JL_DLLEXPORT void attach_exception_port(void);
-#endif
 // Set *name and *filename to either NULL or malloc'd string
 void jl_getFunctionInfo(char **name, char **filename, size_t *line,
                         char **inlinedat_file, size_t *inlinedat_line,
                         uintptr_t pointer, int *fromC, int skipC, int skipInline);
-JL_DLLEXPORT void gdblookup(ptrint_t ip);
+JL_DLLEXPORT void jl_gdblookup(ptrint_t ip);
 
 // *to is NULL or malloc'd pointer, from is allowed to be NULL
 static inline char *jl_copy_str(char **to, const char *from)
@@ -435,6 +438,11 @@ int jl_array_store_unboxed(jl_value_t *el_type);
 int jl_array_isdefined(jl_value_t **args, int nargs);
 
 JL_DEFINE_MUTEX_EXT(codegen)
+
+#if defined(__APPLE__) && defined(JULIA_ENABLE_THREADING)
+void jl_mach_gc_begin(void);
+void jl_mach_gc_end(void);
+#endif
 
 #if defined(_OS_WINDOWS_)
 STATIC_INLINE void *jl_malloc_aligned(size_t sz, size_t align)
