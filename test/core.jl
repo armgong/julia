@@ -3317,7 +3317,7 @@ immutable RGB{T<:AbstractFloat} <: Paint{T}
 end
 
 myeltype{T}(::Type{Paint{T}}) = T
-myeltype{P<:Paint}(::Type{P}) = myeltype(super(P))
+myeltype{P<:Paint}(::Type{P}) = myeltype(supertype(P))
 myeltype(::Type{Any}) = Any
 
 end
@@ -3468,8 +3468,7 @@ end
 
 # issue #11327 and #13547
 @test_throws MethodError convert(Type{Int}, Float32)
-# TODO: this should probably be a MethodError in `convert`; not sure what's going on
-@test_throws TypeError Array{Type{Int64}}([Float32])
+@test_throws MethodError Array{Type{Int64}}([Float32])
 abstract A11327
 abstract B11327 <: A11327
 f11327{T}(::Type{T},x::T) = x
@@ -3596,3 +3595,19 @@ code_typed(f14009, (Int,))
 type B14009{T}; end
 g14009(a) = g14009(B14009{a})
 code_typed(g14009, (Type{Int},))
+
+# issue #14477
+immutable Z14477
+    fld::Z14477
+    Z14477() = new(new())
+end
+let z1 = Z14477()
+    @test isa(z1, Z14477)
+    @test isa(z1.fld, Z14477)
+end
+
+# issue #14482
+let T = TypeVar(:T, true)
+    @test typeintersect(T, Type{Int8}) == Type{Int8}
+    @test typeintersect(Tuple{T}, Tuple{Type{Int8}}) == Tuple{Type{Int8}}
+end

@@ -698,9 +698,10 @@ function abstract_call_gf(f, fargs, argtype, e)
         return Any
     end
     for (m::SimpleVector) in x
+        sig = m[1]
         local linfo
         linfo = try
-            func_for_method(m[3],argtype,m[2])
+            func_for_method(m[3],sig,m[2])
         catch
             NF
         end
@@ -709,7 +710,6 @@ function abstract_call_gf(f, fargs, argtype, e)
             break
         end
         linfo = linfo::LambdaStaticData
-        sig = m[1]
         lsig = length(m[3].sig.parameters)
         # limit argument type tuple based on size of definition signature.
         # for example, given function f(T, Any...), limit to 3 arguments
@@ -1682,6 +1682,7 @@ function typeinf_uncached(linfo::LambdaStaticData, atypes::ANY, sparams::SimpleV
     # exception handlers
     cur_hand = ()
     handler_at = Any[ () for i=1:n ]
+    n_handlers = 0
 
     push!(W,1) #initial pc to visit
 
@@ -1802,6 +1803,16 @@ function typeinf_uncached(linfo::LambdaStaticData, atypes::ANY, sparams::SimpleV
                 elseif is(hd,:enter)
                     l = findlabel(labels,stmt.args[1]::Int)
                     cur_hand = (l,cur_hand)
+                    if handler_at[l] === ()
+                        n_handlers += 1
+                        if n_handlers > 25
+                            # too many exception handlers slows down inference a lot.
+                            # for an example see test/libgit2.jl on 0.5-pre master
+                            # around e.g. commit c072d1ce73345e153e4fddf656cda544013b1219
+                            inference_stack = (inference_stack::CallStack).prev
+                            return (ast0, Any, false)
+                        end
+                    end
                     handler_at[l] = cur_hand
                 elseif is(hd,:leave)
                     for i=1:((stmt.args[1])::Int)

@@ -3043,9 +3043,10 @@ Show an expression and result, returning the result.
 """
     showcompact(x)
 
+
 Show a more compact representation of a value. This is used for printing array elements. If
-a new type has a different compact representation, it should overload `showcompact(io, x)`
-where the first argument is a stream.
+a new type has a different compact representation,
+it should test `Base.limit_output(io)` in its normal `show` method.
 """
 showcompact
 
@@ -7415,11 +7416,11 @@ The inverse of `ind2sub`, returns the linear index corresponding to the provided
 sub2ind
 
 """
-    super(T::DataType)
+    supertype(T::DataType)
 
 Return the supertype of DataType `T`.
 """
-super
+supertype
 
 """
     readline(stream=STDIN)

@@ -851,7 +851,7 @@ ifneq ($(OS),WINNT)
 endif
 endif
 	echo 1 > $@
-$(PCRE_OBJ_TARGET): $(PCRE_SRC_TARGET) $(BUILDDIR)/pcre2-$(PCRE_VER)/checked
+$(PCRE_OBJ_TARGET): $(PCRE_SRC_TARGET)
 	$(call make-install,pcre2-$(PCRE_VER),$(LIBTOOL_CCLD))
 	$(INSTALL_NAME_CMD)libpcre2-8.$(SHLIB_EXT) $@
 	touch -c $@
@@ -1374,8 +1374,6 @@ ifeq ($(OS),$(BUILD_OS))
 	$(MAKE) -C $(dir $@) check $(ARPACK_MFLAGS)
 endif
 	echo 1 > $@
-# XXX: bug_1315 ARPACK tests fail stochastically
-#$(ARPACK_OBJ_TARGET): $(BUILDDIR)/arpack-ng-$(ARPACK_VER)/checked
 $(ARPACK_OBJ_TARGET): $(ARPACK_OBJ_SOURCE) | $(build_shlibdir)
 	$(call make-install,arpack-ng-$(ARPACK_VER),$(ARPACK_MFLAGS))
 ifeq ($(OS), WINNT)
@@ -1460,7 +1458,7 @@ ifeq ($(OS),$(BUILD_OS))
 	$(MAKE) -C $(dir $@) check
 endif
 	echo 1 > $@
-$(FFTW_SINGLE_OBJ_TARGET): $(FFTW_SINGLE_SRC_TARGET) $(BUILDDIR)/fftw-$(FFTW_VER)-single/checked
+$(FFTW_SINGLE_OBJ_TARGET): $(FFTW_SINGLE_SRC_TARGET)
 	$(call make-install,fftw-$(FFTW_VER)-single,)
 ifeq ($(OS), Darwin)
 	$(INSTALL_NAME_CMD)libfftw3f.$(SHLIB_EXT) $(build_shlibdir)/libfftw3f.$(SHLIB_EXT)
@@ -1483,7 +1481,7 @@ ifeq ($(OS),$(BUILD_OS))
 	$(MAKE) -C $(dir $@) check
 endif
 	echo 1 > $@
-$(FFTW_DOUBLE_OBJ_TARGET): $(FFTW_DOUBLE_SRC_TARGET) $(BUILDDIR)/fftw-$(FFTW_VER)-double/checked
+$(FFTW_DOUBLE_OBJ_TARGET): $(FFTW_DOUBLE_SRC_TARGET)
 	$(call make-install,fftw-$(FFTW_VER)-double,)
 ifeq ($(OS), Darwin)
 	$(INSTALL_NAME_CMD)libfftw3.$(SHLIB_EXT) $(build_shlibdir)/libfftw3.$(SHLIB_EXT)
@@ -1521,9 +1519,7 @@ get-fftw: get-fftw-single get-fftw-double
 configure-fftw: configure-fftw-single configure-fftw-double
 compile-fftw: compile-fftw-single compile-fftw-double
 check-fftw: check-fftw-single check-fftw-double
-install-fftw: check-fftw-single check-fftw-double # do these serially, to prevent write conflicts
-	@$(MAKE) -s -f $(JULIAHOME)/deps/Makefile install-fftw-single
-	@$(MAKE) -s -f $(JULIAHOME)/deps/Makefile install-fftw-double
+install-fftw: install-fftw-single install-fftw-double
 
 get-fftw-single: $(SRCDIR)/srccache/fftw-$(FFTW_VER).tar.gz
 configure-fftw-single: $(BUILDDIR)/fftw-$(FFTW_VER)-single/config.status
@@ -1813,7 +1809,7 @@ ifeq ($(OS),$(BUILD_OS))
 	$(MAKE) -C $(dir $@) $(LIBTOOL_CCLD) check
 endif
 	echo 1 > $@
-$(GMP_OBJ_TARGET): $(GMP_SRC_TARGET) $(BUILDDIR)/gmp-$(GMP_VER)/checked | $(build_shlibdir) $(build_includedir)
+$(GMP_OBJ_TARGET): $(GMP_SRC_TARGET) | $(build_shlibdir) $(build_includedir)
 	$(INSTALL_M) $(BUILDDIR)/gmp-$(GMP_VER)/.libs/libgmp.*$(SHLIB_EXT)* $(build_shlibdir)
 	$(INSTALL_F) $(BUILDDIR)/gmp-$(GMP_VER)/gmp.h $(build_includedir)
 	$(INSTALL_NAME_CMD)libgmp.$(SHLIB_EXT) $@
@@ -1881,7 +1877,7 @@ ifeq ($(OS),$(BUILD_OS))
 	$(MAKE) -C $(dir $@) $(LIBTOOL_CCLD) check $(MPFR_CHECK_MFLAGS)
 endif
 	echo 1 > $@
-$(MPFR_OBJ_TARGET): $(MPFR_SRC_TARGET) $(BUILDDIR)/mpfr-$(MPFR_VER)/checked
+$(MPFR_OBJ_TARGET): $(MPFR_SRC_TARGET)
 	$(call make-install,mpfr-$(MPFR_VER),$(LIBTOOL_CCLD))
 	$(INSTALL_NAME_CMD)libmpfr.$(SHLIB_EXT) $@
 	touch -c $@
@@ -1925,7 +1921,7 @@ ifeq ($(OS),$(BUILD_OS))
 	#$(MAKE) -C $(dir $@) check
 endif
 	echo 1 > $@
-$(PATCHELF_TARGET): $(PATCHELF_SOURCE) $(BUILDDIR)/patchelf-$(PATCHELF_VER)/checked
+$(PATCHELF_TARGET): $(PATCHELF_SOURCE)
 	$(call make-install,patchelf-$(PATCHELF_VER),)
 	touch -c $@
 
@@ -1964,7 +1960,7 @@ $(GIT_SOURCE): $(BUILDDIR)/git-$(GIT_VER)/config.status
 	touch -c $@
 $(BUILDDIR)/git-$(GIT_VER)/checked: $(GIT_SOURCE)
 	echo 1 > $@
-$(GIT_TARGET): $(GIT_SOURCE) $(BUILDDIR)/git-$(GIT_VER)/checked
+$(GIT_TARGET): $(GIT_SOURCE)
 	$(call make-install,git-$(GIT_VER),NO_INSTALL_HARDLINKS=1 bindir="$(build_libexecdir)")
 	touch -c $@
 
