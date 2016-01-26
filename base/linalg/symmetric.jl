@@ -5,13 +5,13 @@ immutable Symmetric{T,S<:AbstractMatrix} <: AbstractMatrix{T}
     data::S
     uplo::Char
 end
-Symmetric(A::AbstractMatrix, uplo::Symbol=:U) = (chksquare(A);Symmetric{eltype(A),typeof(A)}(A, char_uplo(uplo)))
+Symmetric(A::AbstractMatrix, uplo::Symbol=:U) = (checksquare(A);Symmetric{eltype(A),typeof(A)}(A, char_uplo(uplo)))
 immutable Hermitian{T,S<:AbstractMatrix} <: AbstractMatrix{T}
     data::S
     uplo::Char
 end
 function Hermitian(A::AbstractMatrix, uplo::Symbol=:U)
-    n = chksquare(A)
+    n = checksquare(A)
     for i=1:n
         isreal(A[i, i]) || throw(ArgumentError(
             "Cannot construct Hermitian from matrix with nonreal diagonals"))
@@ -29,6 +29,7 @@ unsafe_getindex(A::Symmetric, i::Integer, j::Integer) = (A.uplo == 'U') == (i < 
 unsafe_getindex(A::Hermitian, i::Integer, j::Integer) = (A.uplo == 'U') == (i < j) ? unsafe_getindex(A.data, i, j) : conj(unsafe_getindex(A.data, j, i))
 full(A::Symmetric) = copytri!(copy(A.data), A.uplo)
 full(A::Hermitian) = copytri!(copy(A.data), A.uplo, true)
+parent(A::HermOrSym) = A.data
 convert{T,S<:AbstractMatrix}(::Type{Symmetric{T,S}},A::Symmetric{T,S}) = A
 convert{T,S<:AbstractMatrix}(::Type{Symmetric{T,S}},A::Symmetric) = Symmetric{T,S}(convert(S,A.data),A.uplo)
 convert{T}(::Type{AbstractMatrix{T}}, A::Symmetric) = Symmetric(convert(AbstractMatrix{T}, A.data), symbol(A.uplo))
@@ -190,7 +191,7 @@ function expm(A::Symmetric)
     return Symmetric((F.vectors * Diagonal(exp(F.values))) * F.vectors')
 end
 function expm{T}(A::Hermitian{T})
-    n = chksquare(A)
+    n = checksquare(A)
     F = eigfact(A)
     retmat = (F.vectors * Diagonal(exp(F.values))) * F.vectors'
     if T <: Real
@@ -218,7 +219,7 @@ for (funm, func) in ([:logm,:log], [:sqrtm,:sqrt])
         end
 
         function ($funm){T}(A::Hermitian{T})
-            n = chksquare(A)
+            n = checksquare(A)
             F = eigfact(A)
             if isposdef(F)
                 retmat = (F.vectors * Diagonal(($func)(F.values))) * F.vectors'

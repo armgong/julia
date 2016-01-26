@@ -89,7 +89,7 @@ jl_sym_t *goto_sym;    jl_sym_t *goto_ifnot_sym;
 jl_sym_t *label_sym;   jl_sym_t *return_sym;
 jl_sym_t *lambda_sym;  jl_sym_t *assign_sym;
 jl_sym_t *null_sym;    jl_sym_t *body_sym;
-jl_sym_t *macro_sym;   jl_sym_t *method_sym;
+jl_sym_t *method_sym;
 jl_sym_t *enter_sym;   jl_sym_t *leave_sym;
 jl_sym_t *exc_sym;     jl_sym_t *error_sym;
 jl_sym_t *static_typeof_sym; jl_sym_t *kw_sym;
@@ -100,11 +100,11 @@ jl_sym_t *abstracttype_sym; jl_sym_t *bitstype_sym;
 jl_sym_t *compositetype_sym; jl_sym_t *type_goto_sym;
 jl_sym_t *global_sym; jl_sym_t *tuple_sym;
 jl_sym_t *dot_sym;    jl_sym_t *newvar_sym;
-jl_sym_t *boundscheck_sym; jl_sym_t *copyast_sym;
-jl_sym_t *fastmath_sym; jl_sym_t *pure_sym;
-jl_sym_t *simdloop_sym; jl_sym_t *meta_sym;
-jl_sym_t *arrow_sym;  jl_sym_t *inert_sym;
-jl_sym_t *vararg_sym;
+jl_sym_t *boundscheck_sym; jl_sym_t *inbounds_sym;
+jl_sym_t *copyast_sym; jl_sym_t *fastmath_sym;
+jl_sym_t *pure_sym; jl_sym_t *simdloop_sym;
+jl_sym_t *meta_sym; jl_sym_t *arrow_sym;
+jl_sym_t *inert_sym; jl_sym_t *vararg_sym;
 
 typedef struct {
     int64_t a;
@@ -301,6 +301,7 @@ jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast, jl_svec_t *sparams,
         (jl_lambda_info_t*)newobj((jl_value_t*)jl_lambda_info_type,
                                   NWORDS(sizeof(jl_lambda_info_t)));
     li->ast = ast;
+    li->rettype = (jl_value_t*)jl_any_type;
     li->file = null_sym;
     li->line = 0;
     li->pure = 0;
@@ -343,6 +344,7 @@ jl_lambda_info_t *jl_copy_lambda_info(jl_lambda_info_t *linfo)
 {
     jl_lambda_info_t *new_linfo =
         jl_new_lambda_info(linfo->ast, linfo->sparams, linfo->module);
+    new_linfo->rettype = linfo->rettype;
     new_linfo->tfunc = linfo->tfunc;
     new_linfo->name = linfo->name;
     new_linfo->roots = linfo->roots;
@@ -479,7 +481,10 @@ JL_DLLEXPORT jl_sym_t *jl_symbol_n(const char *str, int32_t len)
     return _jl_symbol(str, len);
 }
 
-JL_DLLEXPORT jl_sym_t *jl_get_root_symbol(void) { return symtab; }
+JL_DLLEXPORT jl_sym_t *jl_get_root_symbol(void)
+{
+    return symtab;
+}
 
 static uint32_t gs_ctr = 0;  // TODO: per-thread
 uint32_t jl_get_gs_ctr(void) { return gs_ctr; }
@@ -552,6 +557,7 @@ JL_DLLEXPORT jl_datatype_t *jl_new_uninitialized_datatype(size_t nfields,
     t->fielddesc_type = fielddesc_type;
     t->nfields = nfields;
     t->haspadding = 0;
+    t->pointerfree = 0;
     return t;
 }
 
@@ -803,12 +809,12 @@ UIBOX_FUNC(uint64, uint64_t, 2)
 #endif
 
 static jl_value_t *boxed_int8_cache[256];
-jl_value_t *jl_box_int8(int8_t x)
+JL_DLLEXPORT jl_value_t *jl_box_int8(int8_t x)
 {
     return boxed_int8_cache[(uint8_t)x];
 }
 static jl_value_t *boxed_uint8_cache[256];
-jl_value_t *jl_box_uint8(uint8_t x)
+JL_DLLEXPORT jl_value_t *jl_box_uint8(uint8_t x)
 {
     return boxed_uint8_cache[x];
 }
@@ -862,7 +868,7 @@ void jl_mark_box_caches(void)
     }
 }
 
-jl_value_t *jl_box_bool(int8_t x)
+JL_DLLEXPORT jl_value_t *jl_box_bool(int8_t x)
 {
     if (x)
         return jl_true;

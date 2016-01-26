@@ -174,7 +174,7 @@ static void NOINLINE save_stack(jl_task_t *t)
     jl_gc_wb_back(t);
 }
 
-void NOINLINE restore_stack(jl_task_t *t, jl_jmp_buf *where, char *p)
+static void NOINLINE restore_stack(jl_task_t *t, jl_jmp_buf *where, char *p)
 {
     char *_x = (char*)jl_stackbase - t->ssize;
     if (!p) {
@@ -268,8 +268,9 @@ void NOINLINE jl_set_base_ctx(char *__stk)
 #endif
 
 JL_DLLEXPORT void julia_init(JL_IMAGE_SEARCH rel)
-{ // keep this function small, since we want to keep the stack frame
-  // leading up to this also quite small
+{
+    // keep this function small, since we want to keep the stack frame
+    // leading up to this also quite small
     _julia_init(rel);
 #ifdef COPY_STACKS
     char __stk;
@@ -304,6 +305,15 @@ static void ctx_switch(jl_task_t *t, jl_jmp_buf *where)
         // set up global state for new task
         jl_current_task->gcstack = jl_pgcstack;
         jl_pgcstack = t->gcstack;
+#ifdef JULIA_ENABLE_THREADING
+        // If the current task is not holding any locks, free the locks list
+        // so that it can be GC'd without leaking memory
+        arraylist_t *locks = &jl_current_task->locks;
+        if (locks->len == 0 && locks->items != locks->_space) {
+            arraylist_free(locks);
+            arraylist_new(locks, 0);
+        }
+#endif
 
         // restore task's current module, looking at parent tasks
         // if it hasn't set one.
@@ -355,7 +365,6 @@ static void ctx_switch(jl_task_t *t, jl_jmp_buf *where)
     //JL_SIGATOMIC_END();
 }
 
-extern int jl_in_gc;
 JL_DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg)
 {
     if (t == jl_current_task) {
@@ -368,13 +377,15 @@ JL_DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg)
             jl_throw(t->exception);
         return t->result;
     }
-    if (jl_in_gc)
+    if (jl_in_finalizer)
         jl_error("task switch not allowed from inside gc finalizer");
+    int8_t gc_state = jl_gc_unsafe_enter();
     jl_task_arg_in_transit = arg;
     ctx_switch(t, &t->ctx);
     jl_value_t *val = jl_task_arg_in_transit;
     jl_task_arg_in_transit = jl_nothing;
     throw_if_exception_set(jl_current_task);
+    jl_gc_unsafe_leave(gc_state);
     return val;
 }
 
@@ -481,6 +492,8 @@ static int frame_info_from_ip(char **func_name,
                               char **inlinedat_file, size_t *inlinedat_line,
                               size_t ip, int skipC, int skipInline)
 {
+    // This function is not allowed to reference any TLS variables since
+    // it can be called from an unmanaged thread on OSX.
     static const char *name_unknown = "???";
     int fromC = 0;
 
@@ -756,8 +769,10 @@ JL_DLLEXPORT jl_value_t *jl_get_backtrace(void)
 }
 
 //for looking up functions from gdb:
-JL_DLLEXPORT void gdblookup(ptrint_t ip)
+JL_DLLEXPORT void jl_gdblookup(ptrint_t ip)
 {
+    // This function is not allowed to reference any TLS variables since
+    // it can be called from an unmanaged thread on OSX.
     char *func_name;
     size_t line_num;
     char *file_name;
@@ -794,11 +809,11 @@ JL_DLLEXPORT void gdblookup(ptrint_t ip)
 JL_DLLEXPORT void jlbacktrace(void)
 {
     size_t n = jl_bt_size; // jl_bt_size > 40 ? 40 : jl_bt_size;
-    for(size_t i=0; i < n; i++)
-        gdblookup(jl_bt_data[i]);
+    for (size_t i=0; i < n; i++)
+        jl_gdblookup(jl_bt_data[i]);
 }
 
-JL_DLLEXPORT void gdbbacktrace(void)
+JL_DLLEXPORT void jl_gdbbacktrace(void)
 {
     record_backtrace();
     jlbacktrace();
@@ -808,6 +823,7 @@ JL_DLLEXPORT void gdbbacktrace(void)
 // yield to exception handler
 void JL_NORETURN throw_internal(jl_value_t *e)
 {
+    jl_gc_unsafe_enter();
     assert(e != NULL);
     jl_exception_in_transit = e;
     if (jl_current_task->eh != NULL) {
@@ -884,10 +900,13 @@ JL_DLLEXPORT jl_task_t *jl_new_task(jl_function_t *start, size_t ssize)
     stk += pagesz;
 
     init_task(t, stk);
-    JL_GC_POP();
     jl_gc_add_finalizer((jl_value_t*)t, jl_unprotect_stack_func);
+    JL_GC_POP();
 #endif
 
+#ifdef JULIA_ENABLE_THREADING
+    arraylist_new(&t->locks, 0);
+#endif
     return t;
 }
 
@@ -970,6 +989,9 @@ void jl_init_root_task(void *stack, size_t ssize)
     jl_current_task->eh = NULL;
     jl_current_task->gcstack = NULL;
     jl_current_task->tid = ti_tid;
+#ifdef JULIA_ENABLE_THREADING
+    arraylist_new(&jl_current_task->locks, 0);
+#endif
 
     jl_root_task = jl_current_task;
 

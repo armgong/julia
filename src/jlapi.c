@@ -279,7 +279,8 @@ JL_DLLEXPORT const char* jl_ver_string(void)
 }
 
 // return char* from ByteString field in Base.GIT_VERSION_INFO
-static const char *git_info_string(const char *fld) {
+static const char *git_info_string(const char *fld)
+{
     static jl_value_t *GIT_VERSION_INFO = NULL;
     if (!GIT_VERSION_INFO)
         GIT_VERSION_INFO = jl_get_global(jl_base_module, jl_symbol("GIT_VERSION_INFO"));
@@ -316,6 +317,26 @@ JL_DLLEXPORT jl_value_t *(jl_valueof)(jl_taggedvalue_t *v)
 JL_DLLEXPORT jl_value_t *(jl_typeof)(jl_value_t *v)
 {
     return jl_typeof(v);
+}
+
+JL_DLLEXPORT int8_t (jl_gc_unsafe_enter)(void)
+{
+    return jl_gc_unsafe_enter();
+}
+
+JL_DLLEXPORT void (jl_gc_unsafe_leave)(int8_t state)
+{
+    jl_gc_unsafe_leave(state);
+}
+
+JL_DLLEXPORT int8_t (jl_gc_safe_enter)(void)
+{
+    return jl_gc_safe_enter();
+}
+
+JL_DLLEXPORT void (jl_gc_safe_leave)(int8_t state)
+{
+    jl_gc_safe_leave(state);
 }
 
 #ifdef __cplusplus

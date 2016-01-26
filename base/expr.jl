@@ -44,6 +44,7 @@ astcopy(x) = x
 
 ==(x::Expr, y::Expr) = x.head === y.head && x.args == y.args
 ==(x::QuoteNode, y::QuoteNode) = x.value == y.value
+==(x::SymbolNode, y::SymbolNode) = x.name === y.name && x.typ === y.typ
 
 expand(x) = ccall(:jl_expand, Any, (Any,), x)
 macroexpand(x) = ccall(:jl_macroexpand, Any, (Any,), x)
@@ -64,6 +65,21 @@ end
 
 macro pure(ex)
     esc(isa(ex, Expr) ? pushmeta!(ex, :pure) : ex)
+end
+
+"""
+    @propagate_inbounds(ex)
+
+Tells the compiler to inline a function while retaining the caller's inbounds context.
+"""
+macro propagate_inbounds(ex)
+    if isa(ex, Expr)
+        pushmeta!(ex, :inline)
+        pushmeta!(ex, :propagate_inbounds)
+        esc(ex)
+    else
+        esc(ex)
+    end
 end
 
 ## some macro utilities ##
@@ -96,7 +112,7 @@ function localize_vars(expr, esca)
     if esca
         v = map(esc,v)
     end
-    Expr(:localize, :(()->($expr)), v...)
+    Expr(:localize, expr, v...)
 end
 
 function pushmeta!(ex::Expr, sym::Symbol, args::Any...)

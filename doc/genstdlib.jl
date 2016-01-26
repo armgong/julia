@@ -74,7 +74,13 @@ function find_docs(v)
     docs = []
     for mod in keys(mod_added)
         try
-            meta = Docs.meta(mod)[v]
+            m = Docs.meta(mod)
+            if haskey(m, v)
+                meta = m[v]
+            elseif isa(v, Docs.Binding)
+                obj = getfield(v.mod, v.var)
+                meta = m[obj]
+            end
             if isa(meta, Base.Docs.MultiDoc)
                 append!(docs, collect(values(meta.docs)))
             else
@@ -176,7 +182,7 @@ const warn_doc_between_func = "JULIA_WARN_DOC_BETWEEN_FUNC" in keys(ENV)
 
 function translate(file)
     @assert(isfile(file))
-    ls = split(readall(file), "\n")[1:end-1]
+    ls = split(readstring(file), "\n")[1:end-1]
     doccing = false
     func = nothing
     mod = "Base"

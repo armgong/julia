@@ -48,9 +48,9 @@ the same object. `fill!(A, Foo())` will return `A` filled with the result of eva
 fill!
 
 """
-    read!(stream, array::Array)
+    read!(stream or filename, array::Array)
 
-Read binary data from a stream, filling in the argument `array`.
+Read binary data from a stream or file, filling in the argument `array`.
 """
 read!
 
@@ -314,13 +314,6 @@ Compute a "2d histogram" with respect to the bins delimited by the edges given i
 hist2d!
 
 """
-    fieldtype(T, name::Symbol | index::Int)
-
-Determine the declared type of a field (specified by name or index) in a composite DataType `T`.
-"""
-fieldtype
-
-"""
     hypot(x, y)
 
 Compute the ``\\sqrt{x^2+y^2}`` avoiding overflow and underflow.
@@ -452,7 +445,7 @@ the mantissa.
 precision
 
 """
-    readlines(stream)
+    readlines(stream or filename)
 
 Read all lines as an array.
 """
@@ -537,7 +530,7 @@ Ac_rdiv_B
 
 
 """
-    linspace(start, stop, n=100)
+    linspace(start, stop, n=50)
 
 Construct a range of `n` linearly spaced elements from `start` to `stop`.
 """
@@ -1018,7 +1011,7 @@ See `rounding` for available rounding modes.
 Float32
 
 """
-    readuntil(stream, delim)
+    readuntil(stream or filename, delim)
 
 Read a string, up to and including the given delimiter byte.
 """
@@ -1969,13 +1962,6 @@ shift in each dimension.
 circshift
 
 """
-    fieldnames(x::DataType)
-
-Get an array of the fields of a `DataType`.
-"""
-fieldnames
-
-"""
     yield()
 
 Switch to the scheduler to allow another scheduled task to run. A task that calls this
@@ -2054,7 +2040,7 @@ open(file_name, mode="r")
 Apply the function `f` to the result of `open(args...)` and close the resulting file
 descriptor upon completion.
 
-**Example**: `open(readall, "file.txt")`
+**Example**: `open(readstring, "file.txt")`
 """
 open(f::Function, args...)
 
@@ -2085,33 +2071,6 @@ kron
 Right bit shift operator, preserving the sign of `x`.
 """
 Base.(:(>>))
-
-"""
-    fieldoffsets(type)
-
-The byte offset of each field of a type relative to the data start. For example, we could
-use it in the following manner to summarize information about a struct type:
-
-```jldoctest
-julia> structinfo(T) = [zip(fieldoffsets(T),fieldnames(T),T.types)...];
-
-julia> structinfo(StatStruct)
-12-element Array{Tuple{Int64,Symbol,DataType},1}:
- (0,:device,UInt64)
- (8,:inode,UInt64)
- (16,:mode,UInt64)
- (24,:nlink,Int64)
- (32,:uid,UInt64)
- (40,:gid,UInt64)
- (48,:rdev,UInt64)
- (56,:size,Int64)
- (64,:blksize,Int64)
- (72,:blocks,Int64)
- (80,:mtime,Float64)
- (88,:ctime,Float64)
-```
-"""
-fieldoffsets
 
 """
     randn([rng], [dims...])
@@ -2438,19 +2397,11 @@ the process.
 triu!(M, k)
 
 """
-    readall(stream::IO)
+    readstring(stream or filename)
 
-Read the entire contents of an I/O stream as a string.
+Read the entire contents of an I/O stream or a file as a string.
 """
-readall(stream::IO)
-
-"""
-    readall(filename::AbstractString)
-
-Open `filename`, read the entire contents as a string, then close the file. Equivalent to
-`open(readall, filename)`.
-"""
-readall(filename::AbstractString)
+readstring
 
 """
     poll_file(path, interval_s::Real, timeout_s::Real) -> (previous::StatStruct, current::StatStruct)
@@ -2468,9 +2419,9 @@ it is more reliable and efficient, although in some situations it may not be ava
 poll_file
 
 """
-    eachline(stream)
+    eachline(stream or filename)
 
-Create an iterable object that will yield each line from a stream.
+Create an iterable object that will yield each line.
 """
 eachline
 
@@ -4049,13 +4000,6 @@ itself). For matrices, returns an identity matrix of the appropriate size and ty
 one
 
 """
-    parseip(addr)
-
-Parse a string specifying an IPv4 or IPv6 ip address.
-"""
-parseip
-
-"""
     rationalize([Type=Int,] x; tol=eps(x))
 
 Approximate floating point number `x` as a Rational number with components of the given
@@ -4251,9 +4195,9 @@ Squared absolute value of `x`.
 abs2
 
 """
-    write(stream, x)
+    write(stream or filename, x)
 
-Write the canonical binary representation of a value to the given stream. Returns the number
+Write the canonical binary representation of a value to the given stream or file. Returns the number
 of bytes written into the stream.
 
 You can write multiple values with the same :func:`write` call. i.e. the following are
@@ -6398,7 +6342,7 @@ besselk
 """
     readchomp(x)
 
-Read the entirety of `x` as a string but remove trailing newlines. Equivalent to `chomp(readall(x))`.
+Read the entirety of `x` as a string but remove trailing newlines. Equivalent to `chomp(readstring(x))`.
 """
 readchomp
 
@@ -6443,7 +6387,7 @@ asecd
 Read at most `nb` bytes from the stream into `b`, returning the number of bytes read
 (increasing the size of `b` as needed).
 
-See `readbytes` for a description of the `all` option.
+See `read` for a description of the `all` option.
 """
 readbytes!
 
@@ -7423,10 +7367,10 @@ Return the supertype of DataType `T`.
 supertype
 
 """
-    readline(stream=STDIN)
+    readline(stream=STDIN or filename)
 
 Read a single line of text, including a trailing newline character (if one is reached before
-the end of the input), from the given `stream` (defaults to `STDIN`),
+the end of the input), from the given stream or file (defaults to `STDIN`),
 """
 readline
 
@@ -8744,22 +8688,6 @@ Equivalent to `stat(file).mtime`.
 mtime
 
 """
-    SharedArray(T::Type, dims::NTuple; init=false, pids=Int[])
-
-Construct a `SharedArray` of a bitstype `T` and size `dims` across the processes specified
-by `pids` - all of which have to be on the same host.
-
-If `pids` is left unspecified, the shared array will be mapped across all processes on the
-current host, including the master. But, `localindexes` and `indexpids` will only refer to
-worker processes. This facilitates work distribution code to use workers for actual
-computation with the master process acting as a driver.
-
-If an `init` function of the type `initfn(S::SharedArray)` is specified, it is called on all
-the participating workers.
-"""
-SharedArray
-
-"""
     logspace(start, stop, n=50)
 
 Construct a vector of `n` logarithmically spaced numbers from `10^start` to `10^stop`.
@@ -9944,7 +9872,7 @@ isvalid(::AbstractString,i)
     esc(e::ANY)
 
 Only valid in the context of an `Expr` returned from a macro. Prevents the macro hygiene
-pass from turning embedded variables into gensym variables. See the [marcro](:ref:`man-macros`)
+pass from turning embedded variables into gensym variables. See the [macro](:ref:`man-macros`)
 section of the Metaprogramming chapter of the manual for more details and examples.
 """
 esc
@@ -10159,21 +10087,6 @@ no effect outside of compilation.
 include_dependency
 
 """
-    __precompile__(isprecompilable::Bool=true)
-
-Specify whether the file calling this function is precompilable. If `isprecompilable` is
-`true`, then `__precompile__` throws an exception when the file is loaded by
-`using`/`import`/`require` *unless* the file is being precompiled, and in a module file it
-causes the module to be automatically precompiled when it is imported. Typically,
-`__precompile__()` should occur before the `module` declaration in the file, or better yet
-`VERSION >= v"0.4" && __precompile__()` in order to be backward-compatible with Julia 0.3.
-
-If a module or file is *not* safely precompilable, it should call `__precompile__(false)` in
-order to throw an error if Julia attempts to precompile it.
-"""
-__precompile__
-
-"""
     randn!([rng], A::Array{Float64,N})
 
 Fill the array `A` with normally-distributed (mean 0, standard deviation 1) random numbers.
@@ -10276,7 +10189,7 @@ a series of integer arguments.
 cell
 
 """
-    readbytes(stream, nb=typemax(Int); all=true)
+    read(stream, nb=typemax(Int); all=true)
 
 Read at most `nb` bytes from the stream, returning a `Vector{UInt8}` of the bytes read.
 
@@ -10285,7 +10198,7 @@ requested bytes, until an error or end-of-file occurs. If `all` is `false`, at m
 `read` call is performed, and the amount of data returned is device-dependent. Note that not
 all stream types support the `all` option.
 """
-readbytes
+read
 
 """
     eig(A,[irange,][vl,][vu,][permute=true,][scale=true]) -> D, V
@@ -10686,7 +10599,7 @@ DivideError
 """
     AssertionError([msg])
 
-The asserted condition did not evalutate to `true`.
+The asserted condition did not evaluate to `true`.
 Optional argument `msg` is a descriptive error string.
 """
 AssertionError

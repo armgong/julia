@@ -86,8 +86,8 @@ JL_DLLEXPORT void jl_uv_shutdownCallback(uv_shutdown_t *req, int status)
 {
     /*
      * This happens if the remote machine closes the connecition while we're
-     * in the shutdown request (in that case we call uv_close, thus cancelling this)
-     * request.
+     * in the shutdown request (in that case we call uv_close, thus cancelling
+     * this request).
      */
     if (status != UV__ECANCELED && !uv_is_closing((uv_handle_t*)req->handle)) {
         uv_close((uv_handle_t*)req->handle, &jl_uv_closeHandle);
@@ -339,9 +339,14 @@ JL_DLLEXPORT int jl_fs_read_byte(int handle)
     buf[0].len = 1;
     int ret = uv_fs_read(jl_io_loop, &req, handle, buf, 1, -1, NULL);
     uv_fs_req_cleanup(&req);
-    if (ret == -1)
-        return ret;
-    return (int)c;
+    switch (ret) {
+    case -1: return ret;
+    case  0: jl_eof_error();
+    case  1: return (int)c;
+    default:
+        assert(0 && "jl_fs_read_byte: Invalid return value from uv_fs_read");
+        return -1;
+    }
 }
 
 JL_DLLEXPORT int jl_fs_close(int handle)
@@ -841,7 +846,7 @@ struct work_baton {
     void      *work_args;
     void      *work_retval;
     notify_cb_t notify_func;
-    pid_t     tid;
+    int       tid;
     int       notify_idx;
 };
 

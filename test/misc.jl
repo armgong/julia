@@ -121,6 +121,9 @@ end
 immutable NoMethodHasThisType end
 @test isempty(methodswith(NoMethodHasThisType))
 @test !isempty(methodswith(Int))
+immutable Type4Union end
+func4union(::Union{Type4Union,Int}) = ()
+@test !isempty(methodswith(Type4Union))
 
 # PR #10984
 # Disable on windows because of issue (missing flush) when redirecting STDERR.
@@ -128,13 +131,13 @@ let
     redir_err = "redirect_stderr(STDOUT)"
     exename = joinpath(JULIA_HOME, Base.julia_exename())
     script = "$redir_err; f(a::Number, b...) = 1;f(a, b::Number) = 1"
-    warning_str = readall(`$exename -f -e $script`)
+    warning_str = readstring(`$exename -f -e $script`)
     @test contains(warning_str, "f(Any, Number)")
     @test contains(warning_str, "f(Number, Any...)")
     @test contains(warning_str, "f(Number, Number)")
 
     script = "$redir_err; module A; f() = 1; end; A.f() = 1"
-    warning_str = readall(`$exename -f -e $script`)
+    warning_str = readstring(`$exename -f -e $script`)
     @test contains(warning_str, "f()")
 end
 

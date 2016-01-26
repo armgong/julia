@@ -141,6 +141,10 @@ static Value *runtime_sym_lookup(PointerType *funcptype, const char *f_lib, cons
 #  else
 #    include "abi_x86.cpp"
 #  endif
+#elif defined _CPU_ARM_
+#  include "abi_arm.cpp"
+#elif defined _CPU_AARCH64_
+#    include "abi_aarch64.cpp"
 #else
 #  warning "ccall is defaulting to llvm ABI, since no platform ABI has been defined for this CPU/OS combination"
 #  include "abi_llvm.cpp"
@@ -651,7 +655,7 @@ static jl_cgval_t emit_llvmcall(jl_value_t **args, size_t nargs, jl_codectx_t *c
                     // Find name of declaration by searching for '@'
                     std::string::size_type atpos = declstr.find('@') + 1;
                     // Find end of declaration by searching for '('
-                    std::string::size_type bracepos = declstr.find('(');
+                    std::string::size_type bracepos = declstr.find('(', atpos);
                     // Declaration name is the string between @ and (
                     std::string declname = declstr.substr(atpos, bracepos - atpos);
 
@@ -900,8 +904,12 @@ static std::string generate_func_sig(
                 // Note that even though the LLVM argument is called ByVal
                 // this really means that the thing we're passing is pointing to
                 // the thing we want to pass by value
+#ifndef _CPU_AARCH64_
+                // the aarch64 backend seems to interpret ByVal as
+                // implicitly passed on stack.
                 if (byRef)
                     paramattrs[i + sret].addAttribute(Attribute::ByVal);
+#endif
                 if (inReg)
                     paramattrs[i + sret].addAttribute(Attribute::InReg);
                 if (av != Attribute::None)
@@ -1225,13 +1233,12 @@ static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
             Value *mem = emit_static_alloca(lrt, ctx);
             builder.CreateStore(sret_val.V, mem);
             result = mem;
-            argvals[0] = result;
         }
         else {
             // XXX: result needs a GC root here if result->getType() == T_pjlvalue
             result = sret_val.V;
-            argvals[0] = builder.CreateBitCast(result, fargt_sig.at(0));
         }
+        argvals[0] = builder.CreateBitCast(result, fargt_sig.at(0));
         sretboxed = sret_val.isboxed;
     }
 

@@ -575,6 +575,21 @@ export @math_const
 # 11280, mmap
 
 export msync
+
+"""
+    msync(ptr, len, [flags])
+
+Forces synchronization of the [`mmap`](:func:`mmap`)ped memory region from `ptr` to
+`ptr+len`. Flags defaults to `MS_SYNC`, but can be a combination of `MS_ASYNC`, `MS_SYNC`,
+or `MS_INVALIDATE`. See your platform man page for specifics. The flags argument is not
+valid on Windows.
+
+You may not need to call `msync`, because synchronization is performed at intervals
+automatically by the operating system. However, you can call this directly if, for example,
+you are concerned about losing the result of a long-running calculation.
+"""
+function msync end
+
 msync{T}(A::Array{T}) = msync(pointer(A), length(A)*sizeof(T))
 msync(B::BitArray) = msync(pointer(B.chunks), length(B.chunks)*sizeof(UInt64))
 
@@ -591,10 +606,10 @@ export mmap
         throw(ArgumentError("requested size must be ≤ $(typemax(Int)-pagesize), got $len"))
     end
     # Set the offset to a page boundary
-    offset_page::FileOffset = floor(Integer,offset/pagesize)*pagesize
+    offset_page::Int64 = floor(Integer,offset/pagesize)*pagesize
     len_page::Int = (offset-offset_page) + len
     # Mmap the file
-    p = ccall(:jl_mmap, Ptr{Void}, (Ptr{Void}, Csize_t, Cint, Cint, Cint, FileOffset), C_NULL, len_page, prot, flags, fd, offset_page)
+    p = ccall(:jl_mmap, Ptr{Void}, (Ptr{Void}, Csize_t, Cint, Cint, Cint, Int64), C_NULL, len_page, prot, flags, fd, offset_page)
     systemerror("memory mapping failed", reinterpret(Int,p) == -1)
     # Also return a pointer that compensates for any adjustment in the offset
     return p, Int(offset-offset_page)
@@ -644,7 +659,7 @@ type SharedMemSpec
     create :: Bool
 end
 export mmap_array
-@noinline function mmap_array{T,N}(::Type{T}, dims::NTuple{N,Integer}, s::Union{IO,SharedMemSpec}, offset::FileOffset)
+@noinline function mmap_array{T,N}(::Type{T}, dims::NTuple{N,Integer}, s::Union{IO,SharedMemSpec}, offset::Int64)
     depwarn("`mmap_array` is deprecated, use `Mmap.mmap(io, Array{T,N}, dims, offset)` instead to return an mmapped-array", :mmap_array)
     if isa(s,SharedMemSpec)
         a = Mmap.Anonymous(s.name, s.readonly, s.create)
@@ -655,7 +670,7 @@ export mmap_array
 end
 end
 
-@deprecate mmap_bitarray{N}(::Type{Bool}, dims::NTuple{N,Integer}, s::IOStream, offset::FileOffset=position(s)) mmap(s, BitArray, dims, offset)
+@deprecate mmap_bitarray{N}(::Type{Bool}, dims::NTuple{N,Integer}, s::IOStream, offset::Int64=position(s)) mmap(s, BitArray, dims, offset)
 @deprecate mmap_bitarray{N}(dims::NTuple{N,Integer}, s::IOStream, offset=position(s)) mmap(s, BitArray, dims, offset)
 
 # T[a:b] and T[a:s:b]
@@ -906,18 +921,63 @@ export isreadable, iswritable, isexecutable
 @deprecate RemoteRef RemoteChannel
 
 function tty_size()
-    depwarn("tty_size is deprecated. use `iosize(io)` as a replacement", :tty_size)
+    depwarn("tty_size is deprecated. use `displaysize(io)` as a replacement", :tty_size)
     if isdefined(Base, :active_repl)
         os = REPL.outstream(Base.active_repl)
         if isa(os, Terminals.TTYTerminal)
-            return iosize(os)
+            return displaysize(os)
         end
     end
     if isdefined(Base, :STDOUT)
-        return iosize(STDOUT)
+        return displaysize(STDOUT)
     end
-    return iosize()
+    return displaysize()
 end
 
 #14335
 @deprecate super(T::DataType) supertype(T)
+
+function with_output_limit(thk, lim=true) # thk is usually show()
+    depwarn("with_output_limit is deprecated. use `io = IOContext(io, :limit_output => lim)` as a replacement", :with_output_limit)
+    global _limit_output
+    last = _limit_output
+    _limit_output::Bool = lim
+    try
+        thk()
+    finally
+        _limit_output = last
+    end
+end
+
+#14555
+@deprecate_binding Coff_t Int64
+@deprecate_binding FileOffset Int64
+
+#14474
+macro boundscheck(yesno,blk)
+    depwarn("The meaning of `@boundscheck` has changed. It now indicates that the provided code block performs bounds checking, and may be elided when inbounds.", symbol("@boundscheck"))
+    if yesno === true
+        :(@inbounds $(esc(blk)))
+    end
+end
+
+
+@deprecate parseip(str::AbstractString) parse(IPAddr, str)
+
+#https://github.com/JuliaLang/julia/issues/14608
+@deprecate readall readstring
+@deprecate readbytes read
+
+@deprecate field_offset(x::DataType, idx) fieldoffset(x, idx+1)
+@noinline function fieldoffsets(x::DataType)
+    depwarn("fieldoffsets is deprecated. use `map(idx->fieldoffset(x, idx), 1:nfields(x))` instead", :fieldoffsets)
+    nf = nfields(x)
+    offsets = Array(Int, nf)
+    for i = 1:nf
+        offsets[i] = fieldoffset(x, i)
+    end
+    return offsets
+end
+
+# 14766
+@deprecate write(io::IO, p::Ptr, nb::Integer) unsafe_write(io, p, nb)

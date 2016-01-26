@@ -93,7 +93,7 @@ less(file, line::Integer) = error("could not find source file for function")
             print(io, x)
         end
     end
-    clipboard() = readall(`pbpaste`)
+    clipboard() = readstring(`pbpaste`)
 end
 
 @linux_only begin
@@ -120,7 +120,7 @@ end
         cmd = c == :xsel  ? `xsel --nodetach --output --clipboard` :
               c == :xclip ? `xclip -quiet -out -selection clipboard` :
             error("unexpected clipboard command: $c")
-        readall(pipeline(cmd, stderr=STDERR))
+        readstring(pipeline(cmd, stderr=STDERR))
     end
 end
 
@@ -181,11 +181,11 @@ function versioninfo(io::IO=STDOUT, verbose::Bool=false)
     if verbose
         lsb = ""
         @linux_only try lsb = readchomp(pipeline(`lsb_release -ds`, stderr=DevNull)) end
-        @windows_only try lsb = strip(readall(`$(ENV["COMSPEC"]) /c ver`)) end
+        @windows_only try lsb = strip(readstring(`$(ENV["COMSPEC"]) /c ver`)) end
         if lsb != ""
             println(io,     "           ", lsb)
         end
-        println(io,         "  uname: ",readchomp(`uname -mprsv`))
+        @unix_only println(io,         "  uname: ",readchomp(`uname -mprsv`))
         println(io,         "Memory: $(Sys.total_memory()/2^30) GB ($(Sys.free_memory()/2^20) MB free)")
         try println(io,     "Uptime: $(Sys.uptime()) sec") end
         print(io,           "Load Avg: ")
@@ -296,7 +296,8 @@ end
 function type_close_enough(x::ANY, t::ANY)
     x == t && return true
     return (isa(x,DataType) && isa(t,DataType) && x.name === t.name &&
-            !isleaftype(t) && x <: t)
+            !isleaftype(t) && x <: t) ||
+           (isa(x,Union) && isa(t,DataType) && any(u -> is(u,t), x.types))
 end
 
 function methodswith(t::Type, f::Function, showparents::Bool=false, meths = Method[])
@@ -415,7 +416,7 @@ function runtests(tests = ["all"], numcores = ceil(Int,CPU_CORES/2))
         buf = PipeBuffer()
         versioninfo(buf)
         error("A test has failed. Please submit a bug report (https://github.com/JuliaLang/julia/issues)\n" *
-              "including error messages above and the output of versioninfo():\n$(readall(buf))")
+              "including error messages above and the output of versioninfo():\n$(readstring(buf))")
     end
 end
 
@@ -430,7 +431,7 @@ Print information about exported global variables in a module, optionally restri
 The memory consumption estimate is an approximate lower bound on the size of the internal structure of the object.
 """
 function whos(io::IO=STDOUT, m::Module=current_module(), pattern::Regex=r"")
-    maxline = iosize(io)[2]
+    maxline = displaysize(io)[2]
     line = zeros(UInt8, maxline)
     head = PipeBuffer(maxline + 1)
     for v in sort!(names(m))

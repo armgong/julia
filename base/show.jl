@@ -63,10 +63,11 @@ get(io::IO, key, default) = default
 
 "    limit_output(io) -> Bool
 Output hinting for identifying contexts where the user requested a compact output"
-limit_output(::ANY) = false
-limit_output(io::IOContext) = get(io, :limit_output, false) === true
+limit_output(::ANY) = _limit_output::Bool
+limit_output(io::IOContext) = get(io, :limit_output, _limit_output::Bool) === true
+_limit_output = false # delete with with_output_limit deprecation
 
-iosize(io::IOContext) = haskey(io, :iosize) ? io[:iosize] : iosize(io.io)
+displaysize(io::IOContext) = haskey(io, :displaysize) ? io[:displaysize] : displaysize(io.io)
 
 
 show(io::IO, x::ANY) = show_default(io, x)
@@ -218,7 +219,8 @@ function show(io::IO, l::LambdaStaticData)
     print(io, ")")
 end
 
-function show_delim_array(io::IO, itr::AbstractArray, op, delim, cl, delim_one, i1=1, l=length(itr))
+function show_delim_array(io::IO, itr::Union{AbstractArray,SimpleVector}, op, delim, cl, delim_one,
+                          i1=1, l=length(itr))
     print(io, op)
     newline = true
     first = true
@@ -1017,7 +1019,7 @@ xdump(fn::Function, io::IO, x, n::Int) = xdump(xdump, io, x, n, "")
 xdump(fn::Function, io::IO, args...) = throw(ArgumentError("invalid arguments to xdump"))
 xdump(fn::Function, args...) = xdump(fn, STDOUT::IO, args...)
 xdump(io::IO, args...) = xdump(xdump, io, args...)
-xdump(args...) = with_output_limit(()->xdump(xdump, STDOUT::IO, args...), true)
+xdump(args...) = xdump(xdump, IOContext(STDOUT::IO, :limit_output => true), args...)
 xdump(arg::IO) = xdump(xdump, STDOUT::IO, arg)
 
 # Here are methods specifically for dump:
@@ -1029,7 +1031,7 @@ dump(io::IO, x::AbstractString, n::Int, indent) =
 dump(io::IO, x, n::Int, indent) = xdump(dump, io, x, n, indent)
 dump(io::IO, args...) = throw(ArgumentError("invalid arguments to dump"))
 dump(arg::IO) = xdump(dump, STDOUT::IO, arg)
-dump(args...) = with_output_limit(()->dump(STDOUT::IO, args...), true)
+dump(args...) = dump(IOContext(STDOUT::IO, :limit_output => true), args...)
 
 function dump(io::IO, x::Dict, n::Int, indent)
     println(io, typeof(x), " len ", length(x))
@@ -1126,6 +1128,17 @@ function alignment(
 end
 
 """
+Unexported convenience function used in body of `replace_in_print_matrix`
+methods. By default returns a string of the same width as original with a
+centered cdot, used in printing of structural zeros of structured matrices.
+Accept keyword args `c` for alternate single character marker.
+"""
+function replace_with_centered_mark(s::AbstractString;c::Char = '⋅')
+    N = length(s)
+    return join(setindex!([utf8(" ") for i=1:N],string(c),ceil(Int,N/2)))
+end
+
+"""
 `print_matrix_row(io, X, A, i, cols, sep)` produces the aligned output for
 a single matrix row X[i, cols] where the desired list of columns is given.
 The corresponding alignment A is used, and the separation between elements
@@ -1134,8 +1147,7 @@ is specified as string sep.
 """
 function print_matrix_row(io::IO,
     X::AbstractVecOrMat, A::Vector,
-    i::Integer, cols::AbstractVector, sep::AbstractString
-)
+    i::Integer, cols::AbstractVector, sep::AbstractString)
     for k = 1:length(A)
         j = cols[k]
         if isassigned(X,Int(i),Int(j)) # isassigned accepts only `Int` indices
@@ -1148,7 +1160,8 @@ function print_matrix_row(io::IO,
         end
         l = repeat(" ", A[k][1]-a[1]) # pad on left and right as needed
         r = repeat(" ", A[k][2]-a[2])
-        print(io, l, sx, r)
+        prettysx = replace_in_print_matrix(X,i,j,sx)
+        print(io, l, prettysx, r)
         if k < length(A); print(io, sep); end
     end
 end
@@ -1196,7 +1209,7 @@ function print_matrix(io::IO, X::AbstractVecOrMat,
     if !limit_output(io)
         screenheight = screenwidth = typemax(Int)
     else
-        sz = iosize(io)
+        sz = displaysize(io)
         screenheight, screenwidth = sz[1] - 4, sz[2]
     end
     screenwidth -= length(pre) + length(post)

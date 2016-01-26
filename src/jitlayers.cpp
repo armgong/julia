@@ -156,6 +156,11 @@ extern JL_DLLEXPORT void ORCNotifyObjectEmitted(JITEventListener *Listener,
                                       const object::ObjectFile &debugObj,
                                       const RuntimeDyld::LoadedObjectInfo &L);
 
+#if defined(_OS_DARWIN_) && defined(LLVM37) && defined(LLVM_SHLIB)
+#define CUSTOM_MEMORY_MANAGER 1
+extern RTDyldMemoryManager* createRTDyldMemoryManagerOSX();
+#endif
+
 namespace {
 
 using namespace llvm;
@@ -211,7 +216,11 @@ public:
         auto oit = Objects.begin();
         auto lit = LOS.begin();
         while (oit != Objects.end()) {
+#ifdef LLVM39
+            const auto &Object = (*oit)->getBinary();
+#else
             auto &Object = *oit;
+#endif
             auto &LO = *lit;
 
             OwningBinary<ObjectFile> SavedObject = LO->getObjectForDebug(*Object);
@@ -238,13 +247,6 @@ public:
     }
 };
 
-}
-
-#if defined(_OS_DARWIN_) && defined(LLVM37) && defined(LLVM_SHLIB)
-#define CUSTOM_MEMORY_MANAGER 1
-extern RTDyldMemoryManager* createRTDyldMemoryManagerOSX();
-#endif
-
 class JuliaOJIT {
 public:
     typedef orc::ObjectLinkingLayer<DebugObjectRegistrar> ObjLayerT;
@@ -267,14 +269,10 @@ public:
 #ifdef JL_DEBUG_BUILD
             PM.add(createVerifierPass());
 #endif
-            // In imaging mode, we run the pass manager on creation
-            // to make sure it ends up optimized in the shadow module
-            if (!imaging_mode) {
-                addOptimizationPasses(&PM);
+            addOptimizationPasses(&PM);
 #ifdef JL_DEBUG_BUILD
-                PM.add(createVerifierPass());
+            PM.add(createVerifierPass());
 #endif
-            }
             if (TM.addPassesToEmitMC(PM, Ctx, ObjStream))
                 llvm_unreachable("Target does not support MC emission.");
 
@@ -396,4 +394,6 @@ private:
     std::unique_ptr<CompileLayerT> CompileLayer;
     GlobalSymbolTableT GlobalSymbolTable;
 };
+
+}
 #endif

@@ -35,8 +35,8 @@ type Close1Open2 <: FloatInterval end
         RandomDevice(unlimited::Bool=true) = new(open(unlimited ? "/dev/urandom" : "/dev/random"))
     end
 
-    rand{ T<:Union{Bool, Base.IntTypes...}}(rd::RandomDevice,  ::Type{T})  = read( rd.file, T)
-    rand!{T<:Union{Bool, Base.IntTypes...}}(rd::RandomDevice, A::Array{T}) = read!(rd.file, A)
+    rand{ T<:Union{Bool, Base.BitInteger}}(rd::RandomDevice,  ::Type{T})  = read( rd.file, T)
+    rand!{T<:Union{Bool, Base.BitInteger}}(rd::RandomDevice, A::Array{T}) = read!(rd.file, A)
 end
 
 @windows_only begin
@@ -47,12 +47,12 @@ end
         RandomDevice() = new(Array(UInt128, 1))
     end
 
-    function rand{T<:Union{Bool, Base.IntTypes...}}(rd::RandomDevice, ::Type{T})
+    function rand{T<:Union{Bool, Base.BitInteger}}(rd::RandomDevice, ::Type{T})
         win32_SystemFunction036!(rd.buffer)
         @inbounds return rd.buffer[1] % T
     end
 
-    rand!{T<:Union{Bool, Base.IntTypes...}}(rd::RandomDevice, A::Array{T}) = (win32_SystemFunction036!(A); A)
+    rand!{T<:Union{Bool, Base.BitInteger}}(rd::RandomDevice, A::Array{T}) = (win32_SystemFunction036!(A); A)
 end
 
 rand(rng::RandomDevice, ::Type{Close1Open2}) =
@@ -149,7 +149,7 @@ function make_seed()
         seed = reinterpret(UInt64, time())
         seed = hash(seed, UInt64(getpid()))
         try
-        seed = hash(seed, parse(UInt64, readall(pipeline(`ifconfig`, `sha1sum`))[1:40], 16))
+        seed = hash(seed, parse(UInt64, readstring(pipeline(`ifconfig`, `sha1sum`))[1:40], 16))
         end
         return make_seed(seed)
     end
@@ -168,11 +168,7 @@ function make_seed(n::Integer)
 end
 
 function make_seed(filename::AbstractString, n::Integer)
-    open(filename) do io
-        a = Array(UInt32, Int(n))
-        read!(io, a)
-        a
-    end
+    read!(filename, Array(UInt32, Int(n)))
 end
 
 ## srand()

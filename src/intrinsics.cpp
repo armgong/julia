@@ -61,15 +61,15 @@ static Type *FTnbits(size_t nb)
 {
 #ifndef DISABLE_FLOAT16
     if (nb == 16)
-        return Type::getHalfTy(jl_LLVMContext);
+        return T_float16;
     else
 #endif
     if (nb == 32)
-        return Type::getFloatTy(jl_LLVMContext);
+        return T_float32;
     else if (nb == 64)
-        return Type::getDoubleTy(jl_LLVMContext);
+        return T_float64;
     else if (nb == 128)
-        return Type::getFP128Ty(jl_LLVMContext);
+        return T_float128;
     else
         jl_error("Unsupported Float Size");
 }
@@ -107,7 +107,7 @@ static jl_value_t *JL_JLUINTT(Type *t)
     assert(!t->isIntegerTy());
     if (t == T_float32) return (jl_value_t*)jl_uint32_type;
     if (t == T_float64) return (jl_value_t*)jl_uint64_type;
-    if (t == Type::getHalfTy(jl_LLVMContext)) return (jl_value_t*)jl_uint16_type;
+    if (t == T_float16) return (jl_value_t*)jl_uint16_type;
     assert(t == T_void);
     return jl_bottom_type;
 }
@@ -116,7 +116,7 @@ static jl_value_t *JL_JLSINTT(Type *t)
     assert(!t->isIntegerTy());
     if (t == T_float32) return (jl_value_t*)jl_int32_type;
     if (t == T_float64) return (jl_value_t*)jl_int64_type;
-    if (t == Type::getHalfTy(jl_LLVMContext)) return (jl_value_t*)jl_int16_type;
+    if (t == T_float16) return (jl_value_t*)jl_int16_type;
     assert(t == T_void);
     return jl_bottom_type;
 }
@@ -388,7 +388,7 @@ static Type *staticeval_bitstype(jl_value_t *bt)
 }
 
 // figure out how many bits a bitstype has at compile time
-int get_bitstype_nbits(jl_value_t *bt)
+static int get_bitstype_nbits(jl_value_t *bt)
 {
     assert(jl_is_bitstype(bt));
     if (bt == (jl_value_t*)jl_bool_type)
@@ -863,12 +863,20 @@ struct math_builder {
              jl_options.fast_math == JL_OPTIONS_FAST_MATH_ON)) {
             FastMathFlags fmf;
             fmf.setUnsafeAlgebra();
+#ifdef LLVM38
+            builder.setFastMathFlags(fmf);
+#else
             builder.SetFastMathFlags(fmf);
+#endif
         }
     }
     IRBuilder<>& operator()() const { return builder; }
     ~math_builder() {
+#ifdef LLVM38
+        builder.setFastMathFlags(old_fmf);
+#else
         builder.SetFastMathFlags(old_fmf);
+#endif
     }
 };
 

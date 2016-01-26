@@ -23,7 +23,7 @@ function choosetests(choices = [])
         "bitarray", "copy", "math", "fastmath", "functional",
         "operators", "path", "ccall", "parse", "loading",
         "bigint", "sorting", "statistics", "spawn", "backtrace",
-        "priorityqueue", "file", "mmap", "version", "resolve",
+        "priorityqueue", "file", "read", "mmap", "version", "resolve",
         "pollfd", "mpfr", "broadcast", "complex", "socket",
         "floatapprox", "datafmt", "reflection", "regex", "float16",
         "combinatorics", "sysinfo", "rounding", "ranges", "mod2pi",
@@ -32,7 +32,8 @@ function choosetests(choices = [])
         "nullable", "meta", "profile", "libgit2", "docs", "markdown",
         "base64", "serialize", "functors", "misc", "threads",
         "enums", "cmdlineargs", "i18n", "workspace", "libdl", "int",
-        "checked", "intset", "floatfuncs", "compile", "parallel", "inline"
+        "checked", "intset", "floatfuncs", "compile", "parallel", "inline",
+        "boundscheck"
     ]
 
     if Base.USE_GPL_LIBS

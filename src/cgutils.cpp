@@ -640,8 +640,9 @@ static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, 
 #if defined(USE_MCJIT) || defined(USE_ORCJIT)
     realize_pending_globals();
 #endif
-    //shadow_module->dump();
+#ifdef JL_DEBUG_BUILD
     verifyModule(*shadow_module);
+#endif
 
 #ifdef LLVM36
     std::error_code err;
@@ -701,23 +702,23 @@ static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, 
 #else
     PassManager PM;
 #endif
-    if (!dump_as_bc) {
 #ifndef LLVM37
-        PM.add(new TargetLibraryInfo(Triple(TM->getTargetTriple())));
+    PM.add(new TargetLibraryInfo(Triple(TM->getTargetTriple())));
 #else
-        PM.add(new TargetLibraryInfoWrapperPass(Triple(TM->getTargetTriple())));
+    PM.add(new TargetLibraryInfoWrapperPass(Triple(TM->getTargetTriple())));
 #endif
 #ifdef LLVM37
-    // No DataLayout pass needed anymore.
+// No DataLayout pass needed anymore.
 #elif defined(LLVM36)
-        PM.add(new DataLayoutPass());
+    PM.add(new DataLayoutPass());
 #elif defined(LLVM35)
-        PM.add(new DataLayoutPass(*jl_ExecutionEngine->getDataLayout()));
+    PM.add(new DataLayoutPass(*jl_ExecutionEngine->getDataLayout()));
 #else
-        PM.add(new DataLayout(*jl_ExecutionEngine->getDataLayout()));
+    PM.add(new DataLayout(*jl_ExecutionEngine->getDataLayout()));
 #endif
 
-
+    addOptimizationPasses(&PM);
+    if (!dump_as_bc) {
         if (TM->addPassesToEmitFile(PM, FOS, TargetMachine::CGFT_ObjectFile, false)) {
             jl_error("Could not generate obj file for this target");
         }
@@ -744,9 +745,8 @@ static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, 
     jl_gen_llvm_globaldata(clone, VMap, sysimg_data, sysimg_len);
 
     // do the actual work
-    if (!dump_as_bc)
-        PM.run(*clone);
-    else
+    PM.run(*clone);
+    if (dump_as_bc)
         WriteBitcodeToFile(clone, FOS);
     delete clone;
 }
@@ -923,15 +923,15 @@ JL_DLLEXPORT Type *julia_type_to_llvm(jl_value_t *jt, bool *isboxed)
         if (jl_is_floattype(jt)) {
 #ifndef DISABLE_FLOAT16
             if (nb == 2)
-                return Type::getHalfTy(jl_LLVMContext);
+                return T_float16;
             else
 #endif
             if (nb == 4)
-                return Type::getFloatTy(jl_LLVMContext);
+                return T_float32;
             else if (nb == 8)
-                return Type::getDoubleTy(jl_LLVMContext);
+                return T_float64;
             else if (nb == 16)
-                return Type::getFP128Ty(jl_LLVMContext);
+                return T_float128;
         }
         return Type::getIntNTy(jl_LLVMContext, nb*8);
     }
@@ -1290,12 +1290,26 @@ static void emit_typecheck(const jl_cgval_t &x, jl_value_t *type, const std::str
     builder.SetInsertPoint(passBB);
 }
 
+static bool is_inbounds(jl_codectx_t *ctx)
+{
+    // inbounds rule is either of top two values on inbounds stack are true
+    bool inbounds = !ctx->inbounds.empty() && ctx->inbounds.back();
+    if (ctx->inbounds.size() > 1)
+        inbounds |= ctx->inbounds[ctx->inbounds.size()-2];
+    return inbounds;
+}
+
+static bool is_bounds_check_block(jl_codectx_t *ctx)
+{
+    return !ctx->boundsCheck.empty() && ctx->boundsCheck.back();
+}
+
 #define CHECK_BOUNDS 1
 static Value *emit_bounds_check(const jl_cgval_t &ainfo, jl_value_t *ty, Value *i, Value *len, jl_codectx_t *ctx)
 {
     Value *im1 = builder.CreateSub(i, ConstantInt::get(T_size, 1));
 #if CHECK_BOUNDS==1
-    if (((ctx->boundsCheck.empty() || ctx->boundsCheck.back()==true) &&
+    if ((!is_inbounds(ctx) &&
          jl_options.check_bounds != JL_OPTIONS_CHECK_BOUNDS_OFF) ||
          jl_options.check_bounds == JL_OPTIONS_CHECK_BOUNDS_ON) {
         Value *ok = builder.CreateICmpULT(im1, len);
@@ -1800,7 +1814,7 @@ static Value *emit_array_nd_index(const jl_cgval_t &ainfo, jl_value_t *ex, size_
     Value *i = ConstantInt::get(T_size, 0);
     Value *stride = ConstantInt::get(T_size, 1);
 #if CHECK_BOUNDS==1
-    bool bc = ((ctx->boundsCheck.empty() || ctx->boundsCheck.back()==true) &&
+    bool bc = (!is_inbounds(ctx) &&
                jl_options.check_bounds != JL_OPTIONS_CHECK_BOUNDS_OFF) ||
         jl_options.check_bounds == JL_OPTIONS_CHECK_BOUNDS_ON;
     BasicBlock *failBB=NULL, *endBB=NULL;

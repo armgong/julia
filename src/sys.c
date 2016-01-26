@@ -74,18 +74,29 @@ JL_DLLEXPORT uint32_t jl_getutf8(ios_t *s)
 JL_DLLEXPORT int jl_sizeof_uv_mutex(void) { return sizeof(uv_mutex_t); }
 JL_DLLEXPORT int jl_sizeof_off_t(void) { return sizeof(off_t); }
 #ifndef _OS_WINDOWS_
-JL_DLLEXPORT off_t jl_lseek(int fd, off_t offset, int whence) { return lseek(fd, offset, whence); }
-JL_DLLEXPORT ssize_t jl_pwrite(int fd, const void *buf, size_t count, off_t offset)
+JL_DLLEXPORT int jl_sizeof_mode_t(void) { return sizeof(mode_t); }
+JL_DLLEXPORT int jl_ftruncate(int fd, int64_t length)
 {
-    return pwrite(fd, buf, count, offset);
+    return ftruncate(fd, (off_t)length);
+}
+JL_DLLEXPORT int64_t jl_lseek(int fd, int64_t offset, int whence)
+{
+    return lseek(fd, (off_t)offset, whence);
+}
+JL_DLLEXPORT ssize_t jl_pwrite(int fd, const void *buf, size_t count, int64_t offset)
+{
+    return pwrite(fd, buf, count, (off_t)offset);
 }
 JL_DLLEXPORT void *jl_mmap(void *addr, size_t length, int prot, int flags,
-                        int fd, off_t offset)
+                           int fd, int64_t offset)
 {
-    return mmap(addr, length, prot, flags, fd, offset);
+    return mmap(addr, length, prot, flags, fd, (off_t)offset);
 }
 #else
-JL_DLLEXPORT off_t jl_lseek(int fd, off_t offset, int whence) { return _lseek(fd, offset, whence); }
+JL_DLLEXPORT int64_t jl_lseek(int fd, int64_t offset, int whence)
+{
+    return _lseeki64(fd, offset, whence);
+}
 #endif
 JL_DLLEXPORT int jl_sizeof_ios_t(void) { return sizeof(ios_t); }
 
@@ -270,11 +281,11 @@ JL_DLLEXPORT jl_value_t *jl_readuntil(ios_t *s, uint8_t delim)
 {
     jl_array_t *a;
     // manually inlined common case
-    char *pd = (char*)memchr(s->buf+s->bpos, delim, s->size - s->bpos);
+    char *pd = (char*)memchr(s->buf+s->bpos, delim, (size_t)(s->size - s->bpos));
     if (pd) {
         size_t n = pd-(s->buf+s->bpos)+1;
         a = jl_alloc_array_1d(jl_array_uint8_type, n);
-        memcpy(jl_array_data(a), s->buf+s->bpos, n);
+        memcpy(jl_array_data(a), s->buf + s->bpos, n);
         s->bpos += n;
     }
     else {
@@ -297,22 +308,15 @@ JL_DLLEXPORT jl_value_t *jl_readuntil(ios_t *s, uint8_t delim)
     return (jl_value_t*)a;
 }
 
-static void JL_NORETURN throw_eof_error(void)
-{
-    jl_datatype_t *eof_error = (jl_datatype_t*)jl_get_global(jl_base_module, jl_symbol("EOFError"));
-    assert(eof_error != NULL);
-    jl_exceptionf(eof_error, "");
-}
-
 JL_DLLEXPORT uint64_t jl_ios_get_nbyte_int(ios_t *s, const size_t n)
 {
     assert(n <= 8);
     size_t space, ret;
     do {
-        space = s->size - s->bpos;
+        space = (size_t)(s->size - s->bpos);
         ret = ios_readprep(s, n);
         if (space == ret && ret < n)
-            throw_eof_error();
+            jl_eof_error();
     } while(ret < n);
     uint64_t x = 0;
     uint8_t *buf = (uint8_t*)&s->buf[s->bpos];
@@ -563,14 +567,6 @@ JL_DLLEXPORT jl_value_t *jl_is_char_signed(void)
     return ((char)255) < 0 ? jl_true : jl_false;
 }
 
-JL_DLLEXPORT void jl_field_offsets(jl_datatype_t *dt, ssize_t *offsets)
-{
-    size_t i;
-    for(i=0; i < jl_datatype_nfields(dt); i++) {
-        offsets[i] = jl_field_offset(dt, i);
-    }
-}
-
 // -- misc sysconf info --
 
 #ifdef _OS_WINDOWS_
@@ -620,9 +616,9 @@ JL_DLLEXPORT long jl_SC_CLK_TCK(void)
 
 JL_DLLEXPORT size_t jl_get_field_offset(jl_datatype_t *ty, int field)
 {
-    if (field > jl_datatype_nfields(ty))
-        jl_error("This type does not have that many fields");
-    return jl_field_offset(ty, field);
+    if (field > jl_datatype_nfields(ty) || field < 1)
+        jl_bounds_error_int((jl_value_t*)ty, field);
+    return jl_field_offset(ty, field - 1);
 }
 
 JL_DLLEXPORT size_t jl_get_alignment(jl_datatype_t *ty)

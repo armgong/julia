@@ -755,7 +755,6 @@
               <string>parse</string>
               <string>parsefloat</string>
               <string>parseint</string>
-              <string>parseip</string>
               <string>partitions</string>
               <string>peakflops</string>
               <string>permutations</string>
@@ -843,10 +842,9 @@
               <string>rationalize</string>
               <string>read</string>
               <string>read!</string>
-              <string>readall</string>
+              <string>readstring</string>
               <string>readandwrite</string>
               <string>readavailable</string>
-              <string>readbytes</string>
               <string>readbytes!</string>
               <string>readchomp</string>
               <string>readcsv</string>
@@ -1150,7 +1148,6 @@
               <string>Clonglong</string>
               <string>ClusterManager</string>
               <string>Cmd</string>
-              <string>Coff_t</string>
               <string>Collections</string>
               <string>Colon</string>
               <string>Complex</string>
@@ -1183,7 +1180,6 @@
               <string>FFTW</string>
               <string>Factorization</string>
               <string>FileMonitor</string>
-              <string>FileOffset</string>
               <string>Filter</string>
               <string>FloatRange</string>
               <string>Graphics</string>

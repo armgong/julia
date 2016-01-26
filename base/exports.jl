@@ -58,7 +58,6 @@ export
     Enumerate,
     Factorization,
     FileMonitor,
-    FileOffset,
     Filter,
     FloatRange,
     Future,
@@ -137,7 +136,6 @@ export
     Cintmax_t,
     Clong,
     Clonglong,
-    Coff_t,
     Cptrdiff_t,
     Cshort,
     Csize_t,
@@ -1050,7 +1048,8 @@ export
 
 # types
     convert,
-    fieldoffsets,
+    fieldoffset,
+    fieldname,
     fieldnames,
     isleaftype,
     oftype,
@@ -1123,9 +1122,9 @@ export
 
 # IP address stuff
     @ip_str,
+    IPAddr,
     IPv4,
     IPv6,
-    parseip,
 
 # I/O and events
     accept,
@@ -1146,7 +1145,7 @@ export
     htol,
     hton,
     IOContext,
-    iosize,
+    displaysize,
     ismarked,
     isopen,
     isreadonly,
@@ -1167,10 +1166,9 @@ export
     RawFD,
     read,
     read!,
-    readall,
+    readstring,
     readavailable,
     readbytes!,
-    readbytes,
     readchomp,
     readcsv,
     readdir,
@@ -1335,7 +1333,9 @@ export
     unsafe_copy!,
     unsafe_load,
     unsafe_pointer_to_objref,
+    unsafe_read,
     unsafe_store!,
+    unsafe_write,
 
 # nullable types
     isnull,
