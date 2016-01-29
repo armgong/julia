@@ -105,6 +105,10 @@ for elty in (Float32, Float64, Complex64, Complex128, Int)
         @test eigvecs(Ts) == eigvecs(Fs)
         #call to LAPACK.stein here
         Test.test_approx_eq_modphase(eigvecs(Ts,eigvals(Ts)),eigvecs(Fs))
+    elseif elty != Int
+        # check that undef is determined accurately even if type inference
+        # bails out due to the number of try/catch blocks in this code.
+        @test_throws UndefVarError Fs
     end
 
     # Test det(A::Matrix)
@@ -212,7 +216,7 @@ let n = 12 #Size of matrix problem to test
         @test diag(A,-1) == b
         @test diag(A,0) == a
         @test diag(A,n-1) == zeros(elty,1)
-        @test_throws BoundsError diag(A,n+1)
+        @test_throws ArgumentError diag(A,n+1)
 
         debug && println("Idempotent tests")
         for func in (conj, transpose, ctranspose)
@@ -335,7 +339,7 @@ let n = 12 #Size of matrix problem to test
         @test diag(A,0) == b
         @test diag(A,1) == c
         @test diag(A,n-1) == zeros(elty,1)
-        @test_throws BoundsError diag(A,n+1)
+        @test_throws ArgumentError diag(A,n+1)
 
         debug && println("Simple unary functions")
         for func in (det, inv)

@@ -56,15 +56,6 @@ macro deprecate(old,new)
     end
 end
 
-remove_linenums!(ex) = ex
-function remove_linenums!(ex::Expr)
-    filter!(x->!((isa(x,Expr) && is(x.head,:line)) || isa(x,LineNumberNode)), ex.args)
-    for subex in ex.args
-        remove_linenums!(subex)
-    end
-    ex
-end
-
 function depwarn(msg, funcsym)
     opts = JLOptions()
     if opts.depwarn > 0
@@ -978,6 +969,7 @@ end
     end
     return offsets
 end
+export fieldoffsets
 
 # 14766
 @deprecate write(io::IO, p::Ptr, nb::Integer) unsafe_write(io, p, nb)
