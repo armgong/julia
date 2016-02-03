@@ -426,7 +426,6 @@
               <string>fft</string>
               <string>fft!</string>
               <string>fftshift</string>
-              <string>fieldoffsets</string>
               <string>filemode</string>
               <string>filesize</string>
               <string>fill</string>
@@ -842,10 +841,8 @@
               <string>rationalize</string>
               <string>read</string>
               <string>read!</string>
-              <string>readall</string>
               <string>readandwrite</string>
               <string>readavailable</string>
-              <string>readbytes</string>
               <string>readbytes!</string>
               <string>readchomp</string>
               <string>readcsv</string>
@@ -854,6 +851,7 @@
               <string>readline</string>
               <string>readlines</string>
               <string>readsfrom</string>
+              <string>readstring</string>
               <string>readuntil</string>
               <string>real</string>
               <string>realmax</string>

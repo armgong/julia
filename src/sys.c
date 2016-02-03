@@ -308,13 +308,6 @@ JL_DLLEXPORT jl_value_t *jl_readuntil(ios_t *s, uint8_t delim)
     return (jl_value_t*)a;
 }
 
-static void JL_NORETURN throw_eof_error(void)
-{
-    jl_datatype_t *eof_error = (jl_datatype_t*)jl_get_global(jl_base_module, jl_symbol("EOFError"));
-    assert(eof_error != NULL);
-    jl_exceptionf(eof_error, "");
-}
-
 JL_DLLEXPORT uint64_t jl_ios_get_nbyte_int(ios_t *s, const size_t n)
 {
     assert(n <= 8);
@@ -323,7 +316,7 @@ JL_DLLEXPORT uint64_t jl_ios_get_nbyte_int(ios_t *s, const size_t n)
         space = (size_t)(s->size - s->bpos);
         ret = ios_readprep(s, n);
         if (space == ret && ret < n)
-            throw_eof_error();
+            jl_eof_error();
     } while(ret < n);
     uint64_t x = 0;
     uint8_t *buf = (uint8_t*)&s->buf[s->bpos];
@@ -559,7 +552,7 @@ JL_DLLEXPORT int32_t jl_set_zero_subnormals(int8_t isZero)
 // -- processor native alignment information --
 
 JL_DLLEXPORT void jl_native_alignment(uint_t *int8align, uint_t *int16align, uint_t *int32align,
-                                   uint_t *int64align, uint_t *float32align, uint_t *float64align)
+                                      uint_t *int64align, uint_t *float32align, uint_t *float64align)
 {
     *int8align = __alignof(uint8_t);
     *int16align = __alignof(uint16_t);
@@ -572,14 +565,6 @@ JL_DLLEXPORT void jl_native_alignment(uint_t *int8align, uint_t *int16align, uin
 JL_DLLEXPORT jl_value_t *jl_is_char_signed(void)
 {
     return ((char)255) < 0 ? jl_true : jl_false;
-}
-
-JL_DLLEXPORT void jl_field_offsets(jl_datatype_t *dt, ssize_t *offsets)
-{
-    size_t i;
-    for(i=0; i < jl_datatype_nfields(dt); i++) {
-        offsets[i] = jl_field_offset(dt, i);
-    }
 }
 
 // -- misc sysconf info --
@@ -631,9 +616,9 @@ JL_DLLEXPORT long jl_SC_CLK_TCK(void)
 
 JL_DLLEXPORT size_t jl_get_field_offset(jl_datatype_t *ty, int field)
 {
-    if (field > jl_datatype_nfields(ty))
-        jl_error("This type does not have that many fields");
-    return jl_field_offset(ty, field);
+    if (field > jl_datatype_nfields(ty) || field < 1)
+        jl_bounds_error_int((jl_value_t*)ty, field);
+    return jl_field_offset(ty, field - 1);
 }
 
 JL_DLLEXPORT size_t jl_get_alignment(jl_datatype_t *ty)
@@ -691,8 +676,8 @@ JL_DLLEXPORT const char *jl_pathname_for_handle(void *handle)
 #if __has_feature(memory_sanitizer)
     __msan_unpoison(&map,sizeof(struct link_map*));
     if (map) {
-      __msan_unpoison(map, sizeof(struct link_map));
-      __msan_unpoison_string(map->l_name);
+        __msan_unpoison(map, sizeof(struct link_map));
+        __msan_unpoison_string(map->l_name);
     }
 #endif
 #endif
@@ -735,7 +720,7 @@ JL_DLLEXPORT void jl_raise_debugger(void)
 #endif // _OS_WINDOWS_
 }
 
-JL_DLLEXPORT jl_sym_t* jl_get_OS_NAME(void)
+JL_DLLEXPORT jl_sym_t *jl_get_OS_NAME(void)
 {
 #if defined(_OS_WINDOWS_)
     return jl_symbol("Windows");
@@ -751,9 +736,9 @@ JL_DLLEXPORT jl_sym_t* jl_get_OS_NAME(void)
 #endif
 }
 
-JL_DLLEXPORT jl_sym_t* jl_get_ARCH(void)
+JL_DLLEXPORT jl_sym_t *jl_get_ARCH(void)
 {
-    static jl_sym_t* ARCH = NULL;
+    static jl_sym_t *ARCH = NULL;
     if (!ARCH)
         ARCH = (jl_sym_t*) jl_get_global(jl_base_module, jl_symbol("ARCH"));
     return ARCH;
@@ -780,8 +765,6 @@ JL_DLLEXPORT size_t jl_maxrss(void)
     return (size_t)0;
 #endif
 }
-
-
 
 #ifdef __cplusplus
 }

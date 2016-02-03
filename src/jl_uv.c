@@ -50,7 +50,7 @@ extern "C" {
 extern jl_module_t *jl_old_base_module;
 static jl_value_t *close_cb = NULL;
 
-static void jl_uv_call_close_callback(void *val)
+static void jl_uv_call_close_callback(jl_value_t *val)
 {
     jl_value_t *cb;
     if (!jl_old_base_module) {
@@ -61,8 +61,9 @@ static void jl_uv_call_close_callback(void *val)
     else {
         cb = jl_get_global(jl_base_relative_to(((jl_datatype_t*)jl_typeof(val))->name->module), jl_symbol("_uv_hook_close"));
     }
-    assert(cb && jl_is_function(cb));
-    jl_apply((jl_function_t*)cb, (jl_value_t**)&val, 1);
+    assert(cb);
+    jl_value_t *args[2] = {cb,val};
+    jl_apply(args, 2);
 }
 
 JL_DLLEXPORT void jl_uv_closeHandle(uv_handle_t *handle)
@@ -78,7 +79,7 @@ JL_DLLEXPORT void jl_uv_closeHandle(uv_handle_t *handle)
         JL_STDERR = (JL_STREAM*)STDERR_FILENO;
     // also let the client app do its own cleanup
     if (handle->type != UV_FILE && handle->data)
-        jl_uv_call_close_callback(handle->data);
+        jl_uv_call_close_callback((jl_value_t*)handle->data);
     free(handle);
 }
 
@@ -86,8 +87,8 @@ JL_DLLEXPORT void jl_uv_shutdownCallback(uv_shutdown_t *req, int status)
 {
     /*
      * This happens if the remote machine closes the connecition while we're
-     * in the shutdown request (in that case we call uv_close, thus cancelling this)
-     * request.
+     * in the shutdown request (in that case we call uv_close, thus cancelling
+     * this request).
      */
     if (status != UV__ECANCELED && !uv_is_closing((uv_handle_t*)req->handle)) {
         uv_close((uv_handle_t*)req->handle, &jl_uv_closeHandle);
@@ -243,7 +244,7 @@ JL_DLLEXPORT int jl_spawn(char *name, char **argv, uv_loop_t *loop,
 
 #ifdef _OS_WINDOWS_
 #include <time.h>
-JL_DLLEXPORT struct tm* localtime_r(const time_t *t, struct tm *tm)
+JL_DLLEXPORT struct tm *localtime_r(const time_t *t, struct tm *tm)
 {
     struct tm *tmp = localtime(t); //localtime is reentrant on windows
     if (tmp)
@@ -339,9 +340,14 @@ JL_DLLEXPORT int jl_fs_read_byte(int handle)
     buf[0].len = 1;
     int ret = uv_fs_read(jl_io_loop, &req, handle, buf, 1, -1, NULL);
     uv_fs_req_cleanup(&req);
-    if (ret == -1)
-        return ret;
-    return (int)c;
+    switch (ret) {
+    case -1: return ret;
+    case  0: jl_eof_error();
+    case  1: return (int)c;
+    default:
+        assert(0 && "jl_fs_read_byte: Invalid return value from uv_fs_read");
+        return -1;
+    }
 }
 
 JL_DLLEXPORT int jl_fs_close(int handle)
@@ -513,8 +519,8 @@ JL_DLLEXPORT int jl_tcp_bind6(uv_tcp_t *handle, uint16_t port, void *host,
     return uv_tcp_bind(handle, (struct sockaddr*)&addr, flags);
 }
 
-JL_DLLEXPORT int jl_tcp_getsockname(uv_tcp_t *handle, uint16_t* port,
-                                    void* host, uint32_t* family)
+JL_DLLEXPORT int jl_tcp_getsockname(uv_tcp_t *handle, uint16_t *port,
+                                    void *host, uint32_t *family)
 {
     int namelen;
     struct sockaddr_storage addr;
@@ -523,21 +529,23 @@ JL_DLLEXPORT int jl_tcp_getsockname(uv_tcp_t *handle, uint16_t* port,
     int res = uv_tcp_getsockname(handle, (struct sockaddr*)&addr, &namelen);
     *family = addr.ss_family;
     if (addr.ss_family == AF_INET) {
-        struct sockaddr_in* addr4 = (struct sockaddr_in*)&addr;
+        struct sockaddr_in *addr4 = (struct sockaddr_in*)&addr;
         *port = addr4->sin_port;
         memcpy(host, &(addr4->sin_addr), 4);
-    } else if (addr.ss_family == AF_INET6) {
-        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&addr;
+    }
+    else if (addr.ss_family == AF_INET6) {
+        struct sockaddr_in6 *addr6 = (struct sockaddr_in6*)&addr;
         *port = addr6->sin6_port;
         memcpy(host, &(addr6->sin6_addr), 16);
-    } else {
+    }
+    else {
         return -1;
     }
     return res;
 }
 
-JL_DLLEXPORT int jl_tcp_getpeername(uv_tcp_t *handle, uint16_t* port,
-                                    void* host, uint32_t* family)
+JL_DLLEXPORT int jl_tcp_getpeername(uv_tcp_t *handle, uint16_t *port,
+                                    void *host, uint32_t *family)
 {
     int namelen;
     struct sockaddr_storage addr;
@@ -546,14 +554,16 @@ JL_DLLEXPORT int jl_tcp_getpeername(uv_tcp_t *handle, uint16_t* port,
     int res = uv_tcp_getpeername(handle, (struct sockaddr*)&addr, &namelen);
     *family = addr.ss_family;
     if (addr.ss_family == AF_INET) {
-        struct sockaddr_in* addr4 = (struct sockaddr_in*)&addr;
+        struct sockaddr_in *addr4 = (struct sockaddr_in*)&addr;
         *port = addr4->sin_port;
         memcpy(host, &(addr4->sin_addr), 4);
-    } else if (addr.ss_family == AF_INET6) {
-        struct sockaddr_in6* addr6 = (struct sockaddr_in6*)&addr;
+    }
+    else if (addr.ss_family == AF_INET6) {
+        struct sockaddr_in6 *addr6 = (struct sockaddr_in6*)&addr;
         *port = addr6->sin6_port;
         memcpy(host, &(addr6->sin6_addr), 16);
-    } else {
+    }
+    else {
         return -1;
     }
     return res;
@@ -849,20 +859,21 @@ struct work_baton {
 #include <sys/syscall.h>
 #endif
 
-void jl_work_wrapper(uv_work_t *req) {
+void jl_work_wrapper(uv_work_t *req)
+{
     struct work_baton *baton = (struct work_baton*) req->data;
     baton->work_func(baton->work_args, baton->work_retval);
 }
 
-void jl_work_notifier(uv_work_t *req, int status) {
+void jl_work_notifier(uv_work_t *req, int status)
+{
     struct work_baton *baton = (struct work_baton*) req->data;
     baton->notify_func(baton->notify_idx);
     free(baton);
 }
 
-JL_DLLEXPORT int jl_queue_work(
-    void *work_func, void *work_args, void *work_retval,
-    void *notify_func, int notify_idx)
+JL_DLLEXPORT int jl_queue_work(void *work_func, void *work_args, void *work_retval,
+                               void *notify_func, int notify_idx)
 {
     struct work_baton *baton = (struct work_baton*) malloc(sizeof(struct work_baton));
     baton->req.data = (void*) baton;

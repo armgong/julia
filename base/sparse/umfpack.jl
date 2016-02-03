@@ -33,7 +33,7 @@ function umferror(status::Integer)
     elseif status==UMFPACK_ERROR_argument_missing
         throw(ArgumentError("a required argument to UMFPack is missing"))
     elseif status==UMFPACK_ERROR_n_nonpositive
-        throw(BoundsError("the number of rows or columns of the matrix must be greater than zero"))
+        throw(ArgumentError("the number of rows or columns of the matrix must be greater than zero"))
     elseif status==UMFPACK_ERROR_invalid_matrix
         throw(ArgumentError("invalid matrix"))
     elseif status==UMFPACK_ERROR_different_pattern
@@ -410,7 +410,6 @@ for Tv in (:Float64, :Complex128), Ti in UmfpackIndexTypes
         end
     end
 end
-show_umf_info() = show_umf_info(2.)
 
 function umfpack_report_symbolic(symb::Ptr{Void}, level::Real)
     old_prl::Float64 = umf_ctrl[UMFPACK_PRL]

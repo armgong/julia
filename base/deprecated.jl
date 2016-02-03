@@ -56,15 +56,6 @@ macro deprecate(old,new)
     end
 end
 
-remove_linenums!(ex) = ex
-function remove_linenums!(ex::Expr)
-    filter!(x->!((isa(x,Expr) && is(x.head,:line)) || isa(x,LineNumberNode)), ex.args)
-    for subex in ex.args
-        remove_linenums!(subex)
-    end
-    ex
-end
-
 function depwarn(msg, funcsym)
     opts = JLOptions()
     if opts.depwarn > 0
@@ -85,13 +76,12 @@ function firstcaller(bt::Array{Ptr{Void},1}, funcsym::Symbol)
     # Identify the calling line
     i = 1
     while i <= length(bt)
-        lkup = ccall(:jl_lookup_code_address, Any, (Ptr{Void},Cint), bt[i], true)
+        lkup = StackTraces.lookup(bt[i])
         i += 1
-        if lkup === ()
+        if lkup === StackTraces.UNKNOWN
             continue
         end
-        fname, file, line, inlinedat_file, inlinedat_line, fromC = lkup
-        if fname == funcsym
+        if lkup.func == funcsym
             break
         end
     end
@@ -515,7 +505,13 @@ export float32_isvalid, float64_isvalid
 @deprecate utf32(c::Integer...)   UTF32String(UInt32[c...,0])
 
 # 12087
-@deprecate call(P::Base.DFT.Plan, A) P * A
+@deprecate call(P::Base.DFT.ScaledPlan, A) P * A
+if Base.USE_GPL_LIBS
+    @deprecate call(P::Base.FFTW.DCTPlan, A) P * A
+    @deprecate call(P::Base.FFTW.cFFTWPlan, A) P * A
+    @deprecate call(P::Base.FFTW.rFFTWPlan, A) P * A
+    @deprecate call(P::Base.FFTW.r2rFFTWPlan, A) P * A
+end
 for f in (:plan_fft, :plan_ifft, :plan_bfft, :plan_fft!, :plan_ifft!, :plan_bfft!, :plan_rfft)
     @eval @deprecate $f(A, dims, flags) $f(A, dims; flags=flags)
     @eval @deprecate $f(A, dims, flags, tlim) $f(A, dims; flags=flags, timelimit=tlim)
@@ -961,4 +957,36 @@ macro boundscheck(yesno,blk)
     end
 end
 
+
 @deprecate parseip(str::AbstractString) parse(IPAddr, str)
+
+#https://github.com/JuliaLang/julia/issues/14608
+@deprecate readall readstring
+@deprecate readbytes read
+
+@deprecate field_offset(x::DataType, idx) fieldoffset(x, idx+1)
+@noinline function fieldoffsets(x::DataType)
+    depwarn("fieldoffsets is deprecated. use `map(idx->fieldoffset(x, idx), 1:nfields(x))` instead", :fieldoffsets)
+    nf = nfields(x)
+    offsets = Array(Int, nf)
+    for i = 1:nf
+        offsets[i] = fieldoffset(x, i)
+    end
+    return offsets
+end
+export fieldoffsets
+
+# 14766
+@deprecate write(io::IO, p::Ptr, nb::Integer) unsafe_write(io, p, nb)
+
+@deprecate isgeneric(f) isa(f,Function)
+
+# need to do this manually since the front end deprecates method defs of `call`
+const call = @eval function(f, args...; kw...)
+    $(Expr(:meta, :noinline))
+    depwarn("call(f,args...) is deprecated, use f(args...) instead.", :call)
+    f(args...; kw...)
+end
+export call
+
+@deprecate_binding LambdaStaticData LambdaInfo

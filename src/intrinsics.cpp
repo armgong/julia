@@ -360,8 +360,8 @@ static jl_value_t *staticeval_bitstype(jl_value_t *targ, const char *fname, jl_c
     else {
         JL_TRY { // TODO: change this to an actual call to staticeval rather than actually executing code
             bt = jl_interpret_toplevel_expr_in(ctx->module, targ,
-                                               jl_svec_data(ctx->sp),
-                                               jl_svec_len(ctx->sp)/2);
+                                               ctx->linfo->sparam_syms,
+                                               ctx->linfo->sparam_vals);
         }
         JL_CATCH {
             bt = NULL;
@@ -388,7 +388,7 @@ static Type *staticeval_bitstype(jl_value_t *bt)
 }
 
 // figure out how many bits a bitstype has at compile time
-int get_bitstype_nbits(jl_value_t *bt)
+static int get_bitstype_nbits(jl_value_t *bt)
 {
     assert(jl_is_bitstype(bt));
     if (bt == (jl_value_t*)jl_bool_type)
@@ -881,9 +881,9 @@ struct math_builder {
 };
 
 static Value *emit_untyped_intrinsic(intrinsic f, Value *x, Value *y, Value *z, size_t nargs,
-                                       jl_codectx_t *ctx, jl_datatype_t* *newtyp);
+                                     jl_codectx_t *ctx, jl_datatype_t **newtyp);
 static jl_cgval_t emit_intrinsic(intrinsic f, jl_value_t **args, size_t nargs,
-                                       jl_codectx_t *ctx)
+                                 jl_codectx_t *ctx)
 {
     assert(f < num_intrinsics);
     if (f == fptoui && nargs == 1)
@@ -1122,7 +1122,7 @@ static jl_cgval_t emit_intrinsic(intrinsic f, jl_value_t **args, size_t nargs,
 }
 
 static Value *emit_untyped_intrinsic(intrinsic f, Value *x, Value *y, Value *z, size_t nargs,
-                                       jl_codectx_t *ctx, jl_datatype_t* *newtyp)
+                                       jl_codectx_t *ctx, jl_datatype_t **newtyp)
 {
     Type *t = x->getType();
     Value *fy;

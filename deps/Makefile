@@ -670,12 +670,16 @@ $(eval $(call LLVM_PATCH,llvm-3.7.1))
 else ifeq ($(LLVM_VER),3.7.1)
 $(eval $(call LLVM_PATCH,llvm-3.7.1))
 $(eval $(call LLVM_PATCH,llvm-3.7.1_2))
+$(eval $(call LLVM_PATCH,llvm-3.7.1_3))
 $(LLVM_SRC_DIR)/llvm-3.7.1_2.patch-applied: $(LLVM_SRC_DIR)/llvm-3.7.1.patch-applied
 endif # LLVM_VER
 
 ifeq ($(LLVM_VER),3.7.1)
 ifeq ($(BUILD_LLDB),1)
 $(eval $(call LLVM_PATCH,lldb-3.7.1))
+endif
+ifeq ($(BUILD_LLVM_CLANG),1)
+$(eval $(call LLVM_PATCH,compiler-rt-3.7.1))
 endif
 endif
 
@@ -1705,7 +1709,10 @@ $(SRCDIR)/srccache/libunwind-$(UNWIND_VER).tar.gz: | $(SRCDIR)/srccache
 $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/configure: $(SRCDIR)/srccache/libunwind-$(UNWIND_VER).tar.gz
 	$(JLCHECKSUM) $<
 	cd $(dir $<) && $(TAR) xfz $<
-	cd $(dir $<)/libunwind-$(UNWIND_VER) && patch -p1 < $(SRCDIR)/libunwind.patch
+	cd $(dir $<)/libunwind-$(UNWIND_VER) && \
+	patch -p1 < $(SRCDIR)/libunwind.patch && \
+	patch -p1 < $(SRCDIR)/libunwind-001-invalid-dwarf-opcodes-can-cause-references-beyond.patch && \
+	patch -p1 < $(SRCDIR)/libunwind-aarch64.patch
 	touch -c $@
 $(BUILDDIR)/libunwind-$(UNWIND_VER)/config.status: $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/configure
 	mkdir -p $(dir $@)

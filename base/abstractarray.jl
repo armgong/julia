@@ -222,10 +222,10 @@ function copy!(dest::AbstractArray, doffs::Integer, src)
     doffs < 1 && throw(BoundsError(dest, doffs))
     st = start(src)
     i, dmax = doffs, length(dest)
-    @inbounds while !done(src, st)
+    while !done(src, st)
         i > dmax && throw(BoundsError(dest, i))
         val, st = next(src, st)
-        dest[i] = val
+        @inbounds dest[i] = val
         i += 1
     end
     return dest
@@ -251,10 +251,10 @@ function copy!(dest::AbstractArray, doffs::Integer, src, soffs::Integer)
                                       "expected at least ",soffs,", got ",soffs-1)))
     end
     i, dmax = doffs, length(dest)
-    @inbounds while !dn
+    while !dn
         i > dmax && throw(BoundsError(dest, i))
         val, st = next(src, st)
-        dest[i] = val
+        @inbounds dest[i] = val
         i += 1
         dn = done(src, st)
     end
@@ -280,9 +280,9 @@ function copy!(dest::AbstractArray, doffs::Integer, src, soffs::Integer, n::Inte
         _, st = next(src, st)
     end
     i = doffs
-    @inbounds while i <= dmax && !done(src, st)
+    while i <= dmax && !done(src, st)
         val, st = next(src, st)
-        dest[i] = val
+        @inbounds dest[i] = val
         i += 1
     end
     i <= dmax && throw(BoundsError(dest, i))
@@ -1250,11 +1250,12 @@ end
 function promote_to!{T,F}(f::F, offs, dest::AbstractArray{T}, A::AbstractArray)
     # map to dest array, checking the type of each result. if a result does not
     # match, do a type promotion and re-dispatch.
-    @inbounds for i = offs:length(A)
-        el = f(A[i])
+    for i = offs:length(A)
+        @inbounds Ai = A[i]
+        el = f(Ai)
         S = typeof(el)
         if S === T || S <: T
-            dest[i] = el::T
+            @inbounds dest[i] = el::T
         else
             R = promote_type(T, S)
             if R !== T
@@ -1263,7 +1264,7 @@ function promote_to!{T,F}(f::F, offs, dest::AbstractArray{T}, A::AbstractArray)
                 new[i] = el
                 return promote_to!(f, i+1, new, A)
             end
-            dest[i] = el
+            @inbounds dest[i] = el
         end
     end
     return dest
@@ -1295,20 +1296,23 @@ function map!{F}(f::F, dest::AbstractArray, A::AbstractArray)
     return dest
 end
 
-function map_to!{T,F}(f::F, offs, dest::AbstractArray{T}, A::AbstractArray)
+function map_to!{T,F}(f::F, offs, st, dest::AbstractArray{T}, A::AbstractArray)
     # map to dest array, checking the type of each result. if a result does not
     # match, widen the result type and re-dispatch.
-    @inbounds for i = offs:length(A)
-        el = f(A[i])
+    i = offs
+    while !done(A, st)
+        @inbounds Ai, st = next(A, st)
+        el = f(Ai)
         S = typeof(el)
         if S === T || S <: T
-            dest[i] = el::T
+            @inbounds dest[i] = el::T
+            i += 1
         else
             R = typejoin(T, S)
             new = similar(dest, R)
             copy!(new,1, dest,1, i-1)
-            new[i] = el
-            return map_to!(f, i+1, new, A)
+            @inbounds new[i] = el
+            return map_to!(f, i+1, st, new, A)
         end
     end
     return dest
@@ -1318,10 +1322,12 @@ function map(f, A::AbstractArray)
     if isempty(A)
         return isa(f,Type) ? similar(A,f) : similar(A)
     end
-    first = f(A[1])
+    st = start(A)
+    A1, st = next(A, st)
+    first = f(A1)
     dest = similar(A, typeof(first))
     dest[1] = first
-    return map_to!(f, 2, dest, A)
+    return map_to!(f, 2, st, dest, A)
 end
 
 ## 2 argument
@@ -1333,17 +1339,18 @@ function map!{F}(f::F, dest::AbstractArray, A::AbstractArray, B::AbstractArray)
 end
 
 function map_to!{T,F}(f::F, offs, dest::AbstractArray{T}, A::AbstractArray, B::AbstractArray)
-    @inbounds for i = offs:length(A)
-        el = f(A[i], B[i])
+    for i = offs:length(A)
+        @inbounds Ai, Bi = A[i], B[i]
+        el = f(Ai, Bi)
         S = typeof(el)
         if (S !== T) && !(S <: T)
             R = typejoin(T, S)
             new = similar(dest, R)
             copy!(new,1, dest,1, i-1)
-            new[i] = el
+            @inbounds new[i] = el
             return map_to!(f, i+1, new, A, B)
         end
-        dest[i] = el::T
+        @inbounds dest[i] = el::T
     end
     return dest
 end
@@ -1375,17 +1382,17 @@ end
 map!{F}(f::F, dest::AbstractArray, As::AbstractArray...) = map_n!(f, dest, As)
 
 function map_to_n!{T,F}(f::F, offs, dest::AbstractArray{T}, As)
-    @inbounds for i = offs:length(As[1])
+    for i = offs:length(As[1])
         el = f(ith_all(i, As)...)
         S = typeof(el)
         if (S !== T) && !(S <: T)
             R = typejoin(T, S)
             new = similar(dest, R)
             copy!(new,1, dest,1, i-1)
-            new[i] = el
+            @inbounds new[i] = el
             return map_to_n!(f, i+1, new, As)
         end
-        dest[i] = el::T
+        @inbounds dest[i] = el::T
     end
     return dest
 end

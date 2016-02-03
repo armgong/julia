@@ -232,6 +232,30 @@ create_serialization_stream() do s # slices
     @test deserialize(s) == slc2
 end
 
+# Objects that have a SubArray as a type in a type-parameter list
+module ArrayWrappers
+
+immutable ArrayWrapper{T,N,A<:AbstractArray} <: AbstractArray{T,N}
+    data::A
+end
+Base.size(A::ArrayWrapper) = size(A.data)
+Base.size(A::ArrayWrapper, d) = size(A.data, d)
+Base.getindex(A::ArrayWrapper, i::Real...) = getindex(A.data, i...)
+
+end
+
+let A = rand(3,4)
+    for B in (sub(A, :, 2:4), slice(A, 2, 1:3))
+        C = ArrayWrappers.ArrayWrapper{Float64,2,typeof(B)}(B)
+        io = IOBuffer()
+        serialize(io, C)
+        seek(io, 0)
+        Cd = deserialize(io)
+        @test size(Cd) == size(C)
+        @test Cd == B
+    end
+end
+
 # Function
 serialize_test_function() = 1
 serialize_test_function2 = ()->1
@@ -244,8 +268,8 @@ create_serialization_stream() do s # Base generic function
     seek(s, 0)
     @test deserialize(s) === sin
     @test deserialize(s) === typeof
-    @test deserialize(s) == serialize_test_function
-    @test deserialize(s).code.ast == Base.uncompressed_ast(serialize_test_function2.code)
+    @test deserialize(s)() === 1
+    @test deserialize(s)() === 1
 end
 
 # Task
@@ -256,7 +280,6 @@ create_serialization_stream() do s # user-defined type array
     serialize(s, t)
     seek(s, 0)
     r = deserialize(s)
-    @test r.code.code.ast == Base.uncompressed_ast(f.code)
     @test r.storage[:v] == 2
     @test r.state == :done
     @test r.exception == nothing

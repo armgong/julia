@@ -123,6 +123,26 @@ if @unix? true : (Base.windows_version() >= Base.WINDOWS_VISTA_VER)
     readline(stdout_read)
     readline(stdout_read)
 
+    # Test down arrow to go back to history
+    # populate history with a trivial input
+
+    t = Timer(10) do t
+        isopen(t) || return
+        error("Stuck waiting for history test")
+    end
+    s1 = "12345678"; s2 = "23456789";
+    write(stdin_write, s1, '\n')
+    readuntil(stdout_read, s1)
+    write(stdin_write, s2, '\n')
+    readuntil(stdout_read, s2)
+    # Two up arrow, enter, should get back to 1
+    write(stdin_write, "\e[A\e[A\n")
+    readuntil(stdout_read, s1)
+    # Now, down arrow, enter, should get us back to 2
+    write(stdin_write, "\e[B\n")
+    readuntil(stdout_read, s2)
+    close(t)
+
     # Close REPL ^D
     write(stdin_write, '\x04')
     wait(repltask)
@@ -131,7 +151,7 @@ end
 function buffercontents(buf::IOBuffer)
     p = position(buf)
     seek(buf,0)
-    c = readall(buf)
+    c = readstring(buf)
     seek(buf,p)
     c
 end
@@ -340,6 +360,46 @@ begin
     # Try entering search mode while in custom repl mode
     LineEdit.enter_search(s, custom_histp, true)
 end
+# Simple non-standard REPL tests
+if @unix? true : (Base.windows_version() >= Base.WINDOWS_VISTA_VER)
+    stdin_write, stdout_read, stdout_read, repl = fake_repl()
+    panel = LineEdit.Prompt("test";
+        prompt_prefix="\e[38;5;166m",
+        prompt_suffix=Base.text_colors[:white],
+        on_enter = s->true)
+
+    hp = REPL.REPLHistoryProvider(Dict{Symbol,Any}(:parse => panel))
+    search_prompt, skeymap = LineEdit.setup_prefix_keymap(hp, panel)
+    REPL.history_reset_state(hp)
+
+    panel.hist = hp
+    panel.keymap_dict = LineEdit.keymap(Dict{Any,Any}[skeymap,
+        LineEdit.default_keymap, LineEdit.escape_defaults])
+
+    c = Condition()
+    panel.on_done = (s,buf,ok)->begin
+        if !ok
+            LineEdit.transition(s,:abort)
+        end
+        line = strip(takebuf_string(buf))
+        LineEdit.reset_state(s)
+        return notify(c,line)
+    end
+
+    repltask = @async Base.REPL.run_interface(repl.t, LineEdit.ModalInterface([panel,search_prompt]))
+
+    write(stdin_write,"a\n")
+    @test wait(c) == "a"
+    # Up arrow enter should recall history even at the start
+    write(stdin_write,"\e[A\n")
+    @test wait(c) == "a"
+    # And again
+    write(stdin_write,"\e[A\n")
+    @test wait(c) == "a"
+    # Close REPL ^D
+    write(stdin_write, '\x04')
+    wait(repltask)
+end
 
 ccall(:jl_exit_on_sigint, Void, (Cint,), 1)
 
@@ -387,6 +447,6 @@ end
 if @unix? true : (Base.windows_version() >= Base.WINDOWS_VISTA_VER)
     outs, ins, p = readandwrite(`$exename --startup-file=no --quiet`)
     write(ins,"1\nquit()\n")
-    @test readall(outs) == "1\n"
+    @test readstring(outs) == "1\n"
 end
 end

@@ -142,6 +142,8 @@ Getting Around
 
    If a module or file is *not* safely precompilable, it should call ``__precompile__(false)`` in order to throw an error if Julia attempts to precompile it.
 
+   ``__precompile__()`` should *not* be used in a module unless all of its dependencies are also using ``__precompile__()``\ . Failure to do so can result in a runtime error when loading the module.
+
 .. function:: include(path::AbstractString)
 
    .. Docstring generated from Julia source
@@ -518,15 +520,15 @@ Types
 
    Assign ``x`` to a named field in ``value`` of composite type. The syntax ``a.b = c`` calls ``setfield!(a, :b, c)``\ , and the syntax ``a.(b) = c`` calls ``setfield!(a, b, c)``\ .
 
-.. function:: fieldoffsets(type)
+.. function:: fieldoffset(type, i)
 
    .. Docstring generated from Julia source
 
-   The byte offset of each field of a type relative to the data start. For example, we could use it in the following manner to summarize information about a struct type:
+   The byte offset of field ``i`` of a type relative to the data start. For example, we could use it in the following manner to summarize information about a struct type:
 
    .. doctest::
 
-       julia> structinfo(T) = [zip(fieldoffsets(T),fieldnames(T),T.types)...];
+       julia> structinfo(T) = [(fieldoffset(T,i), fieldname(T,i), fieldtype(T,i)) for i = 1:nfields(T)];
 
        julia> structinfo(StatStruct)
        12-element Array{Tuple{Int64,Symbol,DataType},1}:
@@ -1249,6 +1251,12 @@ Reflection
    .. Docstring generated from Julia source
 
    Get an array of the fields of a ``DataType``\ .
+
+.. function:: fieldname(x::DataType, i)
+
+   .. Docstring generated from Julia source
+
+   Get the name of field ``i`` of a ``DataType``\ .
 
 .. function:: isconst([m::Module], s::Symbol) -> Bool
 

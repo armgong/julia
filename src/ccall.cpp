@@ -1,13 +1,14 @@
 // This file is a part of Julia. License is MIT: http://julialang.org/license
+
 #include "support/hashing.h"
 
 // --- the ccall, cglobal, and llvm intrinsics ---
 
 // keep track of llvmcall declarations
 #if defined(USE_MCJIT) || defined(USE_ORCJIT)
-static std::map<u_int64_t,llvm::GlobalValue*> llvmcallDecls;
+static std::map<uint64_t,llvm::GlobalValue*> llvmcallDecls;
 #else
-static std::set<u_int64_t> llvmcallDecls;
+static std::set<uint64_t> llvmcallDecls;
 #endif
 
 static std::map<std::string, GlobalVariable*> libMapGV;
@@ -141,6 +142,8 @@ static Value *runtime_sym_lookup(PointerType *funcptype, const char *f_lib, cons
 #  else
 #    include "abi_x86.cpp"
 #  endif
+#elif defined _CPU_ARM_
+#  include "abi_arm.cpp"
 #elif defined _CPU_AARCH64_
 #    include "abi_aarch64.cpp"
 #else
@@ -437,8 +440,8 @@ static jl_cgval_t emit_cglobal(jl_value_t **args, size_t nargs, jl_codectx_t *ct
     if (nargs == 2) {
         JL_TRY {
             rt = jl_interpret_toplevel_expr_in(ctx->module, args[2],
-                                               jl_svec_data(ctx->sp),
-                                               jl_svec_len(ctx->sp)/2);
+                                               ctx->linfo->sparam_syms,
+                                               ctx->linfo->sparam_vals);
         }
         JL_CATCH {
             jl_rethrow_with_add("error interpreting cglobal type");
@@ -502,8 +505,8 @@ static jl_cgval_t emit_llvmcall(jl_value_t **args, size_t nargs, jl_codectx_t *c
     {
     JL_TRY {
         at  = jl_interpret_toplevel_expr_in(ctx->module, args[3],
-                                            jl_svec_data(ctx->sp),
-                                            jl_svec_len(ctx->sp)/2);
+                                               ctx->linfo->sparam_syms,
+                                               ctx->linfo->sparam_vals);
     }
     JL_CATCH {
         jl_rethrow_with_add("error interpreting llvmcall argument tuple");
@@ -512,8 +515,8 @@ static jl_cgval_t emit_llvmcall(jl_value_t **args, size_t nargs, jl_codectx_t *c
     {
     JL_TRY {
         rt  = jl_interpret_toplevel_expr_in(ctx->module, args[2],
-                                            jl_svec_data(ctx->sp),
-                                            jl_svec_len(ctx->sp)/2);
+                                               ctx->linfo->sparam_syms,
+                                               ctx->linfo->sparam_vals);
     }
     JL_CATCH {
         jl_rethrow_with_add("error interpreting llvmcall return type");
@@ -522,8 +525,8 @@ static jl_cgval_t emit_llvmcall(jl_value_t **args, size_t nargs, jl_codectx_t *c
     {
     JL_TRY {
         ir  = jl_interpret_toplevel_expr_in(ctx->module, args[1],
-                                            jl_svec_data(ctx->sp),
-                                            jl_svec_len(ctx->sp)/2);
+                                               ctx->linfo->sparam_syms,
+                                               ctx->linfo->sparam_vals);
     }
     JL_CATCH {
         jl_rethrow_with_add("error interpreting IR argument");
@@ -632,7 +635,7 @@ static jl_cgval_t emit_llvmcall(jl_value_t **args, size_t nargs, jl_codectx_t *c
         llvm::raw_string_ostream rtypename(rstring);
         rettype->print(rtypename);
 #if defined(USE_MCJIT) || defined(USE_ORCJIT)
-        std::map<u_int64_t,std::string> localDecls;
+        std::map<uint64_t,std::string> localDecls;
 #endif
 
         if (decl != NULL) {
@@ -641,19 +644,20 @@ static jl_cgval_t emit_llvmcall(jl_value_t **args, size_t nargs, jl_codectx_t *c
             // parse string line by line
             std::string declstr;
             while (std::getline(declarations, declstr, '\n')) {
-                u_int64_t declhash = memhash(declstr.c_str(), declstr.length());
+                uint64_t declhash = memhash(declstr.c_str(), declstr.length());
 #if defined(USE_MCJIT) || defined(USE_ORCJIT)
                 auto it = llvmcallDecls.find(declhash);
                 if (it != llvmcallDecls.end()) {
                     prepare_call(it->second);
-                } else {
+                }
+                else {
 #else
                 if (llvmcallDecls.count(declhash) == 0) {
 #endif
                     // Find name of declaration by searching for '@'
                     std::string::size_type atpos = declstr.find('@') + 1;
                     // Find end of declaration by searching for '('
-                    std::string::size_type bracepos = declstr.find('(');
+                    std::string::size_type bracepos = declstr.find('(', atpos);
                     // Declaration name is the string between @ and (
                     std::string declname = declstr.substr(atpos, bracepos - atpos);
 
@@ -962,11 +966,12 @@ static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
     else {
         JL_TRY {
             rt  = jl_interpret_toplevel_expr_in(ctx->module, args[2],
-                                                jl_svec_data(ctx->sp),
-                                                jl_svec_len(ctx->sp)/2);
+                                               ctx->linfo->sparam_syms,
+                                               ctx->linfo->sparam_vals);
         }
         JL_CATCH {
             static_rt = false;
+            rt = NULL;
             if (jl_is_type_type(rtt_)) {
                 if (jl_subtype(jl_tparam0(rtt_), (jl_value_t*)jl_pointer_type, 0)) {
                     // substitute Ptr{Void} for statically-unknown pointer type
@@ -976,6 +981,24 @@ static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
                     // `Array` used as return type just returns a julia object reference
                     rt = (jl_value_t*)jl_any_type;
                     static_rt = true;
+                }
+            }
+            if (rt == NULL) {
+                if (jl_is_expr(args[2])) {
+                    jl_expr_t *rtexpr = (jl_expr_t*)args[2];
+                    if (rtexpr->head == call_sym && jl_expr_nargs(rtexpr) == 4 &&
+                            static_eval(jl_exprarg(rtexpr, 0), ctx, true, false) == jl_builtin_apply_type &&
+                            static_eval(jl_exprarg(rtexpr, 1), ctx, true, false) == (jl_value_t*)jl_array_type) {
+                        // `Array` used as return type just returns a julia object reference
+                        rt = (jl_value_t*)jl_any_type;
+                        static_rt = true;
+                    }
+                    else if (rtexpr->head == call_sym && jl_expr_nargs(rtexpr) == 3 &&
+                            static_eval(jl_exprarg(rtexpr, 0), ctx, true, false) == jl_builtin_apply_type &&
+                            static_eval(jl_exprarg(rtexpr, 1), ctx, true, false) == (jl_value_t*)jl_pointer_type) {
+                        // substitute Ptr{Void} for statically-unknown pointer type
+                        rt = (jl_value_t*)jl_voidpointer_type;
+                    }
                 }
             }
             if (rt == NULL) {
@@ -1025,9 +1048,9 @@ static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
 
     {
         JL_TRY {
-            at  = jl_interpret_toplevel_expr_in(ctx->module, args[3],
-                                                jl_svec_data(ctx->sp),
-                                                jl_svec_len(ctx->sp)/2);
+            at = jl_interpret_toplevel_expr_in(ctx->module, args[3],
+                                               ctx->linfo->sparam_syms,
+                                               ctx->linfo->sparam_vals);
         }
         JL_CATCH {
             //jl_rethrow_with_add("error interpreting ccall argument tuple");
@@ -1152,8 +1175,7 @@ static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
         assert(nargt == 3);
         jl_value_t *f = static_eval(args[4], ctx, false, false);
         jl_value_t *frt = expr_type(args[6], ctx);
-        if (f && jl_is_function(f) &&
-                (jl_is_type_type((jl_value_t*)frt) && !jl_has_typevars(jl_tparam0(frt)))) {
+        if (f && (jl_is_type_type((jl_value_t*)frt) && !jl_has_typevars(jl_tparam0(frt)))) {
             jl_value_t *fargt = static_eval(args[8], ctx, true, true);
             if (fargt) {
                 if (jl_is_tuple(fargt)) {
@@ -1231,13 +1253,12 @@ static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
             Value *mem = emit_static_alloca(lrt, ctx);
             builder.CreateStore(sret_val.V, mem);
             result = mem;
-            argvals[0] = result;
         }
         else {
             // XXX: result needs a GC root here if result->getType() == T_pjlvalue
             result = sret_val.V;
-            argvals[0] = builder.CreateBitCast(result, fargt_sig.at(0));
         }
+        argvals[0] = builder.CreateBitCast(result, fargt_sig.at(0));
         sretboxed = sret_val.isboxed;
     }
 

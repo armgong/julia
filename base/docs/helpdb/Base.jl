@@ -48,9 +48,9 @@ the same object. `fill!(A, Foo())` will return `A` filled with the result of eva
 fill!
 
 """
-    read!(stream, array::Array)
+    read!(stream or filename, array::Array)
 
-Read binary data from a stream, filling in the argument `array`.
+Read binary data from a stream or file, filling in the argument `array`.
 """
 read!
 
@@ -314,13 +314,6 @@ Compute a "2d histogram" with respect to the bins delimited by the edges given i
 hist2d!
 
 """
-    fieldtype(T, name::Symbol | index::Int)
-
-Determine the declared type of a field (specified by name or index) in a composite DataType `T`.
-"""
-fieldtype
-
-"""
     hypot(x, y)
 
 Compute the ``\\sqrt{x^2+y^2}`` avoiding overflow and underflow.
@@ -452,7 +445,7 @@ the mantissa.
 precision
 
 """
-    readlines(stream)
+    readlines(stream or filename)
 
 Read all lines as an array.
 """
@@ -1018,7 +1011,7 @@ See `rounding` for available rounding modes.
 Float32
 
 """
-    readuntil(stream, delim)
+    readuntil(stream or filename, delim)
 
 Read a string, up to and including the given delimiter byte.
 """
@@ -1969,13 +1962,6 @@ shift in each dimension.
 circshift
 
 """
-    fieldnames(x::DataType)
-
-Get an array of the fields of a `DataType`.
-"""
-fieldnames
-
-"""
     yield()
 
 Switch to the scheduler to allow another scheduled task to run. A task that calls this
@@ -2054,7 +2040,7 @@ open(file_name, mode="r")
 Apply the function `f` to the result of `open(args...)` and close the resulting file
 descriptor upon completion.
 
-**Example**: `open(readall, "file.txt")`
+**Example**: `open(readstring, "file.txt")`
 """
 open(f::Function, args...)
 
@@ -2078,40 +2064,6 @@ sort(A,dim,?,?,?,?)
 Kronecker tensor product of two vectors or two matrices.
 """
 kron
-
-"""
-    >>(x, n)
-
-Right bit shift operator, preserving the sign of `x`.
-"""
-Base.(:(>>))
-
-"""
-    fieldoffsets(type)
-
-The byte offset of each field of a type relative to the data start. For example, we could
-use it in the following manner to summarize information about a struct type:
-
-```jldoctest
-julia> structinfo(T) = [zip(fieldoffsets(T),fieldnames(T),T.types)...];
-
-julia> structinfo(StatStruct)
-12-element Array{Tuple{Int64,Symbol,DataType},1}:
- (0,:device,UInt64)
- (8,:inode,UInt64)
- (16,:mode,UInt64)
- (24,:nlink,Int64)
- (32,:uid,UInt64)
- (40,:gid,UInt64)
- (48,:rdev,UInt64)
- (56,:size,Int64)
- (64,:blksize,Int64)
- (72,:blocks,Int64)
- (80,:mtime,Float64)
- (88,:ctime,Float64)
-```
-"""
-fieldoffsets
 
 """
     randn([rng], [dims...])
@@ -2438,19 +2390,11 @@ the process.
 triu!(M, k)
 
 """
-    readall(stream::IO)
+    readstring(stream or filename)
 
-Read the entire contents of an I/O stream as a string.
+Read the entire contents of an I/O stream or a file as a string.
 """
-readall(stream::IO)
-
-"""
-    readall(filename::AbstractString)
-
-Open `filename`, read the entire contents as a string, then close the file. Equivalent to
-`open(readall, filename)`.
-"""
-readall(filename::AbstractString)
+readstring
 
 """
     poll_file(path, interval_s::Real, timeout_s::Real) -> (previous::StatStruct, current::StatStruct)
@@ -2468,9 +2412,9 @@ it is more reliable and efficient, although in some situations it may not be ava
 poll_file
 
 """
-    eachline(stream)
+    eachline(stream or filename)
 
-Create an iterable object that will yield each line from a stream.
+Create an iterable object that will yield each line.
 """
 eachline
 
@@ -4244,9 +4188,9 @@ Squared absolute value of `x`.
 abs2
 
 """
-    write(stream, x)
+    write(stream or filename, x)
 
-Write the canonical binary representation of a value to the given stream. Returns the number
+Write the canonical binary representation of a value to the given stream or file. Returns the number
 of bytes written into the stream.
 
 You can write multiple values with the same :func:`write` call. i.e. the following are
@@ -6231,13 +6175,6 @@ after the end of the string.
 nextind
 
 """
-    >>>(x, n)
-
-Unsigned right bit shift operator.
-"""
-Base.(:(>>>))
-
-"""
     @timed
 
 A macro to execute an expression, and return the value of the expression, elapsed time,
@@ -6253,13 +6190,6 @@ Prints the native assembly instructions generated for running the method matchin
 generic function and type signature to `STDOUT`.
 """
 code_native
-
-"""
-    isgeneric(f::Function) -> Bool
-
-Determine whether a `Function` is generic.
-"""
-isgeneric
 
 """
     symdiff(s1,s2...)
@@ -6391,7 +6321,7 @@ besselk
 """
     readchomp(x)
 
-Read the entirety of `x` as a string but remove trailing newlines. Equivalent to `chomp(readall(x))`.
+Read the entirety of `x` as a string but remove trailing newlines. Equivalent to `chomp(readstring(x))`.
 """
 readchomp
 
@@ -6436,7 +6366,7 @@ asecd
 Read at most `nb` bytes from the stream into `b`, returning the number of bytes read
 (increasing the size of `b` as needed).
 
-See `readbytes` for a description of the `all` option.
+See `read` for a description of the `all` option.
 """
 readbytes!
 
@@ -6817,32 +6747,6 @@ DomainError
 Test whether a matrix is symmetric.
 """
 issym
-
-"""
-    svds(A; nsv=6, ritzvec=true, tol=0.0, maxiter=1000) -> (left_sv, s, right_sv, nconv, niter, nmult, resid)
-
-`svds` computes largest singular values `s` of `A` using Lanczos or Arnoldi iterations. Uses
-[`eigs`](:func:`eigs`) underneath.
-
-Inputs are:
-
-* `A`: Linear operator. It can either subtype of `AbstractArray` (e.g., sparse matrix) or
-  duck typed. For duck typing `A` has to support `size(A)`, `eltype(A)`, `A * vector` and
-  `A' * vector`.
-* `nsv`: Number of singular values.
-* `ritzvec`: Whether to return the left and right singular vectors `left_sv` and `right_sv`,
-  default is `true`. If `false` the singular vectors are omitted from the output.
-* `tol`: tolerance, see [`eigs`](:func:`eigs`).
-* `maxiter`: Maximum number of iterations, see [`eigs`](:func:`eigs`).
-
-**Example**
-
-```julia
-X = sprand(10, 5, 0.2)
-svds(X, nsv = 2)
-```
-"""
-svds
 
 """
     acosh(x)
@@ -7416,10 +7320,10 @@ Return the supertype of DataType `T`.
 supertype
 
 """
-    readline(stream=STDIN)
+    readline(stream=STDIN or filename)
 
 Read a single line of text, including a trailing newline character (if one is reached before
-the end of the input), from the given `stream` (defaults to `STDIN`),
+the end of the input), from the given stream or file (defaults to `STDIN`),
 """
 readline
 
@@ -7734,13 +7638,6 @@ Register a function `f(x)` to be called when there are no program-accessible ref
 `x`. The behavior of this function is unpredictable if `x` is of a bits type.
 """
 finalizer
-
-"""
-    <<(x, n)
-
-Left bit shift operator.
-"""
-Base.(:(<<))
 
 """
     csch(x)
@@ -8417,8 +8314,9 @@ graphemes
 """
     @__FILE__ -> AbstractString
 
-`@__FILE__` expands to a string with the absolute path and file name of the script being
-run. Returns `nothing` if run from a REPL or an empty string if evaluated by `julia -e <expr>`.
+`@__FILE__` expands to a string with the absolute file path of the file containing the
+macro. Returns `nothing` if run from a REPL or an empty string if evaluated by
+`julia -e <expr>`. Alternatively see [`PROGRAM_FILE`](:data:`PROGRAM_FILE`).
 """
 :@__FILE__
 
@@ -10136,21 +10034,6 @@ no effect outside of compilation.
 include_dependency
 
 """
-    __precompile__(isprecompilable::Bool=true)
-
-Specify whether the file calling this function is precompilable. If `isprecompilable` is
-`true`, then `__precompile__` throws an exception when the file is loaded by
-`using`/`import`/`require` *unless* the file is being precompiled, and in a module file it
-causes the module to be automatically precompiled when it is imported. Typically,
-`__precompile__()` should occur before the `module` declaration in the file, or better yet
-`VERSION >= v"0.4" && __precompile__()` in order to be backward-compatible with Julia 0.3.
-
-If a module or file is *not* safely precompilable, it should call `__precompile__(false)` in
-order to throw an error if Julia attempts to precompile it.
-"""
-__precompile__
-
-"""
     randn!([rng], A::Array{Float64,N})
 
 Fill the array `A` with normally-distributed (mean 0, standard deviation 1) random numbers.
@@ -10253,7 +10136,7 @@ a series of integer arguments.
 cell
 
 """
-    readbytes(stream, nb=typemax(Int); all=true)
+    read(stream, nb=typemax(Int); all=true)
 
 Read at most `nb` bytes from the stream, returning a `Vector{UInt8}` of the bytes read.
 
@@ -10262,7 +10145,7 @@ requested bytes, until an error or end-of-file occurs. If `all` is `false`, at m
 `read` call is performed, and the amount of data returned is device-dependent. Note that not
 all stream types support the `all` option.
 """
-readbytes
+read
 
 """
     eig(A,[irange,][vl,][vu,][permute=true,][scale=true]) -> D, V

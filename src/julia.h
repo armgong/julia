@@ -215,7 +215,7 @@ typedef struct _jl_sym_t {
     JL_DATA_TYPE
     struct _jl_sym_t *left;
     struct _jl_sym_t *right;
-    uptrint_t hash;    // precomputed hash value
+    uintptr_t hash;    // precomputed hash value
     // JL_ATTRIBUTE_ALIGN_PTRSIZE(char name[]);
 } jl_sym_t;
 
@@ -232,29 +232,28 @@ typedef struct {
 } jl_svec_t;
 
 typedef struct {
+    /*
+      how - allocation style
+      0 = data is inlined, or a foreign pointer we don't manage
+      1 = julia-allocated buffer that needs to be marked
+      2 = malloc-allocated pointer this array object manages
+      3 = has a pointer to the Array that owns the data
+    */
+    uint16_t how:2;
+    uint16_t ndims:10;
+    uint16_t pooled:1;
+    uint16_t ptrarray:1;  // representation is pointer array
+    uint16_t isshared:1;  // data is shared by multiple Arrays
+    uint16_t isaligned:1; // data allocated with memalign
+} jl_array_flags_t;
+
+typedef struct {
     JL_DATA_TYPE
     void *data;
 #ifdef STORE_ARRAY_LEN
     size_t length;
 #endif
-    union {
-        struct {
-            /*
-              how - allocation style
-              0 = data is inlined, or a foreign pointer we don't manage
-              1 = julia-allocated buffer that needs to be marked
-              2 = malloc-allocated pointer this array object manages
-              3 = has a pointer to the Array that owns the data
-            */
-            unsigned short how:2;
-            unsigned short ndims:10;
-            unsigned short pooled:1;
-            unsigned short ptrarray:1;  // representation is pointer array
-            unsigned short isshared:1;  // data is shared by multiple Arrays
-            unsigned short isaligned:1; // data allocated with memalign
-        };
-        unsigned short flags;
-    };
+    jl_array_flags_t flags;
     uint16_t elsize;
     uint32_t offset;  // for 1-d only. does not need to get big.
     size_t nrows;
@@ -275,6 +274,7 @@ STATIC_INLINE int jl_array_ndimwords(uint32_t ndims)
 }
 
 typedef jl_value_t *(*jl_fptr_t)(jl_value_t*, jl_value_t**, uint32_t);
+typedef jl_value_t *(*jl_fptr_sparam_t)(jl_svec_t*, jl_value_t*, jl_value_t**, uint32_t);
 
 typedef struct _jl_datatype_t jl_tupletype_t;
 
@@ -295,28 +295,29 @@ typedef struct _jl_lambda_info_t {
     // (different environments) of a closure.
     jl_value_t *ast;
     jl_value_t *rettype;
-    // sparams is a vector (symbol, value, symbol, value, ...)
-    jl_svec_t *sparams;
+    // sparams is a vector of values indexed by symbols
+    jl_svec_t *sparam_syms;
+    jl_svec_t *sparam_vals;
     jl_value_t *tfunc;
     jl_sym_t *name;  // for error reporting
     jl_array_t *roots;  // pointers in generated code
     jl_tupletype_t *specTypes;  // argument types this will be compiled for
     // a slower-but-works version of this function as a fallback
-    struct _jl_function_t *unspecialized;
+    struct _jl_lambda_info_t *unspecialized;
     // array of all lambda infos with code generated from this one
     jl_array_t *specializations;
     struct _jl_module_t *module;
-    struct _jl_lambda_info_t *def;  // original this is specialized from, for consolidating codegen roots
-    jl_value_t *capt;  // captured var info
+    struct _jl_lambda_info_t *def;  // original this is specialized from
     jl_sym_t *file;
     int32_t line;
     int8_t inferred;
     int8_t pure;
+    uint8_t called;  // bit flags: whether each of the first 8 arguments is called
 
     // hidden fields:
-    // flag telling if inference is running on this function
-    // used to avoid infinite recursion
-    uint8_t inInference : 1;
+    uint8_t jlcall_api : 1;     // the c-abi for fptr; 0 = jl_fptr_t, 1 = jl_fptr_sparam_t
+    uint8_t inInference : 1;    // flags to tell if inference is running on this function
+                                // used to avoid infinite recursion
     uint8_t inCompile : 1;
     jl_fptr_t fptr;             // jlcall entry point
 
@@ -330,12 +331,7 @@ typedef struct _jl_lambda_info_t {
     int32_t specFunctionID; // index that this specFunction will have in the codegen table
 } jl_lambda_info_t;
 
-typedef struct _jl_function_t {
-    JL_DATA_TYPE
-    jl_fptr_t fptr;
-    jl_value_t *env;
-    jl_lambda_info_t *linfo;
-} jl_function_t;
+typedef jl_value_t jl_function_t;
 
 typedef struct {
     JL_DATA_TYPE
@@ -355,7 +351,8 @@ typedef struct {
     jl_value_t *primary;
     jl_svec_t *cache;        // sorted array
     jl_svec_t *linearcache;  // unsorted array
-    ptrint_t uid;
+    intptr_t uid;
+    struct _jl_methtable_t *mt;
 } jl_typename_t;
 
 typedef struct {
@@ -440,10 +437,10 @@ typedef struct _jl_module_t {
     struct _jl_module_t *parent;
     htable_t bindings;
     arraylist_t usings;  // modules with all bindings potentially imported
-    jl_function_t *call_func;  // cached lookup of `call` within this module
     uint8_t istopmod;
     uint8_t std_imports;  // only for temporarily deprecating `importall Base.Operators`
     uint64_t uuid;
+    uint32_t counter;
 } jl_module_t;
 
 typedef struct _jl_methlist_t {
@@ -452,7 +449,7 @@ typedef struct _jl_methlist_t {
     int8_t va;
     int8_t isstaged;
     jl_svec_t *tvars;
-    jl_function_t *func;
+    jl_lambda_info_t *func;
     // cache of specializations of this method for invoke(), i.e.
     // cases where this method was called even though it was not necessarily
     // the most specific for the argument types.
@@ -469,8 +466,8 @@ typedef struct _jl_methtable_t {
     jl_methlist_t *cache;
     jl_array_t *cache_arg1;
     jl_array_t *cache_targ;
-    ptrint_t max_args;  // max # of non-vararg arguments in a signature
-    jl_function_t *kwsorter;  // keyword argument sorter function
+    intptr_t max_args;  // max # of non-vararg arguments in a signature
+    jl_value_t *kwsorter;  // keyword argument sorter function
     jl_module_t *module; // used for incremental serialization to locate original binding
 #ifdef JL_GF_PROFILE
     int ncalls;
@@ -505,6 +502,8 @@ extern JL_DLLEXPORT jl_typename_t *jl_ntuple_typename;
 extern JL_DLLEXPORT jl_datatype_t *jl_vararg_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_tvar_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_task_type;
+extern JL_DLLEXPORT jl_datatype_t *jl_function_type;
+extern JL_DLLEXPORT jl_datatype_t *jl_builtin_type;
 
 extern JL_DLLEXPORT jl_datatype_t *jl_uniontype_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_datatype_type;
@@ -512,7 +511,6 @@ extern JL_DLLEXPORT jl_datatype_t *jl_datatype_type;
 extern JL_DLLEXPORT jl_value_t *jl_bottom_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_lambda_info_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_module_type;
-extern JL_DLLEXPORT jl_datatype_t *jl_function_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_abstractarray_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_densearray_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_array_type;
@@ -601,16 +599,16 @@ extern jl_sym_t *null_sym;    extern jl_sym_t *body_sym;
 extern jl_sym_t *method_sym;
 extern jl_sym_t *enter_sym;   extern jl_sym_t *leave_sym;
 extern jl_sym_t *exc_sym;     extern jl_sym_t *new_sym;
-extern jl_sym_t *static_typeof_sym; extern jl_sym_t *kw_sym;
+extern jl_sym_t *static_typeof_sym;
 extern jl_sym_t *const_sym;   extern jl_sym_t *thunk_sym;
 extern jl_sym_t *anonymous_sym;  extern jl_sym_t *underscore_sym;
 extern jl_sym_t *abstracttype_sym; extern jl_sym_t *bitstype_sym;
 extern jl_sym_t *compositetype_sym; extern jl_sym_t *type_goto_sym;
-extern jl_sym_t *global_sym;  extern jl_sym_t *tuple_sym;
+extern jl_sym_t *global_sym; extern jl_sym_t *unused_sym;
 extern jl_sym_t *boundscheck_sym; extern jl_sym_t *inbounds_sym;
 extern jl_sym_t *copyast_sym; extern jl_sym_t *fastmath_sym;
 extern jl_sym_t *pure_sym; extern jl_sym_t *simdloop_sym;
-extern jl_sym_t *meta_sym; extern jl_sym_t *arrow_sym;
+extern jl_sym_t *meta_sym; extern jl_sym_t *list_sym;
 extern jl_sym_t *inert_sym;
 
 // gc -------------------------------------------------------------------------
@@ -701,7 +699,7 @@ STATIC_INLINE void jl_gc_wb_back(void *ptr) // ptr isa jl_value_t*
 
 JL_DLLEXPORT void *jl_gc_managed_malloc(size_t sz);
 JL_DLLEXPORT void *jl_gc_managed_realloc(void *d, size_t sz, size_t oldsz,
-                                         int isaligned, jl_value_t* owner);
+                                         int isaligned, jl_value_t *owner);
 
 // object accessors -----------------------------------------------------------
 
@@ -736,7 +734,7 @@ JL_DLLEXPORT size_t jl_array_len_(jl_array_t *a);
 #define jl_array_dim(a,i) ((&((jl_array_t*)(a))->nrows)[i])
 #define jl_array_dim0(a)  (((jl_array_t*)(a))->nrows)
 #define jl_array_nrows(a) (((jl_array_t*)(a))->nrows)
-#define jl_array_ndims(a) ((int32_t)(((jl_array_t*)a)->ndims))
+#define jl_array_ndims(a) ((int32_t)(((jl_array_t*)a)->flags.ndims))
 #define jl_array_data_owner_offset(ndims) (offsetof(jl_array_t,ncols) + sizeof(size_t)*(1+jl_array_ndimwords(ndims))) // in bytes
 #define jl_array_data_owner(a) (*((jl_value_t**)((char*)a + jl_array_data_owner_offset(jl_array_ndims(a)))))
 
@@ -750,7 +748,7 @@ STATIC_INLINE jl_value_t *jl_cellset(void *a, size_t i, void *x)
     assert(i < jl_array_len(a));
     ((jl_value_t**)(jl_array_data(a)))[i] = (jl_value_t*)x;
     if (x) {
-        if (((jl_array_t*)a)->how == 3) {
+        if (((jl_array_t*)a)->flags.how == 3) {
             a = jl_array_data_owner(a);
         }
         jl_gc_wb(a, x);
@@ -769,9 +767,9 @@ STATIC_INLINE jl_value_t *jl_cellset(void *a, size_t i, void *x)
 #define jl_symbolnode_sym(s) (*(jl_sym_t**)s)
 #define jl_symbolnode_type(s) (((jl_value_t**)s)[1])
 #define jl_linenode_file(x) (*(jl_sym_t**)x)
-#define jl_linenode_line(x) (((ptrint_t*)x)[1])
-#define jl_labelnode_label(x) (((ptrint_t*)x)[0])
-#define jl_gotonode_label(x) (((ptrint_t*)x)[0])
+#define jl_linenode_line(x) (((intptr_t*)x)[1])
+#define jl_labelnode_label(x) (((intptr_t*)x)[0])
+#define jl_gotonode_label(x) (((intptr_t*)x)[0])
 #define jl_globalref_mod(s) (*(jl_module_t**)s)
 #define jl_globalref_name(s) (((jl_sym_t**)s)[1])
 
@@ -788,7 +786,7 @@ STATIC_INLINE jl_value_t *jl_cellset(void *a, size_t i, void *x)
 #define jl_string_len(s)  (jl_array_len((jl_array_t*)(jl_data_ptr(s)[0])))
 #define jl_iostr_data(s)  ((char*)((jl_array_t*)jl_data_ptr(s)[0])->data)
 
-#define jl_gf_mtable(f) ((jl_methtable_t*)((jl_function_t*)(f))->env)
+#define jl_gf_mtable(f) (((jl_datatype_t*)jl_typeof(f))->name->mt)
 #define jl_gf_name(f)   (jl_gf_mtable(f)->name)
 
 // struct type info
@@ -896,14 +894,11 @@ static inline uint32_t jl_fielddesc_size(int8_t fielddesc_type)
 #define jl_is_module(v)      jl_typeis(v,jl_module_type)
 #define jl_is_mtable(v)      jl_typeis(v,jl_methtable_type)
 #define jl_is_task(v)        jl_typeis(v,jl_task_type)
-#define jl_is_func(v)        jl_typeis(v,jl_function_type)
-#define jl_is_function(v)    jl_is_func(v)
 #define jl_is_ascii_string(v) jl_typeis(v,jl_ascii_string_type)
 #define jl_is_utf8_string(v) jl_typeis(v,jl_utf8_string_type)
 #define jl_is_byte_string(v) (jl_is_ascii_string(v) || jl_is_utf8_string(v))
 #define jl_is_cpointer(v)    jl_is_cpointer_type(jl_typeof(v))
 #define jl_is_pointer(v)     jl_is_cpointer_type(jl_typeof(v))
-#define jl_is_gf(f)          (((jl_function_t*)(f))->fptr==jl_apply_generic)
 
 STATIC_INLINE int jl_is_bitstype(void *v)
 {
@@ -1007,7 +1002,7 @@ STATIC_INLINE int jl_is_type_type(jl_value_t *v)
 
 // object identity
 JL_DLLEXPORT int jl_egal(jl_value_t *a, jl_value_t *b);
-JL_DLLEXPORT uptrint_t jl_object_id(jl_value_t *v);
+JL_DLLEXPORT uintptr_t jl_object_id(jl_value_t *v);
 
 // type predicates and basic operations
 JL_DLLEXPORT int jl_is_leaf_type(jl_value_t *v);
@@ -1047,6 +1042,7 @@ JL_DLLEXPORT jl_value_t *jl_new_struct_uninit(jl_datatype_t *type);
 JL_DLLEXPORT jl_function_t *jl_new_closure(jl_fptr_t proc, jl_value_t *env,
                                            jl_lambda_info_t *li);
 JL_DLLEXPORT jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast,
+                                                  jl_svec_t *tvars,
                                                   jl_svec_t *sparams,
                                                   jl_module_t *ctx);
 JL_DLLEXPORT jl_svec_t *jl_svec(size_t n, ...);
@@ -1054,7 +1050,6 @@ JL_DLLEXPORT jl_svec_t *jl_svec1(void *a);
 JL_DLLEXPORT jl_svec_t *jl_svec2(void *a, void *b);
 JL_DLLEXPORT jl_svec_t *jl_alloc_svec(size_t n);
 JL_DLLEXPORT jl_svec_t *jl_alloc_svec_uninit(size_t n);
-JL_DLLEXPORT jl_svec_t *jl_svec_append(jl_svec_t *a, jl_svec_t *b);
 JL_DLLEXPORT jl_svec_t *jl_svec_copy(jl_svec_t *a);
 JL_DLLEXPORT jl_svec_t *jl_svec_fill(size_t n, jl_value_t *x);
 JL_DLLEXPORT jl_value_t *jl_tupletype_fill(size_t n, jl_value_t *v);
@@ -1067,11 +1062,10 @@ JL_DLLEXPORT jl_sym_t *jl_get_root_symbol(void);
 JL_DLLEXPORT jl_value_t *jl_generic_function_def(jl_sym_t *name, jl_value_t **bp,
                                                  jl_value_t *bp_owner,
                                                  jl_binding_t *bnd);
-JL_DLLEXPORT jl_value_t *jl_method_def(jl_sym_t *name, jl_value_t **bp,
-                                       jl_value_t *bp_owner, jl_binding_t *bnd,
-                                       jl_svec_t *argtypes, jl_function_t *f,
-                                       jl_value_t *isstaged,
-                                       jl_value_t *call_func, int iskw);
+JL_DLLEXPORT jl_function_t *jl_new_generic_function(jl_sym_t *name, jl_module_t *module);
+JL_DLLEXPORT jl_function_t *jl_new_generic_function_with_supertype(jl_sym_t *name, jl_module_t *module, jl_datatype_t *st, int iskw);
+JL_DLLEXPORT void jl_method_def(jl_svec_t *argdata, jl_lambda_info_t *f, jl_value_t *isstaged);
+JL_DLLEXPORT jl_function_t *jl_get_kwsorter(jl_typename_t *tn);
 JL_DLLEXPORT jl_value_t *jl_box_bool(int8_t x);
 JL_DLLEXPORT jl_value_t *jl_box_int8(int8_t x);
 JL_DLLEXPORT jl_value_t *jl_box_uint8(uint8_t x);
@@ -1175,7 +1169,7 @@ extern JL_DLLEXPORT jl_module_t *jl_internal_main_module;
 extern JL_DLLEXPORT jl_module_t *jl_core_module;
 extern JL_DLLEXPORT jl_module_t *jl_base_module;
 extern JL_DLLEXPORT jl_module_t *jl_top_module;
-extern JL_DLLEXPORT jl_module_t *jl_current_module;
+#define jl_current_module (jl_get_ptls_states()->current_module)
 JL_DLLEXPORT jl_module_t *jl_new_module(jl_sym_t *name);
 // get binding for reading
 JL_DLLEXPORT jl_binding_t *jl_get_binding(jl_module_t *m, jl_sym_t *var);
@@ -1208,6 +1202,7 @@ STATIC_INLINE jl_function_t *jl_get_function(jl_module_t *m, const char *name)
     return (jl_function_t*)jl_get_global(m, jl_symbol(name));
 }
 JL_DLLEXPORT void jl_module_run_initializer(jl_module_t *m);
+int jl_is_submodule(jl_module_t *child, jl_module_t *parent);
 
 // eq hash tables
 JL_DLLEXPORT jl_array_t *jl_eqtable_put(jl_array_t *h, void *key, void *val);
@@ -1222,8 +1217,8 @@ JL_DLLEXPORT int jl_cpu_cores(void);
 JL_DLLEXPORT long jl_getpagesize(void);
 JL_DLLEXPORT long jl_getallocationgranularity(void);
 JL_DLLEXPORT int jl_is_debugbuild(void);
-JL_DLLEXPORT jl_sym_t* jl_get_OS_NAME(void);
-JL_DLLEXPORT jl_sym_t* jl_get_ARCH(void);
+JL_DLLEXPORT jl_sym_t *jl_get_OS_NAME(void);
+JL_DLLEXPORT jl_sym_t *jl_get_ARCH(void);
 
 // environment entries
 JL_DLLEXPORT jl_value_t *jl_environ(int i);
@@ -1250,6 +1245,7 @@ JL_DLLEXPORT void JL_NORETURN jl_bounds_error_tuple_int(jl_value_t **v,
                                                         size_t nv, size_t i);
 JL_DLLEXPORT void JL_NORETURN jl_bounds_error_unboxed_int(void *v, jl_value_t *vt, size_t i);
 JL_DLLEXPORT void JL_NORETURN jl_bounds_error_ints(jl_value_t *v, size_t *idxs, size_t nidxs);
+JL_DLLEXPORT void JL_NORETURN jl_eof_error(void);
 JL_DLLEXPORT jl_value_t *jl_exception_occurred(void);
 JL_DLLEXPORT void jl_exception_clear(void);
 
@@ -1289,10 +1285,9 @@ JL_DLLEXPORT ios_t *jl_create_system_image(void);
 JL_DLLEXPORT void jl_save_system_image(const char *fname);
 JL_DLLEXPORT void jl_restore_system_image(const char *fname);
 JL_DLLEXPORT void jl_restore_system_image_data(const char *buf, size_t len);
-JL_DLLEXPORT int jl_save_incremental(const char *fname, jl_array_t* worklist);
+JL_DLLEXPORT int jl_save_incremental(const char *fname, jl_array_t *worklist);
 JL_DLLEXPORT jl_value_t *jl_restore_incremental(const char *fname);
-JL_DLLEXPORT jl_value_t *jl_restore_incremental_from_buf(const char *buf,
-                                                         size_t sz);
+JL_DLLEXPORT jl_value_t *jl_restore_incremental_from_buf(const char *buf, size_t sz);
 
 // front end interface
 JL_DLLEXPORT jl_value_t *jl_parse_input_line(const char *str, size_t len);
@@ -1321,10 +1316,8 @@ enum JL_RTLD_CONSTANT {
 #define JL_RTLD_DEFAULT (JL_RTLD_LAZY | JL_RTLD_DEEPBIND)
 
 typedef void *jl_uv_libhandle; // compatible with dlopen (void*) / LoadLibrary (HMODULE)
-JL_DLLEXPORT jl_uv_libhandle jl_load_dynamic_library(const char *fname,
-                                                     unsigned flags);
-JL_DLLEXPORT jl_uv_libhandle jl_load_dynamic_library_e(const char *fname,
-                                                       unsigned flags);
+JL_DLLEXPORT jl_uv_libhandle jl_load_dynamic_library(const char *fname, unsigned flags);
+JL_DLLEXPORT jl_uv_libhandle jl_load_dynamic_library_e(const char *fname, unsigned flags);
 JL_DLLEXPORT jl_uv_libhandle jl_dlopen(const char *filename, unsigned flags);
 JL_DLLEXPORT int jl_dlclose(jl_uv_libhandle handle);
 JL_DLLEXPORT void *jl_dlsym_e(jl_uv_libhandle handle, const char *symbol);
@@ -1342,14 +1335,14 @@ JL_DLLEXPORT jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex
 JL_DLLEXPORT jl_value_t *jl_load(const char *fname, size_t len);
 JL_DLLEXPORT jl_value_t *jl_interpret_toplevel_expr_in(jl_module_t *m,
                                                        jl_value_t *e,
-                                                       jl_value_t **locals,
-                                                       size_t nl);
+                                                       jl_svec_t *local_syms,
+                                                       jl_svec_t *local_vals);
 JL_DLLEXPORT jl_module_t *jl_base_relative_to(jl_module_t *m);
 
 // AST access
 JL_DLLEXPORT int jl_is_rest_arg(jl_value_t *ex);
 
-JL_DLLEXPORT jl_value_t *jl_prepare_ast(jl_lambda_info_t *li, jl_svec_t *sparams);
+JL_DLLEXPORT jl_value_t *jl_prepare_ast(jl_lambda_info_t *li);
 JL_DLLEXPORT jl_value_t *jl_copy_ast(jl_value_t *expr);
 
 JL_DLLEXPORT jl_value_t *jl_compress_ast(jl_lambda_info_t *li, jl_value_t *ast);
@@ -1358,19 +1351,9 @@ JL_DLLEXPORT jl_value_t *jl_uncompress_ast(jl_lambda_info_t *li, jl_value_t *dat
 JL_DLLEXPORT int jl_is_operator(char *sym);
 JL_DLLEXPORT int jl_operator_precedence(char *sym);
 
-STATIC_INLINE int jl_vinfo_capt(jl_array_t *vi)
-{
-    return (jl_unbox_long(jl_cellref(vi,2))&1)!=0;
-}
-
 STATIC_INLINE int jl_vinfo_assigned(jl_array_t *vi)
 {
     return (jl_unbox_long(jl_cellref(vi,2))&2)!=0;
-}
-
-STATIC_INLINE int jl_vinfo_assigned_inner(jl_array_t *vi)
-{
-    return (jl_unbox_long(jl_cellref(vi,2))&4)!=0;
 }
 
 STATIC_INLINE int jl_vinfo_sa(jl_array_t *vi)
@@ -1385,10 +1368,12 @@ STATIC_INLINE int jl_vinfo_usedundef(jl_array_t *vi)
 
 // calling into julia ---------------------------------------------------------
 
+JL_DLLEXPORT jl_value_t *jl_apply_generic(jl_value_t **args, uint32_t nargs);
+
 STATIC_INLINE
-jl_value_t *jl_apply(jl_function_t *f, jl_value_t **args, uint32_t nargs)
+jl_value_t *jl_apply(jl_value_t **args, uint32_t nargs)
 {
-    return f->fptr((jl_value_t*)f, args, nargs);
+    return jl_apply_generic(args, nargs);
 }
 
 JL_DLLEXPORT jl_value_t *jl_call(jl_function_t *f, jl_value_t **args, int32_t nargs);
@@ -1484,6 +1469,7 @@ typedef struct _jl_tls_states_t {
     volatile int8_t in_finalizer;
     int8_t disable_gc;
     struct _jl_thread_heap_t *heap;
+    jl_module_t *current_module;
     jl_task_t *volatile current_task;
     jl_task_t *root_task;
     jl_value_t *volatile task_arg_in_transit;
@@ -1495,7 +1481,7 @@ typedef struct _jl_tls_states_t {
     int8_t in_jl_;
     int16_t tid;
     size_t bt_size;
-    ptrint_t bt_data[JL_MAX_BT_SIZE + 1];
+    intptr_t bt_data[JL_MAX_BT_SIZE + 1];
 } jl_tls_states_t;
 
 typedef struct {
@@ -1519,23 +1505,17 @@ JL_DLLEXPORT JL_CONST_FUNC jl_tls_states_t *(jl_get_ptls_states)(void);
 #ifndef JULIA_ENABLE_THREADING
 extern JL_DLLEXPORT jl_tls_states_t jl_tls_states;
 #define jl_get_ptls_states() (&jl_tls_states)
+#define jl_gc_state() ((int8_t)0)
 STATIC_INLINE int8_t jl_gc_state_set(int8_t state, int8_t old_state)
 {
     (void)state;
     return old_state;
 }
-STATIC_INLINE int8_t jl_gc_state_save_and_set(int8_t state)
-{
-    (void)state;
-    return 0;
-}
-#define jl_gc_unsafe_enter() jl_gc_state_save_and_set(0)
-#define jl_gc_unsafe_leave(state) ((void)state)
-#define jl_gc_safe_enter() jl_gc_state_save_and_set(JL_GC_STATE_SAFE)
-#define jl_gc_safe_leave(state) ((void)state)
 #else // ifndef JULIA_ENABLE_THREADING
 typedef jl_tls_states_t *(*jl_get_ptls_states_func)(void);
 JL_DLLEXPORT void jl_set_ptls_states_getter(jl_get_ptls_states_func f);
+// Make sure jl_gc_state() is always a rvalue
+#define jl_gc_state() ((int8_t)(jl_get_ptls_states()->gc_state))
 STATIC_INLINE int8_t jl_gc_state_set(int8_t state, int8_t old_state)
 {
     jl_get_ptls_states()->gc_state = state;
@@ -1545,14 +1525,6 @@ STATIC_INLINE int8_t jl_gc_state_set(int8_t state, int8_t old_state)
         jl_gc_safepoint();
     return old_state;
 }
-STATIC_INLINE int8_t jl_gc_state_save_and_set(int8_t state)
-{
-    return jl_gc_state_set(state, jl_get_ptls_states()->gc_state);
-}
-#define jl_gc_unsafe_enter() jl_gc_state_save_and_set(0)
-#define jl_gc_unsafe_leave(state) jl_gc_state_set((state), 0)
-#define jl_gc_safe_enter() jl_gc_state_save_and_set(JL_GC_STATE_SAFE)
-#define jl_gc_safe_leave(state) jl_gc_state_set((state), JL_GC_STATE_SAFE)
 STATIC_INLINE void jl_lock_frame_push(void (*unlock_func)(void))
 {
     // For early bootstrap
@@ -1569,6 +1541,14 @@ STATIC_INLINE void jl_lock_frame_push(void (*unlock_func)(void))
     locks->items[len] = (void*)unlock_func;
 }
 #endif // ifndef JULIA_ENABLE_THREADING
+STATIC_INLINE int8_t jl_gc_state_save_and_set(int8_t state)
+{
+    return jl_gc_state_set(state, jl_gc_state());
+}
+#define jl_gc_unsafe_enter() jl_gc_state_save_and_set(0)
+#define jl_gc_unsafe_leave(state) ((void)jl_gc_state_set((state), 0))
+#define jl_gc_safe_enter() jl_gc_state_save_and_set(JL_GC_STATE_SAFE)
+#define jl_gc_safe_leave(state) ((void)jl_gc_state_set((state), JL_GC_STATE_SAFE))
 
 STATIC_INLINE void jl_eh_restore_state(jl_handler_t *eh)
 {
@@ -1786,7 +1766,7 @@ JL_DLLEXPORT extern int jl_ver_major(void);
 JL_DLLEXPORT extern int jl_ver_minor(void);
 JL_DLLEXPORT extern int jl_ver_patch(void);
 JL_DLLEXPORT extern int jl_ver_is_release(void);
-JL_DLLEXPORT extern const char* jl_ver_string(void);
+JL_DLLEXPORT extern const char *jl_ver_string(void);
 JL_DLLEXPORT const char *jl_git_branch(void);
 JL_DLLEXPORT const char *jl_git_commit(void);
 

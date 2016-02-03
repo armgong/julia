@@ -319,15 +319,17 @@ function fooo_3()
     y
 end
 @test fooo_3() === 100
-function foo()
-    local x::Int8
-    function bar()
-        x = 100
-    end
+let
+    function foo()
+        local x::Int8
+        function bar()
+            x = 100
+        end
     bar()
-    x
+        x
+    end
+    @test foo() === convert(Int8,100)
 end
-@test foo() === convert(Int8,100)
 
 function bar{T}(x::T)
     local z::Complex{T}
@@ -421,14 +423,14 @@ glotest()
 # issue #7234
 begin
     glob_x2 = 24
-    f7234() = (glob_x2 += 1)
+    f7234_a() = (glob_x2 += 1)
 end
-@test_throws UndefVarError f7234()
+@test_throws UndefVarError f7234_a()
 begin
     global glob_x2 = 24
-    f7234() = (glob_x2 += 1)
+    f7234_b() = (glob_x2 += 1)
 end
-@test_throws UndefVarError f7234()
+@test_throws UndefVarError f7234_b()
 # existing globals can be inherited by non-function blocks
 for i = 1:2
     glob_x2 += 1
@@ -689,7 +691,7 @@ let A = [1]
 end
 
 # Module() constructor
-@test names(Module(:anonymous), true, true) != [:anonymous]
+@test names(Module(:anonymous), true, true) == [:anonymous]
 @test names(Module(:anonymous, false), true, true) == [:anonymous]
 
 # exception from __init__()
@@ -810,8 +812,7 @@ let
     local my_func, a, c
     my_func{T}(P::Vector{T}, Q::Vector{T}) = 0
     my_func{T}(x::T, P::Vector{T}) = 1
-    # todo: this gives an ambiguity warning
-    #my_func{T}(P::Vector{T}, x::T) = 2
+    my_func{T}(P::Vector{T}, x::T) = 2
     a = Int[3]
     c = Vector[a]
 
@@ -1233,14 +1234,15 @@ end
 @test isa(foo4075(Foo4075(Int64(1),2.0),:y), Float64)
 
 # issue #3167
-function foo(x)
-    ret=Array(typeof(x[1]), length(x))
-    for j = 1:length(x)
-        ret[j] = x[j]
+let
+    function foo(x)
+        ret=Array(typeof(x[1]), length(x))
+        for j = 1:length(x)
+            ret[j] = x[j]
+        end
+        return ret
     end
-    return ret
-end
-let x = Array(Union{Dict{Int64,AbstractString},Array{Int64,3},Number,AbstractString,Void}, 3)
+    x = Array(Union{Dict{Int64,AbstractString},Array{Int64,3},Number,AbstractString,Void}, 3)
     x[1] = 1.0
     x[2] = 2.0
     x[3] = 3.0
@@ -2081,7 +2083,7 @@ let ex = Expr(:(=), :(f8338(x;y=4)), :(x*y))
 end
 
 # call overloading (#2403)
-Base.call(x::Int, y::Int) = x + 3y
+(x::Int)(y::Int) = x + 3y
 issue2403func(f) = f(7)
 let x = 10
     @test x(3) == 19
@@ -2091,7 +2093,7 @@ end
 type Issue2403
     x
 end
-Base.call(i::Issue2403, y) = i.x + 2y
+(i::Issue2403)(y) = i.x + 2y
 let x = Issue2403(20)
     @test x(3) == 26
     @test issue2403func(x) == 34
@@ -2184,10 +2186,10 @@ call_lambda1() = (()->x)(1)
 call_lambda2() = ((x)->x)()
 call_lambda3() = ((x)->x)(1,2)
 call_lambda4() = ((x,y...)->x)()
-@test (try call_lambda1(); false; catch e; (e::ErrorException).msg; end) == "wrong number of arguments"
-@test (try call_lambda2(); false; catch e; (e::ErrorException).msg; end) == "wrong number of arguments"
-@test (try call_lambda3(); false; catch e; (e::ErrorException).msg; end) == "wrong number of arguments"
-@test (try call_lambda4(); false; catch e; (e::ErrorException).msg; end) == "too few arguments"
+@test_throws MethodError call_lambda1()
+@test_throws MethodError call_lambda2()
+@test_throws MethodError call_lambda3()
+@test_throws MethodError call_lambda4()
 call_lambda5() = ((x...)->x)()
 call_lambda6() = ((x...)->x)(1)
 call_lambda7() = ((x...)->x)(1,2)
@@ -2205,12 +2207,13 @@ let x = [1,2,3]
 end
 
 # sig 2 is SIGINT per the POSIX.1-1990 standard
-if Base.is_unix(OS_NAME)
+@unix_only begin
     ccall(:jl_exit_on_sigint, Void, (Cint,), 0)
     @test_throws InterruptException begin
         #ccall(:raise, Void, (Cint,), 2) # llvm installs a custom version on Darwin that resolves to pthread_kill(pthread_self(), sig), which isn't what we want
+        Libc.systemsleep(0.1)
         ccall(:kill, Void, (Cint, Cint,), getpid(), 2)
-        Libc.systemsleep(0.1) # wait for SIGINT to arrive
+        Libc.systemsleep(0.2) # wait for SIGINT to arrive
     end
     ccall(:jl_exit_on_sigint, Void, (Cint,), 1)
 end
@@ -2377,13 +2380,13 @@ type newtype10373
 end
 let f
     for f in (f10373,g10373)
-        f(x::newtype10373) = println("$f")
+        (::typeof(f))(x::newtype10373) = println("$f")
     end
 end
-@test f10373.env.defs.func.code.name == :f10373
-@test f10373.env.defs.next.func.code.name == :f10373
-@test g10373.env.defs.func.code.name == :g10373
-@test g10373.env.defs.next.func.code.name == :g10373
+@test methods(f10373).defs.func.name == :f10373
+@test methods(f10373).defs.next.func.name == :f10373
+@test methods(g10373).defs.func.name == :g10373
+@test methods(g10373).defs.next.func.name == :g10373
 
 # issue #7221
 f7221{T<:Number}(::T) = 1
@@ -2993,7 +2996,7 @@ end
 
 # issue #8283
 function func8283 end
-@test isa(func8283,Function) && isgeneric(func8283)
+@test isa(func8283,Function)
 @test_throws MethodError func8283()
 
 # issue #11243
@@ -3089,17 +3092,19 @@ end
 # issue 11858
 type Foo11858
     x::Float64
+    Foo11858(x::Float64) = new(x)
 end
 
 type Bar11858
     x::Float64
+    Bar11858(x::Float64) = new(x)
 end
 
 g11858(x::Float64) = x
 f11858(a) = for Baz in a
-    Baz(x) = Baz(float(x))
+    (f::Baz)(x) = f(float(x))
 end
-f11858(Any[Foo11858, Bar11858, g11858])
+f11858(Any[Type{Foo11858}, Type{Bar11858}, typeof(g11858)])
 
 @test g11858(1) == 1.0
 @test Foo11858(1).x == 1.0
@@ -3176,9 +3181,9 @@ failure12003(dt=DATE12003) = Dates.year(dt)
 @test isa(failure12003(), Integer)
 
 # issue #12023 Test error checking in bitstype
-@test_throws ErrorException bitstype 0 SPJa12023
-@test_throws ErrorException bitstype 4294967312 SPJb12023
-@test_throws ErrorException bitstype -4294967280 SPJc12023
+@test_throws ErrorException (@eval bitstype 0 SPJa12023)
+@test_throws ErrorException (@eval bitstype 4294967312 SPJb12023)
+@test_throws ErrorException (@eval bitstype -4294967280 SPJc12023)
 
 # issue #12089
 type A12089{K, N}
@@ -3325,21 +3330,6 @@ end
 @test @inferred(MyColors.myeltype(MyColors.RGB{Float32})) == Float32
 @test @inferred(MyColors.myeltype(MyColors.RGB)) == Any
 
-# issue #12612 (handle the case when `call` is not defined)
-Main.eval(:(type Foo12612 end))
-
-baremodule A12612
-import Main: Foo12612
-f1() = Foo12612()
-f2() = Main.Foo12612()
-end
-
-## Don't panic in type inference if call is not defined
-code_typed(A12612.f1, Tuple{})
-code_typed(A12612.f2, Tuple{})
-@test_throws ErrorException A12612.f1()
-@test_throws ErrorException A12612.f2()
-
 # issue #12569
 @test_throws ArgumentError symbol("x"^10_000_000)
 @test_throws ArgumentError gensym("x"^10_000_000)
@@ -3347,7 +3337,7 @@ code_typed(A12612.f2, Tuple{})
 @test split(string(gensym("abc")),'#')[3] == "abc"
 
 # meta nodes for optional positional arguments
-@test Base.uncompressed_ast(expand(:(@inline f(p::Int=2) = 3)).args[1].args[3]).args[3].args[1].args[1] === :inline
+@test Base.uncompressed_ast(expand(:(@inline f(p::Int=2) = 3)).args[3].args[3]).args[3].args[1].args[1] === :inline
 
 # issue #12826
 f12826{I<:Integer}(v::Vector{I}) = v[1]
@@ -3551,7 +3541,7 @@ f14339{T<:Union{}}(x::T, y::T) = 0
 module JLCall14301
 
 # Define f
-f() = 1
+function f end
 
 let i = Any[[1.23], [2.34]]
     # f() with capture variables
@@ -3647,3 +3637,83 @@ end
 
 # issue #14564
 @test isa(object_id(Tuple.name.cache), Integer)
+
+# issue #14691
+type T14691; a::UInt; end
+@test (T14691(0).a = 0) === 0
+
+# issue #14245
+f14245() = (v = []; push!(v, length(v)); v)
+@test f14245()[1] == 0
+
+# issue #9677
+@generated function foo9677{T,N}(x::AbstractArray{T,N})
+    quote
+        x=$N
+        y=x+1
+        return y
+    end
+end
+foo9677(x::Array) = invoke(foo9677,(AbstractArray,),x)
+@test foo9677(1:5) == foo9677(randn(3))
+
+# issue #6846
+f6846() = (please6846; 2)
+@test_throws UndefVarError f6846()
+
+# issue #14758
+@test isa(eval(:(f14758(; $([]...)) = ())), Function)
+
+# issue #14767
+@inline f14767(x) = x ? A14767 : ()
+const A14767 = f14767(false)
+@test A14767 === ()
+
+# issue #10985
+f10985(::Any...) = 1
+@test f10985(1, 2, 3) == 1
+
+# a tricky case for closure conversion
+type _CaptureInCtor
+    yy
+    function _CaptureInCtor(list_file::AbstractString="")
+        y = 0
+        f = x->add_node(y)
+        new(f(2))
+    end
+    add_node(y) = y+1
+end
+@test _CaptureInCtor().yy == 1
+
+# issue #14610
+let sometypes = (Int,Int8)
+    f(::Union{ntuple(i->Type{sometypes[i]}, length(sometypes))...}) = 1
+    @test method_exists(f, (Union{Type{Int},Type{Int8}},))
+end
+
+let
+    b=()->c
+    c=1
+    @test b() == 1
+end
+
+# issue #14825
+abstract abstest_14825
+
+type t1_14825{A <: abstest_14825, B}
+  x::A
+  y::B
+end
+
+type t2_14825{C, B} <: abstest_14825
+  x::C
+  y::t1_14825{t2_14825{C, B}, B}
+end
+
+@test t2_14825{Int,Int}.types[2] <: t1_14825
+
+# issue #14917
+@test isa(let generic
+          function generic end
+          end,
+          Function)

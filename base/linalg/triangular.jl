@@ -51,6 +51,7 @@ imag(A::UnitLowerTriangular) = LowerTriangular(tril!(imag(A.data),-1))
 imag(A::UnitUpperTriangular) = UpperTriangular(triu!(imag(A.data),1))
 
 full(A::AbstractTriangular) = convert(Matrix, A)
+parent(A::AbstractTriangular) = A.data
 
 fill!(A::AbstractTriangular, x) = (fill!(A.data, x); A)
 
@@ -1299,7 +1300,7 @@ for t in (UpperTriangular, UnitUpperTriangular, LowerTriangular, UnitLowerTriang
     end
 end
 
-for f in (:*, :Ac_mul_B, :At_mul_B, :A_mul_Bc, :A_mul_Bt, :Ac_mul_Bc, :At_mul_Bt, :\, :Ac_ldiv_B, :At_ldiv_B)
+for f in (:*, :Ac_mul_B, :At_mul_B, :\, :Ac_ldiv_B, :At_ldiv_B)
     @eval begin
         ($f)(A::AbstractTriangular, B::AbstractTriangular) = ($f)(A, full(B))
     end
@@ -1365,6 +1366,11 @@ for (f, g) in ((:/, :A_rdiv_B!), (:A_rdiv_Bc, :A_rdiv_Bc!), (:A_rdiv_Bt, :A_rdiv
         end
     end
 end
+### Fallbacks brought in from linalg/bidiag.jl while fixing #14506.
+# Eventually the above promotion methods should be generalized as
+# was done for bidiagonal matrices in #14506.
+At_ldiv_B(A::AbstractTriangular, B::AbstractVecOrMat) = At_ldiv_B!(A, copy(B))
+Ac_ldiv_B(A::AbstractTriangular, B::AbstractVecOrMat) = Ac_ldiv_B!(A, copy(B))
 
 # Complex matrix logarithm for the upper triangular factor, see:
 #   Al-Mohy and Higham, "Improved inverse  scaling and squaring algorithms for

@@ -24,15 +24,15 @@ type SharedArray{T,N} <: DenseArray{T,N}
     SharedArray(d,p,r,sn) = new(d,p,r,sn)
 end
 
-call{T,N}(::Type{SharedArray{T}}, d::NTuple{N,Int}; kwargs...) =
+(::Type{SharedArray{T}}){T,N}(d::NTuple{N,Int}; kwargs...) =
     SharedArray(T, d; kwargs...)
-call{T}(::Type{SharedArray{T}}, d::Integer...; kwargs...) =
+(::Type{SharedArray{T}}){T}(d::Integer...; kwargs...) =
     SharedArray(T, d; kwargs...)
-call{T}(::Type{SharedArray{T}}, m::Integer; kwargs...) =
+(::Type{SharedArray{T}}){T}(m::Integer; kwargs...) =
     SharedArray(T, m; kwargs...)
-call{T}(::Type{SharedArray{T}}, m::Integer, n::Integer; kwargs...) =
+(::Type{SharedArray{T}}){T}(m::Integer, n::Integer; kwargs...) =
     SharedArray(T, m, n; kwargs...)
-call{T}(::Type{SharedArray{T}}, m::Integer, n::Integer, o::Integer; kwargs...) =
+(::Type{SharedArray{T}}){T}(m::Integer, n::Integer, o::Integer; kwargs...) =
     SharedArray(T, m, n, o; kwargs...)
 
 """
@@ -479,9 +479,9 @@ function print_shmem_limits(slen)
         @linux_only pfx = "kernel"
         @osx_only pfx = "kern.sysv"
 
-        shmmax_MB = div(parse(Int, split(readall(`sysctl $(pfx).shmmax`))[end]), 1024*1024)
-        page_size = parse(Int, split(readall(`getconf PAGE_SIZE`))[end])
-        shmall_MB = div(parse(Int, split(readall(`sysctl $(pfx).shmall`))[end]) * page_size, 1024*1024)
+        shmmax_MB = div(parse(Int, split(readstring(`sysctl $(pfx).shmmax`))[end]), 1024*1024)
+        page_size = parse(Int, split(readstring(`getconf PAGE_SIZE`))[end])
+        shmall_MB = div(parse(Int, split(readstring(`sysctl $(pfx).shmall`))[end]) * page_size, 1024*1024)
 
         println("System max size of single shmem segment(MB) : ", shmmax_MB,
             "\nSystem max size of all shmem segments(MB) : ", shmall_MB,

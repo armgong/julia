@@ -808,17 +808,19 @@ get_perm(FC::FactorComponent) = get_perm(Factor(FC))
 #########################
 
 # Convertion/construction
-function convert{T<:VTypes}(::Type{Dense}, A::VecOrMat{T})
+function convert(::Type{Dense}, A::VecOrMat)
+    T = promote_type(eltype(A), Float64)
     d = allocate_dense(size(A, 1), size(A, 2), stride(A, 2), T)
     s = unsafe_load(d.p)
-    unsafe_copy!(s.x, pointer(A), length(A))
+    for i in eachindex(A)
+        unsafe_store!(s.x, A[i], i)
+    end
     d
 end
-convert(::Type{Dense}, A::VecOrMat) = Dense(float(A))
 convert(::Type{Dense}, A::Sparse) = sparse_to_dense(A)
 
 # This constructior assumes zero based colptr and rowval
-function convert{Tv<:VTypes}(::Type{Sparse}, m::Integer, n::Integer, colptr::Vector{SuiteSparse_long}, rowval::Vector{SuiteSparse_long}, nzval::Vector{Tv}, stype)
+function (::Type{Sparse}){Tv<:VTypes}(m::Integer, n::Integer, colptr::Vector{SuiteSparse_long}, rowval::Vector{SuiteSparse_long}, nzval::Vector{Tv}, stype)
 
     # check if columns are sorted
     iss = true
@@ -841,7 +843,7 @@ function convert{Tv<:VTypes}(::Type{Sparse}, m::Integer, n::Integer, colptr::Vec
     return o
 
 end
-function convert{Tv<:VTypes}(::Type{Sparse}, m::Integer, n::Integer, colptr::Vector{SuiteSparse_long}, rowval::Vector{SuiteSparse_long}, nzval::Vector{Tv})
+function (::Type{Sparse}){Tv<:VTypes}(m::Integer, n::Integer, colptr::Vector{SuiteSparse_long}, rowval::Vector{SuiteSparse_long}, nzval::Vector{Tv})
     o = Sparse(m, n, colptr, rowval, nzval, 0)
 
     # check if array is symmetric and change stype if it is
@@ -851,7 +853,7 @@ function convert{Tv<:VTypes}(::Type{Sparse}, m::Integer, n::Integer, colptr::Vec
     o
 end
 
-function convert{Tv<:VTypes}(::Type{Sparse}, A::SparseMatrixCSC{Tv,SuiteSparse_long}, stype::Integer)
+function (::Type{Sparse}){Tv<:VTypes}(A::SparseMatrixCSC{Tv,SuiteSparse_long}, stype::Integer)
     o = allocate_sparse(A.m, A.n, length(A.nzval), true, true, stype, Tv)
     s = unsafe_load(o.p)
     for i = 1:length(A.colptr)
@@ -936,7 +938,7 @@ end
 
 convert(::Type{Sparse}, A::Dense) = dense_to_sparse(A, SuiteSparse_long)
 convert(::Type{Sparse}, L::Factor) = factor_to_sparse!(copy(L))
-function convert(::Type{Sparse}, filename::ByteString)
+function (::Type{Sparse})(filename::ByteString)
     open(filename) do f
         return read_sparse(f, SuiteSparse_long)
     end
@@ -1035,11 +1037,9 @@ sparse{Tv}(FC::FactorComponent{Tv,:LD}) = sparse(Sparse(Factor(FC)))
 
 # Calculate the offset into the stype field of the cholmod_sparse_struct and
 # change the value
-let offidx=findfirst(fieldnames(C_Sparse) .== :stype)
-
+let offset = fieldoffset(C_Sparse{Float64}, findfirst(fieldnames(C_Sparse) .== :stype))
     global change_stype!
     function change_stype!(A::Sparse, i::Integer)
-        offset = fieldoffsets(C_Sparse)[offidx]
         unsafe_store!(convert(Ptr{Cint}, A.p), i, div(offset, 4) + 1)
         return A
     end

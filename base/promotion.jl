@@ -200,15 +200,6 @@ max(x::Real, y::Real) = max(promote(x,y)...)
 min(x::Real, y::Real) = min(promote(x,y)...)
 minmax(x::Real, y::Real) = minmax(promote(x, y)...)
 
-checked_add(x::Integer, y::Integer) = checked_add(promote(x,y)...)
-checked_sub(x::Integer, y::Integer) = checked_sub(promote(x,y)...)
-checked_mul(x::Integer, y::Integer) = checked_mul(promote(x,y)...)
-checked_div(x::Integer, y::Integer) = checked_div(promote(x,y)...)
-checked_rem(x::Integer, y::Integer) = checked_rem(promote(x,y)...)
-checked_fld(x::Integer, y::Integer) = checked_fld(promote(x,y)...)
-checked_mod(x::Integer, y::Integer) = checked_mod(promote(x,y)...)
-checked_cld(x::Integer, y::Integer) = checked_cld(promote(x,y)...)
-
 # "Promotion" that takes a Functor into account. You can override this
 # as needed. For example, if you need to provide a custom result type
 # for the multiplication of two types,
@@ -239,15 +230,8 @@ muladd{T<:Number}(x::T, y::T, z::T) = x*y+z
  <{T<:Real}(x::T, y::T) = no_op_err("<" , T)
 <={T<:Real}(x::T, y::T) = no_op_err("<=", T)
 
-div{T<:Real}(x::T, y::T) = no_op_err("div", T)
-fld{T<:Real}(x::T, y::T) = no_op_err("fld", T)
-cld{T<:Real}(x::T, y::T) = no_op_err("cld", T)
 rem{T<:Real}(x::T, y::T) = no_op_err("rem", T)
 mod{T<:Real}(x::T, y::T) = no_op_err("mod", T)
-
-mod1{T<:Real}(x::T, y::T) = no_op_err("mod1", T)
-rem1{T<:Real}(x::T, y::T) = no_op_err("rem1", T)
-fld1{T<:Real}(x::T, y::T) = no_op_err("fld1", T)
 
 min(x::Real) = x
 max(x::Real) = x
@@ -256,14 +240,3 @@ minmax(x::Real) = (x, x)
 max{T<:Real}(x::T, y::T) = ifelse(y < x, x, y)
 min{T<:Real}(x::T, y::T) = ifelse(y < x, y, x)
 minmax{T<:Real}(x::T, y::T) = y < x ? (y, x) : (x, y)
-
-checked_neg{T<:Integer}(x::T) = no_op_err("checked_neg", T)
-checked_abs{T<:Integer}(x::T) = no_op_err("checked_abs", T)
-checked_add{T<:Integer}(x::T, y::T) = no_op_err("checked_add", T)
-checked_sub{T<:Integer}(x::T, y::T) = no_op_err("checked_sub", T)
-checked_mul{T<:Integer}(x::T, y::T) = no_op_err("checked_mul", T)
-checked_div{T<:Integer}(x::T, y::T) = no_op_err("checked_div", T)
-checked_rem{T<:Integer}(x::T, y::T) = no_op_err("checked_rem", T)
-checked_fld{T<:Integer}(x::T, y::T) = no_op_err("checked_fld", T)
-checked_mod{T<:Integer}(x::T, y::T) = no_op_err("checked_mod", T)
-checked_cld{T<:Integer}(x::T, y::T) = no_op_err("checked_cld", T)

@@ -125,7 +125,7 @@ enum intrinsic {
 #ifdef __cplusplus
 extern "C"
 #endif
-const char* jl_intrinsic_name(int f)
+const char *jl_intrinsic_name(int f)
 {
     switch ((enum intrinsic)f) {
     default: return "invalid";
@@ -139,7 +139,7 @@ const char* jl_intrinsic_name(int f)
     }
 }
 
-static void* runtime_fp[num_intrinsics];
+static void *runtime_fp[num_intrinsics];
 static unsigned intrinsic_nargs[num_intrinsics];
 
 typedef jl_value_t *(*intrinsic_call_1_arg)(jl_value_t*);
@@ -188,6 +188,10 @@ static void add_intrinsic(jl_module_t *inm, const char *name, enum intrinsic f)
     jl_module_export(inm, sym);
 }
 
+#ifdef __cplusplus
+extern "C"
+#endif
+jl_value_t *jl_mk_builtin_func(const char *name, jl_fptr_t fptr);
 
 #ifdef __cplusplus
 extern "C"
@@ -208,5 +212,5 @@ void jl_init_intrinsic_functions()
 #undef ALIAS
 
     jl_set_const(inm, jl_symbol("intrinsic_call"),
-            (jl_value_t*)jl_new_closure(jl_f_intrinsic_call, (jl_value_t*)jl_symbol("intrinsic_call"), NULL));
+                 jl_mk_builtin_func("intrinsic_call", jl_f_intrinsic_call));
 }

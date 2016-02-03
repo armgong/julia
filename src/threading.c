@@ -36,36 +36,6 @@ extern "C" {
 #include "threadgroup.h"
 #include "threading.h"
 
-#if !defined(_CPU_X86_64_) && !defined(_CPU_X86_) && defined(__linux__)
-
-static int _get_perf_fd(void)
-{
-    static int fd = -1;
-    if (fd < 0) {
-        static struct perf_event_attr attr;
-        attr.type = PERF_TYPE_HARDWARE;
-        attr.config = PERF_COUNT_HW_CPU_CYCLES;
-        fd = syscall(__NR_perf_event_open, &attr, 0, -1, -1, 0);
-    }
-    return fd;
-}
-
-__attribute__((destructor)) static void
-_close_perf_fd(void)
-{
-    close(_get_perf_fd());
-}
-
-long long
-rdtsc(void)
-{
-    long long result = 0;
-    if (read(_get_perf_fd(), &result, sizeof(result)) < sizeof(result))
-        return 0;
-    return result;
-}
-#endif
-
 // utility
 JL_DLLEXPORT void jl_cpu_pause(void)
 {
@@ -147,6 +117,7 @@ static void ti_initthread(int16_t tid)
     ptls->tid = tid;
     ptls->pgcstack = NULL;
     ptls->gc_state = 0; // GC unsafe
+    ptls->current_module = NULL;
 #ifdef JULIA_ENABLE_THREADING
     jl_all_heaps[tid] = jl_mk_thread_heap();
 #else
@@ -174,10 +145,10 @@ static void ti_init_master_thread(void)
 }
 
 // all threads call this function to run user code
-static jl_value_t *ti_run_fun(jl_function_t *f, jl_svec_t *args)
+static jl_value_t *ti_run_fun(jl_svec_t *args)
 {
     JL_TRY {
-        jl_apply(f, jl_svec_data(args), jl_svec_len(args));
+        jl_apply(jl_svec_data(args), jl_svec_len(args));
     }
     JL_CATCH {
         return jl_exception_in_transit;
@@ -186,11 +157,11 @@ static jl_value_t *ti_run_fun(jl_function_t *f, jl_svec_t *args)
 }
 
 
-#ifdef JULIA_ENABLE_THREADING
-
 // lock for code generation
-JL_DEFINE_MUTEX(codegen);
-JL_DEFINE_MUTEX(typecache);
+JL_DEFINE_MUTEX(codegen)
+JL_DEFINE_MUTEX(typecache)
+
+#ifdef JULIA_ENABLE_THREADING
 
 // thread heap
 struct _jl_thread_heap_t **jl_all_heaps;
@@ -202,11 +173,10 @@ ti_threadgroup_t *tgworld;
 ti_threadwork_t threadwork;
 
 #if PROFILE_JL_THREADING
-double cpu_ghz;
-uint64_t prep_ticks;
-uint64_t *fork_ticks;
-uint64_t *user_ticks;
-uint64_t *join_ticks;
+uint64_t prep_ns;
+uint64_t *fork_ns;
+uint64_t *user_ns;
+uint64_t *join_ns;
 #endif
 
 static uv_barrier_t thread_init_done;
@@ -249,14 +219,14 @@ void ti_threadfun(void *arg)
     // work loop
     for (; ;) {
 #if PROFILE_JL_THREADING
-        uint64_t tstart = rdtsc();
+        uint64_t tstart = uv_hrtime();
 #endif
 
         ti_threadgroup_fork(tg, ti_tid, (void **)&work);
 
 #if PROFILE_JL_THREADING
-        uint64_t tfork = rdtsc();
-        fork_ticks[ti_tid] += tfork - tstart;
+        uint64_t tfork = uv_hrtime();
+        fork_ns[ti_tid] += tfork - tstart;
 #endif
 
         if (work) {
@@ -270,21 +240,27 @@ void ti_threadfun(void *arg)
                 //       support in the codegen and runtime we don't need to
                 //       enter GC unsafe region when starting the work.
                 int8_t gc_state = jl_gc_unsafe_enter();
-                ti_run_fun(work->fun, work->args);
+                // This is probably always NULL for now
+                jl_module_t *last_m = jl_current_module;
+                JL_GC_PUSH1(&last_m);
+                jl_current_module = work->current_module;
+                ti_run_fun(work->args);
+                jl_current_module = last_m;
+                JL_GC_POP();
                 jl_gc_unsafe_leave(gc_state);
             }
         }
 
 #if PROFILE_JL_THREADING
-        uint64_t tuser = rdtsc();
-        user_ticks[ti_tid] += tuser - tfork;
+        uint64_t tuser = uv_hrtime();
+        user_ns[ti_tid] += tuser - tfork;
 #endif
 
         ti_threadgroup_join(tg, ti_tid);
 
 #if PROFILE_JL_THREADING
-        uint64_t tjoin = rdtsc();
-        join_ticks[ti_tid] += tjoin - tuser;
+        uint64_t tjoin = uv_hrtime();
+        join_ns[ti_tid] += tjoin - tuser;
 #endif
 
         // TODO:
@@ -316,15 +292,10 @@ void jl_init_threading(void)
     jl_all_task_states = (jl_thread_task_state_t *)malloc(jl_n_threads * sizeof(jl_thread_task_state_t));
 
 #if PROFILE_JL_THREADING
-    // estimate CPU speed
-    uint64_t cpu_tim = rdtsc();
-    sleep(1);
-    cpu_ghz = ((double)(rdtsc() - cpu_tim)) / 1e9;
-
     // set up space for profiling information
-    fork_ticks = (uint64_t*)jl_malloc_aligned(jl_n_threads * sizeof(uint64_t), 64);
-    user_ticks = (uint64_t*)jl_malloc_aligned(jl_n_threads * sizeof(uint64_t), 64);
-    join_ticks = (uint64_t*)jl_malloc_aligned(jl_n_threads * sizeof(uint64_t), 64);
+    fork_ns = (uint64_t*)jl_malloc_aligned(jl_n_threads * sizeof(uint64_t), 64);
+    user_ns = (uint64_t*)jl_malloc_aligned(jl_n_threads * sizeof(uint64_t), 64);
+    join_ns = (uint64_t*)jl_malloc_aligned(jl_n_threads * sizeof(uint64_t), 64);
     ti_reset_timings();
 #endif
 
@@ -410,10 +381,10 @@ void jl_shutdown_threading(void)
     // TODO: clean up and free the per-thread heaps
 
 #if PROFILE_JL_THREADING
-    jl_free_aligned(join_ticks);
-    jl_free_aligned(user_ticks);
-    jl_free_aligned(fork_ticks);
-    fork_ticks = user_ticks = join_ticks = NULL;
+    jl_free_aligned(join_ns);
+    jl_free_aligned(user_ns);
+    jl_free_aligned(fork_ns);
+    fork_ns = user_ns = join_ns = NULL;
 #endif
 }
 
@@ -422,56 +393,49 @@ JL_DLLEXPORT void *jl_threadgroup(void) { return (void *)tgworld; }
 
 // interface to user code: specialize and compile the user thread function
 // and run it in all threads
-JL_DLLEXPORT jl_value_t *jl_threading_run(jl_function_t *f, jl_svec_t *args)
+JL_DLLEXPORT jl_value_t *jl_threading_run(jl_svec_t *args)
 {
     // GC safe
 #if PROFILE_JL_THREADING
-    uint64_t tstart = rdtsc();
+    uint64_t tstart = uv_hrtime();
 #endif
 
     jl_tupletype_t *argtypes = NULL;
-    jl_function_t *fun = NULL;
-    if ((jl_value_t*)args == jl_emptytuple)
-        args = jl_emptysvec;
-    JL_TYPECHK(jl_threading_run, function, (jl_value_t*)f);
     JL_TYPECHK(jl_threading_run, simplevector, (jl_value_t*)args);
 
     int8_t gc_state = jl_gc_unsafe_enter();
-    JL_GC_PUSH2(&argtypes, &fun);
-    if (jl_svec_len(args) == 0)
-        argtypes = (jl_tupletype_t*)jl_typeof(jl_emptytuple);
-    else
-        argtypes = arg_type_tuple(jl_svec_data(args), jl_svec_len(args));
-    fun = jl_get_specialization(f, argtypes, NULL);
-    if (fun == NULL)
-        fun = f;
-    jl_generate_fptr(fun);
+    JL_GC_PUSH1(&argtypes);
+    argtypes = arg_type_tuple(jl_svec_data(args), jl_svec_len(args));
+    jl_lambda_info_t *li = jl_get_specialization1(argtypes, NULL);
+    jl_generate_fptr(li);
 
     threadwork.command = TI_THREADWORK_RUN;
-    threadwork.fun = fun;
+    // TODO jb/functions: lookup and store jlcall fptr here
+    threadwork.fun = NULL;
     threadwork.args = args;
     threadwork.ret = jl_nothing;
+    threadwork.current_module = jl_current_module;
 
 #if PROFILE_JL_THREADING
-    uint64_t tcompile = rdtsc();
-    prep_ticks += (tcompile - tstart);
+    uint64_t tcompile = uv_hrtime();
+    prep_ns += (tcompile - tstart);
 #endif
 
     // fork the world thread group
-    ti_threadwork_t *tw = (ti_threadwork_t *)&threadwork;
+    ti_threadwork_t *tw = &threadwork;
     ti_threadgroup_fork(tgworld, ti_tid, (void **)&tw);
 
 #if PROFILE_JL_THREADING
-    uint64_t tfork = rdtsc();
-    fork_ticks[ti_tid] += (tfork - tcompile);
+    uint64_t tfork = uv_hrtime();
+    fork_ns[ti_tid] += (tfork - tcompile);
 #endif
 
     // this thread must do work too (TODO: reduction?)
-    tw->ret = ti_run_fun(fun, args);
+    tw->ret = ti_run_fun(args);
 
 #if PROFILE_JL_THREADING
-    uint64_t trun = rdtsc();
-    user_ticks[ti_tid] += (trun - tfork);
+    uint64_t trun = uv_hrtime();
+    user_ns[ti_tid] += (trun - tfork);
 #endif
 
     jl_gc_state_set(JL_GC_STATE_SAFE, 0);
@@ -480,8 +444,8 @@ JL_DLLEXPORT jl_value_t *jl_threading_run(jl_function_t *f, jl_svec_t *args)
     jl_gc_state_set(0, JL_GC_STATE_SAFE);
 
 #if PROFILE_JL_THREADING
-    uint64_t tjoin = rdtsc();
-    join_ticks[ti_tid] += (tjoin - trun);
+    uint64_t tjoin = uv_hrtime();
+    join_ns[ti_tid] += (tjoin - trun);
 #endif
 
     JL_GC_POP();
@@ -495,9 +459,9 @@ JL_DLLEXPORT jl_value_t *jl_threading_run(jl_function_t *f, jl_svec_t *args)
 void ti_reset_timings(void)
 {
     int i;
-    prep_ticks = 0;
+    prep_ns = 0;
     for (i = 0;  i < jl_n_threads;  i++)
-        fork_ticks[i] = user_ticks[i] = join_ticks[i] = 0;
+        fork_ns[i] = user_ns[i] = join_ns[i] = 0;
 }
 
 void ti_timings(uint64_t *times, uint64_t *min, uint64_t *max, uint64_t *avg)
@@ -515,25 +479,25 @@ void ti_timings(uint64_t *times, uint64_t *min, uint64_t *max, uint64_t *avg)
     *avg /= jl_n_threads;
 }
 
-#define TICKS_TO_SECS(t)        (((double)(t)) / (cpu_ghz * 1e9))
+#define NS_TO_SECS(t)        ((t) / (double)1e9)
 
 JL_DLLEXPORT void jl_threading_profile(void)
 {
-    if (!fork_ticks) return;
+    if (!fork_ns) return;
 
     printf("\nti profile:\n");
-    printf("prep: %g (%llu)\n", TICKS_TO_SECS(prep_ticks), (unsigned long long)prep_ticks);
+    printf("prep: %g (%llu)\n", NS_TO_SECS(prep_ns), (unsigned long long)prep_ns);
 
     uint64_t min, max, avg;
-    ti_timings(fork_ticks, &min, &max, &avg);
-    printf("fork: %g (%g - %g)\n", TICKS_TO_SECS(min), TICKS_TO_SECS(max),
-            TICKS_TO_SECS(avg));
-    ti_timings(user_ticks, &min, &max, &avg);
-    printf("user: %g (%g - %g)\n", TICKS_TO_SECS(min), TICKS_TO_SECS(max),
-            TICKS_TO_SECS(avg));
-    ti_timings(join_ticks, &min, &max, &avg);
-    printf("join: %g (%g - %g)\n", TICKS_TO_SECS(min), TICKS_TO_SECS(max),
-            TICKS_TO_SECS(avg));
+    ti_timings(fork_ns, &min, &max, &avg);
+    printf("fork: %g (%g - %g)\n", NS_TO_SECS(min), NS_TO_SECS(max),
+            NS_TO_SECS(avg));
+    ti_timings(user_ns, &min, &max, &avg);
+    printf("user: %g (%g - %g)\n", NS_TO_SECS(min), NS_TO_SECS(max),
+            NS_TO_SECS(avg));
+    ti_timings(join_ns, &min, &max, &avg);
+    printf("join: %g (%g - %g)\n", NS_TO_SECS(min), NS_TO_SECS(max),
+            NS_TO_SECS(avg));
 }
 
 #else //!PROFILE_JL_THREADING
@@ -546,13 +510,10 @@ JL_DLLEXPORT void jl_threading_profile(void)
 
 #else // !JULIA_ENABLE_THREADING
 
-JL_DLLEXPORT jl_value_t *jl_threading_run(jl_function_t *f, jl_svec_t *args)
+JL_DLLEXPORT jl_value_t *jl_threading_run(jl_svec_t *args)
 {
-    if ((jl_value_t*)args == jl_emptytuple)
-        args = jl_emptysvec;
-    JL_TYPECHK(jl_threading_run, function, (jl_value_t*)f);
     JL_TYPECHK(jl_threading_run, simplevector, (jl_value_t*)args);
-    return ti_run_fun(f, args);
+    return ti_run_fun(args);
 }
 
 void jl_init_threading(void)

@@ -39,7 +39,8 @@ export File,
        S_IROTH, S_IWOTH, S_IXOTH, S_IRWXO
 
 import Base: uvtype, uvhandle, eventloop, fd, position, stat, close,
-            write, read, read!, readbytes, isopen, show,
+            write, read, readavailable, read!, isopen, show,
+            seek, seekend, skip, eof,
             check_open, _sizeof_uv_fs, uv_error, UVError
 
 include("path.jl")
@@ -104,7 +105,7 @@ function sendfile(dst::File, src::File, src_offset::Int64, bytes::Int)
     nothing
 end
 
-function write(f::File, buf::Ptr{UInt8}, len::Integer, offset::Integer=-1)
+function unsafe_write(f::File, buf::Ptr{UInt8}, len::UInt, offset::Int64=Int64(-1))
     check_open(f)
     err = ccall(:jl_fs_write, Int32, (Int32, Ptr{UInt8}, Csize_t, Int64),
                 f.handle, buf, len, offset)
@@ -112,15 +113,7 @@ function write(f::File, buf::Ptr{UInt8}, len::Integer, offset::Integer=-1)
     return len
 end
 
-write(f::File, c::UInt8) = write(f, UInt8[c])
-
-function write{T}(f::File, a::Array{T})
-    if isbits(T)
-        write(f, pointer(a), sizeof(a))
-    else
-        invoke(write, Tuple{IO, Array}, f, a)
-    end
-end
+write(f::File, c::UInt8) = write(f, Ref{UInt8}(c))
 
 function truncate(f::File, n::Integer)
     check_open(f)
@@ -151,39 +144,54 @@ function read(f::File, ::Type{UInt8})
     return ret % UInt8
 end
 
-function read!(f::File, a::Vector{UInt8}, nel=length(a))
+function unsafe_read(f::File, p::Ptr{UInt8}, nel::UInt)
     check_open(f)
-    if nel < 0 || nel > length(a)
-        throw(BoundsError())
-    end
     ret = ccall(:jl_fs_read, Int32, (Int32, Ptr{Void}, Csize_t),
-                f.handle, a, nel)
+                f.handle, p, nel)
     uv_error("read",ret)
-    return a
+    ret == nel || throw(EOFError())
+    nothing
 end
 
 nb_available(f::File) = filesize(f) - position(f)
+
+eof(f::File) = nb_available(f) == 0
 
 function readbytes!(f::File, b::Array{UInt8}, nb=length(b))
     nr = min(nb, nb_available(f))
     if length(b) < nr
         resize!(b, nr)
     end
-    read!(f, b, nr)
-    return nr
+    ret = ccall(:jl_fs_read, Int32, (Int32, Ptr{Void}, Csize_t),
+                f.handle, b, nr)
+    uv_error("read",ret)
+    return ret
 end
-readbytes(io::File) = read!(io, Array(UInt8, nb_available(io)))
-readbytes(io::File, nb) = read!(io, Array(UInt8, min(nb, nb_available(io))))
-
-function readbytes(f::File)
-    a = Array(UInt8, nb_available(f))
-    read!(f,a)
-    return a
-end
+read(io::File) = read!(io, Array(UInt8, nb_available(io)))
+readavailable(io::File) = read(io)
+read(io::File, nb::Integer) = read!(io, Array(UInt8, min(nb, nb_available(io))))
 
 const SEEK_SET = Int32(0)
 const SEEK_CUR = Int32(1)
 const SEEK_END = Int32(2)
+
+function seek(f::File, n::Integer)
+    ret = ccall(:jl_lseek, Int64, (Int32, Int64, Int32), f.handle, n, SEEK_SET)
+    systemerror("seek", ret == -1)
+    return f
+end
+
+function seekend(f::File)
+    ret = ccall(:jl_lseek, Int64, (Int32, Int64, Int32), f.handle, 0, SEEK_END)
+    systemerror("seekend", ret == -1)
+    return f
+end
+
+function skip(f::File, n::Integer)
+    ret = ccall(:jl_lseek, Int64, (Int32, Int64, Int32), f.handle, n, SEEK_CUR)
+    systemerror("skip", ret == -1)
+    return f
+end
 
 function position(f::File)
     check_open(f)
