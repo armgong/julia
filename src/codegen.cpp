@@ -144,6 +144,7 @@ JL_DLLEXPORT void __stack_chk_fail()
 {
     /* put your panic function or similar in here */
     fprintf(stderr, "fatal error: stack corruption detected\n");
+    gc_debug_critical_error();
     abort(); // end with abort, since the compiler destroyed the stack upon entry to this function, there's no going back now
 }
 #endif
@@ -334,8 +335,11 @@ extern JITMemoryManager *createJITMemoryManagerWin();
 #endif
 #endif //_OS_WINDOWS_
 #if defined(_OS_DARWIN_) && defined(LLVM37) && defined(LLVM_SHLIB)
-#define CUSTOM_MEMORY_MANAGER 1
+#define CUSTOM_MEMORY_MANAGER createRTDyldMemoryManagerOSX
 extern RTDyldMemoryManager *createRTDyldMemoryManagerOSX();
+#elif defined(_OS_LINUX_) && defined(LLVM37)
+#define CUSTOM_MEMORY_MANAGER createRTDyldMemoryManagerUnix
+extern RTDyldMemoryManager *createRTDyldMemoryManagerUnix();
 #endif
 
 #ifndef JULIA_ENABLE_THREADING
@@ -895,6 +899,7 @@ static Function *to_function(jl_lambda_info_t *li, jl_cyclectx_t *cyclectx)
         (specf && verifyFunction(*specf, PrintMessageAction))) {
         f->dump();
         if (specf) specf->dump();
+        gc_debug_critical_error();
         abort();
     }
 #endif
@@ -992,6 +997,7 @@ static void writeRecoveryFile(llvm::Module *mod)
     raw_fd_ostream OS(fname_ref, err, sys::fs::F_None);
     WriteBitcodeToFile(mod,OS);
     OS.flush();
+    gc_debug_critical_error();
     abort();
 }
 #endif
@@ -1444,8 +1450,10 @@ const jl_value_t *jl_dump_function_ir(void *f, bool strip_ir_metadata, bool dump
                 }
             }
         }
-        if (dump_module)
+        if (dump_module) {
+            realize_pending_globals();
             m->print(stream, NULL);
+        }
         else
             f2->print(stream);
         f2->eraseFromParent();
@@ -5989,7 +5997,7 @@ extern "C" void jl_init_codegen(void)
 #if defined(_OS_WINDOWS_) && defined(_CPU_X86_64_) && !defined(USE_MCJIT)
         .setJITMemoryManager(createJITMemoryManagerWin())
 #elif defined(CUSTOM_MEMORY_MANAGER)
-        .setMCJITMemoryManager(std::unique_ptr<RTDyldMemoryManager>{createRTDyldMemoryManagerOSX()})
+        .setMCJITMemoryManager(std::unique_ptr<RTDyldMemoryManager>{CUSTOM_MEMORY_MANAGER()})
 #elif defined(USE_ORCMCJIT) // ORCJIT forgets to create one if one isn't created for it
         .setMCJITMemoryManager(std::unique_ptr<RTDyldMemoryManager>{new SectionMemoryManager()})
 #endif
