@@ -452,7 +452,9 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   Print strings in a color specified as a symbol, for example ``:red`` or ``:blue``\ .
+   Print strings in a color specified as a symbol.
+
+   ``color`` may take any of the values ``:normal``\ , ``:bold``\ , ``:black``\ , ``:blue``\ , ``:cyan``\ , ``:green``\ , ``:magenta``\ , ``:red``\ , ``:white``\ , or  ``:yellow``\ .
 
 .. function:: info(msg)
 

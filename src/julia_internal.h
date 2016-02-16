@@ -264,7 +264,7 @@ JL_DLLEXPORT jl_methtable_t *jl_new_method_table(jl_sym_t *name, jl_module_t *mo
 jl_lambda_info_t *jl_get_specialization1(jl_tupletype_t *types, void *cyclectx);
 jl_function_t *jl_module_get_initializer(jl_module_t *m);
 uint32_t jl_module_next_counter(jl_module_t *m);
-void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig);
+void jl_fptr_to_llvm(jl_fptr_t fptr, jl_lambda_info_t *lam, int specsig);
 jl_tupletype_t *arg_type_tuple(jl_value_t **args, size_t nargs);
 
 jl_value_t *skip_meta(jl_array_t *body);
@@ -277,9 +277,16 @@ extern HANDLE hMainThread;
 typedef CONTEXT *bt_context_t;
 extern volatile int jl_in_stackwalk;
 #else
-#define UNW_LOCAL_ONLY
-#include <libunwind.h>
+// This gives unwind only local unwinding options ==> faster code
+#  define UNW_LOCAL_ONLY
+#  include <libunwind.h>
 typedef unw_context_t *bt_context_t;
+#  if (!defined(SYSTEM_LIBUNWIND) || UNW_VERSION_MAJOR > 1 ||   \
+       (UNW_VERSION_MAJOR == 1 && UNW_VERSION_MINOR > 1))
+// Enable our memory manager only for libunwind with our patch or
+// on a newer release
+#    define JL_UNW_HAS_FORMAT_IP 1
+#  endif
 #endif
 #define jl_bt_data (jl_get_ptls_states()->bt_data)
 #define jl_bt_size (jl_get_ptls_states()->bt_size)
@@ -288,6 +295,7 @@ JL_DLLEXPORT size_t rec_backtrace_ctx(intptr_t *data, size_t maxsize, bt_context
 #ifdef LIBOSXUNWIND
 size_t rec_backtrace_ctx_dwarf(intptr_t *data, size_t maxsize, bt_context_t ctx);
 #endif
+void jl_critical_error(int sig, bt_context_t context, intptr_t *bt_data, size_t *bt_size);
 JL_DLLEXPORT void jl_raise_debugger(void);
 // Set *name and *filename to either NULL or malloc'd string
 void jl_getFunctionInfo(char **name, char **filename, size_t *line,

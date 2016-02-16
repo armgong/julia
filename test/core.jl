@@ -2272,7 +2272,7 @@ end
 
 # weak references
 type Obj; x; end
-function mk_wr(r, wr)
+@noinline function mk_wr(r, wr)
     x = Obj(1)
     push!(r, x)
     push!(wr, WeakRef(x))
@@ -3337,7 +3337,7 @@ end
 @test split(string(gensym("abc")),'#')[3] == "abc"
 
 # meta nodes for optional positional arguments
-@test Base.uncompressed_ast(expand(:(@inline f(p::Int=2) = 3)).args[3].args[3]).args[3].args[1].args[1] === :inline
+@test Base.uncompressed_ast(expand(:(@inline f(p::Int=2) = 3)).args[2].args[3]).args[3].args[1].args[1] === :inline
 
 # issue #12826
 f12826{I<:Integer}(v::Vector{I}) = v[1]
@@ -3547,7 +3547,7 @@ let i = Any[[1.23], [2.34]]
     # f() with capture variables
     # Intentionally type unstable so that the dynamic dispatch will
     # read the corrupted tag if the object is incorrectly GC'd.
-    global f() = i[1][1] * i[2][1]
+    global @noinline f() = i[1][1] * i[2][1]
 end
 
 # Another function that use f()
@@ -3557,7 +3557,7 @@ g()
 
 let i = 9.0
     # Override f()
-    global f() = i + 1
+    global @noinline f() = i + 1
 end
 
 # Make sure the old f() method is GC'd if it was not rooted properly
@@ -3717,3 +3717,17 @@ end
           function generic end
           end,
           Function)
+
+# let syntax with multiple lhs
+let z = (3,9,42)
+    let (a,b,c) = z
+        @test a == 3 && b == 9 && c == 42
+    end
+    let (a,b::Float64,c::Int8) = z
+        @test a == 3 && b === 9.0 && c === Int8(42)
+    end
+    z = (1, z, 10)
+    let (a, (b,c,d), e) = z
+        @test (a,b,c,d,e) == (1,3,9,42,10)
+    end
+end

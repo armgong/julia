@@ -434,12 +434,12 @@ static void jl_update_all_fptrs(void)
         jl_lambda_info_t *li = delayed_fptrs[i].li;
         int32_t func = delayed_fptrs[i].func - 1;
         if (func >= 0) {
-            jl_fptr_to_llvm(fvars[func], li, 0);
+            jl_fptr_to_llvm((jl_fptr_t)fvars[func], li, 0);
             linfos[func] = li;
         }
         int32_t cfunc = delayed_fptrs[i].cfunc - 1;
         if (cfunc >= 0) {
-            jl_fptr_to_llvm(fvars[cfunc], li, 1);
+            jl_fptr_to_llvm((jl_fptr_t)fvars[cfunc], li, 1);
             linfos[cfunc] = li;
         }
     }
@@ -841,6 +841,7 @@ static void jl_serialize_value_(ios_t *s, jl_value_t *v)
         write_int32(s, li->specFunctionID);
         if (li->functionID)
             write_int8(s, li->jlcall_api);
+        write_int8(s, li->needs_sparam_vals_ducttape);
     }
     else if (jl_typeis(v, jl_module_type)) {
         jl_serialize_module(s, (jl_module_t*)v);
@@ -1466,6 +1467,7 @@ static jl_value_t *jl_deserialize_value_(ios_t *s, jl_value_t *vtag, jl_value_t 
         cfunc_llvm = read_int32(s);
         jl_delayed_fptrs(li, func_llvm, cfunc_llvm);
         li->jlcall_api = func_llvm ? read_int8(s) : 0;
+        li->needs_sparam_vals_ducttape = read_int8(s);
         return (jl_value_t*)li;
     }
     else if (vtag == (jl_value_t*)jl_module_type) {

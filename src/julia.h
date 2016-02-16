@@ -64,6 +64,38 @@ extern "C" {
 // Nonetheless, we define JL_THREAD and use it to give advanced notice to
 // maintainers of what eventual threading support will change.
 
+#define JL_MAX_BT_SIZE 80000
+// Define this struct early so that we are free to use it in the inline
+// functions below.
+typedef struct _jl_tls_states_t {
+    struct _jl_gcframe_t *pgcstack;
+    struct _jl_value_t *exception_in_transit;
+    // Whether it is safe to execute GC at the same time.
+#define JL_GC_STATE_WAITING 1
+    // gc_state = 1 means the thread is doing GC or is waiting for the GC to
+    //              finish.
+#define JL_GC_STATE_SAFE 2
+    // gc_state = 2 means the thread is running unmanaged code that can be
+    //              execute at the same time with the GC.
+    volatile int8_t gc_state;
+    volatile int8_t in_finalizer;
+    int8_t disable_gc;
+    struct _jl_thread_heap_t *heap;
+    struct _jl_module_t *current_module;
+    struct _jl_task_t *volatile current_task;
+    struct _jl_task_t *root_task;
+    struct _jl_value_t *volatile task_arg_in_transit;
+    void *stackbase;
+    char *stack_lo;
+    char *stack_hi;
+    jl_jmp_buf *volatile jmp_target;
+    jl_jmp_buf base_ctx; // base context of stack
+    int8_t in_jl_;
+    int16_t tid;
+    size_t bt_size;
+    intptr_t bt_data[JL_MAX_BT_SIZE + 1];
+} jl_tls_states_t;
+
 // JULIA_ENABLE_THREADING is switched on in Make.inc if JULIA_THREADS is
 // set (in Make.user)
 
@@ -111,7 +143,6 @@ JL_DLLEXPORT void jl_threading_profile(void);
 #endif
 
 #ifdef JULIA_ENABLE_THREADING
-#define FORCE_ELF
 #define JL_DEFINE_MUTEX(m)                                                \
     uint64_t volatile m ## _mutex = 0;                                    \
     int32_t m ## _lock_count = 0;                                         \
@@ -319,6 +350,9 @@ typedef struct _jl_lambda_info_t {
     uint8_t inInference : 1;    // flags to tell if inference is running on this function
                                 // used to avoid infinite recursion
     uint8_t inCompile : 1;
+    uint8_t needs_sparam_vals_ducttape : 1; // if there are intrinsic calls,
+                                            // probably require the sparams to compile successfully
+                                            // (and so unspecialized will be created for each linfo instead of linfo->def)
     jl_fptr_t fptr;             // jlcall entry point
 
     // On the old JIT, handles to all Functions generated for this linfo
@@ -396,7 +430,7 @@ typedef struct _jl_datatype_t {
     uint32_t haspadding : 1;  // has internal undefined bytes
     uint32_t fielddesc_type : 2; // 0 -> 8, 1 -> 16, 2 -> 32
     uint32_t uid;
-    void *struct_decl;  //llvm::Value*
+    void *struct_decl;  //llvm::Type*
     void *ditype; // llvm::MDNode* to be used as llvm::DIType(ditype)
     // Last field needs to be pointer size aligned
     // union {
@@ -1297,7 +1331,7 @@ JL_DLLEXPORT int jl_parse_depwarn(int warn);
 JL_DLLEXPORT jl_value_t *jl_load_file_string(const char *text, size_t len,
                                              char *filename, size_t namelen);
 JL_DLLEXPORT jl_value_t *jl_expand(jl_value_t *expr);
-JL_DLLEXPORT void *jl_eval_string(const char *str);
+JL_DLLEXPORT jl_value_t *jl_eval_string(const char *str);
 
 // external libraries
 enum JL_RTLD_CONSTANT {
@@ -1453,36 +1487,6 @@ typedef struct _jl_task_t {
     arraylist_t locks;
 #endif
 } jl_task_t;
-
-#define JL_MAX_BT_SIZE 80000
-typedef struct _jl_tls_states_t {
-    jl_gcframe_t *pgcstack;
-    jl_value_t *exception_in_transit;
-    // Whether it is safe to execute GC at the same time.
-#define JL_GC_STATE_WAITING 1
-    // gc_state = 1 means the thread is doing GC or is waiting for the GC to
-    //              finish.
-#define JL_GC_STATE_SAFE 2
-    // gc_state = 2 means the thread is running unmanaged code that can be
-    //              execute at the same time with the GC.
-    volatile int8_t gc_state;
-    volatile int8_t in_finalizer;
-    int8_t disable_gc;
-    struct _jl_thread_heap_t *heap;
-    jl_module_t *current_module;
-    jl_task_t *volatile current_task;
-    jl_task_t *root_task;
-    jl_value_t *volatile task_arg_in_transit;
-    void *stackbase;
-    char *stack_lo;
-    char *stack_hi;
-    jl_jmp_buf *volatile jmp_target;
-    jl_jmp_buf base_ctx; // base context of stack
-    int8_t in_jl_;
-    int16_t tid;
-    size_t bt_size;
-    intptr_t bt_data[JL_MAX_BT_SIZE + 1];
-} jl_tls_states_t;
 
 typedef struct {
     jl_tls_states_t *ptls;

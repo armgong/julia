@@ -67,7 +67,7 @@ jl_options_t jl_options = { 0,    // quiet
                             JL_OPTIONS_COMPILE_DEFAULT, // compile_enabled
                             0,    // code_coverage
                             0,    // malloc_log
-                            0,    // opt_level
+                            2,    // opt_level
                             JL_OPTIONS_CHECK_BOUNDS_DEFAULT, // check_bounds
                             1,    // depwarn
                             1,    // can_inline
@@ -668,6 +668,8 @@ void _julia_init(JL_IMAGE_SEARCH rel)
             if (b->value && jl_is_datatype(b->value)) {
                 jl_datatype_t *tt = (jl_datatype_t*)b->value;
                 tt->name->module = jl_core_module;
+                if (tt->name->mt)
+                    tt->name->mt->module = jl_core_module;
             }
         }
     }

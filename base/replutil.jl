@@ -92,9 +92,6 @@ function showerror(io::IO, ex::TypeError)
             tstr = string(typeof(ex.got))
         end
         print(io, "$(ex.func): $(ctx)expected $(ex.expected), got $tstr")
-        if ex.func === :apply && ex.expected <: Function && isa(ex.got, AbstractArray)
-            print(io, "\nUse square brackets [] for indexing.")
-        end
     end
 end
 
@@ -124,12 +121,14 @@ function showerror(io::IO, ex::DomainError, bt; backtrace=true)
     print(io, "DomainError:")
     for b in bt
         code = StackTraces.lookup(b)
-        if code !== lookup && code.from_c
+        if !code.from_c
             if code.func in (:log, :log2, :log10, :sqrt) # TODO add :besselj, :besseli, :bessely, :besselk
-                print(io,"\n$(code.func) will only return a complex result if called with a complex argument. Try $(code[1])(complex(x)).")
+                print(io,"\n$(code.func) will only return a complex result if called with a complex argument. Try $(string(code.func))(complex(x)).")
             elseif (code.func == :^ && code.file == symbol("intfuncs.jl")) || code.func == :power_by_squaring #3024
                 print(io, "\nCannot raise an integer x to a negative power -n. \nMake x a float by adding a zero decimal (e.g. 2.0^-n instead of 2^-n), or write 1/x^n, float(x)^-n, or (x//1)^-n.")
-            elseif code.func == :^ && (code.file == symbol("promotion.jl") || code.file == symbol("math.jl"))
+            elseif code.func == :^ &&
+                    (code.file == symbol("promotion.jl") || code.file == symbol("math.jl") ||
+                    code.file == symbol(joinpath(".","promotion.jl")) || code.file == symbol(joinpath(".","math.jl")))
                 print(io, "\nExponentiation yielding a complex result requires a complex argument.\nReplace x^y with (x+0im)^y, Complex(x)^y, or similar.")
             end
             break
@@ -167,7 +166,9 @@ function showerror(io::IO, ex::MethodError)
     f = ex.f
     ft = typeof(f)
     name = ft.name.mt.name
+    f_is_function = false
     if f == Base.convert && length(arg_types_param) == 2 && !is_arg_types
+        f_is_function = true
         # See #13033
         T = striptype(ex.args[1])
         if T == nothing
@@ -176,11 +177,12 @@ function showerror(io::IO, ex::MethodError)
             print(io, "Cannot `convert` an object of type ", arg_types_param[2], " to an object of type ", T)
         end
     elseif isempty(methods(f)) && !isa(f, Function)
-        print(io, "::$ft is not callable")
+        print(io, "objects of type $ft are not callable")
     else
         if ft <: Function && isempty(ft.parameters) &&
                 isdefined(ft.name.module, name) &&
                 ft == typeof(getfield(ft.name.module, name))
+            f_is_function = true
             print(io, "no method matching ", name)
         elseif isa(f, Type)
             print(io, "no method matching ", f)
@@ -194,9 +196,12 @@ function showerror(io::IO, ex::MethodError)
         end
         print(io, ")")
     end
+    if ft <: AbstractArray
+        print(io, "\nUse square brackets [] for indexing an Array.")
+    end
     # Check for local functions that shadow methods in Base
-    if isdefined(Base, name)
-        basef = eval(Base, name)
+    if f_is_function && isdefined(Base, name)
+        basef = getfield(Base, name)
         if basef !== ex.f && method_exists(basef, arg_types)
             println(io)
             print(io, "you may have intended to import Base.", name)
@@ -241,11 +246,10 @@ striptype(::Any) = nothing
 #Useful in Base submodule __init__ functions where STDERR isn't defined yet.
 function showerror_nostdio(err, msg::AbstractString)
     stderr_stream = ccall(:jl_stderr_stream, Ptr{Void}, ())
-    ccall(:jl_printf, UInt, (Ptr{Void},Cstring), stderr_stream, msg)
-    ccall(:jl_printf, UInt, (Ptr{Void},Cstring), stderr_stream, ":\n")
-    ccall(:jl_static_show, UInt, (Ptr{Void},Ptr{Void}), stderr_stream,
-          pointer_from_objref(err))
-    ccall(:jl_printf, UInt, (Ptr{Void},Cstring), stderr_stream, "\n")
+    ccall(:jl_printf, Cint, (Ptr{Void},Cstring), stderr_stream, msg)
+    ccall(:jl_printf, Cint, (Ptr{Void},Cstring), stderr_stream, ":\n")
+    ccall(:jl_static_show, Csize_t, (Ptr{Void},Any), stderr_stream, err)
+    ccall(:jl_printf, Cint, (Ptr{Void},Cstring), stderr_stream, "\n")
 end
 
 function show_method_candidates(io::IO, ex::MethodError)

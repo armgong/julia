@@ -16,6 +16,9 @@ static void addOptimizationPasses(T *PM)
     PM->add(llvm::createMemorySanitizerPass(true));
 #   endif
 #endif
+    if (jl_options.opt_level <= 1) {
+        return;
+    }
 #ifdef LLVM37
     PM->add(createTargetTransformInfoWrapperPass(jl_TargetMachine->getTargetIRAnalysis()));
 #else
@@ -26,7 +29,7 @@ static void addOptimizationPasses(T *PM)
 #else
     PM->add(createTypeBasedAliasAnalysisPass());
 #endif
-    if (jl_options.opt_level>=1) {
+    if (jl_options.opt_level >= 3) {
 #ifdef LLVM38
         PM->add(createBasicAAWrapperPass());
 #else
@@ -99,13 +102,13 @@ static void addOptimizationPasses(T *PM)
     PM->add(createJumpThreadingPass());         // Thread jumps
     PM->add(createDeadStoreEliminationPass());  // Delete dead stores
 #if !defined(INSTCOMBINE_BUG)
-    if (jl_options.opt_level>=1)
+    if (jl_options.opt_level >= 3)
         PM->add(createSLPVectorizerPass());     // Vectorize straight-line code
 #endif
 
     PM->add(createAggressiveDCEPass());         // Delete dead instructions
 #if !defined(INSTCOMBINE_BUG)
-    if (jl_options.opt_level>=1)
+    if (jl_options.opt_level >= 3)
         PM->add(createInstructionCombiningPass());   // Clean up after SLP loop vectorizer
 #endif
 #if defined(LLVM35)
@@ -157,8 +160,11 @@ extern JL_DLLEXPORT void ORCNotifyObjectEmitted(JITEventListener *Listener,
                                       const RuntimeDyld::LoadedObjectInfo &L);
 
 #if defined(_OS_DARWIN_) && defined(LLVM37) && defined(LLVM_SHLIB)
-#define CUSTOM_MEMORY_MANAGER 1
+#define CUSTOM_MEMORY_MANAGER createRTDyldMemoryManagerOSX
 extern RTDyldMemoryManager *createRTDyldMemoryManagerOSX();
+#elif defined(_OS_LINUX_) && defined(LLVM37) && defined(JL_UNW_HAS_FORMAT_IP)
+#define CUSTOM_MEMORY_MANAGER createRTDyldMemoryManagerUnix
+extern RTDyldMemoryManager *createRTDyldMemoryManagerUnix();
 #endif
 
 namespace {
@@ -265,7 +271,7 @@ public:
         ObjStream(ObjBufferSV),
         MemMgr(
 #ifdef CUSTOM_MEMORY_MANAGER
-            createRTDyldMemoryManagerOSX()
+            CUSTOM_MEMORY_MANAGER()
 #else
             new SectionMemoryManager
 #endif
@@ -274,9 +280,6 @@ public:
             PM.add(createVerifierPass());
 #endif
             addOptimizationPasses(&PM);
-#ifdef JL_DEBUG_BUILD
-            PM.add(createVerifierPass());
-#endif
             if (TM.addPassesToEmitMC(PM, Ctx, ObjStream))
                 llvm_unreachable("Target does not support MC emission.");
 
