@@ -244,15 +244,22 @@ int jl_has_intrinsics(jl_lambda_info_t *li, jl_expr_t *e, jl_module_t *m)
 {
     if (jl_array_len(e->args) == 0)
         return 0;
-    if (e->head == static_typeof_sym) return 1;
-    jl_value_t *e0 = jl_exprarg(e,0);
+    if (e->head == static_typeof_sym)
+        return 1;
+    jl_value_t *e0 = jl_exprarg(e, 0);
     if (e->head == call_sym) {
-        jl_value_t *sv = jl_static_eval(e0, NULL, m, li, 0, 0);
+        jl_value_t *sv = jl_static_eval(e0, NULL, m, li, li != NULL, 0);
+        if (sv && jl_typeis(sv, jl_intrinsic_type))
+            return 1;
+    }
+    if (0 && e->head == assign_sym && jl_is_gensym(e0)) { // code branch needed for *very-linear-mode*, but not desirable otherwise
+        jl_value_t *e1 = jl_exprarg(e, 1);
+        jl_value_t *sv = jl_static_eval(e1, NULL, m, li, li != NULL, 0);
         if (sv && jl_typeis(sv, jl_intrinsic_type))
             return 1;
     }
     int i;
-    for(i=0; i < jl_array_len(e->args); i++) {
+    for (i=0; i < jl_array_len(e->args); i++) {
         jl_value_t *a = jl_exprarg(e,i);
         if (jl_is_expr(a) && jl_has_intrinsics(li, (jl_expr_t*)a, m))
             return 1;
@@ -582,30 +589,6 @@ JL_DLLEXPORT jl_value_t *jl_load_(jl_value_t *str)
     return jl_load(jl_string_data(str), jl_string_len(str));
 }
 
-// type definition ------------------------------------------------------------
-
-void jl_reinstantiate_inner_types(jl_datatype_t *t);
-
-void jl_set_datatype_super(jl_datatype_t *tt, jl_value_t *super)
-{
-    if (!jl_is_datatype(super) || !jl_is_abstracttype(super) ||
-        tt->name == ((jl_datatype_t*)super)->name ||
-        jl_subtype(super,(jl_value_t*)jl_vararg_type,0) ||
-        jl_is_tuple_type(super) ||
-        jl_subtype(super,(jl_value_t*)jl_type_type,0) ||
-        super == (jl_value_t*)jl_builtin_type) {
-        jl_errorf("invalid subtyping in definition of %s",
-                  jl_symbol_name(tt->name->name));
-    }
-    tt->super = (jl_datatype_t*)super;
-    jl_gc_wb(tt, tt->super);
-    if (jl_svec_len(tt->parameters) > 0) {
-        tt->name->cache = jl_emptysvec;
-        tt->name->linearcache = jl_emptysvec;
-        jl_reinstantiate_inner_types(tt);
-    }
-}
-
 // method definition ----------------------------------------------------------
 
 extern int jl_boot_file_loaded;
@@ -727,7 +710,7 @@ jl_value_t *jl_first_argument_datatype(jl_value_t *argtypes)
     return (jl_value_t*)first_arg_datatype(argtypes, 0);
 }
 
-static jl_lambda_info_t* expr_to_lambda(jl_lambda_info_t *f)
+static jl_lambda_info_t *expr_to_lambda(jl_lambda_info_t *f)
 {
     // this occurs when there is a closure being added to an out-of-scope function
     // the user should only do this at the toplevel

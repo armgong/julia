@@ -87,7 +87,7 @@ function gethandle(io::IO)
     return Int(handle)
 end
 
-settings(sh::Anonymous) = utf16(sh.name), sh.readonly, sh.create
+settings(sh::Anonymous) = sh.name, sh.readonly, sh.create
 settings(io::IO) = Ptr{Cwchar_t}(0), isreadonly(io), true
 end # @windows_only
 
@@ -124,7 +124,7 @@ function mmap{T,N}(io::IO,
 
     @windows_only begin
         name, readonly, create = settings(io)
-        szfile = convert(DWORD, len + offset)
+        szfile = convert(Csize_t, len + offset)
         readonly && szfile > filesize(io) && throw(ArgumentError("unable to increase file size to $szfile due to read-only permissions"))
         handle = create ? ccall(:CreateFileMappingW, stdcall, Ptr{Void}, (Cptrdiff_t, Ptr{Void}, DWORD, DWORD, DWORD, Cwstring),
                                 file_desc, C_NULL, readonly ? PAGE_READONLY : PAGE_READWRITE, szfile >> 32, szfile & typemax(UInt32), name) :
@@ -204,9 +204,11 @@ const MS_INVALIDATE = 2
 const MS_SYNC = 4
 
 function sync!{T}(m::Array{T}, flags::Integer=MS_SYNC)
-    @unix_only systemerror("msync", ccall(:msync, Cint, (Ptr{Void}, Csize_t, Cint), pointer(m), length(m)*sizeof(T), flags) != 0)
+    offset = rem(UInt(pointer(m)), PAGESIZE)
+    ptr = pointer(m) - offset
+    @unix_only systemerror("msync", ccall(:msync, Cint, (Ptr{Void}, Csize_t, Cint), ptr, length(m)*sizeof(T), flags) != 0)
     @windows_only systemerror("could not FlushViewOfFile: $(Libc.FormatMessage())",
-                    ccall(:FlushViewOfFile, stdcall, Cint, (Ptr{Void}, Csize_t), pointer(m), length(m)) == 0)
+                    ccall(:FlushViewOfFile, stdcall, Cint, (Ptr{Void}, Csize_t), ptr, length(m)) == 0)
 end
 sync!(B::BitArray, flags::Integer=MS_SYNC) = sync!(B.chunks, flags)
 

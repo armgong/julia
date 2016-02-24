@@ -59,7 +59,7 @@
 #    name::Symbol
 #end
 
-#type LambdaStaticData
+#type LambdaInfo
 #    ast::Expr
 #    sparams::Tuple
 #    tfunc
@@ -125,7 +125,7 @@ export
     Tuple, Type, TypeConstructor, TypeName, TypeVar, Union, Void,
     SimpleVector, AbstractArray, DenseArray,
     # special objects
-    Box, Function, Builtin, IntrinsicFunction, LambdaStaticData, Method, MethodTable,
+    Box, Function, Builtin, IntrinsicFunction, LambdaInfo, Method, MethodTable,
     Module, Symbol, Task, Array, WeakRef,
     # numeric types
     Number, Real, Integer, Bool, Ref, Ptr,
@@ -341,6 +341,7 @@ unsafe_convert{T}(::Type{T}, x::T) = x
 (::Type{Array{T}}){T}(m::Int, n::Int, o::Int) = Array{T,3}(m, n, o)
 
 # TODO: possibly turn these into deprecations
+Array{T,N}(::Type{T}, d::NTuple{N,Int}) = Array{T}(d)
 Array{T}(::Type{T}, d::Int...) = Array{T}(d)
 Array{T}(::Type{T}, m::Int)               = Array{T,1}(m)
 Array{T}(::Type{T}, m::Int,n::Int)        = Array{T,2}(m,n)

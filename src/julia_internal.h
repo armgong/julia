@@ -5,6 +5,12 @@
 
 #include <options.h>
 #include <uv.h>
+#ifndef _MSC_VER
+#include <unistd.h>
+#include <sched.h>
+#else
+#define sleep(x) Sleep(1000*x)
+#endif
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,7 +23,7 @@ extern jl_function_t *jl_typeinf_func;
 #if defined(JL_USE_INTEL_JITEVENTS)
 extern unsigned sig_stack_size;
 #endif
-#define jl_in_jl_ jl_get_ptls_states()->in_jl_
+#define jl_safe_restore jl_get_ptls_states()->safe_restore
 
 JL_DLLEXPORT extern int jl_lineno;
 JL_DLLEXPORT extern const char *jl_filename;
@@ -97,11 +103,8 @@ static inline void jl_gc_wb_buf(void *parent, void *bufptr) // parent isa jl_val
         gc_setmark_buf(bufptr, jl_astaggedvalue(parent)->gc_bits);
 }
 
-#ifdef GC_DEBUG_ENV
 void gc_debug_print_status(void);
-#else
-#define gc_debug_print_status()
-#endif
+void gc_debug_critical_error(void);
 #if defined(GC_FINAL_STATS)
 void jl_print_gc_stats(JL_STREAM *s);
 #else
@@ -115,8 +118,7 @@ uint32_t jl_get_gs_ctr(void);
 void jl_set_gs_ctr(uint32_t ctr);
 
 void JL_NORETURN jl_no_method_error_bare(jl_function_t *f, jl_value_t *args);
-void JL_NORETURN jl_no_method_error(jl_function_t *f, jl_value_t **args,
-                                    size_t na);
+void JL_NORETURN jl_no_method_error(jl_function_t *f, jl_value_t **args, size_t na);
 JL_DLLEXPORT void jl_typeassert(jl_value_t *x, jl_value_t *t);
 
 #define JL_CALLABLE(name)                                               \
@@ -137,9 +139,8 @@ ssize_t jl_max_jlgensym_in(jl_value_t *v);
 extern uv_loop_t *jl_io_loop;
 
 JL_DLLEXPORT void jl_uv_associate_julia_struct(uv_handle_t *handle,
-                                            jl_value_t *data);
+                                               jl_value_t *data);
 JL_DLLEXPORT int jl_uv_fs_result(uv_fs_t *f);
-
 
 int jl_tuple_subtype(jl_value_t **child, size_t cl, jl_datatype_t *pdt, int ta);
 
@@ -175,7 +176,6 @@ void jl_add_method_to_table(jl_methtable_t *mt, jl_tupletype_t *types, jl_lambda
 jl_function_t *jl_module_call_func(jl_module_t *m);
 int jl_is_submodule(jl_module_t *child, jl_module_t *parent);
 
-typedef struct _jl_ast_context_t jl_ast_context_t;
 jl_value_t *jl_toplevel_eval_flex(jl_value_t *e, int fast);
 
 jl_lambda_info_t *jl_wrap_expr(jl_value_t *expr);
@@ -210,9 +210,6 @@ int jl_local_in_linfo(jl_lambda_info_t *linfo, jl_sym_t *sym);
 jl_value_t *jl_first_argument_datatype(jl_value_t *argtypes);
 jl_value_t *jl_preresolve_globals(jl_value_t *expr, jl_lambda_info_t *lam);
 int jl_has_intrinsics(jl_lambda_info_t *li, jl_expr_t *e, jl_module_t *m);
-
-void jl_set_datatype_super(jl_datatype_t *tt, jl_value_t *super);
-void jl_add_constructors(jl_datatype_t *t);
 
 jl_value_t *jl_nth_slot_type(jl_tupletype_t *sig, size_t i);
 void jl_compute_field_offsets(jl_datatype_t *st);
@@ -263,40 +260,48 @@ void jl_dump_objfile(char *fname, int jit_model, const char *sysimg_data, size_t
 int32_t jl_get_llvm_gv(jl_value_t *p);
 void jl_idtable_rehash(jl_array_t **pa, size_t newsz);
 
-jl_methtable_t *jl_new_method_table(jl_sym_t *name, jl_module_t *module);
+JL_DLLEXPORT jl_methtable_t *jl_new_method_table(jl_sym_t *name, jl_module_t *module);
 jl_lambda_info_t *jl_get_specialization1(jl_tupletype_t *types, void *cyclectx);
 jl_function_t *jl_module_get_initializer(jl_module_t *m);
 uint32_t jl_module_next_counter(jl_module_t *m);
-void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig);
+void jl_fptr_to_llvm(jl_fptr_t fptr, jl_lambda_info_t *lam, int specsig);
 jl_tupletype_t *arg_type_tuple(jl_value_t **args, size_t nargs);
 
-jl_value_t* skip_meta(jl_array_t *body);
+jl_value_t *skip_meta(jl_array_t *body);
 int has_meta(jl_array_t *body, jl_sym_t *sym);
 
 // backtraces
+uint64_t jl_getUnwindInfo(uint64_t dwBase);
 #ifdef _OS_WINDOWS_
 extern HANDLE hMainThread;
 typedef CONTEXT *bt_context_t;
-DWORD64 jl_getUnwindInfo(ULONG64 dwBase);
 extern volatile int jl_in_stackwalk;
 #else
-#define UNW_LOCAL_ONLY
-#include <libunwind.h>
+// This gives unwind only local unwinding options ==> faster code
+#  define UNW_LOCAL_ONLY
+#  include <libunwind.h>
 typedef unw_context_t *bt_context_t;
+#  if (!defined(SYSTEM_LIBUNWIND) || UNW_VERSION_MAJOR > 1 ||   \
+       (UNW_VERSION_MAJOR == 1 && UNW_VERSION_MINOR > 1))
+// Enable our memory manager only for libunwind with our patch or
+// on a newer release
+#    define JL_UNW_HAS_FORMAT_IP 1
+#  endif
 #endif
 #define jl_bt_data (jl_get_ptls_states()->bt_data)
 #define jl_bt_size (jl_get_ptls_states()->bt_size)
-JL_DLLEXPORT size_t rec_backtrace(ptrint_t *data, size_t maxsize);
-JL_DLLEXPORT size_t rec_backtrace_ctx(ptrint_t *data, size_t maxsize, bt_context_t ctx);
+JL_DLLEXPORT size_t rec_backtrace(intptr_t *data, size_t maxsize);
+JL_DLLEXPORT size_t rec_backtrace_ctx(intptr_t *data, size_t maxsize, bt_context_t ctx);
 #ifdef LIBOSXUNWIND
-size_t rec_backtrace_ctx_dwarf(ptrint_t *data, size_t maxsize, bt_context_t ctx);
+size_t rec_backtrace_ctx_dwarf(intptr_t *data, size_t maxsize, bt_context_t ctx);
 #endif
+void jl_critical_error(int sig, bt_context_t context, intptr_t *bt_data, size_t *bt_size);
 JL_DLLEXPORT void jl_raise_debugger(void);
 // Set *name and *filename to either NULL or malloc'd string
 void jl_getFunctionInfo(char **name, char **filename, size_t *line,
-                        char **inlinedat_file, size_t *inlinedat_line,
+                        char **inlinedat_file, size_t *inlinedat_line, jl_lambda_info_t **outer_linfo,
                         uintptr_t pointer, int *fromC, int skipC, int skipInline);
-JL_DLLEXPORT void jl_gdblookup(ptrint_t ip);
+JL_DLLEXPORT void jl_gdblookup(intptr_t ip);
 
 // *to is NULL or malloc'd pointer, from is allowed to be NULL
 static inline char *jl_copy_str(char **to, const char *from)
@@ -329,9 +334,8 @@ extern void *jl_winsock_handle;
 
 void *jl_get_library(const char *f_lib);
 JL_DLLEXPORT void *jl_load_and_lookup(const char *f_lib, const char *f_name,
-                                   void **hnd);
+                                      void **hnd);
 const char *jl_dlfind_win32(const char *name);
-
 
 // libuv wrappers:
 JL_DLLEXPORT int jl_fs_rename(const char *src_path, const char *dst_path);
@@ -345,7 +349,7 @@ extern JL_DLLEXPORT jl_value_t *jl_segv_exception;
 #endif
 
 // Runtime intrinsics //
-const char* jl_intrinsic_name(int f);
+const char *jl_intrinsic_name(int f);
 
 JL_DLLEXPORT jl_value_t *jl_reinterpret(jl_value_t *ty, jl_value_t *v);
 JL_DLLEXPORT jl_value_t *jl_pointerref(jl_value_t *p, jl_value_t *i);
@@ -494,7 +498,6 @@ STATIC_INLINE void jl_free_aligned(void *p)
     free(p);
 }
 #endif
-
 
 #ifdef __cplusplus
 }

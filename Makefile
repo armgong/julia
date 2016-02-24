@@ -191,6 +191,7 @@ CORE_SRCS := $(addprefix $(JULIAHOME)/, \
 		base/dict.jl \
 		base/error.jl \
 		base/essentials.jl \
+		base/generator.jl \
 		base/expr.jl \
 		base/functors.jl \
 		base/hashing.jl \
@@ -367,7 +368,7 @@ ifeq ($(OS),WINNT)
 endif
 	$(INSTALL_F) $(build_includedir)/uv* $(DESTDIR)$(includedir)/julia
 endif
-	$(INSTALL_F) $(addprefix $(JULIAHOME)/,src/julia.h src/julia_version.h src/support/*.h) $(DESTDIR)$(includedir)/julia
+	$(INSTALL_F) $(addprefix $(JULIAHOME)/,src/julia.h src/julia_threads.h src/julia_version.h src/support/*.h) $(DESTDIR)$(includedir)/julia
 	# Copy system image
 	-$(INSTALL_F) $(build_private_libdir)/sys.ji $(DESTDIR)$(private_libdir)
 	$(INSTALL_M) $(build_private_libdir)/sys.$(SHLIB_EXT) $(DESTDIR)$(private_libdir)

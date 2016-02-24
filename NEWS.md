@@ -4,6 +4,9 @@ Julia v0.5.0 Release Notes
 New language features
 ---------------------
 
+  * Generator expressions, e.g. `f(i) for i in 1:n` (#4470). This returns an iterator
+    that computes the specified values on demand.
+
   * Macro expander functions are now generic, so macros can have multiple definitions
     (e.g. for different numbers of arguments, or optional arguments) ([#8846], [#9627]).
     However note that the argument types refer to the syntax tree representation, and not
@@ -98,6 +101,8 @@ Library improvements
   * Statistics:
 
     * Improve performance of `quantile` ([#14413]).
+
+  * The new `Base.StackTraces` module makes stack traces easier to use programmatically. ([#14469])
 
 Deprecated or removed
 ---------------------
@@ -1779,3 +1784,4 @@ Too numerous to mention.
 [#14424]: https://github.com/JuliaLang/julia/issues/14424
 [#14759]: https://github.com/JuliaLang/julia/issues/14759
 [#14114]: https://github.com/JuliaLang/julia/issues/14114
+[#14469]: https://github.com/JuliaLang/julia/issues/14469

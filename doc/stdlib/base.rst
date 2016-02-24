@@ -344,11 +344,13 @@ All Objects
 
    While it isn't normally necessary, user-defined types can override the default ``deepcopy`` behavior by defining a specialized version of the function ``deepcopy_internal(x::T, dict::ObjectIdDict)`` (which shouldn't otherwise be used), where ``T`` is the type to be specialized for, and ``dict`` keeps track of objects copied so far within the recursion. Within the definition, ``deepcopy_internal`` should be used in place of ``deepcopy``\ , and the ``dict`` variable should be updated as appropriate before returning.
 
-.. function:: isdefined([object,] index | symbol)
+.. function:: isdefined([m::Module,] s::Symbol)
+              isdefined(object, s::Symbol)
+              isdefined(a::AbstractArray, index::Int)
 
    .. Docstring generated from Julia source
 
-   Tests whether an assignable location is defined. The arguments can be an array and index, a composite object and field name (as a symbol), or a module and a symbol. With a single symbol argument, tests whether a global variable with that name is defined in ``current_module()``\ .
+   Tests whether an assignable location is defined. The arguments can be a module and a symbol, a composite object and field name (as a symbol), or an array and index. With a single symbol argument, tests whether a global variable with that name is defined in ``current_module()``\ .
 
 .. function:: convert(T, x)
 
@@ -395,11 +397,11 @@ All Objects
 
    Convert ``y`` to the type of ``x`` (``convert(typeof(x), y)``\ ).
 
-.. function:: widen(type | x)
+.. function:: widen(x)
 
    .. Docstring generated from Julia source
 
-   If the argument is a type, return a "larger" type (for numeric types, this will be a type with at least as much range and precision as the argument, and usually more). Otherwise the argument ``x`` is converted to ``widen(typeof(x))``\ .
+   If ``x`` is a type, return a "larger" type (for numeric types, this will be a type with at least as much range and precision as the argument, and usually more). Otherwise ``x`` is converted to ``widen(typeof(x))``\ .
 
    .. doctest::
 
@@ -530,20 +532,20 @@ Types
 
        julia> structinfo(T) = [(fieldoffset(T,i), fieldname(T,i), fieldtype(T,i)) for i = 1:nfields(T)];
 
-       julia> structinfo(StatStruct)
-       12-element Array{Tuple{Int64,Symbol,DataType},1}:
-        (0,:device,UInt64)
-        (8,:inode,UInt64)
-        (16,:mode,UInt64)
-        (24,:nlink,Int64)
-        (32,:uid,UInt64)
-        (40,:gid,UInt64)
-        (48,:rdev,UInt64)
-        (56,:size,Int64)
-        (64,:blksize,Int64)
-        (72,:blocks,Int64)
-        (80,:mtime,Float64)
-        (88,:ctime,Float64)
+       julia> structinfo(Base.Filesystem.StatStruct)
+       12-element Array{Tuple{UInt64,Symbol,Type{_}},1}:
+        (0x0000000000000000,:device,UInt64)
+        (0x0000000000000008,:inode,UInt64)
+        (0x0000000000000010,:mode,UInt64)
+        (0x0000000000000018,:nlink,Int64)
+        (0x0000000000000020,:uid,UInt64)
+        (0x0000000000000028,:gid,UInt64)
+        (0x0000000000000030,:rdev,UInt64)
+        (0x0000000000000038,:size,Int64)
+        (0x0000000000000040,:blksize,Int64)
+        (0x0000000000000048,:blocks,Int64)
+        (0x0000000000000050,:mtime,Float64)
+        (0x0000000000000058,:ctime,Float64)
 
 .. function:: fieldtype(T, name::Symbol | index::Int)
 
@@ -768,7 +770,7 @@ System
 .. data:: DevNull
 
    Used in a stream redirect to discard all data written to it. Essentially equivalent to /dev/null on Unix or NUL on Windows.
-   Usage: ``run(`cat test.txt` |> DevNull)``
+   Usage: ``run(pipeline(`cat test.txt`, DevNull))``
 
 .. function:: success(command)
 
@@ -977,25 +979,49 @@ System
 
    .. Docstring generated from Julia source
 
-   Given ``@unix? a : b``\ , do ``a`` on Unix systems (including Linux and OS X) and ``b`` elsewhere. See documentation for Handling Platform Variations in the Calling C and Fortran Code section of the manual.
+   Given ``@unix? a : b``\ , do ``a`` on Unix systems (including Linux and OS X) and ``b`` elsewhere. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
+
+.. function:: @unix_only
+
+   .. Docstring generated from Julia source
+
+   A macro that evaluates the given expression only on Unix systems (including Linux and OS X). See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
 
 .. function:: @osx
 
    .. Docstring generated from Julia source
 
-   Given ``@osx? a : b``\ , do ``a`` on OS X and ``b`` elsewhere. See documentation for Handling Platform Variations in the Calling C and Fortran Code section of the manual.
+   Given ``@osx? a : b``\ , do ``a`` on OS X and ``b`` elsewhere. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
+
+.. function:: @osx_only
+
+   .. Docstring generated from Julia source
+
+   A macro that evaluates the given expression only on OS X systems. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
 
 .. function:: @linux
 
    .. Docstring generated from Julia source
 
-   Given ``@linux? a : b``\ , do ``a`` on Linux and ``b`` elsewhere. See documentation for Handling Platform Variations in the Calling C and Fortran Code section of the manual.
+   Given ``@linux? a : b``\ , do ``a`` on Linux and ``b`` elsewhere. See documentation :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
+
+.. function:: @linux_only
+
+   .. Docstring generated from Julia source
+
+   A macro that evaluates the given expression only on Linux systems. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
 
 .. function:: @windows
 
    .. Docstring generated from Julia source
 
-   Given ``@windows? a : b``\ , do ``a`` on Windows and ``b`` elsewhere. See documentation for Handling Platform Variations in the Calling C and Fortran Code section of the manual.
+   Given ``@windows? a : b``\ , do ``a`` on Windows and ``b`` elsewhere. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
+
+.. function:: @windows_only
+
+   .. Docstring generated from Julia source
+
+   A macro that evaluates the given expression only on Windows systems. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
 
 Errors
 ------
@@ -1263,12 +1289,6 @@ Reflection
    .. Docstring generated from Julia source
 
    Determine whether a global is declared ``const`` in a given ``Module``\ . The default ``Module`` argument is ``current_module()``\ .
-
-.. function:: isgeneric(f::Function) -> Bool
-
-   .. Docstring generated from Julia source
-
-   Determine whether a ``Function`` is generic.
 
 .. function:: function_name(f::Function) -> Symbol
 

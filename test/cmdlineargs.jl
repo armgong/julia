@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-let exename = `$(joinpath(JULIA_HOME, Base.julia_exename())) --precompiled=yes`
+let exename = `$(Base.julia_cmd()) --precompiled=yes`
     # --version
     let v = split(readstring(`$exename -v`), "julia version ")[end]
         @test Base.VERSION_STRING == chomp(v)
@@ -122,9 +122,10 @@ let exename = `$(joinpath(JULIA_HOME, Base.julia_exename())) --precompiled=yes`
     @test readchomp(`$exename -E "Bool(Base.JLOptions().malloc_log)" --track-allocation=user`) == "true"
 
     # --optimize
-    @test readchomp(`$exename -E "Bool(Base.JLOptions().opt_level)"`) == "false"
-    @test readchomp(`$exename -E "Bool(Base.JLOptions().opt_level)" -O`) == "true"
-    @test readchomp(`$exename -E "Bool(Base.JLOptions().opt_level)" --optimize`) == "true"
+    @test readchomp(`$exename -E "Base.JLOptions().opt_level"`) == "2"
+    @test readchomp(`$exename -E "Base.JLOptions().opt_level" -O`) == "3"
+    @test readchomp(`$exename -E "Base.JLOptions().opt_level" --optimize`) == "3"
+    @test readchomp(`$exename -E "Base.JLOptions().opt_level" -O0`) == "0"
 
     # --check-bounds
     let JL_OPTIONS_CHECK_BOUNDS_DEFAULT = 0,

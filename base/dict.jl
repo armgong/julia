@@ -241,14 +241,27 @@ function merge(d::Associative, others::Associative...)
 end
 
 function filter!(f, d::Associative)
+    badkeys = Array(keytype(d), 0)
     for (k,v) in d
-        if !f(k,v)
-            delete!(d,k)
-        end
+        # don't delete!(d, k) here, since associative types
+        # may not support mutation during iteration
+        f(k,v) || push!(badkeys, k)
+    end
+    for k in badkeys
+        delete!(d, k)
     end
     return d
 end
-filter(f, d::Associative) = filter!(f,copy(d))
+function filter(f, d::Associative)
+    # don't just do filter!(f, copy(d)): avoid making a whole copy of d
+    df = similar(d)
+    for (k,v) in d
+        if f(k,v)
+            df[k] = v
+        end
+    end
+    return df
+end
 
 eltype{K,V}(::Type{Associative{K,V}}) = Pair{K,V}
 
@@ -510,14 +523,20 @@ function rehash!{K,V}(h::Dict{K,V}, newsz = length(h.keys))
     vals = Array(V, newsz)
     count0 = h.count
     count = 0
+    maxprobe = max(16, newsz>>6)
 
     for i = 1:sz
         if olds[i] == 0x1
             k = oldk[i]
             v = oldv[i]
-            index = hashindex(k, newsz)
+            index0 = index = hashindex(k, newsz)
             while slots[index] != 0
                 index = (index & (newsz-1)) + 1
+            end
+            if index - index0 > maxprobe
+                # rare condition: new table size causes more grouping of keys than before
+                # see issue #15077
+                return rehash!(h, newsz*2)
             end
             slots[index] = 0x1
             keys[index] = k
@@ -866,6 +885,16 @@ function next{K,V}(t::WeakKeyDict{K,V}, i)
 end
 length(t::WeakKeyDict) = length(t.ht)
 
+# For these Associative types, it is safe to implement filter!
+# by deleting keys during iteration.
+function filter!(f, d::Union{ObjectIdDict,Dict,WeakKeyDict})
+     for (k,v) in d
+        if !f(k,v)
+            delete!(d,k)
+        end
+     end
+     return d
+ end
 
 immutable ImmutableDict{K, V} <: Associative{K,V}
     parent::ImmutableDict{K, V}

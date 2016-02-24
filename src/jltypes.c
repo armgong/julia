@@ -1864,8 +1864,8 @@ static int typekey_compare(jl_datatype_t *tt, jl_value_t **key, size_t n)
             int dtk = jl_is_datatype(kj);
             if (!dtt && !dtk && jl_egal(tj, kj))
                 continue;
-            uptrint_t tid = (dtt && ((jl_datatype_t*)tj)->uid ? ((jl_datatype_t*)tj)->uid : jl_object_id(tj));
-            uptrint_t kid = (dtk && ((jl_datatype_t*)kj)->uid ? ((jl_datatype_t*)kj)->uid : jl_object_id(kj));
+            uintptr_t tid = (dtt && ((jl_datatype_t*)tj)->uid ? ((jl_datatype_t*)tj)->uid : jl_object_id(tj));
+            uintptr_t kid = (dtk && ((jl_datatype_t*)kj)->uid ? ((jl_datatype_t*)kj)->uid : jl_object_id(kj));
             if (kid != tid)
                 return kid < tid ? -1 : 1;
         }
@@ -1945,7 +1945,7 @@ void jl_set_t_uid_ctr(int i) { t_uid_ctr=i; }
 int jl_assign_type_uid(void)
 {
     assert(t_uid_ctr != 0);
-    return JL_ATOMIC_FETCH_AND_ADD(t_uid_ctr, 1);
+    return jl_atomic_fetch_add(&t_uid_ctr, 1);
 }
 
 static int is_cacheable(jl_datatype_t *type)
@@ -2372,6 +2372,9 @@ void jl_reinstantiate_inner_types(jl_datatype_t *t)
     top.tt = t;
     top.prev = NULL;
     size_t n = jl_svec_len(t->parameters);
+    if (n == 0) return;
+    t->name->cache = jl_emptysvec;
+    t->name->linearcache = jl_emptysvec;
     jl_value_t **env = (jl_value_t**)alloca(n*2*sizeof(void*));
     for(int i=0; i < n; i++) {
         env[i*2] = jl_svecref(t->parameters,i);
@@ -3476,7 +3479,7 @@ void jl_init_types(void)
     jl_svecset(jl_methtable_type->types, 7, jl_module_type);
 
     jl_lambda_info_type =
-        jl_new_datatype(jl_symbol("LambdaStaticData"),
+        jl_new_datatype(jl_symbol("LambdaInfo"),
                         jl_any_type, jl_emptysvec,
                         jl_svec(16, jl_symbol("ast"), jl_symbol("rettype"),
                                 jl_symbol("sparam_syms"), jl_symbol("sparam_vals"),

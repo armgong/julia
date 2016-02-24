@@ -56,6 +56,7 @@ end
 @test !isdir(file)
 @test isfile(file)
 @test !islink(file)
+
 @test filemode(file) & 0o444 > 0 # readable
 @test filemode(file) & 0o222 > 0 # writable
 chmod(file, filemode(file) & 0o7555)
@@ -63,6 +64,42 @@ chmod(file, filemode(file) & 0o7555)
 chmod(file, filemode(file) | 0o222)
 @test filemode(file) & 0o111 == 0
 @test filesize(file) == 0
+
+@windows_only begin
+    permissions = 0o444
+    @test filemode(dir) & 0o777 != permissions
+    @test filemode(subdir) & 0o777 != permissions
+    @test filemode(file) & 0o777 != permissions
+    chmod(dir, permissions, recursive=true)
+    @test filemode(dir) & 0o777 == permissions
+    @test filemode(subdir) & 0o777 == permissions
+    @test filemode(file) & 0o777 == permissions
+    chmod(dir, 0o666, recursive=true)  # Reset permissions in case someone wants to use these later
+end
+@unix_only begin
+    mktempdir() do tmpdir
+        tmpfile=joinpath(tmpdir, "tempfile.txt")
+        touch(tmpfile)
+        chmod(tmpfile, 0o707)
+        linkfile=joinpath(dir, "tempfile.txt")
+        symlink(tmpfile, linkfile)
+        permissions=0o776
+        @test filemode(dir) & 0o777 != permissions
+        @test filemode(subdir) & 0o777 != permissions
+        @test filemode(file) & 0o777 != permissions
+        @test filemode(linkfile) & 0o777 != permissions
+        @test filemode(tmpfile) & 0o777 != permissions
+        chmod(dir, permissions, recursive=true)
+        @test filemode(dir) & 0o777 == permissions
+        @test filemode(subdir) & 0o777 == permissions
+        @test filemode(file) & 0o777 == permissions
+        @test lstat(link).mode & 0o777 != permissions  # Symbolic links are not modified.
+        @test filemode(linkfile) & 0o777 != permissions  # Symbolic links are not followed.
+        @test filemode(tmpfile) & 0o777 != permissions
+        rm(linkfile)
+    end
+end
+
 # On windows the filesize of a folder is the accumulation of all the contained
 # files and is thus zero in this case.
 @windows_only @test filesize(dir) == 0
@@ -119,6 +156,22 @@ rm(c_tmpdir, recursive=true)
 @test_throws Base.UVError rm(c_tmpdir, recursive=true)
 @test rm(c_tmpdir, force=true, recursive=true) === nothing
 
+# chown will give an error if the user does not have permissions to change files
+@unix_only if ENV["USER"] =="root"
+    chown(file, -2, -1)  # Change the file owner to nobody
+    @test stat(file).uid !=0
+    chown(file, 0, -2)  # Change the file group to nogroup (and owner back to root)
+    @test stat(file).gid !=0
+    @test stat(file).uid ==0
+    chown(file, -1, 0)
+    @test stat(file).gid ==0
+    @test stat(file).uid ==0
+else
+    @test_throws Base.UVError chown(file, -2, -1)  # Non-root user cannot change ownership to another user
+    @test_throws Base.UVError chown(file, -1, -2)  # Non-root user cannot change group to a group they are not a member of (eg: nogroup)
+end
+
+@windows_only @test chown(file, -2, -2) == nothing  # chown shouldn't cause any errors for Windows
 
 #######################################################################
 # This section tests file watchers.                                   #
@@ -1043,108 +1096,3 @@ function test_13559()
     rm(fn)
 end
 @unix_only test_13559()
-
-function test_read_nbyte()
-    fn = tempname()
-    # Write one byte. One byte read should work once
-    # but 2-byte read should throw EOFError.
-    f = open(fn, "w+") do f
-        write(f, 0x55)
-        flush(f)
-        seek(f, 0)
-        @test read(f, UInt8) == 0x55
-        @test_throws EOFError read(f, UInt8)
-        seek(f, 0)
-        @test_throws EOFError read(f, UInt16)
-    end
-    # Write 2 more bytes. Now 2-byte read should work once
-    # but 4-byte read should fail with EOFError.
-    open(fn, "a+") do f
-        write(f, 0x4444)
-        flush(f)
-        seek(f, 0)
-        @test read(f, UInt16) == 0x4455
-        @test_throws EOFError read(f, UInt16)
-        seek(f,0)
-        @test_throws EOFError read(f, UInt32)
-    end
-    # Write 4 more bytes. Now 4-byte read should work once
-    # but 8-byte read should fail with EOFError.
-    open(fn, "a+") do f
-        write(f, 0x33333333)
-        flush(f)
-        seek(f, 0)
-        @test read(f, UInt32) == 0x33444455
-        @test_throws EOFError read(f, UInt32)
-        seek(f,0)
-        @test_throws EOFError read(f, UInt64)
-    end
-    # Writing one more byte should allow an 8-byte
-    # read to proceed.
-    open(fn, "a+") do f
-        write(f, 0x22)
-        flush(f)
-        seek(f, 0)
-        @test read(f, UInt64) == 0x2233333333444455
-    end
-    rm(fn)
-end
-test_read_nbyte()
-
-let s = "qwerty"
-    @test read(IOBuffer(s)) == s.data
-    @test read(IOBuffer(s), 10) == s.data
-    @test read(IOBuffer(s), 1) == s.data[1:1]
-
-    # Test growing output array
-    x = UInt8[]
-    n = readbytes!(IOBuffer(s), x, 10)
-    @test x == s.data
-    @test n == length(x)
-end
-
-# DevNull
-@test !isreadable(DevNull)
-@test iswritable(DevNull)
-@test isopen(DevNull)
-@test write(DevNull, 0xff) === 1
-@test write(DevNull, Int32(1234)) === 4
-@test_throws EOFError read(DevNull, UInt8)
-@test close(DevNull) === nothing
-@test flush(DevNull) === nothing
-@test copy(DevNull) === DevNull
-@test eof(DevNull)
-@test print(DevNull, "go to /dev/null") === nothing
-
-# Filesystem.File
-tmpdir = mktempdir() do d
-    f = joinpath(d, "test.txt")
-    open(io->write(io, "123"), f, "w")
-    f1 = open(f)
-    f2 = Base.Filesystem.open(f, Base.Filesystem.JL_O_RDONLY)
-    @test read(f1, UInt8) == read(f2, UInt8)
-    @test read(f1, UInt8) == read(f2, UInt8)
-    @test read(f1, UInt8) == read(f2, UInt8)
-    @test_throws EOFError read(f1, UInt8)
-    @test_throws EOFError read(f2, UInt8)
-    close(f1)
-    close(f2)
-
-    a = UInt8[0,0,0]
-    f1 = open(f)
-    f2 = Base.Filesystem.open(f, Base.Filesystem.JL_O_RDONLY)
-    @test read!(f1, a) == read!(f2, a)
-    @test_throws EOFError read!(f1, a)
-    @test_throws EOFError read!(f2, a)
-    close(f1)
-    close(f2)
-
-    a = UInt8[0,0,0,0]
-    f1 = open(f)
-    f2 = Base.Filesystem.open(f, Base.Filesystem.JL_O_RDONLY)
-    @test_throws EOFError read!(f1, a)
-    @test_throws EOFError read!(f2, a)
-    close(f1)
-    close(f2)
-end
-

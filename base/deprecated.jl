@@ -76,13 +76,12 @@ function firstcaller(bt::Array{Ptr{Void},1}, funcsym::Symbol)
     # Identify the calling line
     i = 1
     while i <= length(bt)
-        lkup = ccall(:jl_lookup_code_address, Any, (Ptr{Void},Cint), bt[i], true)
+        lkup = StackTraces.lookup(bt[i])
         i += 1
-        if lkup === ()
+        if lkup === StackTraces.UNKNOWN
             continue
         end
-        fname, file, line, inlinedat_file, inlinedat_line, fromC = lkup
-        if fname == funcsym
+        if lkup.func == funcsym
             break
         end
     end
@@ -127,7 +126,7 @@ deprecate(:IpAddr)
 export apply
 @noinline function apply(f, args...)
     depwarn("apply(f, x) is deprecated, use `f(x...)` instead", :apply)
-    return Core._apply(call, f, args...)
+    return Core._apply(f, args...)
 end
 
 @deprecate median(v::AbstractArray; checknan::Bool=true)  median(v)
@@ -507,10 +506,12 @@ export float32_isvalid, float64_isvalid
 
 # 12087
 @deprecate call(P::Base.DFT.ScaledPlan, A) P * A
-@deprecate call(P::Base.FFTW.DCTPlan, A) P * A
-@deprecate call(P::Base.FFTW.cFFTWPlan, A) P * A
-@deprecate call(P::Base.FFTW.rFFTWPlan, A) P * A
-@deprecate call(P::Base.FFTW.r2rFFTWPlan, A) P * A
+if Base.USE_GPL_LIBS
+    @deprecate call(P::Base.FFTW.DCTPlan, A) P * A
+    @deprecate call(P::Base.FFTW.cFFTWPlan, A) P * A
+    @deprecate call(P::Base.FFTW.rFFTWPlan, A) P * A
+    @deprecate call(P::Base.FFTW.r2rFFTWPlan, A) P * A
+end
 for f in (:plan_fft, :plan_ifft, :plan_bfft, :plan_fft!, :plan_ifft!, :plan_bfft!, :plan_rfft)
     @eval @deprecate $f(A, dims, flags) $f(A, dims; flags=flags)
     @eval @deprecate $f(A, dims, flags, tlim) $f(A, dims; flags=flags, timelimit=tlim)
@@ -987,3 +988,5 @@ const call = @eval function(f, args...; kw...)
     f(args...; kw...)
 end
 export call
+
+@deprecate_binding LambdaStaticData LambdaInfo

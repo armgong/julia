@@ -131,13 +131,13 @@ end
         end
         systemerror(:OpenClipboard, 0==ccall((:OpenClipboard, "user32"), stdcall, Cint, (Ptr{Void},), C_NULL))
         systemerror(:EmptyClipboard, 0==ccall((:EmptyClipboard, "user32"), stdcall, Cint, ()))
-        x_u16 = utf16(x)
+        x_u16 = cwstring(x)
         # copy data to locked, allocated space
-        p = ccall((:GlobalAlloc, "kernel32"), stdcall, Ptr{UInt16}, (UInt16, Int32), 2, sizeof(x_u16)+2)
+        p = ccall((:GlobalAlloc, "kernel32"), stdcall, Ptr{UInt16}, (UInt16, Int32), 2, sizeof(x_u16))
         systemerror(:GlobalAlloc, p==C_NULL)
         plock = ccall((:GlobalLock, "kernel32"), stdcall, Ptr{UInt16}, (Ptr{UInt16},), p)
         systemerror(:GlobalLock, plock==C_NULL)
-        ccall(:memcpy, Ptr{UInt16}, (Ptr{UInt16},Ptr{UInt16},Int), plock, x_u16, sizeof(x_u16)+2)
+        ccall(:memcpy, Ptr{UInt16}, (Ptr{UInt16},Ptr{UInt16},Int), plock, x_u16, sizeof(x_u16))
         systemerror(:GlobalUnlock, 0==ccall((:GlobalUnlock, "kernel32"), stdcall, Cint, (Ptr{Void},), plock))
         pdata = ccall((:SetClipboardData, "user32"), stdcall, Ptr{UInt16}, (UInt32, Ptr{UInt16}), 13, p)
         systemerror(:SetClipboardData, pdata!=p)
@@ -152,7 +152,11 @@ end
         systemerror(:CloseClipboard, 0==ccall((:CloseClipboard, "user32"), stdcall, Cint, ()))
         plock = ccall((:GlobalLock, "kernel32"), stdcall, Ptr{UInt16}, (Ptr{UInt16},), pdata)
         systemerror(:GlobalLock, plock==C_NULL)
-        s = utf8(utf16(plock))
+        # find NUL terminator (0x0000 16-bit code unit)
+        len = 0
+        while unsafe_load(plock, len+1) != 0; len += 1; end
+        # get Vector{UInt16}, transcode data to UTF-8, make a ByteString of it
+        s = bytestring(utf16to8(pointer_to_array(plock, len)))
         systemerror(:GlobalUnlock, 0==ccall((:GlobalUnlock, "kernel32"), stdcall, Cint, (Ptr{UInt16},), plock))
         return s
     end

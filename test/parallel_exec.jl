@@ -373,6 +373,16 @@ map!(x->1, d)
 @test 2.0 == remotecall_fetch(D->D[2], id_other, Base.shmem_fill(2.0, 2; pids=[id_me, id_other]))
 @test 3.0 == remotecall_fetch(D->D[1], id_other, Base.shmem_fill(3.0, 1; pids=[id_me, id_other]))
 
+# Issue #14664
+d = SharedArray(Int,10)
+@sync @parallel for i=1:10
+    d[i] = i
+end
+
+for (x,i) in enumerate(d)
+    @test x == i
+end
+
 # Test @parallel load balancing - all processors should get either M or M+1
 # iterations out of the loop range for some M.
 workloads = hist(@parallel((a,b)->[a;b], for i=1:7; myid(); end), nprocs())[2]
@@ -521,24 +531,55 @@ catch ex
     @test collect(1:5) == sort(map(x->parse(Int, x), errors))
 end
 
-macro test_remoteexception_thrown(expr)
-    quote
-        try
-            $(esc(expr))
-            error("unexpected")
-        catch ex
-            @test typeof(ex) == RemoteException
-            @test typeof(ex.captured) == CapturedException
-            @test typeof(ex.captured.ex) == ErrorException
-            @test ex.captured.ex.msg == "foobar"
-        end
+function test_remoteexception_thrown(expr)
+    try
+        expr()
+        error("unexpected")
+    catch ex
+        @test typeof(ex) == RemoteException
+        @test typeof(ex.captured) == CapturedException
+        @test typeof(ex.captured.ex) == ErrorException
+        @test ex.captured.ex.msg == "foobar"
     end
 end
 
 for id in [id_other, id_me]
-    @test_remoteexception_thrown remotecall_fetch(()->throw(ErrorException("foobar")), id)
-    @test_remoteexception_thrown remotecall_wait(()->throw(ErrorException("foobar")), id)
-    @test_remoteexception_thrown wait(remotecall(()->throw(ErrorException("foobar")), id))
+    test_remoteexception_thrown() do
+        remotecall_fetch(id) do
+            throw(ErrorException("foobar"))
+        end
+    end
+    test_remoteexception_thrown() do
+        remotecall_wait(id) do
+            throw(ErrorException("foobar"))
+        end
+    end
+    test_remoteexception_thrown() do
+        wait(remotecall(id) do
+            throw(ErrorException("foobar"))
+        end)
+    end
+end
+
+# make sure the stackframe from the remote error can be serialized
+let ex
+    try
+        remotecall_fetch(id_other) do
+            @eval module AModuleLocalToOther
+                foo() = error("A.error")
+                foo()
+            end
+        end
+    catch ex
+    end
+    @test (ex::RemoteException).pid == id_other
+    @test ((ex.captured::CapturedException).ex::ErrorException).msg == "A.error"
+    bt = ex.captured.processed_bt::Array{Any,1}
+    @test length(bt) > 1
+    frame, repeated = bt[1]::Tuple{StackFrame, Int}
+    @test frame.func == :foo
+    @test isnull(frame.outer_linfo)
+    @test repeated == 1
 end
 
 # The below block of tests are usually run only on local development systems, since:
@@ -582,7 +623,7 @@ if DoFullTest
     # time can only support a single topology and the current session
     # is already running in parallel under the default topology.
     script = joinpath(dirname(@__FILE__), "topology.jl")
-    cmd = `$(joinpath(JULIA_HOME,Base.julia_exename())) $script`
+    cmd = `$(Base.julia_cmd()) $script`
 
     (strm, proc) = open(pipeline(cmd, stderr=STDERR))
     wait(proc)
@@ -703,3 +744,12 @@ end
 
 # issue #13122
 @test remotecall_fetch(identity, workers()[1], C_NULL) === C_NULL
+
+# issue #11062
+function t11062()
+    @async v11062 = 1
+    v11062 = 2
+end
+
+@test t11062() == 2
+

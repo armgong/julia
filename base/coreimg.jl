@@ -22,6 +22,7 @@ macro doc(str, def) Expr(:escape, def) end
 
 ## Load essential files and libraries
 include("essentials.jl")
+include("generator.jl")
 include("reflection.jl")
 include("options.jl")
 
@@ -72,12 +73,12 @@ include("inference.jl")
 
 precompile(CallStack, (Expr, Module, Tuple{Void}, EmptyCallStack))
 precompile(_ieval, (Symbol,))
-precompile(abstract_eval, (LambdaStaticData, ObjectIdDict, StaticVarInfo))
-precompile(abstract_interpret, (Bool, ObjectIdDict, StaticVarInfo))
+precompile(abstract_eval, (LambdaInfo, ObjectIdDict, VarInfo))
+precompile(abstract_interpret, (Bool, ObjectIdDict, VarInfo))
 precompile(delete_var!, (Expr, Symbol))
-precompile(eval_annotate, (LambdaStaticData, ObjectIdDict, StaticVarInfo, ObjectIdDict, Array{Any,1}))
+precompile(eval_annotate, (LambdaInfo, ObjectIdDict, VarInfo, ObjectIdDict, Array{Any,1}))
 precompile(is_var_assigned, (Expr, Symbol))
-precompile(isconstantfunc, (SymbolNode, StaticVarInfo))
+precompile(isconstantfunc, (SymbolNode, VarInfo))
 precompile(occurs_more, (Bool, Function, Int))
 precompile(occurs_more, (UInt8, Function, Int))
 precompile(occurs_undef, (Symbol, Expr))

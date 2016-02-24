@@ -37,9 +37,24 @@ function getindex{T}(A::Bidiagonal{T}, i::Integer, j::Integer)
     if !((1 <= i <= size(A,2)) && (1 <= j <= size(A,2)))
         throw(BoundsError(A,(i,j)))
     end
-    i == j ? A.dv[i] : (A.isupper && (i == j-1)) || (!A.isupper && (i == j+1)) ? A.ev[min(i,j)] : zero(T)
+    if i == j
+        return A.dv[i]
+    elseif (istriu(A) && (i == j - 1)) || (istril(A) && (i == j + 1))
+        return A.ev[min(i,j)]
+    else
+        return zero(T)
+    end
 end
 
+function setindex!(A::Bidiagonal, x, i::Integer, j::Integer)
+    if i == j
+        A.dv[i] = x
+    elseif (istriu(A) && (i == j - 1)) || (istril(A) && (i == j + 1))
+        return A.ev[min(i,j)] = x
+    else
+        throw(ArgumentError("cannot set elements outside main and $(istriu(A) ? "super": "sub") diagonals."))
+    end
+end
 
 ## structured matrix methods ##
 function Base.replace_in_print_matrix(A::Bidiagonal,i::Integer,j::Integer,s::AbstractString)
@@ -92,15 +107,11 @@ big(B::Bidiagonal) = Bidiagonal(big(B.dv), big(B.ev), B.isupper)
 
 #Singular values
 svdvals!{T<:BlasReal}(M::Bidiagonal{T}) = LAPACK.bdsdc!(M.isupper ? 'U' : 'L', 'N', M.dv, M.ev)[1]
-function svd{T<:BlasReal}(M::Bidiagonal{T})
-    d, e, U, Vt, Q, iQ = LAPACK.bdsdc!(M.isupper ? 'U' : 'L', 'I', copy(M.dv), copy(M.ev))
-    return U, d, Vt'
-end
-function svdfact!(M::Bidiagonal, thin::Bool=true)
+function svdfact!{T<:BlasReal}(M::Bidiagonal{T}; thin::Bool=true)
     d, e, U, Vt, Q, iQ = LAPACK.bdsdc!(M.isupper ? 'U' : 'L', 'I', M.dv, M.ev)
     SVD(U, d, Vt)
 end
-svdfact(M::Bidiagonal, thin::Bool=true) = svdfact!(copy(M),thin)
+svdfact(M::Bidiagonal; thin::Bool=true) = svdfact!(copy(M),thin=thin)
 
 ####################
 # Generic routines #
@@ -211,7 +222,7 @@ end
 /(A::Bidiagonal, B::Number) = Bidiagonal(A.dv/B, A.ev/B, A.isupper)
 ==(A::Bidiagonal, B::Bidiagonal) = (A.dv==B.dv) && (A.ev==B.ev) && (A.isupper==B.isupper)
 
-SpecialMatrix = Union{Diagonal, Bidiagonal, SymTridiagonal, Tridiagonal, AbstractTriangular}
+SpecialMatrix = Union{Bidiagonal, SymTridiagonal, Tridiagonal, AbstractTriangular}
 *(A::SpecialMatrix, B::SpecialMatrix)=full(A)*full(B)
 
 #Generic multiplication

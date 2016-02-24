@@ -9,7 +9,6 @@
 #include <assert.h>
 #include "julia.h"
 #include "julia_internal.h"
-#include "ia_misc.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -274,8 +273,8 @@ JL_DLLEXPORT jl_value_t *jl_new_struct_uninit(jl_datatype_t *type)
 }
 
 JL_DLLEXPORT
-jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast,
-        jl_svec_t *tvars, jl_svec_t *sparams, jl_module_t *ctx)
+jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast, jl_svec_t *tvars, jl_svec_t *sparams,
+                                     jl_module_t *ctx)
 {
     jl_lambda_info_t *li =
         (jl_lambda_info_t*)newobj((jl_value_t*)jl_lambda_info_type,
@@ -283,39 +282,6 @@ jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast,
     li->ast = ast;
     li->rettype = (jl_value_t*)jl_any_type;
     li->file = null_sym;
-    li->line = 0;
-    li->pure = 0;
-    li->called = 0xff;
-    if (ast != NULL && jl_is_expr(ast)) {
-        jl_array_t *body = jl_lam_body((jl_expr_t*)ast)->args;
-        if (has_meta(body, pure_sym))
-            li->pure = 1;
-        jl_value_t *body1 = skip_meta(body);
-        if (jl_is_linenode(body1)) {
-            li->file = jl_linenode_file(body1);
-            li->line = jl_linenode_line(body1);
-        } else if (jl_is_expr(body1) && ((jl_expr_t*)body1)->head == line_sym) {
-            li->file = (jl_sym_t*)jl_exprarg(body1, 1);
-            li->line = jl_unbox_long(jl_exprarg(body1, 0));
-        }
-        jl_array_t *vis = jl_lam_vinfo((jl_expr_t*)li->ast);
-        jl_array_t *args = jl_lam_args((jl_expr_t*)li->ast);
-        size_t narg = jl_array_len(args);
-        uint8_t called=0;
-        int i, j=0;
-        for(i=1; i < narg && i <= 8; i++) {
-            jl_value_t *ai = jl_cellref(args,i);
-            if (ai == (jl_value_t*)unused_sym || !jl_is_symbol(ai)) continue;
-            jl_value_t *vj;
-            do {
-                vj = jl_cellref(vis, j++);
-            } while (jl_cellref(vj,0) != ai);
-
-            if (jl_unbox_long(jl_cellref(vj,2))&64)
-                called |= (1<<(i-1));
-        }
-        li->called = called;
-    }
     li->module = ctx;
     li->sparam_syms = tvars;
     li->sparam_vals = sparams;
@@ -336,6 +302,44 @@ jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast,
     li->specializations = NULL;
     li->name = anonymous_sym;
     li->def = li;
+    li->line = 0;
+    li->pure = 0;
+    li->called = 0xff;
+    li->needs_sparam_vals_ducttape = 0;
+    if (ast && jl_is_expr(ast)) {
+        jl_array_t *body = jl_lam_body((jl_expr_t*)ast)->args;
+        if (has_meta(body, pure_sym))
+            li->pure = 1;
+        jl_value_t *body1 = skip_meta(body);
+        if (jl_is_linenode(body1)) {
+            li->file = jl_linenode_file(body1);
+            li->line = jl_linenode_line(body1);
+        }
+        else if (jl_is_expr(body1) && ((jl_expr_t*)body1)->head == line_sym) {
+            li->file = (jl_sym_t*)jl_exprarg(body1, 1);
+            li->line = jl_unbox_long(jl_exprarg(body1, 0));
+        }
+        jl_array_t *vis = jl_lam_vinfo((jl_expr_t*)li->ast);
+        jl_array_t *args = jl_lam_args((jl_expr_t*)li->ast);
+        size_t narg = jl_array_len(args);
+        uint8_t called=0;
+        int i, j=0;
+        for(i=1; i < narg && i <= 8; i++) {
+            jl_value_t *ai = jl_cellref(args,i);
+            if (ai == (jl_value_t*)unused_sym || !jl_is_symbol(ai)) continue;
+            jl_value_t *vj;
+            do {
+                vj = jl_cellref(vis, j++);
+            } while (jl_cellref(vj,0) != ai);
+
+            if (jl_unbox_long(jl_cellref(vj,2))&64)
+                called |= (1<<(i-1));
+        }
+        li->called = called;
+        if (tvars != jl_emptysvec)
+            if (jl_has_intrinsics(li, (jl_expr_t*)ast, ctx))
+                li->needs_sparam_vals_ducttape = 1;
+    }
     return li;
 }
 
@@ -359,6 +363,7 @@ jl_lambda_info_t *jl_copy_lambda_info(jl_lambda_info_t *linfo)
     new_linfo->functionObjects.specFunctionObject = linfo->functionObjects.specFunctionObject;
     new_linfo->functionID = linfo->functionID;
     new_linfo->specFunctionID = linfo->specFunctionID;
+    new_linfo->needs_sparam_vals_ducttape = linfo->needs_sparam_vals_ducttape;
     return new_linfo;
 }
 
@@ -368,9 +373,9 @@ JL_DEFINE_MUTEX(symbol_table)
 
 static jl_sym_t *volatile symtab = NULL;
 
-static uptrint_t hash_symbol(const char *str, size_t len)
+static uintptr_t hash_symbol(const char *str, size_t len)
 {
-    return memhash(str, len) ^ ~(uptrint_t)0/3*2;
+    return memhash(str, len) ^ ~(uintptr_t)0/3*2;
 }
 
 #define SYM_POOL_SIZE 524288
@@ -414,8 +419,8 @@ static jl_sym_t *mk_symbol(const char *str, size_t len)
 static jl_sym_t *symtab_lookup(jl_sym_t *volatile *ptree, const char *str,
                                size_t len, jl_sym_t *volatile **slot)
 {
-    jl_sym_t *node = *ptree;
-    uptrint_t h = hash_symbol(str, len);
+    jl_sym_t *node = jl_atomic_load_acquire(ptree);
+    uintptr_t h = hash_symbol(str, len);
 
     // Tree nodes sorted by major key of (int(hash)) and minor key of (str).
     while (node != NULL) {
@@ -432,12 +437,7 @@ static jl_sym_t *symtab_lookup(jl_sym_t *volatile *ptree, const char *str,
             ptree = &node->left;
         else
             ptree = &node->right;
-        node = *ptree;
-        // We may need a data dependency barrier here to pair with the
-        // cpu write barrier in _jl_symbol so that we won't read a invalid
-        // value from `node`. However, this shouldn't be a problem on all
-        // the architectures we currently support.
-        // https://www.kernel.org/doc/Documentation/memory-barriers.txt
+        node = jl_atomic_load_acquire(ptree);
     }
     if (slot != NULL)
         *slot = ptree;
@@ -456,8 +456,7 @@ static jl_sym_t *_jl_symbol(const char *str, size_t len)
             return node;
         }
         node = mk_symbol(str, len);
-        cpu_sfence();
-        *slot = node;
+        jl_atomic_store_release(slot, node);
         JL_UNLOCK(symbol_table);
     }
     return node;
@@ -583,8 +582,7 @@ jl_datatype_t *jl_new_abstracttype(jl_value_t *name, jl_datatype_t *super,
     return dt;
 }
 
-JL_DLLEXPORT jl_datatype_t *jl_new_uninitialized_datatype(size_t nfields,
-                                                          int8_t fielddesc_type)
+JL_DLLEXPORT jl_datatype_t *jl_new_uninitialized_datatype(size_t nfields, int8_t fielddesc_type)
 {
     // fielddesc_type is specified manually for builtin types
     // and is (will be) calculated automatically for user defined types.
@@ -733,8 +731,7 @@ JL_DLLEXPORT jl_datatype_t *jl_new_datatype(jl_sym_t *name, jl_datatype_t *super
     return t;
 }
 
-JL_DLLEXPORT jl_datatype_t *jl_new_bitstype(jl_value_t *name,
-                                            jl_datatype_t *super,
+JL_DLLEXPORT jl_datatype_t *jl_new_bitstype(jl_value_t *name, jl_datatype_t *super,
                                             jl_svec_t *parameters, size_t nbits)
 {
     jl_datatype_t *bt = jl_new_datatype((jl_sym_t*)name, super, parameters,

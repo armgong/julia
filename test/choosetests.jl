@@ -29,8 +29,8 @@ function choosetests(choices = [])
         "combinatorics", "sysinfo", "rounding", "ranges", "mod2pi",
         "euler", "show", "lineedit", "replcompletions", "repl",
         "replutil", "sets", "test", "goto", "llvmcall", "grisu",
-        "nullable", "meta", "profile", "libgit2", "docs", "markdown",
-        "base64", "serialize", "functors", "misc", "threads",
+        "nullable", "meta", "stacktraces", "profile", "libgit2", "docs",
+        "markdown", "base64", "serialize", "functors", "misc", "threads",
         "enums", "cmdlineargs", "i18n", "workspace", "libdl", "int",
         "checked", "intset", "floatfuncs", "compile", "parallel", "inline",
         "boundscheck"
@@ -66,7 +66,7 @@ function choosetests(choices = [])
                    "linalg/lapack", "linalg/tridiag", "linalg/bidiag",
                    "linalg/diagonal", "linalg/pinv", "linalg/givens",
                    "linalg/cholesky", "linalg/lu", "linalg/symmetric",
-                   "linalg/generic", "linalg/uniformscaling"]
+                   "linalg/generic", "linalg/uniformscaling", "linalg/lq"]
     if Base.USE_GPL_LIBS
         push!(linalgtests, "linalg/arnoldi")
     end

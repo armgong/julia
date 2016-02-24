@@ -9,7 +9,7 @@ import Base: USE_BLAS64, abs, big, ceil, conj, convert, copy, copy!, copy_transp
     ctranspose, ctranspose!, eltype, eye, findmax, findmin, fill!, floor, full, getindex,
     imag, inv, isapprox, kron, ndims, parent, power_by_squaring, print_matrix,
     promote_rule, real, round, setindex!, show, similar, size, transpose, transpose!,
-    trunc, unsafe_getindex, unsafe_setindex!
+    trunc
 using Base: promote_op, MulFun
 
 export
@@ -34,6 +34,7 @@ export
     LDLt,
     QR,
     QRPivoted,
+    LQ,
     Schur,
     SVD,
     Hermitian,
@@ -106,6 +107,8 @@ export
     qr,
     qrfact!,
     qrfact,
+    lqfact!,
+    lqfact,
     rank,
     scale,
     scale!,
@@ -226,6 +229,7 @@ include("linalg/triangular.jl")
 
 include("linalg/factorization.jl")
 include("linalg/qr.jl")
+include("linalg/lq.jl")
 include("linalg/eigen.jl")
 include("linalg/svd.jl")
 include("linalg/schur.jl")

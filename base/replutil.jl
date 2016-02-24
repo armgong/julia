@@ -5,10 +5,14 @@ writemime(io::IO, ::MIME"text/plain", x) = showcompact(io, x)
 writemime(io::IO, ::MIME"text/plain", x::Number) = show(io, x)
 
 function writemime(io::IO, ::MIME"text/plain", f::Function)
-    mt = typeof(f).name.mt
+    ft = typeof(f)
+    mt = ft.name.mt
+    name = mt.name
+    isself = isdefined(ft.name.module, name) &&
+             ft == typeof(getfield(ft.name.module, name))
     n = length(mt)
     m = n==1 ? "method" : "methods"
-    ns = string(mt.name)
+    ns = isself ? string(name) : string("(::", name, ")")
     what = startswith(ns, '@') ? "macro" : "generic function"
     print(io, ns, " (", what, " with $n $m)")
 end
@@ -88,9 +92,6 @@ function showerror(io::IO, ex::TypeError)
             tstr = string(typeof(ex.got))
         end
         print(io, "$(ex.func): $(ctx)expected $(ex.expected), got $tstr")
-        if ex.func === :apply && ex.expected <: Function && isa(ex.got, AbstractArray)
-            print(io, "\nUse square brackets [] for indexing.")
-        end
     end
 end
 
@@ -119,13 +120,15 @@ showerror(io::IO, ex::InitError) = showerror(io, ex, [])
 function showerror(io::IO, ex::DomainError, bt; backtrace=true)
     print(io, "DomainError:")
     for b in bt
-        code = ccall(:jl_lookup_code_address, Any, (Ptr{Void}, Cint), b-1, true)
-        if length(code) == 7 && !code[6]  # code[6] == fromC
-            if code[1] in (:log, :log2, :log10, :sqrt) # TODO add :besselj, :besseli, :bessely, :besselk
-                print(io,"\n$(code[1]) will only return a complex result if called with a complex argument. Try $(code[1])(complex(x)).")
-            elseif (code[1] == :^ && code[2] == symbol("intfuncs.jl")) || code[1] == :power_by_squaring #3024
+        code = StackTraces.lookup(b)
+        if !code.from_c
+            if code.func in (:log, :log2, :log10, :sqrt) # TODO add :besselj, :besseli, :bessely, :besselk
+                print(io,"\n$(code.func) will only return a complex result if called with a complex argument. Try $(string(code.func))(complex(x)).")
+            elseif (code.func == :^ && code.file == symbol("intfuncs.jl")) || code.func == :power_by_squaring #3024
                 print(io, "\nCannot raise an integer x to a negative power -n. \nMake x a float by adding a zero decimal (e.g. 2.0^-n instead of 2^-n), or write 1/x^n, float(x)^-n, or (x//1)^-n.")
-            elseif code[1] == :^ && (code[2] == symbol("promotion.jl") || code[2] == symbol("math.jl"))
+            elseif code.func == :^ &&
+                    (code.file == symbol("promotion.jl") || code.file == symbol("math.jl") ||
+                    code.file == symbol(joinpath(".","promotion.jl")) || code.file == symbol(joinpath(".","math.jl")))
                 print(io, "\nExponentiation yielding a complex result requires a complex argument.\nReplace x^y with (x+0im)^y, Complex(x)^y, or similar.")
             end
             break
@@ -160,39 +163,48 @@ function showerror(io::IO, ex::MethodError)
     arg_types = is_arg_types ? ex.args : typesof(ex.args...)
     arg_types_param::SimpleVector = arg_types.parameters
     print(io, "MethodError: ")
-    if isa(ex.f, Tuple)
-        f = ex.f[1]
-        print(io, "<inline> ")
-    else
-        f = ex.f
-    end
-    name = typeof(f).name.mt.name
+    f = ex.f
+    ft = typeof(f)
+    name = ft.name.mt.name
+    f_is_function = false
     if f == Base.convert && length(arg_types_param) == 2 && !is_arg_types
+        f_is_function = true
         # See #13033
         T = striptype(ex.args[1])
         if T == nothing
-            print(io, "First argument to `convert` must be a Type, got $(ex.args[1])")
+            print(io, "First argument to `convert` must be a Type, got ", ex.args[1])
         else
-            print(io, "Cannot `convert` an object of type $(arg_types_param[2]) to an object of type $T")
+            print(io, "Cannot `convert` an object of type ", arg_types_param[2], " to an object of type ", T)
         end
+    elseif isempty(methods(f)) && !isa(f, Function)
+        print(io, "objects of type $ft are not callable")
     else
-        if isa(f, DataType)
-            print(io, "`$(f)` has no method matching $(f)(")
+        if ft <: Function && isempty(ft.parameters) &&
+                isdefined(ft.name.module, name) &&
+                ft == typeof(getfield(ft.name.module, name))
+            f_is_function = true
+            print(io, "no method matching ", name)
+        elseif isa(f, Type)
+            print(io, "no method matching ", f)
         else
-            print(io, "`$(name)` has no method matching $(name)(")
+            print(io, "no method matching (::", ft, ")")
         end
+        print(io, "(")
         for (i, typ) in enumerate(arg_types_param)
             print(io, "::$typ")
             i == length(arg_types_param) || print(io, ", ")
         end
         print(io, ")")
     end
+    if ft <: AbstractArray
+        print(io, "\nUse square brackets [] for indexing an Array.")
+    end
     # Check for local functions that shadow methods in Base
-    if isdefined(Base, name)
-        basef = eval(Base, name)
+    if f_is_function && isdefined(Base, name)
+        basef = getfield(Base, name)
         if basef !== ex.f && method_exists(basef, arg_types)
             println(io)
-            print(io, "you may have intended to import Base.$(name)")
+            print(io, "you may have intended to import Base.", name)
         end
     end
     if !is_arg_types
@@ -212,7 +224,7 @@ function showerror(io::IO, ex::MethodError)
     end
     # Give a helpful error message if the user likely called a type constructor
     # and sees a no method error for convert
-    if (f == Base.convert && !isempty(arg_types_param) && !is_arg_types &&
+    if (f === Base.convert && !isempty(arg_types_param) && !is_arg_types &&
         isa(arg_types_param[1], DataType) &&
         arg_types_param[1].name === Type.name)
         construct_type = arg_types_param[1].parameters[1]
@@ -234,11 +246,10 @@ striptype(::Any) = nothing
 #Useful in Base submodule __init__ functions where STDERR isn't defined yet.
 function showerror_nostdio(err, msg::AbstractString)
     stderr_stream = ccall(:jl_stderr_stream, Ptr{Void}, ())
-    ccall(:jl_printf, UInt, (Ptr{Void},Cstring), stderr_stream, msg)
-    ccall(:jl_printf, UInt, (Ptr{Void},Cstring), stderr_stream, ":\n")
-    ccall(:jl_static_show, UInt, (Ptr{Void},Ptr{Void}), stderr_stream,
-          pointer_from_objref(err))
-    ccall(:jl_printf, UInt, (Ptr{Void},Cstring), stderr_stream, "\n")
+    ccall(:jl_printf, Cint, (Ptr{Void},Cstring), stderr_stream, msg)
+    ccall(:jl_printf, Cint, (Ptr{Void},Cstring), stderr_stream, ":\n")
+    ccall(:jl_static_show, Csize_t, (Ptr{Void},Any), stderr_stream, err)
+    ccall(:jl_printf, Cint, (Ptr{Void},Cstring), stderr_stream, "\n")
 end
 
 function show_method_candidates(io::IO, ex::MethodError)
@@ -299,7 +310,7 @@ function show_method_candidates(io::IO, ex::MethodError)
             right_matches = 0
             for i = 1 : min(length(t_i), length(sig))
                 i > 1 && print(buf, ", ")
-                # If isvarargtype then it checks wether the rest of the input arguements matches
+                # If isvarargtype then it checks whether the rest of the input arguments matches
                 # the varargtype
                 if Base.isvarargtype(sig[i])
                     sigstr = string(sig[i].parameters[1], "...")
@@ -387,36 +398,10 @@ function show_method_candidates(io::IO, ex::MethodError)
     end
 end
 
-function show_trace_entry(io, fname, file, line, inlinedat_file, inlinedat_line, n)
+function show_trace_entry(io, frame, n)
     print(io, "\n")
-    # if we have inlining information, we print the `file`:`line` first,
-    # then show the inlining info, because the inlining location
-    # corresponds to `fname`.
-    if (inlinedat_file != symbol(""))
-        # align the location text
-        print(io, " [inlined code] from ")
-    else
-        print(io, " in ", fname, " at ")
-    end
-
-    print(io, file)
-
-    if line >= 1
-        try
-            print(io, ":", line)
-        catch
-            print(io, '?') #for when dec is not yet defined
-        end
-    end
-
-    if n > 1
-        print(io, " (repeats ", n, " times)")
-    end
-
-    if (inlinedat_file != symbol(""))
-        print(io, "\n in ", fname, " at ")
-        print(io, inlinedat_file, ":", inlinedat_line)
-    end
+    show(io, frame, full_path=true)
+    n > 1 && print(io, " (repeats ", n, " times)")
 end
 
 function show_backtrace(io::IO, t, set=1:typemax(Int))
@@ -432,8 +417,8 @@ function show_backtrace(io::IO, t, set=1:typemax(Int))
 end
 
 function show_backtrace(io::IO, top_function::Symbol, t, set)
-    process_entry(lastname, lastfile, lastline, last_inlinedat_file, last_inlinedat_line, n) =
-        show_trace_entry(io, lastname, lastfile, lastline, last_inlinedat_file, last_inlinedat_line, n)
+    process_entry(last_frame, n) =
+        show_trace_entry(io, last_frame, n)
     process_backtrace(process_entry, top_function, t, set)
 end
 
@@ -445,36 +430,32 @@ end
 
 # process the backtrace, up to (but not including) top_function
 function process_backtrace(process_func::Function, top_function::Symbol, t, set; skipC = true)
-    n = 1
-    lastfile = ""; lastline = -11; lastname = symbol("#");
-    last_inlinedat_file = ""; last_inlinedat_line = -1
-    local fname, file, line
+    n = 0
+    last_frame = StackTraces.UNKNOWN
     count = 0
     for i = 1:length(t)
-        lkup = ccall(:jl_lookup_code_address, Any, (Ptr{Void}, Cint), t[i]-1, skipC)
-        if lkup === nothing
+        lkup = StackTraces.lookup(t[i])
+        if lkup === StackTraces.UNKNOWN
             continue
         end
-        fname, file, line, inlinedat_file, inlinedat_line, fromC = lkup
 
-        if fromC && skipC; continue; end
-        if i == 1 && fname == :error; continue; end
-        if fname == top_function; break; end
+        if lkup.from_c && skipC; continue; end
+        if i == 1 && lkup.func == :error; continue; end
+        if lkup.func == top_function; break; end
         count += 1
         if !in(count, set); continue; end
 
-        if file != lastfile || line != lastline || fname != lastname
-            if lastline != -11
-                process_func(lastname, lastfile, lastline, last_inlinedat_file, last_inlinedat_line, n)
+        if lkup.file != last_frame.file || lkup.line != last_frame.line || lkup.func != last_frame.func
+            if n > 0
+                process_func(last_frame, n)
             end
             n = 1
-            lastfile = file; lastline = line; lastname = fname;
-            last_inlinedat_file = inlinedat_file; last_inlinedat_line = inlinedat_line;
+            last_frame = lkup
         else
             n += 1
         end
     end
-    if n > 1 || lastline != -11
-        process_func(lastname, lastfile, lastline, last_inlinedat_file, last_inlinedat_line, n)
+    if n > 0
+        process_func(last_frame, n)
     end
 end

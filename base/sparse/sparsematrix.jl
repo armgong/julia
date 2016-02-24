@@ -193,6 +193,23 @@ end
 copy(S::SparseMatrixCSC) =
     SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), copy(S.nzval))
 
+function copy!{TvA, TiA, TvB, TiB}(A::SparseMatrixCSC{TvA,TiA},
+                                   B::SparseMatrixCSC{TvB,TiB})
+    # If the two matrices have the same size then all the
+    # elements in A will be overwritten and we can simply copy the
+    # internal fields of B to A.
+    if size(A) == size(B)
+        copy!(A.colptr, B.colptr)
+        resize!(A.nzval, length(B.nzval))
+        resize!(A.rowval, length(B.rowval))
+        copy!(A.rowval, B.rowval)
+        copy!(A.nzval, B.nzval)
+    else
+        invoke(Base.copy!, Tuple{AbstractMatrix{TvA}, AbstractMatrix{TvB}}, A, B)
+    end
+    return A
+end
+
 similar(S::SparseMatrixCSC, Tv::Type=eltype(S))   = SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), Array(Tv, length(S.nzval)))
 similar{Tv,Ti,TvNew,TiNew}(S::SparseMatrixCSC{Tv,Ti}, ::Type{TvNew}, ::Type{TiNew}) = SparseMatrixCSC(S.m, S.n, convert(Array{TiNew},S.colptr), convert(Array{TiNew}, S.rowval), Array(TvNew, length(S.nzval)))
 similar{Tv, N}(S::SparseMatrixCSC, ::Type{Tv}, d::NTuple{N, Integer}) = spzeros(Tv, d...)
@@ -322,11 +339,11 @@ end
 
 dimlub(I) = isempty(I) ? 0 : Int(maximum(I)) #least upper bound on required sparse matrix dimension
 
-sparse(I,J,v::Number) = sparse(I, J, fill(v,length(I)), dimlub(I), dimlub(J), AddFun())
+sparse(I,J,v::Number) = sparse(I, J, fill(v,length(I)))
 
-sparse(I,J,V::AbstractVector) = sparse(I, J, V, dimlub(I), dimlub(J), AddFun())
+sparse(I,J,V::AbstractVector) = sparse(I, J, V, dimlub(I), dimlub(J))
 
-sparse(I,J,v::Number,m,n) = sparse(I, J, fill(v,length(I)), Int(m), Int(n), AddFun())
+sparse(I,J,v::Number,m,n) = sparse(I, J, fill(v,length(I)), Int(m), Int(n))
 
 sparse(I,J,V::AbstractVector,m,n) = sparse(I, J, V, Int(m), Int(n), AddFun())
 
@@ -624,11 +641,12 @@ spones{T}(S::SparseMatrixCSC{T}) =
      SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), ones(T, S.colptr[end]-1))
 
 """
-    spzeros(m[,n])
+    spzeros([type,]m[,n])
 
 Create a sparse vector of length `m` or sparse matrix of size `m x n`. This
 sparse array will not contain any nonzero values. No storage will be allocated
-for nonzero values during construction.
+for nonzero values during construction. The type defaults to `Float64` if not
+specified.
 """
 spzeros(m::Integer, n::Integer) = spzeros(Float64, m, n)
 spzeros(Tv::Type, m::Integer, n::Integer) = spzeros(Tv, Int, m, n)
@@ -641,14 +659,21 @@ end
 speye(n::Integer) = speye(Float64, n)
 speye(T::Type, n::Integer) = speye(T, n, n)
 speye(m::Integer, n::Integer) = speye(Float64, m, n)
+
+"""
+    speye(S)
+
+Create a sparse identity matrix with the same structure as that of  `S`.
+"""
 speye{T}(S::SparseMatrixCSC{T}) = speye(T, size(S, 1), size(S, 2))
 eye(S::SparseMatrixCSC) = speye(S)
 
 """
-    speye(type,m[,n])
+    speye([type,]m[,n])
 
-Create a sparse identity matrix of specified type of size `m x m`. In case `n` is supplied,
-create a sparse identity matrix of size `m x n`.
+Create a sparse identity matrix of size `m x m`. When `n` is supplied,
+create a sparse identity matrix of size `m x n`. The type defaults to `Float64`
+if not specified.
 """
 function speye(T::Type, m::Integer, n::Integer)
     ((m < 0) || (n < 0)) && throw(ArgumentError("invalid Array dimensions"))

@@ -3,7 +3,7 @@
 module Serializer
 
 import Base: GMP, Bottom, svec, unsafe_convert, uncompressed_ast
-using Base: ViewIndex, dimsize
+using Base: ViewIndex, index_lengths
 
 export serialize, deserialize
 
@@ -19,7 +19,7 @@ const TAGS = Any[
     #LongSymbol, LongTuple, LongExpr,
     Symbol, Tuple, Expr,  # dummy entries, intentionally shadowed by earlier ones
     LineNumberNode, SymbolNode, LabelNode, GotoNode,
-    QuoteNode, TopNode, TypeVar, Box, LambdaStaticData,
+    QuoteNode, TopNode, TypeVar, Box, LambdaInfo,
     Module, #=UndefRefTag=#Symbol, Task, ASCIIString, UTF8String,
     UTF16String, UTF32String, Float16,
     SimpleVector, #=BackrefTag=#Symbol, :reserved11, :reserved12,
@@ -72,7 +72,7 @@ const BACKREF_TAG = Int32(sertag(SimpleVector)+1)
 const EXPR_TAG = sertag(Expr)
 const LONGEXPR_TAG = Int32(sertag(Expr)+3)
 const MODULE_TAG = sertag(Module)
-const LAMBDASTATICDATA_TAG = sertag(LambdaStaticData)
+const LAMBDASTATICDATA_TAG = sertag(LambdaInfo)
 const TASK_TAG = sertag(Task)
 const DATATYPE_TAG = sertag(DataType)
 const TYPENAME_TAG = sertag(TypeName)
@@ -216,9 +216,7 @@ function trimmedsubarray{T,N,A<:Array}(V::SubArray{T,N,A})
     _trimmedsubarray(dest, V, (), V.indexes...)
 end
 
-trimmedsize(V) = _trimmedsize(V, (), V.indexes...)
-_trimmedsize(V, trimsz) = trimsz
-_trimmedsize(V, trimsz, index, indexes...) = _trimmedsize(V, (trimsz..., dimsize(V.parent, length(trimsz)+1, index)), indexes...)
+trimmedsize(V) = index_lengths(V.parent, V.indexes...)
 
 _trimmedsubarray{T,N,P,I,LD}(A, V::SubArray{T,N,P,I,LD}, newindexes) = SubArray{T,N,P,I,LD}(A, newindexes, size(V), 1, 1)
 _trimmedsubarray(A, V, newindexes, index::ViewIndex, indexes...) = _trimmedsubarray(A, V, (newindexes..., trimmedindex(V.parent, length(newindexes)+1, index)), indexes...)
@@ -307,7 +305,7 @@ function object_number(l::ANY)
     return ln
 end
 
-function serialize(s::SerializationState, linfo::LambdaStaticData)
+function serialize(s::SerializationState, linfo::LambdaInfo)
     serialize_cycle(s, linfo) && return
     writetag(s.io, LAMBDASTATICDATA_TAG)
     serialize(s, object_number(linfo))
@@ -448,8 +446,9 @@ function serialize_any(s::SerializationState, x::ANY)
         serialize_type(s, t)
         write(s.io, x)
     else
-        t.mutable && serialize_cycle(s, x) && return
+        t.mutable && haskey(s.table, x) && serialize_cycle(s, x) && return
         serialize_type(s, t)
+        t.mutable && serialize_cycle(s, x)
         for i in 1:nf
             if isdefined(x, i)
                 serialize(s, getfield(x, i))
@@ -543,13 +542,13 @@ end
 
 const known_object_data = Dict()
 
-function deserialize(s::SerializationState, ::Type{LambdaStaticData})
+function deserialize(s::SerializationState, ::Type{LambdaInfo})
     lnumber = deserialize(s)
     if haskey(known_object_data, lnumber)
-        linfo = known_object_data[lnumber]::LambdaStaticData
+        linfo = known_object_data[lnumber]::LambdaInfo
         makenew = false
     else
-        linfo = ccall(:jl_new_lambda_info, Any, (Ptr{Void}, Ptr{Void}, Ptr{Void}, Ptr{Void}), C_NULL, C_NULL, C_NULL, C_NULL)::LambdaStaticData
+        linfo = ccall(:jl_new_lambda_info, Any, (Ptr{Void}, Ptr{Void}, Ptr{Void}, Ptr{Void}), C_NULL, C_NULL, C_NULL, C_NULL)::LambdaInfo
         makenew = true
     end
     deserialize_cycle(s, linfo)

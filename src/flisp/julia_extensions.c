@@ -26,7 +26,7 @@ static int is_bom(uint32_t wc)
     return wc == 0xFEFF;
 }
 
-value_t fl_skipws(fl_context_t *fl_ctx, value_t *args, u_int32_t nargs)
+value_t fl_skipws(fl_context_t *fl_ctx, value_t *args, uint32_t nargs)
 {
     argcount(fl_ctx, "skip-ws", nargs, 2);
     ios_t *s = fl_toiostream(fl_ctx, args[0], "skip-ws");
@@ -136,7 +136,7 @@ JL_DLLEXPORT int jl_id_char(uint32_t wc)
     return 0;
 }
 
-value_t fl_julia_identifier_char(fl_context_t *fl_ctx, value_t *args, u_int32_t nargs)
+value_t fl_julia_identifier_char(fl_context_t *fl_ctx, value_t *args, uint32_t nargs)
 {
     argcount(fl_ctx, "identifier-char?", nargs, 1);
     if (!iscprim(args[0]) || ((cprim_t*)ptr(args[0]))->type != fl_ctx->wchartype)
@@ -145,7 +145,7 @@ value_t fl_julia_identifier_char(fl_context_t *fl_ctx, value_t *args, u_int32_t 
     return jl_id_char(wc) ? fl_ctx->T : fl_ctx->F;
 }
 
-value_t fl_julia_identifier_start_char(fl_context_t *fl_ctx, value_t *args, u_int32_t nargs)
+value_t fl_julia_identifier_start_char(fl_context_t *fl_ctx, value_t *args, uint32_t nargs)
 {
     argcount(fl_ctx, "identifier-start-char?", nargs, 1);
     if (!iscprim(args[0]) || ((cprim_t*)ptr(args[0]))->type != fl_ctx->wchartype)
@@ -179,7 +179,7 @@ error:
             utf8proc_errmsg(result));
 }
 
-value_t fl_accum_julia_symbol(fl_context_t *fl_ctx, value_t *args, u_int32_t nargs)
+value_t fl_accum_julia_symbol(fl_context_t *fl_ctx, value_t *args, uint32_t nargs)
 {
     argcount(fl_ctx, "accum-julia-symbol", nargs, 2);
     ios_t *s = fl_toiostream(fl_ctx, args[1], "accum-julia-symbol");
@@ -187,8 +187,10 @@ value_t fl_accum_julia_symbol(fl_context_t *fl_ctx, value_t *args, u_int32_t nar
         type_error(fl_ctx, "accum-julia-symbol", "wchar", args[0]);
     uint32_t wc = *(uint32_t*)cp_data((cprim_t*)ptr(args[0]));
     ios_t str;
+    int allascii=1;
     ios_mem(&str, 0);
-    while (jl_id_char(wc)) {
+    do {
+        allascii &= (wc <= 0x7f);
         ios_getutf8(s, &wc);
         if (wc == '!') {
             uint32_t nwc;
@@ -202,9 +204,9 @@ value_t fl_accum_julia_symbol(fl_context_t *fl_ctx, value_t *args, u_int32_t nar
         ios_pututf8(&str, wc);
         if (ios_peekutf8(s, &wc) == IOS_EOF)
             break;
-    }
+    } while (jl_id_char(wc));
     ios_pututf8(&str, 0);
-    return symbol(fl_ctx, normalize(fl_ctx, str.buf));
+    return symbol(fl_ctx, allascii ? str.buf : normalize(fl_ctx, str.buf));
 }
 
 static const builtinspec_t julia_flisp_func_info[] = {

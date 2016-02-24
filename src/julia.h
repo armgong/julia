@@ -3,10 +3,6 @@
 #ifndef JULIA_H
 #define JULIA_H
 
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 //** Configuration options that affect the Julia ABI **//
 // if this is not defined, only individual dimension sizes are
 // stored and not total length, to save space.
@@ -58,124 +54,10 @@ extern "C" {
 #define container_of(ptr, type, member) \
     ((type *) ((char *)(ptr) - offsetof(type, member)))
 
-// threading ------------------------------------------------------------------
+#include <julia_threads.h>
 
-// WARNING: Threading support is incomplete and experimental
-// Nonetheless, we define JL_THREAD and use it to give advanced notice to
-// maintainers of what eventual threading support will change.
-
-// JULIA_ENABLE_THREADING is switched on in Make.inc if JULIA_THREADS is
-// set (in Make.user)
-
-#ifdef JULIA_ENABLE_THREADING
-JL_DLLEXPORT extern volatile size_t *jl_gc_signal_page;
-STATIC_INLINE void jl_gc_safepoint(void)
-{
-    // This triggers a SegFault when we are in GC
-    // Assign it to a variable to make sure the compiler emit the load
-    // and to avoid Clang warning for -Wunused-volatile-lvalue
-    size_t v = *jl_gc_signal_page;
-    (void)v;
-}
-#else // JULIA_ENABLE_THREADING
-#define jl_gc_safepoint()
-#endif // JULIA_ENABLE_THREADING
-
-JL_DLLEXPORT int16_t jl_threadid(void);
-JL_DLLEXPORT void *jl_threadgroup(void);
-JL_DLLEXPORT void jl_cpu_pause(void);
-JL_DLLEXPORT void jl_threading_profile(void);
-
-#if defined(__GNUC__)
-#  define JL_ATOMIC_FETCH_AND_ADD(a,b)                                    \
-       __sync_fetch_and_add(&(a), (b))
-// Returns the original value of `a`
-#  define JL_ATOMIC_COMPARE_AND_SWAP(a,b,c)                               \
-       __sync_val_compare_and_swap(&(a), (b), (c))
-#  define JL_ATOMIC_TEST_AND_SET(a)                                       \
-       __sync_lock_test_and_set(&(a), 1)
-#  define JL_ATOMIC_RELEASE(a)                                            \
-       __sync_lock_release(&(a))
-#elif defined(_OS_WINDOWS_)
-#  define JL_ATOMIC_FETCH_AND_ADD(a,b)                                    \
-       _InterlockedExchangeAdd((volatile LONG *)&(a), (b))
-// Returns the original value of `a`
-#  define JL_ATOMIC_COMPARE_AND_SWAP(a,b,c)                               \
-       _InterlockedCompareExchange64((volatile LONG64 *)&(a), (c), (b))
-#  define JL_ATOMIC_TEST_AND_SET(a)                                       \
-       _InterlockedExchange64(&(a), 1)
-#  define JL_ATOMIC_RELEASE(a)                                            \
-       (void)_InterlockedExchange64(&(a), 0)
-#else
-#  error "No atomic operations supported."
-#endif
-
-#ifdef JULIA_ENABLE_THREADING
-#define FORCE_ELF
-#define JL_DEFINE_MUTEX(m)                                                \
-    uint64_t volatile m ## _mutex = 0;                                    \
-    int32_t m ## _lock_count = 0;                                         \
-    void jl_unlock_## m ## _func(void)                                    \
-    {                                                                     \
-        JL_UNLOCK_RAW(m);                                                 \
-    }
-
-#define JL_DEFINE_MUTEX_EXT(m)                                            \
-    extern uint64_t volatile m ## _mutex;                                 \
-    extern int32_t m ## _lock_count;                                      \
-    void jl_unlock_## m ## _func(void);
-
-#define JL_LOCK_WAIT(m, wait_ex) do {                                   \
-        if (m ## _mutex == uv_thread_self()) {                          \
-            ++m ## _lock_count;                                         \
-        }                                                               \
-        else {                                                          \
-            for (;;) {                                                  \
-                if (m ## _mutex == 0 &&                                 \
-                    JL_ATOMIC_COMPARE_AND_SWAP(m ## _mutex, 0,          \
-                                               uv_thread_self()) == 0) { \
-                    m ## _lock_count = 1;                               \
-                    break;                                              \
-                }                                                       \
-                wait_ex;                                                \
-                jl_cpu_pause();                                         \
-            }                                                           \
-        }                                                               \
-    } while (0)
-
-#define JL_UNLOCK_RAW(m) do {                                           \
-        if (m ## _mutex == uv_thread_self()) {                          \
-            --m ## _lock_count;                                         \
-            if (m ## _lock_count == 0) {                                \
-                JL_ATOMIC_COMPARE_AND_SWAP(m ## _mutex, uv_thread_self(), 0); \
-            }                                                           \
-        }                                                               \
-        else {                                                          \
-            assert(0 && "Unlocking a lock in a different thread.");     \
-        }                                                               \
-    } while (0)
-
-// JL_LOCK is a GC safe point while JL_LOCK_NOGC is not
-// Always use JL_LOCK unless no one holding the lock can trigger a GC or GC
-// safepoint. JL_LOCK_NOGC should only be needed for GC internal locks.
-#define JL_LOCK(m) do {                                 \
-        JL_LOCK_WAIT(m, jl_gc_safepoint());             \
-        jl_lock_frame_push(jl_unlock_## m ## _func);    \
-    } while (0)
-#define JL_UNLOCK(m) do {                       \
-        JL_UNLOCK_RAW(m);                       \
-        if (__likely(jl_current_task))          \
-            jl_current_task->locks.len--;       \
-    } while (0)
-#define JL_LOCK_NOGC(m) JL_LOCK_WAIT(m, )
-#define JL_UNLOCK_NOGC(m) JL_UNLOCK_RAW(m)
-#else
-#define JL_DEFINE_MUTEX(m)
-#define JL_DEFINE_MUTEX_EXT(m)
-#define JL_LOCK(m) do {} while (0)
-#define JL_UNLOCK(m) do {} while (0)
-#define JL_LOCK_NOGC(m) do {} while (0)
-#define JL_UNLOCK_NOGC(m) do {} while (0)
+#ifdef __cplusplus
+extern "C" {
 #endif
 
 // core data types ------------------------------------------------------------
@@ -215,7 +97,7 @@ typedef struct _jl_sym_t {
     JL_DATA_TYPE
     struct _jl_sym_t *left;
     struct _jl_sym_t *right;
-    uptrint_t hash;    // precomputed hash value
+    uintptr_t hash;    // precomputed hash value
     // JL_ATTRIBUTE_ALIGN_PTRSIZE(char name[]);
 } jl_sym_t;
 
@@ -232,29 +114,28 @@ typedef struct {
 } jl_svec_t;
 
 typedef struct {
+    /*
+      how - allocation style
+      0 = data is inlined, or a foreign pointer we don't manage
+      1 = julia-allocated buffer that needs to be marked
+      2 = malloc-allocated pointer this array object manages
+      3 = has a pointer to the Array that owns the data
+    */
+    uint16_t how:2;
+    uint16_t ndims:10;
+    uint16_t pooled:1;
+    uint16_t ptrarray:1;  // representation is pointer array
+    uint16_t isshared:1;  // data is shared by multiple Arrays
+    uint16_t isaligned:1; // data allocated with memalign
+} jl_array_flags_t;
+
+typedef struct {
     JL_DATA_TYPE
     void *data;
 #ifdef STORE_ARRAY_LEN
     size_t length;
 #endif
-    union {
-        struct {
-            /*
-              how - allocation style
-              0 = data is inlined, or a foreign pointer we don't manage
-              1 = julia-allocated buffer that needs to be marked
-              2 = malloc-allocated pointer this array object manages
-              3 = has a pointer to the Array that owns the data
-            */
-            unsigned short how:2;
-            unsigned short ndims:10;
-            unsigned short pooled:1;
-            unsigned short ptrarray:1;  // representation is pointer array
-            unsigned short isshared:1;  // data is shared by multiple Arrays
-            unsigned short isaligned:1; // data allocated with memalign
-        };
-        unsigned short flags;
-    };
+    jl_array_flags_t flags;
     uint16_t elsize;
     uint32_t offset;  // for 1-d only. does not need to get big.
     size_t nrows;
@@ -320,6 +201,9 @@ typedef struct _jl_lambda_info_t {
     uint8_t inInference : 1;    // flags to tell if inference is running on this function
                                 // used to avoid infinite recursion
     uint8_t inCompile : 1;
+    uint8_t needs_sparam_vals_ducttape : 1; // if there are intrinsic calls,
+                                            // probably require the sparams to compile successfully
+                                            // (and so unspecialized will be created for each linfo instead of linfo->def)
     jl_fptr_t fptr;             // jlcall entry point
 
     // On the old JIT, handles to all Functions generated for this linfo
@@ -352,7 +236,7 @@ typedef struct {
     jl_value_t *primary;
     jl_svec_t *cache;        // sorted array
     jl_svec_t *linearcache;  // unsorted array
-    ptrint_t uid;
+    intptr_t uid;
     struct _jl_methtable_t *mt;
 } jl_typename_t;
 
@@ -397,7 +281,7 @@ typedef struct _jl_datatype_t {
     uint32_t haspadding : 1;  // has internal undefined bytes
     uint32_t fielddesc_type : 2; // 0 -> 8, 1 -> 16, 2 -> 32
     uint32_t uid;
-    void *struct_decl;  //llvm::Value*
+    void *struct_decl;  //llvm::Type*
     void *ditype; // llvm::MDNode* to be used as llvm::DIType(ditype)
     // Last field needs to be pointer size aligned
     // union {
@@ -467,7 +351,7 @@ typedef struct _jl_methtable_t {
     jl_methlist_t *cache;
     jl_array_t *cache_arg1;
     jl_array_t *cache_targ;
-    ptrint_t max_args;  // max # of non-vararg arguments in a signature
+    intptr_t max_args;  // max # of non-vararg arguments in a signature
     jl_value_t *kwsorter;  // keyword argument sorter function
     jl_module_t *module; // used for incremental serialization to locate original binding
 #ifdef JL_GF_PROFILE
@@ -653,7 +537,7 @@ typedef struct _jl_gcframe_t {
 
 #define JL_GC_PUSHARGS(rts_var,n)                               \
   rts_var = ((jl_value_t**)alloca(((n)+2)*sizeof(jl_value_t*)))+2;    \
-  ((void**)rts_var)[-2] = (void*)(((size_t)n)<<1);              \
+  ((void**)rts_var)[-2] = (void*)(((size_t)(n))<<1);                  \
   ((void**)rts_var)[-1] = jl_pgcstack;                          \
   memset((void*)rts_var, 0, (n)*sizeof(jl_value_t*));           \
   jl_pgcstack = (jl_gcframe_t*)&(((void**)rts_var)[-2])
@@ -700,7 +584,7 @@ STATIC_INLINE void jl_gc_wb_back(void *ptr) // ptr isa jl_value_t*
 
 JL_DLLEXPORT void *jl_gc_managed_malloc(size_t sz);
 JL_DLLEXPORT void *jl_gc_managed_realloc(void *d, size_t sz, size_t oldsz,
-                                         int isaligned, jl_value_t* owner);
+                                         int isaligned, jl_value_t *owner);
 
 // object accessors -----------------------------------------------------------
 
@@ -735,7 +619,7 @@ JL_DLLEXPORT size_t jl_array_len_(jl_array_t *a);
 #define jl_array_dim(a,i) ((&((jl_array_t*)(a))->nrows)[i])
 #define jl_array_dim0(a)  (((jl_array_t*)(a))->nrows)
 #define jl_array_nrows(a) (((jl_array_t*)(a))->nrows)
-#define jl_array_ndims(a) ((int32_t)(((jl_array_t*)a)->ndims))
+#define jl_array_ndims(a) ((int32_t)(((jl_array_t*)a)->flags.ndims))
 #define jl_array_data_owner_offset(ndims) (offsetof(jl_array_t,ncols) + sizeof(size_t)*(1+jl_array_ndimwords(ndims))) // in bytes
 #define jl_array_data_owner(a) (*((jl_value_t**)((char*)a + jl_array_data_owner_offset(jl_array_ndims(a)))))
 
@@ -749,7 +633,7 @@ STATIC_INLINE jl_value_t *jl_cellset(void *a, size_t i, void *x)
     assert(i < jl_array_len(a));
     ((jl_value_t**)(jl_array_data(a)))[i] = (jl_value_t*)x;
     if (x) {
-        if (((jl_array_t*)a)->how == 3) {
+        if (((jl_array_t*)a)->flags.how == 3) {
             a = jl_array_data_owner(a);
         }
         jl_gc_wb(a, x);
@@ -768,9 +652,9 @@ STATIC_INLINE jl_value_t *jl_cellset(void *a, size_t i, void *x)
 #define jl_symbolnode_sym(s) (*(jl_sym_t**)s)
 #define jl_symbolnode_type(s) (((jl_value_t**)s)[1])
 #define jl_linenode_file(x) (*(jl_sym_t**)x)
-#define jl_linenode_line(x) (((ptrint_t*)x)[1])
-#define jl_labelnode_label(x) (((ptrint_t*)x)[0])
-#define jl_gotonode_label(x) (((ptrint_t*)x)[0])
+#define jl_linenode_line(x) (((intptr_t*)x)[1])
+#define jl_labelnode_label(x) (((intptr_t*)x)[0])
+#define jl_gotonode_label(x) (((intptr_t*)x)[0])
 #define jl_globalref_mod(s) (*(jl_module_t**)s)
 #define jl_globalref_name(s) (((jl_sym_t**)s)[1])
 
@@ -1003,7 +887,7 @@ STATIC_INLINE int jl_is_type_type(jl_value_t *v)
 
 // object identity
 JL_DLLEXPORT int jl_egal(jl_value_t *a, jl_value_t *b);
-JL_DLLEXPORT uptrint_t jl_object_id(jl_value_t *v);
+JL_DLLEXPORT uintptr_t jl_object_id(jl_value_t *v);
 
 // type predicates and basic operations
 JL_DLLEXPORT int jl_is_leaf_type(jl_value_t *v);
@@ -1218,8 +1102,8 @@ JL_DLLEXPORT int jl_cpu_cores(void);
 JL_DLLEXPORT long jl_getpagesize(void);
 JL_DLLEXPORT long jl_getallocationgranularity(void);
 JL_DLLEXPORT int jl_is_debugbuild(void);
-JL_DLLEXPORT jl_sym_t* jl_get_OS_NAME(void);
-JL_DLLEXPORT jl_sym_t* jl_get_ARCH(void);
+JL_DLLEXPORT jl_sym_t *jl_get_OS_NAME(void);
+JL_DLLEXPORT jl_sym_t *jl_get_ARCH(void);
 
 // environment entries
 JL_DLLEXPORT jl_value_t *jl_environ(int i);
@@ -1286,10 +1170,9 @@ JL_DLLEXPORT ios_t *jl_create_system_image(void);
 JL_DLLEXPORT void jl_save_system_image(const char *fname);
 JL_DLLEXPORT void jl_restore_system_image(const char *fname);
 JL_DLLEXPORT void jl_restore_system_image_data(const char *buf, size_t len);
-JL_DLLEXPORT int jl_save_incremental(const char *fname, jl_array_t* worklist);
+JL_DLLEXPORT int jl_save_incremental(const char *fname, jl_array_t *worklist);
 JL_DLLEXPORT jl_value_t *jl_restore_incremental(const char *fname);
-JL_DLLEXPORT jl_value_t *jl_restore_incremental_from_buf(const char *buf,
-                                                         size_t sz);
+JL_DLLEXPORT jl_value_t *jl_restore_incremental_from_buf(const char *buf, size_t sz);
 
 // front end interface
 JL_DLLEXPORT jl_value_t *jl_parse_input_line(const char *str, size_t len);
@@ -1299,7 +1182,7 @@ JL_DLLEXPORT int jl_parse_depwarn(int warn);
 JL_DLLEXPORT jl_value_t *jl_load_file_string(const char *text, size_t len,
                                              char *filename, size_t namelen);
 JL_DLLEXPORT jl_value_t *jl_expand(jl_value_t *expr);
-JL_DLLEXPORT void *jl_eval_string(const char *str);
+JL_DLLEXPORT jl_value_t *jl_eval_string(const char *str);
 
 // external libraries
 enum JL_RTLD_CONSTANT {
@@ -1318,10 +1201,8 @@ enum JL_RTLD_CONSTANT {
 #define JL_RTLD_DEFAULT (JL_RTLD_LAZY | JL_RTLD_DEEPBIND)
 
 typedef void *jl_uv_libhandle; // compatible with dlopen (void*) / LoadLibrary (HMODULE)
-JL_DLLEXPORT jl_uv_libhandle jl_load_dynamic_library(const char *fname,
-                                                     unsigned flags);
-JL_DLLEXPORT jl_uv_libhandle jl_load_dynamic_library_e(const char *fname,
-                                                       unsigned flags);
+JL_DLLEXPORT jl_uv_libhandle jl_load_dynamic_library(const char *fname, unsigned flags);
+JL_DLLEXPORT jl_uv_libhandle jl_load_dynamic_library_e(const char *fname, unsigned flags);
 JL_DLLEXPORT jl_uv_libhandle jl_dlopen(const char *filename, unsigned flags);
 JL_DLLEXPORT int jl_dlclose(jl_uv_libhandle handle);
 JL_DLLEXPORT void *jl_dlsym_e(jl_uv_libhandle handle, const char *symbol);
@@ -1397,11 +1278,11 @@ JL_DLLEXPORT void jl_yield(void);
 JL_DLLEXPORT extern volatile sig_atomic_t jl_signal_pending;
 JL_DLLEXPORT extern volatile sig_atomic_t jl_defer_signal;
 
-#define JL_SIGATOMIC_BEGIN() (JL_ATOMIC_FETCH_AND_ADD(jl_defer_signal,1))
+#define JL_SIGATOMIC_BEGIN() jl_atomic_fetch_add(&jl_defer_signal, 1)
 #define JL_SIGATOMIC_END()                                      \
     do {                                                        \
-        if (JL_ATOMIC_FETCH_AND_ADD(jl_defer_signal,-1) == 1    \
-                && jl_signal_pending != 0) {                    \
+        if (jl_atomic_fetch_add(&jl_defer_signal, -1) == 1      \
+            && jl_signal_pending != 0) {                        \
             jl_signal_pending = 0;                              \
             jl_sigint_action();                                 \
         }                                                       \
@@ -1458,36 +1339,6 @@ typedef struct _jl_task_t {
 #endif
 } jl_task_t;
 
-#define JL_MAX_BT_SIZE 80000
-typedef struct _jl_tls_states_t {
-    jl_gcframe_t *pgcstack;
-    jl_value_t *exception_in_transit;
-    // Whether it is safe to execute GC at the same time.
-#define JL_GC_STATE_WAITING 1
-    // gc_state = 1 means the thread is doing GC or is waiting for the GC to
-    //              finish.
-#define JL_GC_STATE_SAFE 2
-    // gc_state = 2 means the thread is running unmanaged code that can be
-    //              execute at the same time with the GC.
-    volatile int8_t gc_state;
-    volatile int8_t in_finalizer;
-    int8_t disable_gc;
-    struct _jl_thread_heap_t *heap;
-    jl_module_t *current_module;
-    jl_task_t *volatile current_task;
-    jl_task_t *root_task;
-    jl_value_t *volatile task_arg_in_transit;
-    void *stackbase;
-    char *stack_lo;
-    char *stack_hi;
-    jl_jmp_buf *volatile jmp_target;
-    jl_jmp_buf base_ctx; // base context of stack
-    int8_t in_jl_;
-    int16_t tid;
-    size_t bt_size;
-    ptrint_t bt_data[JL_MAX_BT_SIZE + 1];
-} jl_tls_states_t;
-
 typedef struct {
     jl_tls_states_t *ptls;
     uv_thread_t system_id;
@@ -1505,30 +1356,7 @@ JL_DLLEXPORT void JL_NORETURN jl_throw(jl_value_t *e);
 JL_DLLEXPORT void JL_NORETURN jl_rethrow(void);
 JL_DLLEXPORT void JL_NORETURN jl_rethrow_other(jl_value_t *e);
 
-JL_DLLEXPORT JL_CONST_FUNC jl_tls_states_t *(jl_get_ptls_states)(void);
-#ifndef JULIA_ENABLE_THREADING
-extern JL_DLLEXPORT jl_tls_states_t jl_tls_states;
-#define jl_get_ptls_states() (&jl_tls_states)
-#define jl_gc_state() ((int8_t)0)
-STATIC_INLINE int8_t jl_gc_state_set(int8_t state, int8_t old_state)
-{
-    (void)state;
-    return old_state;
-}
-#else // ifndef JULIA_ENABLE_THREADING
-typedef jl_tls_states_t *(*jl_get_ptls_states_func)(void);
-JL_DLLEXPORT void jl_set_ptls_states_getter(jl_get_ptls_states_func f);
-// Make sure jl_gc_state() is always a rvalue
-#define jl_gc_state() ((int8_t)(jl_get_ptls_states()->gc_state))
-STATIC_INLINE int8_t jl_gc_state_set(int8_t state, int8_t old_state)
-{
-    jl_get_ptls_states()->gc_state = state;
-    // A safe point is required if we transition from GC-safe region to
-    // non GC-safe region.
-    if (old_state && !state)
-        jl_gc_safepoint();
-    return old_state;
-}
+#ifdef JULIA_ENABLE_THREADING
 STATIC_INLINE void jl_lock_frame_push(void (*unlock_func)(void))
 {
     // For early bootstrap
@@ -1545,14 +1373,6 @@ STATIC_INLINE void jl_lock_frame_push(void (*unlock_func)(void))
     locks->items[len] = (void*)unlock_func;
 }
 #endif // ifndef JULIA_ENABLE_THREADING
-STATIC_INLINE int8_t jl_gc_state_save_and_set(int8_t state)
-{
-    return jl_gc_state_set(state, jl_gc_state());
-}
-#define jl_gc_unsafe_enter() jl_gc_state_save_and_set(0)
-#define jl_gc_unsafe_leave(state) ((void)jl_gc_state_set((state), 0))
-#define jl_gc_safe_enter() jl_gc_state_save_and_set(JL_GC_STATE_SAFE)
-#define jl_gc_safe_leave(state) ((void)jl_gc_state_set((state), JL_GC_STATE_SAFE))
 
 STATIC_INLINE void jl_eh_restore_state(jl_handler_t *eh)
 {
@@ -1736,6 +1556,7 @@ JL_DLLEXPORT int jl_generating_output(void);
 #define JL_OPTIONS_COMPILE_OFF 0
 #define JL_OPTIONS_COMPILE_ON  1
 #define JL_OPTIONS_COMPILE_ALL 2
+#define JL_OPTIONS_COMPILE_MIN 3
 
 #define JL_OPTIONS_COLOR_ON 1
 #define JL_OPTIONS_COLOR_OFF 2
@@ -1770,7 +1591,7 @@ JL_DLLEXPORT extern int jl_ver_major(void);
 JL_DLLEXPORT extern int jl_ver_minor(void);
 JL_DLLEXPORT extern int jl_ver_patch(void);
 JL_DLLEXPORT extern int jl_ver_is_release(void);
-JL_DLLEXPORT extern const char* jl_ver_string(void);
+JL_DLLEXPORT extern const char *jl_ver_string(void);
 JL_DLLEXPORT const char *jl_git_branch(void);
 JL_DLLEXPORT const char *jl_git_commit(void);
 

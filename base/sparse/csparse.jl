@@ -19,8 +19,9 @@
 Create a sparse matrix `S` of dimensions `m x n` such that `S[I[k], J[k]] = V[k]`.
 The `combine` function is used to combine duplicates. If `m` and `n` are not
 specified, they are set to `maximum(I)` and `maximum(J)` respectively. If the
-`combine` function is not supplied, duplicates are added by default. All elements
-of `I` must satisfy `1 <= I[k] <= m`, and all elements of `J` must satisfy `1 <= J[k] <= n`.
+`combine` function is not supplied, `combine` defaults to `+` unless the elements
+of `V` are Booleans in which case `combine` defaults to `|`. All elements of `I` must
+satisfy `1 <= I[k] <= m`, and all elements of `J` must satisfy `1 <= J[k] <= n`.
 """
 function sparse{Tv,Ti<:Integer}(I::AbstractVector{Ti},
                                 J::AbstractVector{Ti},
@@ -333,13 +334,13 @@ end
 
 
 immutable DropTolFun <: Func{4} end
-call(::DropTolFun, i,j,x,other) = abs(x)>other
+(::DropTolFun)(i,j,x,other) = abs(x)>other
 immutable DropZerosFun <: Func{4} end
-call(::DropZerosFun, i,j,x,other) = x!=0
+(::DropZerosFun)(i,j,x,other) = x!=0
 immutable TriuFun <: Func{4} end
-call(::TriuFun, i,j,x,other) = j>=i + other
+(::TriuFun)(i,j,x,other) = j>=i + other
 immutable TrilFun <: Func{4} end
-call(::TrilFun, i,j,x,other) = i>=j - other
+(::TrilFun)(i,j,x,other) = i>=j - other
 
 droptol!(A::SparseMatrixCSC, tol) = fkeep!(A, DropTolFun(), tol)
 dropzeros!(A::SparseMatrixCSC) = fkeep!(A, DropZerosFun(), nothing)

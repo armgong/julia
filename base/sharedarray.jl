@@ -19,20 +19,20 @@ type SharedArray{T,N} <: DenseArray{T,N}
     # the local partition into the array when viewed as a single dimensional array.
     # this can be removed when @parallel or its equivalent supports looping on
     # a subset of workers.
-    loc_subarr_1d::SubArray{T,1,Array{T,N},Tuple{UnitRange{Int}},1}
+    loc_subarr_1d::SubArray{T,1,Array{T,N},Tuple{UnitRange{Int}},true}
 
     SharedArray(d,p,r,sn) = new(d,p,r,sn)
 end
 
-call{T,N}(::Type{SharedArray{T}}, d::NTuple{N,Int}; kwargs...) =
+(::Type{SharedArray{T}}){T,N}(d::NTuple{N,Int}; kwargs...) =
     SharedArray(T, d; kwargs...)
-call{T}(::Type{SharedArray{T}}, d::Integer...; kwargs...) =
+(::Type{SharedArray{T}}){T}(d::Integer...; kwargs...) =
     SharedArray(T, d; kwargs...)
-call{T}(::Type{SharedArray{T}}, m::Integer; kwargs...) =
+(::Type{SharedArray{T}}){T}(m::Integer; kwargs...) =
     SharedArray(T, m; kwargs...)
-call{T}(::Type{SharedArray{T}}, m::Integer, n::Integer; kwargs...) =
+(::Type{SharedArray{T}}){T}(m::Integer, n::Integer; kwargs...) =
     SharedArray(T, m, n; kwargs...)
-call{T}(::Type{SharedArray{T}}, m::Integer, n::Integer, o::Integer; kwargs...) =
+(::Type{SharedArray{T}}){T}(m::Integer, n::Integer, o::Integer; kwargs...) =
     SharedArray(T, m, n, o; kwargs...)
 
 """

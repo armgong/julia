@@ -9,6 +9,7 @@ export
     Pkg,
     Git,
     LibGit2,
+    StackTraces,
     Profile,
     Dates,
     Sys,
@@ -103,7 +104,6 @@ export
     SharedArray,
     SharedMatrix,
     SharedVector,
-    StatStruct,
     StepRange,
     StridedArray,
     StridedMatrix,
@@ -689,6 +689,8 @@ export
     qr,
     qrfact!,
     qrfact,
+    lqfact!,
+    lqfact,
     rank,
     scale!,
     scale,
@@ -1046,6 +1048,12 @@ export
     rethrow,
     systemerror,
 
+# stack traces
+    StackTrace,
+    StackFrame,
+    stacktrace,
+    catch_stacktrace,
+
 # types
     convert,
     fieldoffset,
@@ -1165,7 +1173,6 @@ export
     RawFD,
     read,
     read!,
-    readstring,
     readavailable,
     readbytes!,
     readchomp,
@@ -1174,6 +1181,7 @@ export
     readdlm,
     readline,
     readlines,
+    readstring,
     readuntil,
     redirect_stderr,
     redirect_stdin,
@@ -1266,6 +1274,7 @@ export
 # filesystem operations
     cd,
     chmod,
+    chown,
     cp,
     ctime,
     download,

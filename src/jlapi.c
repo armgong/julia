@@ -48,7 +48,7 @@ JL_DLLEXPORT void jl_init(const char *julia_home_dir)
     jl_init_with_image(julia_home_dir, NULL);
 }
 
-JL_DLLEXPORT void *jl_eval_string(const char *str)
+JL_DLLEXPORT jl_value_t *jl_eval_string(const char *str)
 {
     jl_value_t *r;
     JL_TRY {
@@ -276,7 +276,7 @@ JL_DLLEXPORT int jl_ver_is_release(void)
     return JULIA_VERSION_IS_RELEASE;
 }
 
-JL_DLLEXPORT const char* jl_ver_string(void)
+JL_DLLEXPORT const char *jl_ver_string(void)
 {
    return JULIA_VERSION_STRING;
 }
@@ -340,6 +340,16 @@ JL_DLLEXPORT int8_t (jl_gc_safe_enter)(void)
 JL_DLLEXPORT void (jl_gc_safe_leave)(int8_t state)
 {
     jl_gc_safe_leave(state);
+}
+
+JL_DLLEXPORT void (jl_cpu_pause)(void)
+{
+    jl_cpu_pause();
+}
+
+JL_DLLEXPORT void (jl_cpu_wake)(void)
+{
+    jl_cpu_wake();
 }
 
 #ifdef __cplusplus

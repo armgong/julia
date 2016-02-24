@@ -30,7 +30,6 @@
 #include <llvm/Object/ObjectFile.h>
 #include <llvm/Support/MachO.h>
 #include <llvm/Support/COFF.h>
-#include <llvm/MC/MCDisassembler.h>
 #include <llvm/MC/MCInst.h>
 #include <llvm/MC/MCStreamer.h>
 #include <llvm/MC/MCSubtargetInfo.h>
@@ -46,11 +45,18 @@
 #include <llvm/MC/MCInstrAnalysis.h>
 #include <llvm/MC/MCSymbol.h>
 #ifdef LLVM35
-#include <llvm/AsmParser/Parser.h>
-#include <llvm/MC/MCExternalSymbolizer.h>
+#  include <llvm/AsmParser/Parser.h>
+#  ifdef LLVM39
+#    include <llvm/MC/MCDisassembler/MCDisassembler.h>
+#    include <llvm/MC/MCDisassembler/MCExternalSymbolizer.h>
+#  else
+#    include <llvm/MC/MCExternalSymbolizer.h>
+#    include <llvm/MC/MCDisassembler.h>
+#  endif
 #else
-#include <llvm/Assembly/Parser.h>
-#include <llvm/ADT/OwningPtr.h>
+#  include <llvm/Assembly/Parser.h>
+#  include <llvm/ADT/OwningPtr.h>
+#  include <llvm/MC/MCDisassembler.h>
 #endif
 #include <llvm/ADT/Triple.h>
 #include <llvm/Support/MemoryBuffer.h>
@@ -187,11 +193,8 @@ MCSymbol *SymbolTable::lookupSymbol(uint64_t addr)
     return Table[addr];
 }
 
-static const char *SymbolLookup(void *DisInfo,
-                                uint64_t ReferenceValue,
-                                uint64_t *ReferenceType,
-                                uint64_t ReferencePC,
-                                const char **ReferenceName)
+static const char *SymbolLookup(void *DisInfo, uint64_t ReferenceValue, uint64_t *ReferenceType,
+                                uint64_t ReferencePC, const char **ReferenceName)
 {
     SymbolTable *SymTab = (SymbolTable*)DisInfo;
     if (SymTab->getPass() != 0) {
@@ -208,8 +211,7 @@ static const char *SymbolLookup(void *DisInfo,
     return NULL;
 }
 
-static int OpInfoLookup(void *DisInfo, uint64_t PC,
-                        uint64_t Offset, uint64_t Size,
+static int OpInfoLookup(void *DisInfo, uint64_t PC, uint64_t Offset, uint64_t Size,
                         int TagType, void *TagBuf)
 {
     SymbolTable *SymTab = (SymbolTable*)DisInfo;
@@ -236,8 +238,9 @@ static int OpInfoLookup(void *DisInfo, uint64_t PC,
     size_t line;
     char *inlinedat_file;
     size_t inlinedat_line;
+    jl_lambda_info_t *outer_linfo;
     int fromC;
-    jl_getFunctionInfo(&name, &filename, &line, &inlinedat_file, &inlinedat_line, pointer, &fromC, skipC, 1);
+    jl_getFunctionInfo(&name, &filename, &line, &inlinedat_file, &inlinedat_line, &outer_linfo, pointer, &fromC, skipC, 1);
     free(filename);
     free(inlinedat_file);
     if (!name)
@@ -304,7 +307,7 @@ void jl_dump_asm_internal(uintptr_t Fptr, size_t Fsize, size_t slide,
     Features.getDefaultSubtargetFeatures(TheTriple);
 
     std::string err;
-    const Target* TheTarget = TargetRegistry::lookupTarget(TripleName, err);
+    const Target *TheTarget = TargetRegistry::lookupTarget(TripleName, err);
 
     // Set up required helpers and streamer
 #ifdef LLVM35
@@ -376,10 +379,10 @@ void jl_dump_asm_internal(uintptr_t Fptr, size_t Fsize, size_t slide,
         MCIA(TheTarget->createMCInstrAnalysis(MCII.get()));
 #endif
 #ifdef LLVM37
-    MCInstPrinter* IP =
+    MCInstPrinter *IP =
         TheTarget->createMCInstPrinter(TheTriple, OutputAsmVariant, *MAI, *MCII, *MRI);
 #else
-    MCInstPrinter* IP =
+    MCInstPrinter *IP =
         TheTarget->createMCInstPrinter(OutputAsmVariant, *MAI, *MCII, *MRI, *STI);
 #endif
     MCCodeEmitter *CE = 0;
@@ -408,11 +411,11 @@ void jl_dump_asm_internal(uintptr_t Fptr, size_t Fsize, size_t slide,
     Streamer.reset(TheTarget->createAsmStreamer(Ctx, stream, /*asmverbose*/true,
 #endif
 #ifndef LLVM35
-                                           /*useLoc*/ true,
-                                           /*useCFI*/ true,
+                                                /*useLoc*/ true,
+                                                /*useCFI*/ true,
 #endif
-                                           /*useDwarfDirectory*/ true,
-                                           IP, CE, MAB, ShowInst));
+                                                /*useDwarfDirectory*/ true,
+                                                IP, CE, MAB, ShowInst));
 #ifdef LLVM36
     Streamer->InitSections(true);
 #else
@@ -463,15 +466,12 @@ void jl_dump_asm_internal(uintptr_t Fptr, size_t Fsize, size_t slide,
                         &DisInfo)));
 #elif defined LLVM34
             OwningPtr<MCRelocationInfo> relinfo(new MCRelocationInfo(Ctx));
-            DisAsm->setupForSymbolicDisassembly(
-                    OpInfoLookup, SymbolLookup, &DisInfo, &Ctx,
-                    relinfo);
+            DisAsm->setupForSymbolicDisassembly(OpInfoLookup, SymbolLookup, &DisInfo, &Ctx,
+                                                relinfo);
 #else
-            DisAsm->setupForSymbolicDisassembly(
-                    OpInfoLookup, SymbolLookup, &DisInfo, &Ctx);
+            DisAsm->setupForSymbolicDisassembly(OpInfoLookup, SymbolLookup, &DisInfo, &Ctx);
 #endif
         }
-
 
         uint64_t nextLineAddr = -1;
 #ifdef USE_MCJIT

@@ -48,9 +48,10 @@ the same object. `fill!(A, Foo())` will return `A` filled with the result of eva
 fill!
 
 """
-    read!(stream or filename, array::Array)
+    read!(stream::IO, array::Union{Array, BitArray})
+    read!(filename::AbstractString, array::Union{Array, BitArray})
 
-Read binary data from a stream or file, filling in the argument `array`.
+Read binary data from an I/O stream or file, filling in `array`.
 """
 read!
 
@@ -445,9 +446,11 @@ the mantissa.
 precision
 
 """
-    readlines(stream or filename)
+    readlines(stream::IO)
+    readlines(filename::AbstractString)
 
-Read all lines as an array.
+Read all lines of an I/O stream or a file as a vector of strings.
+The text is assumed to be encoded in UTF-8.
 """
 readlines
 
@@ -1011,9 +1014,11 @@ See `rounding` for available rounding modes.
 Float32
 
 """
-    readuntil(stream or filename, delim)
+    readuntil(stream::IO, delim)
+    readuntil(filename::AbstractString, delim)
 
-Read a string, up to and including the given delimiter byte.
+Read a string from an I/O stream or a file, up to and including the given delimiter byte.
+The text is assumed to be encoded in UTF-8.
 """
 readuntil
 
@@ -1223,9 +1228,9 @@ An operation tried to write to memory that is read-only.
 ReadOnlyMemoryError
 
 """
-    startswith(string, prefix | chars)
+    startswith(string, prefix)
 
-Returns `true` if `string` starts with `prefix`. If the second argument is a vector or set
+Returns `true` if `string` starts with `prefix`. If `prefix` is a vector or set
 of characters, tests whether the first character of `string` belongs to that set.
 """
 startswith
@@ -1372,20 +1377,6 @@ For example, if `dims` is `[1,2]` and `A` is 4-dimensional, `f` is called on `A[
 for all `i` and `j`.
 """
 mapslices
-
-"""
-    svdvals(A)
-
-Returns the singular values of `A`.
-"""
-svdvals(A)
-
-"""
-    svdvals(A, B)
-
-Return only the singular values from the generalized singular value decomposition of `A` and `B`.
-"""
-svdvals(A, B)
 
 """
     issocket(path) -> Bool
@@ -1596,26 +1587,6 @@ of the problem that is solved on each processor.
 peakflops
 
 """
-    svd(A, [thin=true]) -> U, S, V
-
-Wrapper around `svdfact` extracting all parts the factorization to a tuple. Direct use of
-`svdfact` is therefore generally more efficient. Computes the SVD of `A`, returning `U`,
-vector `S`, and `V` such that `A == U*diagm(S)*V'`. If `thin` is `true`, an economy mode
-decomposition is returned. The default is to produce a thin decomposition.
-"""
-svd
-
-"""
-    svd(A, B) -> U, V, Q, D1, D2, R0
-
-Wrapper around `svdfact` extracting all parts the factorization to a tuple. Direct use of
-`svdfact` is therefore generally more efficient. The function returns the generalized SVD of
-`A` and `B`, returning `U`, `V`, `Q`, `D1`, `D2`, and `R0` such that `A = U*D1*R0*Q'` and `B =
-V*D2*R0*Q'`.
-"""
-svd(A::AbstractMatrix, B::AbstractMatrix)
-
-"""
     ones(type, dims)
 
 Create an array of all ones of specified type. The type defaults to `Float64` if not specified.
@@ -1773,13 +1744,6 @@ sumabs(itr)
 Sum absolute values of elements of an array over the given dimensions.
 """
 sumabs(A, dims)
-
-"""
-    svdvals!(A)
-
-Returns the singular values of `A`, while saving space by overwriting the input.
-"""
-svdvals!
 
 """
     consume(task, values...)
@@ -2009,15 +1973,15 @@ value returned by `f`.
 open(f::Function, command::Cmd, mod::AbstractString="r", stdio=DevNull)
 
 """
-    open(file_name, [read, write, create, truncate, append]) -> IOStream
+    open(filename, [read, write, create, truncate, append]) -> IOStream
 
 Open a file in a mode specified by five boolean arguments. The default is to open files for
 reading only. Returns a stream for accessing the file.
 """
-open(file_name, ::Bool, ::Bool, ::Bool, ::Bool, ::Bool)
+open(filename, ::Bool, ::Bool, ::Bool, ::Bool, ::Bool)
 
 """
-    open(file_name, [mode]) -> IOStream
+    open(filename, [mode]) -> IOStream
 
 Alternate syntax for open, where a string-based mode specifier is used instead of the five
 booleans. The values of `mode` correspond to those from `fopen(3)` or Perl `open`, and are
@@ -2032,7 +1996,7 @@ equivalent to setting the following boolean groups:
 | a    | write, create, append         |
 | a+   | read, write, create, append   |
 """
-open(file_name, mode="r")
+open(filename, mode="r")
 
 """
     open(f::Function, args...)
@@ -2064,13 +2028,6 @@ sort(A,dim,?,?,?,?)
 Kronecker tensor product of two vectors or two matrices.
 """
 kron
-
-"""
-    >>(x, n)
-
-Right bit shift operator, preserving the sign of `x`.
-"""
-Base.(:(>>))
 
 """
     randn([rng], [dims...])
@@ -2143,8 +2100,7 @@ isdigit
 """
     @windows
 
-Given `@windows? a : b`, do `a` on Windows and `b` elsewhere. See documentation for Handling
-Platform Variations in the Calling C and Fortran Code section of the manual.
+Given `@windows? a : b`, do `a` on Windows and `b` elsewhere. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
 """
 :@windows
 
@@ -2152,10 +2108,24 @@ Platform Variations in the Calling C and Fortran Code section of the manual.
     @unix
 
 Given `@unix? a : b`, do `a` on Unix systems (including Linux and OS X) and `b` elsewhere.
-See documentation for Handling Platform Variations in the Calling C and Fortran Code section
-of the manual.
+See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
 """
 :@unix
+
+"""
+    @windows_only
+
+A macro that evaluates the given expression only on Windows systems. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
+"""
+:@windows_only
+
+"""
+    @unix_only
+
+A macro that evaluates the given expression only on Unix systems (including Linux and OS X). See
+documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
+"""
+:@unix_only
 
 """
     num2hex(f)
@@ -2397,9 +2367,11 @@ the process.
 triu!(M, k)
 
 """
-    readstring(stream or filename)
+    readstring(stream::IO)
+    readstring(filename::AbstractString)
 
 Read the entire contents of an I/O stream or a file as a string.
+The text is assumed to be encoded in UTF-8.
 """
 readstring
 
@@ -2419,9 +2391,11 @@ it is more reliable and efficient, although in some situations it may not be ava
 poll_file
 
 """
-    eachline(stream or filename)
+    eachline(stream::IO)
+    eachline(filename::AbstractString)
 
-Create an iterable object that will yield each line.
+Create an iterable object that will yield each line from an I/O stream or a file.
+The text is assumed to be encoded in UTF-8.
 """
 eachline
 
@@ -3010,25 +2984,6 @@ are itself and `None` (but `T` itself is not `None`).
 isleaftype
 
 """
-    svdfact(A, [thin=true]) -> SVD
-
-Compute the Singular Value Decomposition (SVD) of `A` and return an `SVD` object. `U`, `S`,
-`V` and `Vt` can be obtained from the factorization `F` with `F[:U]`, `F[:S]`, `F[:V]` and
-`F[:Vt]`, such that `A = U*diagm(S)*Vt`. If `thin` is `true`, an economy mode decomposition
-is returned. The algorithm produces `Vt` and hence `Vt` is more efficient to extract than
-`V`. The default is to produce a thin decomposition.
-"""
-svdfact(A)
-
-"""
-    svdfact(A, B) -> GeneralizedSVD
-
-Compute the generalized SVD of `A` and `B`, returning a `GeneralizedSVD` Factorization
-object `F`, such that `A = F[:U]*F[:D1]*F[:R0]*F[:Q]'` and `B = F[:V]*F[:D2]*F[:R0]*F[:Q]'`.
-"""
-svdfact(A, B)
-
-"""
     string(xs...)
 
 Create a string from any values using the `print` function.
@@ -3280,7 +3235,7 @@ addprocs()
 
 """
 ```
-addprocs(machines; tunnel=false, sshflags=``, max_parallel=10, exeflags=``) -> List of process identifiers
+addprocs(machines; keyword_args...) -> List of process identifiers
 ```
 
 Add processes on remote machines via SSH. Requires julia to be installed in the same
@@ -3300,23 +3255,38 @@ it will launch as many workers as the number of cores on the specific host.
 
 Keyword arguments:
 
-`tunnel`: if `true` then SSH tunneling will be used to connect to the worker from the
-master process.
+* `tunnel`: if `true` then SSH tunneling will be used to connect to the worker from the
+            master process. Default is `false`.
 
-`sshflags`: specifies additional ssh options, e.g.
+* `sshflags`: specifies additional ssh options, e.g.
 
     sshflags=`-i /home/foo/bar.pem`
 
-`max_parallel`: specifies the maximum number of workers connected to in parallel at a host.
-Defaults to 10.
+* `max_parallel`: specifies the maximum number of workers connected to in parallel at a host.
+                  Defaults to 10.
 
-`dir`: specifies the working directory on the workers. Defaults to the host's current
-directory (as found by `pwd()`)
+* `dir`: specifies the working directory on the workers. Defaults to the host's current
+         directory (as found by `pwd()`)
 
-`exename`: name of the julia executable. Defaults to `"\$JULIA_HOME/julia"` or
-`"\$JULIA_HOME/julia-debug"` as the case may be.
+* `exename`: name of the julia executable. Defaults to `"\$JULIA_HOME/julia"` or
+             `"\$JULIA_HOME/julia-debug"` as the case may be.
 
-`exeflags`: additional flags passed to the worker processes.
+* `exeflags`: additional flags passed to the worker processes.
+
+* `topology`: Specifies how the workers connect to each other. Sending a message
+            between unconnected workers results in an error.
+
+  + `topology=:all_to_all`  :  All processes are connected to each other.
+                      This is the default.
+
+  + `topology=:master_slave`  :  Only the driver process, i.e. pid 1 connects to the
+                        workers. The workers do not connect to each other.
+
+  + `topology=:custom`  :  The `launch` method of the cluster manager specifes the
+                  connection topology via fields `ident` and `connect_idents` in
+                  `WorkerConfig`. A worker with a cluster manager identity `ident`
+                  will connect to all workers specified in `connect_idents`.
+
 
 Environment variables :
 
@@ -3346,49 +3316,9 @@ addprocs(manager::ClusterManager)
     mkpath(path, [mode])
 
 Create all directories in the given `path`, with permissions `mode`. `mode` defaults to
-0o777, modified by the current file creation mask.
+`0o777`, modified by the current file creation mask.
 """
 mkpath
-
-"""
-    lufact(A [,pivot=Val{true}]) -> F
-
-Compute the LU factorization of `A`. The return type of `F` depends on the type of `A`. In
-most cases, if `A` is a subtype `S` of AbstractMatrix with an element type `T` supporting `+`, `-`, `*`
-and `/` the return type is `LU{T,S{T}}`. If pivoting is chosen (default) the element type
-should also support `abs` and `<`. When `A` is sparse and have element of type `Float32`,
-`Float64`, `Complex{Float32}`, or `Complex{Float64}` the return type is `UmfpackLU`. Some
-examples are shown in the table below.
-
-| Type of input `A`                              | Type of output `F`     | Relationship between `F` and `A`             |
-|:-----------------------------------------------|:-----------------------|:---------------------------------------------|
-| [`Matrix`](:func:`Matrix`)                     | `LU`                   | `F[:L]*F[:U] == A[F[:p], :]`                 |
-| [`Tridiagonal`](:func:`Tridiagonal`)           | `LU{T,Tridiagonal{T}}` | `F[:L]*F[:U] == A[F[:p], :]`                 |
-| [`SparseMatrixCSC`](:func:`SparseMatrixCSC`)   | `UmfpackLU`            | `F[:L]*F[:U] == (F[:Rs] .* A)[F[:p], F[:q]]` |
-
-The individual components of the factorization `F` can be accessed by indexing:
-
-| Component | Description                         | `LU` | `LU{T,Tridiagonal{T}}` | `UmfpackLU` |
-|:----------|:------------------------------------|:-----|:-----------------------|:------------|
-| `F[:L]`   | `L` (lower triangular) part of `LU` | ✓    | ✓                      | ✓           |
-| `F[:U]`   | `U` (upper triangular) part of `LU` | ✓    | ✓                      | ✓           |
-| `F[:p]`   | (right) permutation `Vector`        | ✓    | ✓                      | ✓           |
-| `F[:P]`   | (right) permutation `Matrix`        | ✓    | ✓                      |             |
-| `F[:q]`   | left permutation `Vector`           |      |                        | ✓           |
-| `F[:Rs]`  | `Vector` of scaling factors         |      |                        | ✓           |
-| `F[:(:)]` | `(L,U,p,q,Rs)` components           |      |                        | ✓           |
-
-| Supported function | `LU` | `LU{T,Tridiagonal{T}}` | `UmfpackLU` |
-|:-------------------|:-----|:-----------------------|:------------|
-| `/`                | ✓    |                        |             |
-| `\\`               | ✓    | ✓                      | ✓           |
-| `cond`             | ✓    |                        | ✓           |
-| `det`              | ✓    | ✓                      | ✓           |
-| `logdet`           | ✓    | ✓                      |             |
-| `logabsdet`        | ✓    | ✓                      |             |
-| `size`             | ✓    | ✓                      |             |
-"""
-lufact
 
 """
     besselix(nu, x)
@@ -4195,10 +4125,11 @@ Squared absolute value of `x`.
 abs2
 
 """
-    write(stream or filename, x)
+    write(stream::IO, x)
+    write(filename::AbstractString, x)
 
-Write the canonical binary representation of a value to the given stream or file. Returns the number
-of bytes written into the stream.
+Write the canonical binary representation of a value to the given I/O stream or file.
+Returns the number of bytes written into the stream.
 
 You can write multiple values with the same :func:`write` call. i.e. the following are
 equivalent:
@@ -4569,15 +4500,6 @@ interrupt safe. Intended to be called using `do` block syntax as follows:
     end
 """
 disable_sigint
-
-"""
-    svdfact!(A, [thin=true]) -> SVD
-
-`svdfact!` is the same as [`svdfact`](:func:`svdfact`), but saves space by overwriting the
-input `A`, instead of creating a copy. If `thin` is `true`, an economy mode decomposition is
-returned. The default is to produce a thin decomposition.
-"""
-svdfact!
 
 """
     hist2d(M, e1, e2) -> (edge1, edge2, counts)
@@ -5428,11 +5350,21 @@ is no file path involved, no path processing or fetching from node 1 is done.
 include_string
 
 """
-    chmod(path, mode)
+    chmod(path, mode; recursive=false)
 
-Change the permissions mode of `path` to `mode`. Only integer `mode`s (e.g. 0o777) are currently supported.
+Change the permissions mode of `path` to `mode`. Only integer `mode`s (e.g. `0o777`) are
+currently supported. If `recursive=true` and the path is a directory all permissions in
+that directory will be recursively changed.
 """
 chmod
+
+"""
+    chown(path, owner, group=-1)
+
+Change the owner and/or group of `path` to `owner` and/or `group`. If the value entered for `owner` or `group`
+is `-1` the corresponding ID will not change. Only integer `owner`s and `group`s are currently supported.
+"""
+chown
 
 """
     gamma(x)
@@ -6089,20 +6021,28 @@ ERROR: ArgumentError: indices must be unique and sorted
 deleteat!(collection, itr)
 
 """
-    read(stream, type)
+    read(stream::IO, T)
 
-Read a value of the given type from a stream, in canonical binary representation.
+Read a single value of type `T` from `stream`, in canonical binary representation.
 """
 read(stream, t)
 
 """
-    read(stream, type, dims)
+    read(stream::IO, T, dims)
 
-Read a series of values of the given type from a stream, in canonical binary representation.
-`dims` is either a tuple or a series of integer arguments specifying the size of `Array` to
-return.
+Read a series of values of type `T` from `stream`, in canonical binary representation.
+`dims` is either a tuple or a series of integer arguments specifying the size of the `Array{T}`
+to return.
 """
 read(stream, t, dims)
+
+"""
+    read(filename::AbstractString, args...)
+
+Open a file and read its contents. `args` is passed to `read`: this is equivalent to
+`open(io->read(io, args...), filename)`.
+"""
+read(filename, args...)
 
 """
     @timev
@@ -6182,13 +6122,6 @@ after the end of the string.
 nextind
 
 """
-    >>>(x, n)
-
-Unsigned right bit shift operator.
-"""
-Base.(:(>>>))
-
-"""
     @timed
 
 A macro to execute an expression, and return the value of the expression, elapsed time,
@@ -6230,10 +6163,12 @@ Dirichlet eta function ``\\eta(s) = \\sum^\\infty_{n=1}(-)^{n-1}/n^{s}``.
 eta
 
 """
-    isdefined([object,] index | symbol)
+    isdefined([m::Module,] s::Symbol)
+    isdefined(object, s::Symbol)
+    isdefined(a::AbstractArray, index::Int)
 
-Tests whether an assignable location is defined. The arguments can be an array and index, a
-composite object and field name (as a symbol), or a module and a symbol. With a single
+Tests whether an assignable location is defined. The arguments can be a module and a symbol,
+a composite object and field name (as a symbol), or an array and index. With a single
 symbol argument, tests whether a global variable with that name is defined in
 `current_module()`.
 """
@@ -6375,10 +6310,11 @@ Compute the inverse secant of `x`, where the output is in degrees.
 asecd
 
 """
-    readbytes!(stream, b::Vector{UInt8}, nb=length(b); all=true)
+    readbytes!(stream::IO, b::AbstractVector{UInt8}, nb=length(b); all=true)
 
-Read at most `nb` bytes from the stream into `b`, returning the number of bytes read
-(increasing the size of `b` as needed).
+Read at most `nb` bytes from `stream` into `b`, returning the number of bytes read.
+The size of `b` will be increased if needed (i.e. if `nb` is greater than `length(b)`
+and enough bytes could be read), but it will never be decreased.
 
 See `read` for a description of the `all` option.
 """
@@ -6606,10 +6542,16 @@ ndims
 """
     @osx
 
-Given `@osx? a : b`, do `a` on OS X and `b` elsewhere. See documentation for Handling
-Platform Variations in the Calling C and Fortran Code section of the manual.
+Given `@osx? a : b`, do `a` on OS X and `b` elsewhere. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
 """
 :@osx
+
+"""
+    @osx_only
+
+A macro that evaluates the given expression only on OS X systems. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
+"""
+:@osx_only
 
 """
     ishermitian(A) -> Bool
@@ -6761,32 +6703,6 @@ DomainError
 Test whether a matrix is symmetric.
 """
 issym
-
-"""
-    svds(A; nsv=6, ritzvec=true, tol=0.0, maxiter=1000) -> (left_sv, s, right_sv, nconv, niter, nmult, resid)
-
-`svds` computes largest singular values `s` of `A` using Lanczos or Arnoldi iterations. Uses
-[`eigs`](:func:`eigs`) underneath.
-
-Inputs are:
-
-* `A`: Linear operator. It can either subtype of `AbstractArray` (e.g., sparse matrix) or
-  duck typed. For duck typing `A` has to support `size(A)`, `eltype(A)`, `A * vector` and
-  `A' * vector`.
-* `nsv`: Number of singular values.
-* `ritzvec`: Whether to return the left and right singular vectors `left_sv` and `right_sv`,
-  default is `true`. If `false` the singular vectors are omitted from the output.
-* `tol`: tolerance, see [`eigs`](:func:`eigs`).
-* `maxiter`: Maximum number of iterations, see [`eigs`](:func:`eigs`).
-
-**Example**
-
-```julia
-X = sprand(10, 5, 0.2)
-svds(X, nsv = 2)
-```
-"""
-svds
 
 """
     acosh(x)
@@ -7360,10 +7276,12 @@ Return the supertype of DataType `T`.
 supertype
 
 """
-    readline(stream=STDIN or filename)
+    readline(stream::IO=STDIN)
+    readline(filename::AbstractString)
 
 Read a single line of text, including a trailing newline character (if one is reached before
-the end of the input), from the given stream or file (defaults to `STDIN`),
+the end of the input), from the given I/O stream or file (defaults to `STDIN`).
+When reading from a file, the text is assumed to be encoded in UTF-8.
 """
 readline
 
@@ -7678,13 +7596,6 @@ Register a function `f(x)` to be called when there are no program-accessible ref
 `x`. The behavior of this function is unpredictable if `x` is of a bits type.
 """
 finalizer
-
-"""
-    <<(x, n)
-
-Left bit shift operator.
-"""
-Base.(:(<<))
 
 """
     csch(x)
@@ -8295,10 +8206,16 @@ cumprod!
 """
     @linux
 
-Given `@linux? a : b`, do `a` on Linux and `b` elsewhere. See documentation for Handling
-Platform Variations in the Calling C and Fortran Code section of the manual.
+Given `@linux? a : b`, do `a` on Linux and `b` elsewhere. See documentation [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
 """
 :@linux
+
+"""
+    @linux_only
+
+A macro that evaluates the given expression only on Linux systems. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
+"""
+:@linux_only
 
 """
     complement(s)
@@ -8453,9 +8370,9 @@ Returns `true` if `path` is a mount point, `false` otherwise.
 ismount
 
 """
-    endswith(string, suffix | chars)
+    endswith(string, suffix)
 
-Returns `true` if `string` ends with `suffix`. If the second argument is a vector or set of
+Returns `true` if `string` ends with `suffix`. If `suffix` is a vector or set of
 characters, tests whether the last character of `string` belongs to that set.
 """
 endswith
@@ -9699,7 +9616,9 @@ redirect_stdout(stream)
 """
     print_with_color(color::Symbol, [io], strings...)
 
-Print strings in a color specified as a symbol, for example `:red` or `:blue`.
+Print strings in a color specified as a symbol.
+
+`color` may take any of the values $(Base.available_text_colors_docstring).
 """
 print_with_color
 
@@ -10007,7 +9926,7 @@ eigfact(A,B)
 """
     mkdir(path, [mode])
 
-Make a new directory with name `path` and permissions `mode`. `mode` defaults to 0o777,
+Make a new directory with name `path` and permissions `mode`. `mode` defaults to `0o777`,
 modified by the current file creation mask.
 """
 mkdir
@@ -10183,9 +10102,9 @@ a series of integer arguments.
 cell
 
 """
-    read(stream, nb=typemax(Int); all=true)
+    read(stream::IO, nb=typemax(Int); all=true)
 
-Read at most `nb` bytes from the stream, returning a `Vector{UInt8}` of the bytes read.
+Read at most `nb` bytes from `stream`, returning a `Vector{UInt8}` of the bytes read.
 
 If `all` is `true` (the default), this function will block repeatedly trying to read all
 requested bytes, until an error or end-of-file occurs. If `all` is `false`, at most one
@@ -10387,11 +10306,11 @@ updated as appropriate before returning.
 deepcopy
 
 """
-    widen(type | x)
+    widen(x)
 
-If the argument is a type, return a "larger" type (for numeric types, this will be
+If `x` is a type, return a "larger" type (for numeric types, this will be
 a type with at least as much range and precision as the argument, and usually more).
-Otherwise the argument `x` is converted to `widen(typeof(x))`.
+Otherwise `x` is converted to `widen(typeof(x))`.
 
 ```jldoctest
 julia> widen(Int32)

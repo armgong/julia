@@ -29,9 +29,6 @@ volatile int jl_in_stackwalk = 0;
 #include <unistd.h>
 #include <sys/mman.h> // for mprotect
 #include <dlfcn.h>   // for dladdr
-// This gives unwind only local unwinding options ==> faster code
-#define UNW_LOCAL_ONLY
-#include <libunwind.h>
 #endif
 
 /* This probing code is derived from Douglas Jones' user thread library */
@@ -209,6 +206,7 @@ static void JL_NORETURN finish_task(jl_task_t *t, jl_value_t *resultval)
         // For now, only thread 0 runs the task scheduler.
         // The others return to the thread loop
         jl_switchto(jl_root_task, jl_nothing);
+        gc_debug_critical_error();
         abort();
     }
     if (task_done_hook_func == NULL) {
@@ -219,6 +217,7 @@ static void JL_NORETURN finish_task(jl_task_t *t, jl_value_t *resultval)
         jl_value_t *args[2] = {task_done_hook_func, (jl_value_t*)t};
         jl_apply(args, 2);
     }
+    gc_debug_critical_error();
     abort();
 }
 
@@ -253,13 +252,14 @@ static void NOINLINE JL_NORETURN start_task(void)
         }
     }
     finish_task(t, res);
+    gc_debug_critical_error();
     abort();
 }
 
 #ifdef COPY_STACKS
 void NOINLINE jl_set_base_ctx(char *__stk)
 {
-    jl_stackbase = (char*)(((uptrint_t)__stk + sizeof(*__stk))&-16); // also ensures stackbase is 16-byte aligned
+    jl_stackbase = (char*)(((uintptr_t)__stk + sizeof(*__stk))&-16); // also ensures stackbase is 16-byte aligned
 #ifndef ASM_COPY_STACKS
     if (jl_setjmp(jl_base_ctx, 1)) {
         start_task();
@@ -441,8 +441,8 @@ static intptr_t ptr_demangle(intptr_t p)
 /* rebase any values in saved state to the new stack */
 static void rebase_state(jl_jmp_buf *ctx, intptr_t local_sp, intptr_t new_sp)
 {
-    ptrint_t *s = (ptrint_t*)ctx;
-    ptrint_t diff = new_sp - local_sp; /* subtract old base, and add new base */
+    intptr_t *s = (intptr_t*)ctx;
+    intptr_t diff = new_sp - local_sp; /* subtract old base, and add new base */
 #if defined(__linux__) && defined(__i386__)
     s[3] += diff;
     if (mangle_pointers)
@@ -468,14 +468,14 @@ static void rebase_state(jl_jmp_buf *ctx, intptr_t local_sp, intptr_t new_sp)
 #error "COPY_STACKS must be defined on this platform."
 #endif
 }
-static void init_task(jl_task_t *t, char* stack)
+static void init_task(jl_task_t *t, char *stack)
 {
     if (jl_setjmp(t->ctx, 0)) {
         start_task();
     }
     // this runs when the task is created
-    ptrint_t local_sp = (ptrint_t)&t;
-    ptrint_t new_sp = (ptrint_t)stack + t->ssize - _frame_offset;
+    intptr_t local_sp = (intptr_t)&t;
+    intptr_t new_sp = (intptr_t)stack + t->ssize - _frame_offset;
 #ifdef _P64
     // SP must be 16-byte aligned
     new_sp = new_sp&-16;
@@ -491,6 +491,7 @@ static void init_task(jl_task_t *t, char* stack)
 static int frame_info_from_ip(char **func_name,
                               char **file_name, size_t *line_num,
                               char **inlinedat_file, size_t *inlinedat_line,
+                              jl_lambda_info_t **outer_linfo,
                               size_t ip, int skipC, int skipInline)
 {
     // This function is not allowed to reference any TLS variables since
@@ -498,8 +499,8 @@ static int frame_info_from_ip(char **func_name,
     static const char *name_unknown = "???";
     int fromC = 0;
 
-    jl_getFunctionInfo(func_name, file_name, line_num, inlinedat_file, inlinedat_line, ip, &fromC,
-                       skipC, skipInline);
+    jl_getFunctionInfo(func_name, file_name, line_num, inlinedat_file, inlinedat_line, outer_linfo,
+            ip, &fromC, skipC, skipInline);
     if (!*func_name) {
         *func_name = strdup(name_unknown);
         *line_num = ip;
@@ -569,14 +570,14 @@ static DWORD64 WINAPI JuliaGetModuleBase64(
 
 int needsSymRefreshModuleList;
 BOOL (WINAPI *hSymRefreshModuleList)(HANDLE);
-JL_DLLEXPORT size_t rec_backtrace(ptrint_t *data, size_t maxsize)
+JL_DLLEXPORT size_t rec_backtrace(intptr_t *data, size_t maxsize)
 {
     CONTEXT Context;
     memset(&Context, 0, sizeof(Context));
     RtlCaptureContext(&Context);
     return rec_backtrace_ctx(data, maxsize, &Context);
 }
-JL_DLLEXPORT size_t rec_backtrace_ctx(ptrint_t *data, size_t maxsize,
+JL_DLLEXPORT size_t rec_backtrace_ctx(intptr_t *data, size_t maxsize,
                                       CONTEXT *Context)
 {
     if (needsSymRefreshModuleList && hSymRefreshModuleList != 0 && !jl_in_stackwalk) {
@@ -659,35 +660,47 @@ JL_DLLEXPORT size_t rec_backtrace_ctx(ptrint_t *data, size_t maxsize,
 }
 #else
 // stacktrace using libunwind
-JL_DLLEXPORT size_t rec_backtrace(ptrint_t *data, size_t maxsize)
+JL_DLLEXPORT size_t rec_backtrace(intptr_t *data, size_t maxsize)
 {
     unw_context_t uc;
     unw_getcontext(&uc);
     return rec_backtrace_ctx(data, maxsize, &uc);
 }
-JL_DLLEXPORT size_t rec_backtrace_ctx(ptrint_t *data, size_t maxsize,
+JL_DLLEXPORT size_t rec_backtrace_ctx(intptr_t *data, size_t maxsize,
                                       unw_context_t *uc)
 {
 #if !defined(_CPU_ARM_) && !defined(_CPU_PPC64_)
-    unw_cursor_t cursor;
-    unw_word_t ip;
-    size_t n=0;
-
-    unw_init_local(&cursor, uc);
-    do {
-        if (n >= maxsize)
-            break;
-        if (unw_get_reg(&cursor, UNW_REG_IP, &ip) < 0)
-            break;
-        data[n++] = ip;
-    } while (unw_step(&cursor) > 0);
+    volatile size_t n = 0;
+    jl_jmp_buf *old_buf = jl_safe_restore;
+    jl_jmp_buf buf;
+    jl_safe_restore = &buf;
+    if (!jl_setjmp(buf, 0)) {
+        unw_cursor_t cursor;
+        unw_init_local(&cursor, uc);
+        do {
+            unw_word_t ip;
+            if (n >= maxsize)
+                break;
+            if (unw_get_reg(&cursor, UNW_REG_IP, &ip) < 0)
+                break;
+            data[n++] = ip;
+        } while (unw_step(&cursor) > 0);
+    }
+    else {
+        // The unwinding fails likely because a invalid memory read.
+        // Back off one frame since it is likely invalid.
+        // This seems to be good enough on x86 to make the LLVM debug info
+        // reader happy.
+        n = n > 0 ? n - 1 : n;
+    }
+    jl_safe_restore = old_buf;
     return n;
 #else
     return 0;
 #endif
 }
 #ifdef LIBOSXUNWIND
-size_t rec_backtrace_ctx_dwarf(ptrint_t *data, size_t maxsize, unw_context_t *uc)
+size_t rec_backtrace_ctx_dwarf(intptr_t *data, size_t maxsize, unw_context_t *uc)
 {
     unw_cursor_t cursor;
     unw_word_t ip;
@@ -722,7 +735,7 @@ JL_DLLEXPORT jl_value_t *jl_backtrace_from_here(void)
         array_ptr_void_type = jl_apply_type((jl_value_t*)jl_array_type, tp);
     }
     bt = jl_alloc_array_1d(array_ptr_void_type, JL_MAX_BT_SIZE);
-    size_t n = rec_backtrace((ptrint_t*)jl_array_data(bt), JL_MAX_BT_SIZE);
+    size_t n = rec_backtrace((intptr_t*)jl_array_data(bt), JL_MAX_BT_SIZE);
     if (n < JL_MAX_BT_SIZE)
         jl_array_del_end(bt, JL_MAX_BT_SIZE-n);
     JL_GC_POP();
@@ -736,17 +749,20 @@ JL_DLLEXPORT jl_value_t *jl_lookup_code_address(void *ip, int skipC)
     char *file_name;
     size_t inlinedat_line;
     char *inlinedat_file;
+    jl_lambda_info_t *outer_linfo;
     int fromC = frame_info_from_ip(&func_name, &file_name, &line_num,
-                                   &inlinedat_file, &inlinedat_line, (size_t)ip, skipC, 0);
-    jl_value_t *r = (jl_value_t*)jl_alloc_svec(7);
+                                   &inlinedat_file, &inlinedat_line, &outer_linfo,
+                                   (size_t)ip, skipC, 0);
+    jl_value_t *r = (jl_value_t*)jl_alloc_svec(8);
     JL_GC_PUSH1(&r);
     jl_svecset(r, 0, jl_symbol(func_name));
     jl_svecset(r, 1, jl_symbol(file_name));
     jl_svecset(r, 2, jl_box_long(line_num));
     jl_svecset(r, 3, jl_symbol(inlinedat_file ? inlinedat_file : ""));
     jl_svecset(r, 4, jl_box_long(inlinedat_file ? inlinedat_line : -1));
-    jl_svecset(r, 5, jl_box_bool(fromC));
-    jl_svecset(r, 6, jl_box_long((intptr_t)ip));
+    jl_svecset(r, 5, outer_linfo != NULL ? (jl_value_t*)outer_linfo : jl_nothing);
+    jl_svecset(r, 6, jl_box_bool(fromC));
+    jl_svecset(r, 7, jl_box_long((intptr_t)ip));
     free(func_name);
     free(file_name);
     free(inlinedat_file);
@@ -770,7 +786,7 @@ JL_DLLEXPORT jl_value_t *jl_get_backtrace(void)
 }
 
 //for looking up functions from gdb:
-JL_DLLEXPORT void jl_gdblookup(ptrint_t ip)
+JL_DLLEXPORT void jl_gdblookup(intptr_t ip)
 {
     // This function is not allowed to reference any TLS variables since
     // it can be called from an unmanaged thread on OSX.
@@ -779,8 +795,10 @@ JL_DLLEXPORT void jl_gdblookup(ptrint_t ip)
     char *file_name;
     size_t inlinedat_line;
     char *inlinedat_file;
-    frame_info_from_ip(&func_name, &file_name, &line_num, &inlinedat_file, &inlinedat_line, ip,
-                      /* skipC */ 0, /* skipInline */ 0);
+    jl_lambda_info_t *outer_linfo;
+    frame_info_from_ip(&func_name, &file_name, &line_num,
+            &inlinedat_file, &inlinedat_line, &outer_linfo, ip,
+            /* skipC */ 0, /* skipInline */ 0);
     if (line_num == ip) {
         jl_safe_printf("unknown function (ip: %p)\n", (void*)ip);
     }
@@ -824,6 +842,8 @@ JL_DLLEXPORT void jl_gdbbacktrace(void)
 // yield to exception handler
 void JL_NORETURN throw_internal(jl_value_t *e)
 {
+    if (jl_safe_restore)
+        jl_longjmp(*jl_safe_restore, 1);
     jl_gc_unsafe_enter();
     assert(e != NULL);
     jl_exception_in_transit = e;
@@ -844,7 +864,8 @@ void JL_NORETURN throw_internal(jl_value_t *e)
 JL_DLLEXPORT void jl_throw(jl_value_t *e)
 {
     assert(e != NULL);
-    record_backtrace();
+    if (!jl_safe_restore)
+        record_backtrace();
     throw_internal(e);
 }
 
@@ -894,7 +915,7 @@ JL_DLLEXPORT jl_task_t *jl_new_task(jl_function_t *start, size_t ssize)
     char *stk = allocb(ssize+pagesz+(pagesz-1));
     t->stkbuf = stk;
     jl_gc_wb_buf(t, t->stkbuf);
-    stk = (char*)LLT_ALIGN((uptrint_t)stk, pagesz);
+    stk = (char*)LLT_ALIGN((uintptr_t)stk, pagesz);
     // add a guard page to detect stack overflow
     if (mprotect(stk, pagesz-1, PROT_NONE) == -1)
         jl_errorf("mprotect: %s", strerror(errno));
@@ -916,7 +937,7 @@ JL_CALLABLE(jl_unprotect_stack)
 #ifndef COPY_STACKS
     jl_task_t *t = (jl_task_t*)args[0];
     size_t pagesz = jl_page_size;
-    char *stk = (char*)LLT_ALIGN((uptrint_t)t->stkbuf, pagesz);
+    char *stk = (char*)LLT_ALIGN((uintptr_t)t->stkbuf, pagesz);
     // unprotect stack so it can be reallocated for something else
     mprotect(stk, pagesz - 1, PROT_READ|PROT_WRITE);
 #endif

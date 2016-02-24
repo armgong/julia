@@ -479,7 +479,7 @@ Keyword argument default values are evaluated only when necessary
 left-to-right order. Therefore default expressions may refer to
 prior keyword arguments.
 
-The types of keyword arguments can be made explicit as follows:
+The types of keyword arguments can be made explicit as follows::
 
     function f(;x::Int64=1)
         ###
@@ -504,6 +504,7 @@ tuple, explicitly after a semicolon.  For example, ``plot(x, y;
 ``plot(x, y, width=2)``.  This is useful in situations where the
 keyword name is computed at runtime.
 
+.. _man-evaluation-scope-default-values:
 
 Evaluation Scope of Default Values
 ----------------------------------

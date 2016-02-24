@@ -1,3 +1,5 @@
+// This file is a part of Julia. License is MIT: http://julialang.org/license
+
 #include "julia.h"
 #include "julia_internal.h"
 
@@ -22,13 +24,13 @@ JL_DLLEXPORT const jl_value_t *jl_dump_function_asm(void *f, int raw_mc) UNAVAIL
 JL_DLLEXPORT const jl_value_t *jl_dump_function_ir(void *f, uint8_t strip_ir_metadata, uint8_t dump_module) UNAVAILABLE
 
 void jl_init_codegen(void) { }
-void jl_fptr_to_llvm(void *fptr, jl_lambda_info_t *lam, int specsig)
+void jl_fptr_to_llvm(jl_fptr_t fptr, jl_lambda_info_t *lam, int specsig)
 {
     if (!specsig)
-        lam->fptr = (jl_fptr_t)fptr;
+        lam->fptr = fptr;
 }
 void jl_getFunctionInfo(char **name, char **filename, size_t *line,
-                        char **inlinedat_file, size_t *inlinedat_line,
+                        char **inlinedat_file, size_t *inlinedat_line, jl_lambda_info_t **outer_linfo,
                         size_t pointer, int *fromC, int skipC, int skipInline)
 {
     *name = NULL;
@@ -36,11 +38,12 @@ void jl_getFunctionInfo(char **name, char **filename, size_t *line,
     *filename = NULL;
     *inlinedat_file = NULL;
     *inlinedat_line = -1;
+    *outer_linfo = NULL;
     *fromC = 0;
 }
 
 jl_value_t *jl_static_eval(jl_value_t *ex, void *ctx_, jl_module_t *mod,
-                           jl_value_t *sp, jl_lambda_info_t *li, int sparams, int allow_alloc)
+                           jl_lambda_info_t *li, int sparams, int allow_alloc)
 {
     return NULL;
 }

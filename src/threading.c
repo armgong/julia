@@ -18,12 +18,6 @@ TODO:
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#ifndef _MSC_VER
-#include <unistd.h>
-#include <sched.h>
-#else
-#define sleep(x) Sleep(1000*x)
-#endif
 
 #include "julia.h"
 #include "julia_internal.h"
@@ -32,15 +26,8 @@ TODO:
 extern "C" {
 #endif
 
-#include "ia_misc.h"
 #include "threadgroup.h"
 #include "threading.h"
-
-// utility
-JL_DLLEXPORT void jl_cpu_pause(void)
-{
-    cpu_pause();
-}
 
 #ifdef JULIA_ENABLE_THREADING
 // fallback provided for embedding
@@ -157,11 +144,11 @@ static jl_value_t *ti_run_fun(jl_svec_t *args)
 }
 
 
-#ifdef JULIA_ENABLE_THREADING
-
 // lock for code generation
-JL_DEFINE_MUTEX(codegen);
-JL_DEFINE_MUTEX(typecache);
+JL_DEFINE_MUTEX(codegen)
+JL_DEFINE_MUTEX(typecache)
+
+#ifdef JULIA_ENABLE_THREADING
 
 // thread heap
 struct _jl_thread_heap_t **jl_all_heaps;
@@ -199,9 +186,8 @@ void ti_threadfun(void *arg)
 #endif
 
     // set the thread-local tid and wait for a thread group
-    while (ta->state == TI_THREAD_INIT)
-        cpu_pause();
-    cpu_lfence();
+    while (jl_atomic_load_acquire(&ta->state) == TI_THREAD_INIT)
+        jl_cpu_pause();
 
     // Assuming the functions called below doesn't contain unprotected GC
     // critical region. In general, the following part of this function
@@ -354,8 +340,7 @@ void jl_start_threads(void)
     // give the threads the world thread group; they will block waiting for fork
     for (i = 0;  i < jl_n_threads - 1;  ++i) {
         targs[i]->tg = tgworld;
-        cpu_sfence();
-        targs[i]->state = TI_THREAD_WORK;
+        jl_atomic_store_release(&targs[i]->state, TI_THREAD_WORK);
     }
 
     uv_barrier_wait(&thread_init_done);
