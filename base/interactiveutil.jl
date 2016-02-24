@@ -93,7 +93,7 @@ less(file, line::Integer) = error("could not find source file for function")
             print(io, x)
         end
     end
-    clipboard() = readall(`pbpaste`)
+    clipboard() = readstring(`pbpaste`)
 end
 
 @linux_only begin
@@ -120,7 +120,7 @@ end
         cmd = c == :xsel  ? `xsel --nodetach --output --clipboard` :
               c == :xclip ? `xclip -quiet -out -selection clipboard` :
             error("unexpected clipboard command: $c")
-        readall(pipeline(cmd, stderr=STDERR))
+        readstring(pipeline(cmd, stderr=STDERR))
     end
 end
 
@@ -131,13 +131,13 @@ end
         end
         systemerror(:OpenClipboard, 0==ccall((:OpenClipboard, "user32"), stdcall, Cint, (Ptr{Void},), C_NULL))
         systemerror(:EmptyClipboard, 0==ccall((:EmptyClipboard, "user32"), stdcall, Cint, ()))
-        x_u16 = utf16(x)
+        x_u16 = cwstring(x)
         # copy data to locked, allocated space
-        p = ccall((:GlobalAlloc, "kernel32"), stdcall, Ptr{UInt16}, (UInt16, Int32), 2, sizeof(x_u16)+2)
+        p = ccall((:GlobalAlloc, "kernel32"), stdcall, Ptr{UInt16}, (UInt16, Int32), 2, sizeof(x_u16))
         systemerror(:GlobalAlloc, p==C_NULL)
         plock = ccall((:GlobalLock, "kernel32"), stdcall, Ptr{UInt16}, (Ptr{UInt16},), p)
         systemerror(:GlobalLock, plock==C_NULL)
-        ccall(:memcpy, Ptr{UInt16}, (Ptr{UInt16},Ptr{UInt16},Int), plock, x_u16, sizeof(x_u16)+2)
+        ccall(:memcpy, Ptr{UInt16}, (Ptr{UInt16},Ptr{UInt16},Int), plock, x_u16, sizeof(x_u16))
         systemerror(:GlobalUnlock, 0==ccall((:GlobalUnlock, "kernel32"), stdcall, Cint, (Ptr{Void},), plock))
         pdata = ccall((:SetClipboardData, "user32"), stdcall, Ptr{UInt16}, (UInt32, Ptr{UInt16}), 13, p)
         systemerror(:SetClipboardData, pdata!=p)
@@ -152,7 +152,11 @@ end
         systemerror(:CloseClipboard, 0==ccall((:CloseClipboard, "user32"), stdcall, Cint, ()))
         plock = ccall((:GlobalLock, "kernel32"), stdcall, Ptr{UInt16}, (Ptr{UInt16},), pdata)
         systemerror(:GlobalLock, plock==C_NULL)
-        s = utf8(utf16(plock))
+        # find NUL terminator (0x0000 16-bit code unit)
+        len = 0
+        while unsafe_load(plock, len+1) != 0; len += 1; end
+        # get Vector{UInt16}, transcode data to UTF-8, make a ByteString of it
+        s = bytestring(utf16to8(pointer_to_array(plock, len)))
         systemerror(:GlobalUnlock, 0==ccall((:GlobalUnlock, "kernel32"), stdcall, Cint, (Ptr{UInt16},), plock))
         return s
     end
@@ -181,11 +185,11 @@ function versioninfo(io::IO=STDOUT, verbose::Bool=false)
     if verbose
         lsb = ""
         @linux_only try lsb = readchomp(pipeline(`lsb_release -ds`, stderr=DevNull)) end
-        @windows_only try lsb = strip(readall(`$(ENV["COMSPEC"]) /c ver`)) end
+        @windows_only try lsb = strip(readstring(`$(ENV["COMSPEC"]) /c ver`)) end
         if lsb != ""
             println(io,     "           ", lsb)
         end
-        println(io,         "  uname: ",readchomp(`uname -mprsv`))
+        @unix_only println(io,         "  uname: ",readchomp(`uname -mprsv`))
         println(io,         "Memory: $(Sys.total_memory()/2^30) GB ($(Sys.free_memory()/2^20) MB free)")
         try println(io,     "Uptime: $(Sys.uptime()) sec") end
         print(io,           "Load Avg: ")
@@ -220,23 +224,19 @@ versioninfo(verbose::Bool) = versioninfo(STDOUT,verbose)
 # displaying type-ambiguity warnings
 
 function code_warntype(io::IO, f, t::ANY)
-    task_local_storage(:TYPEEMPHASIZE, true)
-    try
-        ct = code_typed(f, t)
-        for ast in ct
-            println(io, "Variables:")
-            vars = ast.args[2][1]
-            for v in vars
-                print(io, "  ", v[1])
-                show_expr_type(io, v[2])
-                print(io, '\n')
-            end
-            print(io, "\nBody:\n  ")
-            show_unquoted(io, ast.args[3], 2)
-            print(io, '\n')
+    emph_io = IOContext(io, :TYPEEMPHASIZE => true)
+    ct = code_typed(f, t)
+    for ast in ct
+        println(emph_io, "Variables:")
+        vars = ast.args[2][1]
+        for v in vars
+            print(emph_io, "  ", v[1])
+            show_expr_type(emph_io, v[2], true)
+            print(emph_io, '\n')
         end
-    finally
-        task_local_storage(:TYPEEMPHASIZE, false)
+        print(emph_io, "\nBody:\n  ")
+        show_unquoted(emph_io, ast.args[3], 2)
+        print(emph_io, '\n')
     end
     nothing
 end
@@ -261,9 +261,9 @@ function gen_call_with_extracted_types(fcn, ex0)
         if any(e->(isa(e, Expr) && e.head==:(...)), ex0.args) &&
             isa(ex.args[1], TopNode) && ex.args[1].name == :_apply
             # check for splatting
-            exret = Expr(:call, ex.args[1], ex.args[2], fcn,
-                        Expr(:tuple, esc(ex.args[3]),
-                            Expr(:call, typesof, map(esc, ex.args[4:end])...)))
+            exret = Expr(:call, ex.args[1], fcn,
+                        Expr(:tuple, esc(ex.args[2]),
+                            Expr(:call, typesof, map(esc, ex.args[3:end])...)))
         else
             exret = Expr(:call, fcn, esc(ex.args[1]),
                          Expr(:call, typesof, map(esc, ex.args[2:end])...))
@@ -300,14 +300,13 @@ end
 function type_close_enough(x::ANY, t::ANY)
     x == t && return true
     return (isa(x,DataType) && isa(t,DataType) && x.name === t.name &&
-            !isleaftype(t) && x <: t)
+            !isleaftype(t) && x <: t) ||
+           (isa(x,Union) && isa(t,DataType) && any(u -> is(u,t), x.types))
 end
 
 function methodswith(t::Type, f::Function, showparents::Bool=false, meths = Method[])
-    if !isa(f.env, MethodTable)
-        return meths
-    end
-    d = f.env.defs
+    mt = typeof(f).name.mt
+    d = mt.defs
     while d !== nothing
         if any(x -> (type_close_enough(x, t) ||
                      (showparents ? (t <: x && (!isa(x,TypeVar) || x.ub != Any)) :
@@ -419,7 +418,7 @@ function runtests(tests = ["all"], numcores = ceil(Int,CPU_CORES/2))
         buf = PipeBuffer()
         versioninfo(buf)
         error("A test has failed. Please submit a bug report (https://github.com/JuliaLang/julia/issues)\n" *
-              "including error messages above and the output of versioninfo():\n$(readall(buf))")
+              "including error messages above and the output of versioninfo():\n$(readstring(buf))")
     end
 end
 
@@ -434,7 +433,7 @@ Print information about exported global variables in a module, optionally restri
 The memory consumption estimate is an approximate lower bound on the size of the internal structure of the object.
 """
 function whos(io::IO=STDOUT, m::Module=current_module(), pattern::Regex=r"")
-    maxline = tty_size()[2]
+    maxline = displaysize(io)[2]
     line = zeros(UInt8, maxline)
     head = PipeBuffer(maxline + 1)
     for v in sort!(names(m))
@@ -498,7 +497,11 @@ function summarysize(obj::DataType, seen, excl)
     return size
 end
 
-summarysize(obj::TypeName, seen, excl) = Core.sizeof(obj)
+function summarysize(obj::TypeName, seen, excl)
+    key = pointer_from_objref(obj)
+    haskey(seen, key) ? (return 0) : (seen[key] = true)
+    return Core.sizeof(obj) + (isdefined(obj,:mt) ? summarysize(obj.mt, seen, excl) : 0)
+end
 
 summarysize(obj::ANY, seen, excl) = _summarysize(obj, seen, excl)
 # define the general case separately to make sure it is not specialized for every type
@@ -558,6 +561,14 @@ function summarysize(obj::Module, seen, excl)
             value = getfield(obj, binding)
             if !isa(value, Module) || module_parent(value) === obj
                 size += summarysize(value, seen, excl)::Int
+                vt = isa(value,DataType) ? value : typeof(value)
+                if vt.name.module === obj
+                    if vt !== value
+                        size += summarysize(vt, seen, excl)::Int
+                    end
+                    # charge a TypeName to its module
+                    size += summarysize(vt.name, seen, excl)::Int
+                end
             end
         end
     end
@@ -597,7 +608,9 @@ function summarysize(m::Method, seen, excl)
     while true
         haskey(seen, m) ? (return size) : (seen[m] = true)
         size += Core.sizeof(m)
-        size += summarysize(m.func, seen, excl)::Int
+        if isdefined(m, :func)
+            size += summarysize(m.func, seen, excl)::Int
+        end
         size += summarysize(m.sig, seen, excl)::Int
         size += summarysize(m.tvars, seen, excl)::Int
         size += summarysize(m.invokes, seen, excl)::Int

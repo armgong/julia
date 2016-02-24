@@ -35,7 +35,6 @@ typedef struct {
     int16_t volatile    state;
     int16_t             tid;
     ti_threadgroup_t    *tg;
-
 } ti_threadarg_t;
 
 
@@ -52,7 +51,7 @@ typedef struct {
     jl_function_t       *fun;
     jl_svec_t           *args;
     jl_value_t          *ret;
-
+    jl_module_t         *current_module;
 } ti_threadwork_t;
 
 

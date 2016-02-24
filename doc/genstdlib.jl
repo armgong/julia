@@ -15,13 +15,18 @@ function add_all_docs(it)
     end
 end
 
-function add_all_docs(it, k)
+function add_all_docs(it, k::ANY)
     for (_, v) in it
         all_docs[v] = k
     end
 end
 
 function sym_exported(obj::ANY, m, exports)
+    if isa(obj, Function)
+        try
+            return typeof(obj).name.mt.name in exports
+        end
+    end
     if isa(obj, Union{Function,DataType,Module})
         return symbol(string(obj)) in exports
     elseif isa(obj, IntrinsicFunction)
@@ -38,8 +43,8 @@ function add_all_docs_meta(m::Module,meta)
     exports = names(m)
     for (obj, d) in meta
         isexported = sym_exported(obj, m, exports)
-        if isa(d, Base.Docs.FuncDoc) || isa(d, Base.Docs.TypeDoc)
-            add_all_docs(d.meta, (obj, isexported))
+        if isa(d, Base.Docs.MultiDoc)
+            add_all_docs(d.docs, (obj, isexported))
         else
             all_docs[d] = (obj, isexported)
         end
@@ -74,9 +79,15 @@ function find_docs(v)
     docs = []
     for mod in keys(mod_added)
         try
-            meta = Docs.meta(mod)[v]
-            if isa(meta, Base.Docs.FuncDoc) || isa(meta, Base.Docs.TypeDoc)
-                append!(docs, collect(values(meta.meta)))
+            m = Docs.meta(mod)
+            if haskey(m, v)
+                meta = m[v]
+            elseif isa(v, Docs.Binding)
+                obj = getfield(v.mod, v.var)
+                meta = m[obj]
+            end
+            if isa(meta, Base.Docs.MultiDoc)
+                append!(docs, collect(values(meta.docs)))
             else
                 push!(docs, meta)
             end
@@ -176,7 +187,7 @@ const warn_doc_between_func = "JULIA_WARN_DOC_BETWEEN_FUNC" in keys(ENV)
 
 function translate(file)
     @assert(isfile(file))
-    ls = split(readall(file), "\n")[1:end-1]
+    ls = split(readstring(file), "\n")[1:end-1]
     doccing = false
     func = nothing
     mod = "Base"

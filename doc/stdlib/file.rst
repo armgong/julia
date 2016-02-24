@@ -51,13 +51,13 @@
 
    .. Docstring generated from Julia source
 
-   Make a new directory with name ``path`` and permissions ``mode``\ . ``mode`` defaults to 0o777, modified by the current file creation mask.
+   Make a new directory with name ``path`` and permissions ``mode``\ . ``mode`` defaults to ``0o777``\ , modified by the current file creation mask.
 
 .. function:: mkpath(path, [mode])
 
    .. Docstring generated from Julia source
 
-   Create all directories in the given ``path``\ , with permissions ``mode``\ . ``mode`` defaults to 0o777, modified by the current file creation mask.
+   Create all directories in the given ``path``\ , with permissions ``mode``\ . ``mode`` defaults to ``0o777``\ , modified by the current file creation mask.
 
 .. function:: symlink(target, link)
 
@@ -75,11 +75,17 @@
 
    Returns the value of a symbolic link ``path``\ .
 
-.. function:: chmod(path, mode)
+.. function:: chmod(path, mode; recursive=false)
 
    .. Docstring generated from Julia source
 
-   Change the permissions mode of ``path`` to ``mode``\ . Only integer ``mode``\ s (e.g. 0o777) are currently supported.
+   Change the permissions mode of ``path`` to ``mode``\ . Only integer ``mode``\ s (e.g. ``0o777``\ ) are currently supported. If ``recursive=true`` and the path is a directory all permissions in that directory will be recursively changed.
+
+.. function:: chown(path, owner, group=-1)
+
+   .. Docstring generated from Julia source
+
+   Change the owner and/or group of ``path`` to ``owner`` and/or ``group``\ . If the value entered for ``owner`` or ``group`` is ``-1`` the corresponding ID will not change. Only integer ``owner``\ s and ``group``\ s are currently supported.
 
 .. function:: stat(file)
 
@@ -337,7 +343,7 @@
 
    .. Docstring generated from Julia source
 
-   ``@__FILE__`` expands to a string with the absolute path and file name of the script being run. Returns ``nothing`` if run from a REPL or an empty string if evaluated by ``julia -e <expr>``\ .
+   ``@__FILE__`` expands to a string with the absolute file path of the file containing the macro. Returns ``nothing`` if run from a REPL or an empty string if evaluated by ``julia -e <expr>``\ . Alternatively see :data:`PROGRAM_FILE`\ .
 
 .. function:: @__LINE__ -> Int
 

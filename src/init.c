@@ -20,6 +20,9 @@
 
 #include "julia.h"
 #include "julia_internal.h"
+#define DEFINE_BUILTIN_GLOBALS
+#include "builtin_proto.h"
+#undef DEFINE_BUILTIN_GLOBALS
 #include "threading.h"
 
 #ifdef __cplusplus
@@ -27,7 +30,7 @@ extern "C" {
 #endif
 
 #ifdef _MSC_VER
-JL_DLLEXPORT char * dirname(char *);
+JL_DLLEXPORT char *dirname(char *);
 #else
 #include <libgen.h>
 #endif
@@ -64,7 +67,7 @@ jl_options_t jl_options = { 0,    // quiet
                             JL_OPTIONS_COMPILE_DEFAULT, // compile_enabled
                             0,    // code_coverage
                             0,    // malloc_log
-                            0,    // opt_level
+                            2,    // opt_level
                             JL_OPTIONS_CHECK_BOUNDS_DEFAULT, // check_bounds
                             1,    // depwarn
                             1,    // can_inline
@@ -226,9 +229,9 @@ JL_DLLEXPORT void jl_atexit_hook(int exitcode)
         jl_write_malloc_log();
     if (jl_base_module) {
         jl_value_t *f = jl_get_global(jl_base_module, jl_symbol("_atexit"));
-        if (f!=NULL && jl_is_function(f)) {
+        if (f != NULL) {
             JL_TRY {
-                jl_apply((jl_function_t*)f, NULL, 0);
+                jl_apply(&f, 1);
             }
             JL_CATCH {
                 jl_printf(JL_STDERR, "\natexit hook threw an error: ");
@@ -311,6 +314,7 @@ JL_DLLEXPORT void jl_atexit_hook(int exitcode)
 }
 
 void jl_get_builtin_hooks(void);
+void jl_get_builtins(void);
 
 JL_DLLEXPORT void *jl_dl_handle;
 void *jl_RTLD_DEFAULT_handle;
@@ -324,7 +328,7 @@ void *jl_winsock_handle;
 
 uv_loop_t *jl_io_loop;
 
-void *init_stdio_handle(uv_file fd,int readable)
+static void *init_stdio_handle(uv_file fd,int readable)
 {
     void *handle;
     uv_handle_type type = uv_guess_handle(fd);
@@ -528,6 +532,7 @@ void _julia_init(JL_IMAGE_SEARCH rel)
 #ifdef JULIA_ENABLE_THREADING
     // Make sure we finalize the tls callback before starting any threads.
     jl_get_ptls_states_getter();
+    jl_gc_signal_init();
 #endif
     libsupport_init();
     jl_io_loop = uv_default_loop(); // this loop will internal events (spawning process etc.),
@@ -620,9 +625,12 @@ void _julia_init(JL_IMAGE_SEARCH rel)
 
     if (!jl_options.image_file) {
         jl_core_module = jl_new_module(jl_symbol("Core"));
+        jl_type_type->name->mt->module = jl_core_module;
         jl_top_module = jl_core_module;
+        jl_current_module = jl_core_module;
         jl_init_intrinsic_functions();
         jl_init_primitives();
+        jl_get_builtins();
 
         jl_new_main_module();
         jl_internal_main_module = jl_main_module;
@@ -660,6 +668,8 @@ void _julia_init(JL_IMAGE_SEARCH rel)
             if (b->value && jl_is_datatype(b->value)) {
                 jl_datatype_t *tt = (jl_datatype_t*)b->value;
                 tt->name->module = jl_core_module;
+                if (tt->name->mt)
+                    tt->name->mt->module = jl_core_module;
             }
         }
     }
@@ -676,6 +686,7 @@ void _julia_init(JL_IMAGE_SEARCH rel)
             jl_current_module;
     }
 
+    // This needs to be after jl_start_threads
     if (jl_options.handle_signals == JL_OPTIONS_HANDLE_SIGNALS_ON)
         jl_install_default_signal_handlers();
 
@@ -748,26 +759,24 @@ static void julia_save(void)
                 ios_t f;
                 if (ios_file(&f, jl_options.outputji, 1, 1, 1, 1) == NULL)
                     jl_errorf("cannot open system image file \"%s\" for writing", jl_options.outputji);
-                ios_write(&f, (const char*)s->buf, s->size);
+                ios_write(&f, (const char*)s->buf, (size_t)s->size);
                 ios_close(&f);
             }
         }
 
         if (jl_options.outputbc)
-            jl_dump_bitcode((char*)jl_options.outputbc, (const char*)s->buf, s->size);
+            jl_dump_bitcode((char*)jl_options.outputbc, (const char*)s->buf, (size_t)s->size);
 
         if (jl_options.outputo)
-            jl_dump_objfile((char*)jl_options.outputo, 0, (const char*)s->buf, s->size);
+            jl_dump_objfile((char*)jl_options.outputo, 0, (const char*)s->buf, (size_t)s->size);
     }
     JL_GC_POP();
 }
 
 jl_function_t *jl_typeinf_func=NULL;
 
-JL_DLLEXPORT void jl_set_typeinf_func(jl_value_t* f)
+JL_DLLEXPORT void jl_set_typeinf_func(jl_value_t *f)
 {
-    if (!jl_is_function(f))
-        jl_error("jl_set_typeinf_func must set a jl_function_t*");
     jl_typeinf_func = (jl_function_t*)f;
 }
 
@@ -801,6 +810,7 @@ void jl_get_builtin_hooks(void)
     jl_uint32_type  = (jl_datatype_t*)core("UInt32");
     jl_uint64_type  = (jl_datatype_t*)core("UInt64");
 
+    jl_float16_type = (jl_datatype_t*)core("Float16");
     jl_float32_type = (jl_datatype_t*)core("Float32");
     jl_float64_type = (jl_datatype_t*)core("Float64");
     jl_floatingpoint_type = (jl_datatype_t*)core("AbstractFloat");
@@ -843,6 +853,21 @@ JL_DLLEXPORT void jl_get_system_hooks(void)
     jl_loaderror_type = (jl_datatype_t*)basemod("LoadError");
     jl_initerror_type = (jl_datatype_t*)basemod("InitError");
     jl_complex_type = (jl_datatype_t*)basemod("Complex");
+}
+
+void jl_get_builtins(void)
+{
+    jl_builtin_throw = core("throw");           jl_builtin_is = core("is");
+    jl_builtin_typeof = core("typeof");         jl_builtin_sizeof = core("sizeof");
+    jl_builtin_issubtype = core("issubtype");   jl_builtin_isa = core("isa");
+    jl_builtin_typeassert = core("typeassert"); jl_builtin__apply = core("_apply");
+    jl_builtin_isdefined = core("isdefined");   jl_builtin_nfields = core("nfields");
+    jl_builtin_tuple = core("tuple");           jl_builtin_svec = core("svec");
+    jl_builtin_getfield = core("getfield");     jl_builtin_setfield = core("setfield!");
+    jl_builtin_fieldtype = core("fieldtype");   jl_builtin_arrayref = core("arrayref");
+    jl_builtin_arrayset = core("arrayset");     jl_builtin_arraysize = core("arraysize");
+    jl_builtin_apply_type = core("apply_type"); jl_builtin_applicable = core("applicable");
+    jl_builtin_invoke = core("invoke");         jl_builtin__expr = core("_expr");
 }
 
 #ifdef __cplusplus

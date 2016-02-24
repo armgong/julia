@@ -72,6 +72,41 @@ end
 lufact{T<:AbstractFloat}(A::Union{AbstractMatrix{T},AbstractMatrix{Complex{T}}}, pivot::Union{Type{Val{false}}, Type{Val{true}}} = Val{true}) = lufact!(copy(A), pivot)
 
 # for all other types we must promote to a type which is stable under division
+"""
+    lufact(A [,pivot=Val{true}]) -> F::LU
+
+Compute the LU factorization of `A`.
+
+In most cases, if `A` is a subtype `S` of `AbstractMatrix{T}` with an element
+type `T` supporting `+`, `-`, `*` and `/`, the return type is `LU{T,S{T}}`. If
+pivoting is chosen (default) the element type should also support `abs` and
+`<`.
+
+The individual components of the factorization `F` can be accessed by indexing:
+
+| Component | Description                         |
+|:----------|:------------------------------------|
+| `F[:L]`   | `L` (lower triangular) part of `LU` |
+| `F[:U]`   | `U` (upper triangular) part of `LU` |
+| `F[:p]`   | (right) permutation `Vector`        |
+| `F[:P]`   | (right) permutation `Matrix`        |
+
+The relationship between `F` and `A` is
+
+`F[:L]*F[:U] == A[F[:p], :]`
+
+`F` further supports the following functions:
+
+| Supported function               | `LU` | `LU{T,Tridiagonal{T}}` |
+|:---------------------------------|:-----|:-----------------------|
+| [`/`](:func:`/`)                 | ✓    |                        |
+| [`\\`](:func:`\\`)               | ✓    | ✓                      |
+| [`cond`](:func:`cond`)           | ✓    |                        |
+| [`det`](:func:`det`)             | ✓    | ✓                      |
+| [`logdet`](:func:`logdet`)       | ✓    | ✓                      |
+| [`logabsdet`](:func:`logabsdet`) | ✓    | ✓                      |
+| [`size`](:func:`size`)           | ✓    | ✓                      |
+"""
 function lufact{T}(A::AbstractMatrix{T}, pivot::Union{Type{Val{false}}, Type{Val{true}}})
     S = typeof(zero(T)/one(T))
     lufact!(copy_oftype(A, S), pivot)
@@ -152,7 +187,7 @@ Ac_ldiv_Bc{T<:BlasComplex,S<:StridedMatrix}(A::LU{T,S}, B::StridedVecOrMat{T}) =
 Ac_ldiv_Bc(A::LU, B::StridedVecOrMat) = Ac_ldiv_B(A, ctranspose(B))
 
 function det{T,S}(A::LU{T,S})
-    n = chksquare(A)
+    n = checksquare(A)
     A.info > 0 && return zero(typeof(A.factors[1]))
     P = one(T)
     c = 0
@@ -167,7 +202,7 @@ function det{T,S}(A::LU{T,S})
 end
 
 function logabsdet{T,S}(A::LU{T,S})  # return log(abs(det)) and sign(det)
-    n = chksquare(A)
+    n = checksquare(A)
     c = 0
     P = one(real(T))
     abs_det = zero(real(T))
@@ -194,7 +229,7 @@ end
 _mod2pi(x::BigFloat) = mod(x, big(2)*π) # we don't want to export this, but we use it below
 _mod2pi(x) = mod2pi(x)
 function logdet{T<:Complex,S}(A::LU{T,S})
-    n = chksquare(A)
+    n = checksquare(A)
     s = zero(T)
     c = 0
     @inbounds for i = 1:n

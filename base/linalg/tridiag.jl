@@ -30,8 +30,10 @@ function SymTridiagonal(A::AbstractMatrix)
 end
 
 full{T}(M::SymTridiagonal{T}) = convert(Matrix{T}, M)
-convert{T}(::Type{SymTridiagonal{T}}, S::SymTridiagonal) = SymTridiagonal(convert(Vector{T}, S.dv), convert(Vector{T}, S.ev))
-convert{T}(::Type{AbstractMatrix{T}}, S::SymTridiagonal) = SymTridiagonal(convert(Vector{T}, S.dv), convert(Vector{T}, S.ev))
+convert{T}(::Type{SymTridiagonal{T}}, S::SymTridiagonal) =
+    SymTridiagonal(convert(Vector{T}, S.dv), convert(Vector{T}, S.ev))
+convert{T}(::Type{AbstractMatrix{T}}, S::SymTridiagonal) =
+    SymTridiagonal(convert(Vector{T}, S.dv), convert(Vector{T}, S.ev))
 function convert{T}(::Type{Matrix{T}}, M::SymTridiagonal{T})
     n = size(M, 1)
     Mf = zeros(T, n, n)
@@ -77,7 +79,7 @@ function diag{T}(M::SymTridiagonal{T}, n::Integer=0)
     elseif absn<size(M,1)
         return zeros(T,size(M,1)-absn)
     else
-        throw(BoundsError("$n-th diagonal of a $(size(M)) matrix doesn't exist!"))
+        throw(ArgumentError("$n-th diagonal of a $(size(M)) matrix doesn't exist!"))
     end
 end
 
@@ -119,22 +121,44 @@ end
 (\)(T::SymTridiagonal, B::StridedVecOrMat) = ldltfact(T)\B
 
 eigfact!{T<:BlasReal}(A::SymTridiagonal{T}) = Eigen(LAPACK.stegr!('V', A.dv, A.ev)...)
-eigfact{T}(A::SymTridiagonal{T}) = (S = promote_type(Float32, typeof(zero(T)/norm(one(T)))); eigfact!(S != T ? convert(SymTridiagonal{S}, A) : copy(A)))
+function eigfact{T}(A::SymTridiagonal{T})
+    S = promote_type(Float32, typeof(zero(T)/norm(one(T))))
+    eigfact!(copy_oftype(A, S))
+end
 
-eigfact!{T<:BlasReal}(A::SymTridiagonal{T}, irange::UnitRange) = Eigen(LAPACK.stegr!('V', 'I', A.dv, A.ev, 0.0, 0.0, irange.start, irange.stop)...)
-eigfact{T}(A::SymTridiagonal{T}, irange::UnitRange) = (S = promote_type(Float32, typeof(zero(T)/norm(one(T)))); eigfact!(S != T ? convert(SymTridiagonal{S}, A) : copy(A), irange))
+eigfact!{T<:BlasReal}(A::SymTridiagonal{T}, irange::UnitRange) =
+    Eigen(LAPACK.stegr!('V', 'I', A.dv, A.ev, 0.0, 0.0, irange.start, irange.stop)...)
+function eigfact{T}(A::SymTridiagonal{T}, irange::UnitRange)
+    S = promote_type(Float32, typeof(zero(T)/norm(one(T))))
+    return eigfact!(copy_oftype(A, S), irange)
+end
 
-eigfact!{T<:BlasReal}(A::SymTridiagonal{T}, vl::Real, vu::Real) = Eigen(LAPACK.stegr!('V', 'V', A.dv, A.ev, vl, vu, 0, 0)...)
-eigfact{T}(A::SymTridiagonal{T}, vl::Real, vu::Real) = (S = promote_type(Float32, typeof(zero(T)/norm(one(T)))); eigfact!(S != T ? convert(SymTridiagonal{S}, A) : copy(A), vl, vu))
+eigfact!{T<:BlasReal}(A::SymTridiagonal{T}, vl::Real, vu::Real) =
+    Eigen(LAPACK.stegr!('V', 'V', A.dv, A.ev, vl, vu, 0, 0)...)
+function eigfact{T}(A::SymTridiagonal{T}, vl::Real, vu::Real)
+    S = promote_type(Float32, typeof(zero(T)/norm(one(T))))
+    return eigfact!(copy_oftype(A, S), vl, vu)
+end
 
 eigvals!{T<:BlasReal}(A::SymTridiagonal{T}) = LAPACK.stev!('N', A.dv, A.ev)[1]
-eigvals{T}(A::SymTridiagonal{T}) = (S = promote_type(Float32, typeof(zero(T)/norm(one(T)))); eigvals!(S != T ? convert(SymTridiagonal{S}, A) : copy(A)))
+function eigvals{T}(A::SymTridiagonal{T})
+    S = promote_type(Float32, typeof(zero(T)/norm(one(T))))
+    return eigvals!(copy_oftype(A, S))
+end
 
-eigvals!{T<:BlasReal}(A::SymTridiagonal{T}, irange::UnitRange) = LAPACK.stegr!('N', 'I', A.dv, A.ev, 0.0, 0.0, irange.start, irange.stop)[1]
-eigvals{T}(A::SymTridiagonal{T}, irange::UnitRange) = (S = promote_type(Float32, typeof(zero(T)/norm(one(T)))); eigvals!(S != T ? convert(SymTridiagonal{S}, A) : copy(A), irange))
+eigvals!{T<:BlasReal}(A::SymTridiagonal{T}, irange::UnitRange) =
+    LAPACK.stegr!('N', 'I', A.dv, A.ev, 0.0, 0.0, irange.start, irange.stop)[1]
+function eigvals{T}(A::SymTridiagonal{T}, irange::UnitRange)
+    S = promote_type(Float32, typeof(zero(T)/norm(one(T))))
+    return eigvals!(copy_oftype(A, S), irange)
+end
 
-eigvals!{T<:BlasReal}(A::SymTridiagonal{T}, vl::Real, vu::Real) = LAPACK.stegr!('N', 'V', A.dv, A.ev, vl, vu, 0, 0)[1]
-eigvals{T}(A::SymTridiagonal{T}, vl::Real, vu::Real) = (S = promote_type(Float32, typeof(zero(T)/norm(one(T)))); eigvals!(S != T ? convert(SymTridiagonal{S}, A) : copy(A), vl, vu))
+eigvals!{T<:BlasReal}(A::SymTridiagonal{T}, vl::Real, vu::Real) =
+    LAPACK.stegr!('N', 'V', A.dv, A.ev, vl, vu, 0, 0)[1]
+function eigvals{T}(A::SymTridiagonal{T}, vl::Real, vu::Real)
+    S = promote_type(Float32, typeof(zero(T)/norm(one(T))))
+    return eigvals!(copy_oftype(A, S), vl, vu)
+end
 
 #Computes largest and smallest eigenvalue
 eigmax(A::SymTridiagonal) = eigvals(A, size(A, 1):size(A, 1))[1]
@@ -196,6 +220,12 @@ end
 getindex( a::ZeroOffsetVector, i) = a.data[i+1]
 setindex!(a::ZeroOffsetVector, x, i) = a.data[i+1]=x
 
+
+## structured matrix methods ##
+function Base.replace_in_print_matrix(A::SymTridiagonal,i::Integer,j::Integer,s::AbstractString)
+    i==j-1||i==j||i==j+1 ? s : Base.replace_with_centered_mark(s)
+end
+
 #Implements the inverse using the recurrence relation between principal minors
 # a, b, c are assumed to be the subdiagonal, diagonal, and superdiagonal of
 # a tridiagonal matrix.
@@ -251,7 +281,7 @@ det(A::SymTridiagonal) = det_usmani(A.ev, A.dv, A.ev)
 
 function getindex{T}(A::SymTridiagonal{T}, i::Integer, j::Integer)
     if !(1 <= i <= size(A,2) && 1 <= j <= size(A,2))
-        throw(BoundsError("(i,j) = ($i,$j) not within matrix of size $(size(A))"))
+        throw(BoundsError(A, (i,j)))
     end
     if i == j
         return A.dv[i]
@@ -261,6 +291,16 @@ function getindex{T}(A::SymTridiagonal{T}, i::Integer, j::Integer)
         return A.ev[i]
     else
         return zero(T)
+    end
+end
+
+function setindex!(A::SymTridiagonal, x, i::Integer, j::Integer)
+    if i == j
+        A.dv[i] = x
+    elseif abs(i - j) == 1
+        A.ev[min(i,j)] = x
+    else
+        throw(ArgumentError("cannot set elements outside the sub, main, or super diagonals"))
     end
 end
 
@@ -356,13 +396,13 @@ function diag{T}(M::Tridiagonal{T}, n::Integer=0)
     elseif abs(n) < size(M,1)
         return zeros(T,size(M,1)-abs(n))
     else
-        throw(BoundsError("$n-th diagonal of a $(size(M)) matrix doesn't exist!"))
+        throw(ArgumentError("$n-th diagonal of a $(size(M)) matrix doesn't exist!"))
     end
 end
 
 function getindex{T}(A::Tridiagonal{T}, i::Integer, j::Integer)
     if !(1 <= i <= size(A,2) && 1 <= j <= size(A,2))
-        throw(BoundsError("(i,j) = ($i,$j) not within matrix of size $(size(A))"))
+        throw(BoundsError(A, (i,j)))
     end
     if i == j
         return A.d[i]
@@ -373,6 +413,23 @@ function getindex{T}(A::Tridiagonal{T}, i::Integer, j::Integer)
     else
         return zero(T)
     end
+end
+
+function setindex!(A::Tridiagonal, x, i::Integer, j::Integer)
+    if i == j
+        A.d[i] = x
+    elseif i - j == 1
+        A.dl[j] = x
+    elseif j - i == 1
+        A.du[i] = x
+    else
+        throw(ArgumentError("cannot set elements outside the sub, main, or super diagonals"))
+    end
+end
+
+## structured matrix methods ##
+function Base.replace_in_print_matrix(A::Tridiagonal,i::Integer,j::Integer,s::AbstractString)
+    i==j-1||i==j||i==j+1 ? s : Base.replace_with_centered_mark(s)
 end
 
 #tril and triu

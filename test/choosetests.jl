@@ -23,16 +23,17 @@ function choosetests(choices = [])
         "bitarray", "copy", "math", "fastmath", "functional",
         "operators", "path", "ccall", "parse", "loading",
         "bigint", "sorting", "statistics", "spawn", "backtrace",
-        "priorityqueue", "file", "mmap", "version", "resolve",
+        "priorityqueue", "file", "read", "mmap", "version", "resolve",
         "pollfd", "mpfr", "broadcast", "complex", "socket",
         "floatapprox", "datafmt", "reflection", "regex", "float16",
         "combinatorics", "sysinfo", "rounding", "ranges", "mod2pi",
         "euler", "show", "lineedit", "replcompletions", "repl",
         "replutil", "sets", "test", "goto", "llvmcall", "grisu",
-        "nullable", "meta", "profile", "libgit2", "docs", "markdown",
-        "base64", "serialize", "functors", "misc", "threads",
+        "nullable", "meta", "stacktraces", "profile", "libgit2", "docs",
+        "markdown", "base64", "serialize", "functors", "misc", "threads",
         "enums", "cmdlineargs", "i18n", "workspace", "libdl", "int",
-        "checked", "intset", "floatfuncs", "compile", "parallel", "inline"
+        "checked", "intset", "floatfuncs", "compile", "parallel", "inline",
+        "boundscheck"
     ]
 
     if Base.USE_GPL_LIBS
@@ -65,7 +66,7 @@ function choosetests(choices = [])
                    "linalg/lapack", "linalg/tridiag", "linalg/bidiag",
                    "linalg/diagonal", "linalg/pinv", "linalg/givens",
                    "linalg/cholesky", "linalg/lu", "linalg/symmetric",
-                   "linalg/generic", "linalg/uniformscaling"]
+                   "linalg/generic", "linalg/uniformscaling", "linalg/lq"]
     if Base.USE_GPL_LIBS
         push!(linalgtests, "linalg/arnoldi")
     end

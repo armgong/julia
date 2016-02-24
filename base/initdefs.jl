@@ -2,6 +2,7 @@
 
 ## initdefs.jl - initialization and runtime management definitions
 
+PROGRAM_FILE = UTF8String("")
 const ARGS = UTF8String[]
 
 exit(n) = ccall(:jl_exit, Void, (Int32,), n)
@@ -30,7 +31,7 @@ function init_bind_addr()
     opts = JLOptions()
     if opts.bindto != C_NULL
         bind_to = split(bytestring(opts.bindto), ":")
-        bind_addr = string(parseip(bind_to[1]))
+        bind_addr = string(parse(IPAddr, bind_to[1]))
         if length(bind_to) > 1
             bind_port = parse(Int,bind_to[2])
         else

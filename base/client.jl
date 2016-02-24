@@ -16,6 +16,24 @@ const text_colors = AnyDict(
     :bold    => "\033[1m",
 )
 
+# Create a docstring with an automatically generated list
+# of colors.
+const possible_formatting_symbols = [:normal, :bold]
+available_text_colors = collect(keys(text_colors))
+available_text_colors =
+    cat(1, intersect(available_text_colors, possible_formatting_symbols),
+        sort(setdiff(  available_text_colors, possible_formatting_symbols)))
+
+const available_text_colors_docstring =
+    string(join([string("`:", key,"`")
+                 for key in available_text_colors], ",\n", ", or \n"))
+
+"""Dictionary of color codes for the terminal.
+
+Available colors are: $available_text_colors_docstring.
+"""
+text_colors
+
 have_color = false
 default_color_warn = :red
 default_color_info = :blue
@@ -177,10 +195,9 @@ end
 # try to include() a file, ignoring if not found
 try_include(path::AbstractString) = isfile(path) && include(path)
 
-function process_options(opts::JLOptions, args::Vector{UTF8String})
-    if !isempty(args)
-        arg = first(args)
-        idxs = find(x -> x == "--", args)
+function process_options(opts::JLOptions)
+    if !isempty(ARGS)
+        idxs = find(x -> x == "--", ARGS)
         if length(idxs) > 1
             println(STDERR, "julia: redundant option terminator `--`")
             exit(1)
@@ -234,15 +251,15 @@ function process_options(opts::JLOptions, args::Vector{UTF8String})
             eval(Main, parse_input_line(bytestring(opts.postboot)))
         end
         # load file
-        if !isempty(args) && !isempty(args[1])
+        if !isempty(ARGS) && !isempty(ARGS[1])
             # program
             repl = false
             # remove filename from ARGS
-            shift!(ARGS)
+            global PROGRAM_FILE = UTF8String(shift!(ARGS))
             if !is_interactive
                 ccall(:jl_exit_on_sigint, Void, (Cint,), 1)
             end
-            include(args[1])
+            include(PROGRAM_FILE)
         end
         break
     end
@@ -263,7 +280,7 @@ end
 
 function load_machine_file(path::AbstractString)
     machines = []
-    for line in split(readall(path),'\n'; keep=false)
+    for line in split(readstring(path),'\n'; keep=false)
         s = map!(strip, split(line,'*'; keep=false))
         if length(s) > 1
             cnt = isnumber(s[1]) ? parse(Int,s[1]) : symbol(s[1])
@@ -298,7 +315,7 @@ function _start()
     append!(ARGS, Core.ARGS)
     opts = JLOptions()
     try
-        (quiet,repl,startup,color_set,history_file) = process_options(opts,copy(ARGS))
+        (quiet,repl,startup,color_set,history_file) = process_options(opts)
 
         local term
         global active_repl
@@ -331,7 +348,7 @@ function _start()
                 # note: currently IOStream is used for file STDIN
                 if isa(STDIN,File) || isa(STDIN,IOStream)
                     # reading from a file, behave like include
-                    eval(Main,parse_input_line(readall(STDIN)))
+                    eval(Main,parse_input_line(readstring(STDIN)))
                 else
                     # otherwise behave repl-like
                     while !eof(STDIN)

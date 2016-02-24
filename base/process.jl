@@ -303,6 +303,8 @@ type Process <: AbstractPipe
         this
     end
 end
+pipe_reader(p::Process) = p.out
+pipe_writer(p::Process) = p.in
 
 immutable ProcessChain <: AbstractPipe
     processes::Vector{Process}
@@ -311,6 +313,8 @@ immutable ProcessChain <: AbstractPipe
     err::Redirectable
     ProcessChain(stdios::StdIOSet) = new(Process[], stdios[1], stdios[2], stdios[3])
 end
+pipe_reader(p::ProcessChain) = p.out
+pipe_writer(p::ProcessChain) = p.in
 
 function _jl_spawn(cmd, argv, loop::Ptr{Void}, pp::Process,
                    in, out, err)
@@ -523,8 +527,6 @@ spawn_opts_inherit(in::Redirectable=RawFD(0), out::Redirectable=RawFD(1), err::R
 
 spawn(cmds::AbstractCmd, args...; chain::Nullable{ProcessChain}=Nullable{ProcessChain}()) =
     spawn(cmds, spawn_opts_swallow(args...)...; chain=chain)
-spawn(cmds::AbstractCmd, args...; chain::Nullable{ProcessChain}=Nullable{ProcessChain}()) =
-    spawn(cmds, spawn_opts_swallow(args...)...; chain=chain)
 
 function eachline(cmd::AbstractCmd, stdin)
     stdout = Pipe()
@@ -575,15 +577,15 @@ function readandwrite(cmds::AbstractCmd)
     (out, in, processes)
 end
 
-function readbytes(cmd::AbstractCmd, stdin::Redirectable=DevNull)
+function read(cmd::AbstractCmd, stdin::Redirectable=DevNull)
     out, procs = open(cmd, "r", stdin)
-    bytes = readbytes(out)
+    bytes = read(out)
     !success(procs) && pipeline_error(procs)
     return bytes
 end
 
-function readall(cmd::AbstractCmd, stdin::Redirectable=DevNull)
-    return bytestring(readbytes(cmd, stdin))
+function readstring(cmd::AbstractCmd, stdin::Redirectable=DevNull)
+    return bytestring(read(cmd, stdin))
 end
 
 function writeall(cmd::AbstractCmd, stdin::AbstractString, stdout::Redirectable=DevNull)

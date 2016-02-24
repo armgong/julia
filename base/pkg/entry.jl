@@ -490,7 +490,7 @@ function resolve(
 end
 
 function warnbanner(msg...; label="[ WARNING ]", prefix="")
-    cols = Base.tty_size()[2]
+    cols = Base.displaysize(STDERR)[2]
     warn(prefix="", Base.cpad(label,cols,"="))
     println(STDERR)
     warn(prefix=prefix, msg...)
@@ -636,7 +636,7 @@ function test!(pkg::AbstractString,
             try
                 color = Base.have_color? "--color=yes" : "--color=no"
                 codecov = coverage? ["--code-coverage=user", "--inline=no"] : ["--code-coverage=none"]
-                julia_exe = joinpath(JULIA_HOME, Base.julia_exename())
+                julia_exe = Base.julia_cmd()
                 run(`$julia_exe --check-bounds=yes $codecov $color $test_path`)
                 info("$pkg tests passed")
             catch err

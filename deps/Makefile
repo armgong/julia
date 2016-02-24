@@ -45,7 +45,7 @@ CONFIGURE_COMMON += F77="$(FC)" CC="$(CC) $(DEPS_CFLAGS)" CXX="$(CXX) $(DEPS_CXX
 CMAKE_CC_ARG := $(CC_ARG) $(DEPS_CFLAGS)
 CMAKE_CXX_ARG := $(CXX_ARG) $(DEPS_CXXFLAGS)
 
-CMAKE_COMMON := -DCMAKE_INSTALL_PREFIX:PATH=$(build_prefix) -DCMAKE_BUILD_TYPE=Release
+CMAKE_COMMON := -DCMAKE_INSTALL_PREFIX:PATH=$(build_prefix)
 ifneq ($(VERBOSE), 0)
 CMAKE_COMMON += -DCMAKE_VERBOSE_MAKEFILE=ON
 endif
@@ -58,8 +58,15 @@ ifneq ($(strip $(CMAKE_CXX_ARG)),)
 CMAKE_COMMON += -DCMAKE_CXX_COMPILER_ARG1="$(CMAKE_CXX_ARG)"
 endif
 
+ifeq ($(OS),WINNT)
+CMAKE_COMMON += -DCMAKE_SYSTEM_NAME=Windows
+ifneq ($(BUILD_OS),WINNT)
+CMAKE_COMMON += -DCMAKE_RC_COMPILER=`which $(CROSS_COMPILE)windres`
+endif
+endif
+
 # For now this is LLVM specific, but I expect it won't be in the future
-ifneq ($(LLVM_USE_CMAKE),)
+ifeq ($(LLVM_USE_CMAKE),1)
 ifeq ($(CMAKE_GENERATOR),Ninja)
 CMAKE_GENERATOR_COMMAND := -G Ninja
 else ifeq ($(CMAKE_GENERATOR),make)
@@ -325,6 +332,7 @@ LLVM_BUILDTYPE := Debug
 else
 LLVM_BUILDTYPE := Release
 endif
+LLVM_CMAKE_BUILDTYPE := $(LLVM_BUILDTYPE)
 ifeq ($(LLVM_ASSERTIONS),1)
 LLVM_BUILDTYPE := $(LLVM_BUILDTYPE)+Asserts
 endif
@@ -337,39 +345,52 @@ LLVM_BUILDTYPE := $(LLVM_BUILDTYPE)+ASAN
 endif
 endif
 
+LLVM_VER_MAJ:=$(word 1, $(subst ., ,$(LLVM_VER)))
+LLVM_VER_MIN:=$(word 2, $(subst ., ,$(LLVM_VER)))
+# define a "short" LLVM version for easy comparisons
+ifeq ($(LLVM_VER),svn)
+LLVM_VER_SHORT:=svn
+else
+LLVM_VER_SHORT:=$(LLVM_VER_MAJ).$(LLVM_VER_MIN)
+endif
+LLVM_VER_PATCH:=$(word 3, $(subst ., ,$(LLVM_VER)))
+ifeq ($(LLVM_VER_PATCH),)
+LLVM_VER_PATCH := 0
+endif
+
+ifeq ($(LLVM_VER_SHORT),$(filter $(LLVM_VER_SHORT),3.3 3.4 3.5 3.6 3.7 3.8))
+LLVM_USE_CMAKE := 0
+else
+LLVM_USE_CMAKE := 1
+endif
+
 LLVM_SRC_DIR:=$(SRCDIR)/srccache/llvm-$(LLVM_VER)
 LLVM_BUILD_DIR:=$(BUILDDIR)/llvm-$(LLVM_VER)
+LLVM_BUILDDIR_withtype := $(LLVM_BUILD_DIR)/build_$(LLVM_BUILDTYPE)
 LLVM_LIB_FILE := libLLVMCodeGen.a
 ifeq ($(LLVM_USE_CMAKE),1)
-LLVM_OBJ_SOURCE := $(LLVM_BUILD_DIR)/build_$(LLVM_BUILDTYPE)/lib/$(LLVM_LIB_FILE)
+LLVM_OBJ_SOURCE := $(LLVM_BUILDDIR_withtype)/lib/$(LLVM_LIB_FILE)
 else
-LLVM_OBJ_SOURCE := $(LLVM_BUILD_DIR)/build_$(LLVM_BUILDTYPE)/$(LLVM_FLAVOR)/lib/$(LLVM_LIB_FILE)
+LLVM_OBJ_SOURCE := $(LLVM_BUILDDIR_withtype)/$(LLVM_FLAVOR)/lib/$(LLVM_LIB_FILE)
 endif
 LLVM_OBJ_TARGET := $(build_libdir)/$(LLVM_LIB_FILE)
 
-ifneq ($(LLVM_VER),svn)
 ifeq ($(LLVM_VER), 3.3)
-LLVM_TAR:=$(SRCDIR)/srccache/llvm-$(LLVM_VER).src.tar.gz
+LLVM_TAR_EXT:=$(LLVM_VER).src.tar.gz
 else
-LLVM_TAR:=$(SRCDIR)/srccache/llvm-$(LLVM_VER).src.tar.xz
-endif
+LLVM_TAR_EXT:=$(LLVM_VER).src.tar.xz
+endif # LLVM_VER == 3.3
+
+ifneq ($(LLVM_VER),svn)
+LLVM_TAR:=$(SRCDIR)/srccache/llvm-$(LLVM_TAR_EXT)
 
 ifeq ($(BUILD_LLDB),1)
-ifeq ($(LLVM_VER), 3.3)
-LLVM_LLDB_TAR:=$(SRCDIR)/srccache/lldb-$(LLVM_VER).src.tar.gz
-else
-LLVM_LLDB_TAR:=$(SRCDIR)/srccache/lldb-$(LLVM_VER).src.tar.xz
-endif # LLVM_VER == 3.3
+LLVM_LLDB_TAR:=$(SRCDIR)/srccache/lldb-$(LLVM_TAR_EXT)
 endif # BUILD_LLDB
 
 ifeq ($(BUILD_LLVM_CLANG),1)
-ifeq ($(LLVM_VER), 3.3)
-LLVM_CLANG_TAR:=$(SRCDIR)/srccache/cfe-$(LLVM_VER).src.tar.gz
-LLVM_COMPILER_RT_TAR:=$(SRCDIR)/srccache/compiler-rt-$(LLVM_VER).src.tar.gz
-else
-LLVM_CLANG_TAR:=$(SRCDIR)/srccache/cfe-$(LLVM_VER).src.tar.xz
-LLVM_COMPILER_RT_TAR:=$(SRCDIR)/srccache/compiler-rt-$(LLVM_VER).src.tar.xz
-endif # LLVM_VER
+LLVM_CLANG_TAR:=$(SRCDIR)/srccache/cfe-$(LLVM_TAR_EXT)
+LLVM_COMPILER_RT_TAR:=$(SRCDIR)/srccache/compiler-rt-$(LLVM_TAR_EXT)
 else
 LLVM_CLANG_TAR:=
 LLVM_COMPILER_RT_TAR:=
@@ -377,7 +398,7 @@ LLVM_LIBCXX_TAR:=
 endif # BUILD_LLVM_CLANG
 
 ifeq ($(BUILD_CUSTOM_LIBCXX),1)
-LLVM_LIBCXX_TAR:=$(SRCDIR)/srccache/libcxx-$(LLVM_VER).src.tar.gz
+LLVM_LIBCXX_TAR:=$(SRCDIR)/srccache/libcxx-$(LLVM_TAR_EXT)
 endif
 endif # LLVM_VER != svn
 
@@ -386,8 +407,9 @@ LLVM_CPPFLAGS := $(CPPFLAGS)
 LLVM_LDFLAGS := $(LDFLAGS)
 LLVM_TARGETS := host
 LLVM_TARGET_FLAGS := --enable-targets=$(LLVM_TARGETS)
-LLVM_CMAKE += -DLLVM_TARGETS_TO_BUILD:STRING="$(LLVM_TARGETS)" -DCMAKE_BUILD_TYPE="$(LLVM_BUILDTYPE)" -DLLVM_BUILD_LLVM_DYLIB:BOOL=ON -DLLVM_DYLIB_EXPORT_ALL:BOOL=ON
-LLVM_FLAGS += --disable-profiling --enable-shared --enable-static $(LLVM_TARGET_FLAGS) --disable-bindings --disable-docs
+LLVM_CMAKE += -DLLVM_TARGETS_TO_BUILD:STRING="$(LLVM_TARGETS)" -DCMAKE_BUILD_TYPE="$(LLVM_CMAKE_BUILDTYPE)"
+LLVM_FLAGS += --disable-profiling --enable-static $(LLVM_TARGET_FLAGS)
+LLVM_FLAGS += --disable-bindings --disable-docs --disable-libedit --disable-terminfo
 # LLVM has weird install prefixes (see llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE)/Makefile.config for the full list)
 # We map them here to the "normal" ones, which means just prefixing "PROJ_" to the variable name.
 LLVM_MFLAGS := PROJ_libdir=$(build_libdir) PROJ_bindir=$(build_bindir) PROJ_includedir=$(build_includedir)
@@ -410,12 +432,19 @@ LLVM_FLAGS += --enable-libcpp
 endif # USE_LIBCPP
 ifeq ($(OS), WINNT)
 LLVM_FLAGS += --with-extra-ld-options="-Wl,--stack,8388608" LDFLAGS=""
-# turn off shared LLVM on Windows unless explicitly requested
-ifneq ($(USE_LLVM_SHLIB),1)
-LLVM_FLAGS += --disable-shared
-endif
 LLVM_CPPFLAGS += -D__USING_SJLJ_EXCEPTIONS__ -D__CRT__NO_INLINE
+ifneq ($(BUILD_OS),WINNT)
+LLVM_CMAKE += -DCROSS_TOOLCHAIN_FLAGS_NATIVE=-DCMAKE_TOOLCHAIN_FILE=$(SRCDIR)/NATIVE.cmake
+endif # BUILD_OS != WINNT
 endif # OS == WINNT
+ifeq ($(USE_LLVM_SHLIB),1)
+# NOTE: we could also --disable-static here (on the condition we link tools
+#       against libLLVM) but there doesn't seem to be a CMake counterpart option
+LLVM_FLAGS += --enable-shared
+LLVM_CMAKE += -DLLVM_BUILD_LLVM_DYLIB:BOOL=ON -DLLVM_DYLIB_EXPORT_ALL:BOOL=ON
+# NOTE: LLVM_DYLIB_EXPORT_ALL has been removed recently,
+#       and LLVM now defaults to exporting all symbols
+endif
 ifeq ($(USE_INTEL_JITEVENTS), 1)
 LLVM_FLAGS += --with-intel-jitevents
 ifeq ($(OS), WINNT)
@@ -445,8 +474,22 @@ ifeq ($(ARCH), ppc64)
 LLVM_CXXFLAGS += -mminimal-toc
 endif # ARCH == ppc64
 
+# LLVM bug #24157
+ifeq ($(USE_LLVM_SHLIB),1)
+ifeq ($(LLVM_USE_CMAKE),1)
+ifeq ($(LLVM_VER_SHORT),$(filter $(LLVM_VER_SHORT),3.3 3.4 3.5 3.6 3.7))
+$(error USE_LLVM_SHLIB=1 with LLVM_USE_CMAKE=1 requires LLVM > 3.7.x)
+endif
+endif
+endif
 
 ifeq ($(LLVM_SANITIZE),1)
+# autotools doesn't provide a sanitation build mode (linking libLLVM will fail)
+ifeq ($(USE_LLVM_SHLIB),1)
+ifeq ($(LLVM_USE_CMAKE),0)
+$(error LLVM_SANITIZE=1 with USE_LLVM_SHLIB=1 requires LLVM_USE_CMAKE=1)
+endif
+endif
 ifeq ($(SANITIZE_MEMORY),1)
 LLVM_CC := CFLAGS="$(CFLAGS) -fsanitize=memory -fsanitize-memory-track-origins"
 LLVM_LDFLAGS += -fsanitize=memory -fsanitize-memory-track-origins
@@ -491,35 +534,49 @@ LLVM_MFLAGS += OPTIONAL_PARALLEL_DIRS=clang
 else
 # block default building of Clang
 LLVM_MFLAGS += OPTIONAL_PARALLEL_DIRS=
+ifeq ($(LLVM_VER_SHORT),$(filter $(LLVM_VER_SHORT),3.3 3.4 3.5 3.6 3.7 3.8))
+LLVM_CMAKE += -DLLVM_EXTERNAL_CLANG_BUILD=OFF
+LLVM_CMAKE += -DLLVM_EXTERNAL_COMPILER_RT_BUILD=OFF
+else
+LLVM_CMAKE += -DLLVM_TOOL_CLANG_BUILD=OFF
+LLVM_CMAKE += -DLLVM_TOOL_COMPILER_RT_BUILD=OFF
+endif
 endif
 ifeq ($(BUILD_LLDB),1)
 LLVM_MFLAGS += OPTIONAL_DIRS=lldb
 else
 # block default building of lldb
 LLVM_MFLAGS += OPTIONAL_DIRS=
+ifeq ($(LLVM_VER_SHORT),$(filter $(LLVM_VER_SHORT),3.3 3.4 3.5 3.6 3.7 3.8))
+LLVM_CMAKE += -DLLVM_EXTERNAL_LLDB_BUILD=OFF
+else
+LLVM_CMAKE += -DLLVM_TOOL_LLDB_BUILD=OFF
 endif
+endif
+
+LLVM_SRC_URL := http://llvm.org/releases/$(LLVM_VER)
 
 ifneq ($(LLVM_CLANG_TAR),)
 $(LLVM_CLANG_TAR): | $(SRCDIR)/srccache
-	$(JLDOWNLOAD) $@ http://llvm.org/releases/$(LLVM_VER)/$(notdir $@)
+	$(JLDOWNLOAD) $@ $(LLVM_SRC_URL)/$(notdir $@)
 endif
 ifneq ($(LLVM_COMPILER_RT_TAR),)
 $(LLVM_COMPILER_RT_TAR): | $(SRCDIR)/srccache
-	$(JLDOWNLOAD) $@ http://llvm.org/releases/$(LLVM_VER)/$(notdir $@)
+	$(JLDOWNLOAD) $@ $(LLVM_SRC_URL)/$(notdir $@)
 endif
 
 ifneq ($(LLVM_LIBCXX_TAR),)
 $(LLVM_LIBCXX_TAR): | $(SRCDIR)/srccache
-	$(JLDOWNLOAD) $@ http://llvm.org/releases/$(LLVM_VER)/$(notdir $@)
+	$(JLDOWNLOAD) $@ $(LLVM_SRC_URL)/$(notdir $@)
 endif
 ifneq ($(LLVM_VER),svn)
 $(LLVM_TAR): | $(SRCDIR)/srccache
-	$(JLDOWNLOAD) $@ http://llvm.org/releases/$(LLVM_VER)/$(notdir $@)
+	$(JLDOWNLOAD) $@ $(LLVM_SRC_URL)/$(notdir $@)
 endif
 
 ifneq ($(LLVM_LLDB_TAR),)
 $(LLVM_LLDB_TAR): | $(SRCDIR)/srccache
-	$(JLDOWNLOAD) $@ http://llvm.org/releases/$(LLVM_VER)/$(notdir $@)
+	$(JLDOWNLOAD) $@ $(LLVM_SRC_URL)/$(notdir $@)
 endif
 ifeq ($(BUILD_LLDB),1)
 $(LLVM_SRC_DIR)/tools/lldb:
@@ -668,37 +725,57 @@ $(eval $(call LLVM_PATCH,instcombine-llvm-3.3))
 $(eval $(call LLVM_PATCH,int128-vector.llvm-3.3))
 $(eval $(call LLVM_PATCH,osx-10.10.llvm-3.3))
 $(eval $(call LLVM_PATCH,win64-int128.llvm-3.3))
-else ifeq ($(LLVM_VER),3.6.0)
-$(eval $(call LLVM_PATCH,zerosign-llvm-3.6.0))
-$(eval $(call LLVM_PATCH,win64-allocas-llvm-3.6.0))
+else ifeq ($(LLVM_VER),3.7.0)
+$(eval $(call LLVM_PATCH,llvm-3.7.0))
+$(eval $(call LLVM_PATCH,llvm-3.7.1))
+$(eval $(call LLVM_PATCH,llvm-3.7.1_2))
+$(eval $(call LLVM_PATCH,llvm-3.7.1_3))
+$(eval $(call LLVM_PATCH,llvm-D14260))
+$(LLVM_SRC_DIR)/llvm-3.7.1_2.patch-applied: $(LLVM_SRC_DIR)/llvm-3.7.1.patch-applied
+else ifeq ($(LLVM_VER),3.7.1)
+$(eval $(call LLVM_PATCH,llvm-3.7.1))
+$(eval $(call LLVM_PATCH,llvm-3.7.1_2))
+$(eval $(call LLVM_PATCH,llvm-3.7.1_3))
+$(eval $(call LLVM_PATCH,llvm-D14260))
+$(LLVM_SRC_DIR)/llvm-3.7.1_2.patch-applied: $(LLVM_SRC_DIR)/llvm-3.7.1.patch-applied
 endif # LLVM_VER
 
-LLVM_BUILDDIR_withtype := $(LLVM_BUILD_DIR)/build_$(LLVM_BUILDTYPE)
-ifneq ($(LLVM_USE_CMAKE),)
+ifeq ($(LLVM_VER),3.7.1)
+ifeq ($(BUILD_LLDB),1)
+$(eval $(call LLVM_PATCH,lldb-3.7.1))
+endif
+ifeq ($(BUILD_LLVM_CLANG),1)
+$(eval $(call LLVM_PATCH,compiler-rt-3.7.1))
+endif
+endif
 
-$(LLVM_BUILDDIR_withtype)/CMakeCache.txt: $(LLVM_SRC_DIR)/configure | $(llvm_python_workaround) $(LIBCXX_DEPENDENCY)
+ifeq ($(LLVM_USE_CMAKE),1)
+
+$(LLVM_BUILDDIR_withtype)/CMakeCache.txt: $(LLVM_SRC_DIR)/configure $(LLVM_PATCH_LIST) | $(llvm_python_workaround) $(LIBCXX_DEPENDENCY)
 	mkdir -p $(dir $@)
 	cd $(dir $@) && \
 		export PATH=$(llvm_python_workaround):$$PATH && \
 		$(CMAKE) $(LLVM_SRC_DIR) $(CMAKE_GENERATOR_COMMAND) $(CMAKE_COMMON) $(LLVM_CMAKE)
 	touch -c $@
 
-$(LLVM_OBJ_SOURCE): $(LLVM_BUILDDIR_withtype)/CMakeCache.txt $(LLVM_PATCH_LIST) | $(llvm_python_workaround)
+$(LLVM_OBJ_SOURCE): $(LLVM_BUILDDIR_withtype)/CMakeCache.txt | $(llvm_python_workaround)
 	cd $(LLVM_BUILDDIR_withtype) && \
 		export PATH=$(llvm_python_workaround):$$PATH && \
-		$(CMAKE) --build .
+		$(if $(filter $(CMAKE_GENERATOR),make), \
+		  $(MAKE), \
+		  $(CMAKE) --build .)
 	touch -c $@
 
 else
 
-$(LLVM_BUILDDIR_withtype)/config.status: $(LLVM_SRC_DIR)/configure | $(llvm_python_workaround) $(LIBCXX_DEPENDENCY)
+$(LLVM_BUILDDIR_withtype)/config.status: $(LLVM_SRC_DIR)/configure $(LLVM_PATCH_LIST) | $(llvm_python_workaround) $(LIBCXX_DEPENDENCY)
 	mkdir -p $(dir $@)
 	cd $(dir $@) && \
 		export PATH=$(llvm_python_workaround):$$PATH && \
 		$< $(CONFIGURE_COMMON) $(LLVM_CC) $(LLVM_FLAGS)
 	touch -c $@
 
-$(LLVM_OBJ_SOURCE): $(LLVM_BUILDDIR_withtype)/config.status $(LLVM_PATCH_LIST) | $(llvm_python_workaround)
+$(LLVM_OBJ_SOURCE): $(LLVM_BUILDDIR_withtype)/config.status | $(llvm_python_workaround)
 	cd $(LLVM_BUILDDIR_withtype) && \
 		export PATH=$(llvm_python_workaround):$$PATH && \
 		$(MAKE) $(LLVM_MFLAGS) $(MAKE_COMMON)
@@ -706,24 +783,23 @@ $(LLVM_OBJ_SOURCE): $(LLVM_BUILDDIR_withtype)/config.status $(LLVM_PATCH_LIST) |
 
 endif # LLVM_USE_CMAKE
 
-ifeq ($(LLVM_USE_CMAKE),1)
-CHECK_COMMAND := $(CMAKE) --build . check
-else
-CHECK_COMMAND := $(MAKE) $(LLVM_MFLAGS) check
-endif
 $(LLVM_BUILDDIR_withtype)/checked: $(LLVM_OBJ_SOURCE) | $(llvm_python_workaround)
 ifeq ($(OS),$(BUILD_OS))
 	cd $(LLVM_BUILDDIR_withtype) && \
 		export PATH=$(llvm_python_workaround):$$PATH && \
-		$(CHECK_COMMAND)
+		$(if $(filter $(LLVM_USE_CMAKE),1), \
+		  $(CMAKE) --build . check, \
+		  $(MAKE) $(LLVM_MFLAGS) check)
 endif
 	echo 1 > $@
-
 $(LLVM_OBJ_TARGET): $(LLVM_OBJ_SOURCE) | $(llvm_python_workaround)
 ifeq ($(LLVM_USE_CMAKE),1)
-	$(call staged-install,build_$(LLVM_BUILDTYPE),cd $(LLVM_BUILDDIR_withtype) && $(CMAKE) -DCMAKE_INSTALL_PREFIX="$(call MAKE_DESTDIR,$(LLVM_BUILDDIR_withtype))$(build_prefix)" -P cmake_install.cmake)
+	$(call staged-install,llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE),\
+	                      cd $(BUILDDIR)/llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE) &&\
+	                      $(CMAKE) -DCMAKE_INSTALL_PREFIX="$(call MAKE_DESTDIR,llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE))$(build_prefix)" -P cmake_install.cmake)
 else
-	$(call make-install,llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE),$(LLVM_MFLAGS) PATH="$(llvm_python_workaround):$$PATH")
+	$(call   make-install,llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE),\
+	                      $(LLVM_MFLAGS) PATH="$(llvm_python_workaround):$$PATH")
 endif # LLVM_USE_CMAKE
 	touch -c $@
 
@@ -744,9 +820,9 @@ get-llvm: $(LLVM_TAR) $(LLVM_CLANG_TAR) $(LLVM_COMPILER_RT_TAR) $(LLVM_LIBCXX_TA
 else
 get-llvm: $(LLVM_SRC_DIR)/configure
 endif
-configure-llvm: $(LLVM_BUILD_DIR)/build_$(LLVM_BUILDTYPE)/config.status
+configure-llvm: $(LLVM_BUILDDIR_withtype)/config.status
 compile-llvm: $(LLVM_OBJ_SOURCE)
-check-llvm: $(LLVM_BUILD_DIR)/build_$(LLVM_BUILDTYPE)/checked
+check-llvm: $(LLVM_BUILDDIR_withtype)/checked
 install-llvm: $(LLVM_OBJ_TARGET)
 #todo: LLVM make check target is broken on julia.mit.edu (and really slow elsewhere)
 
@@ -851,7 +927,7 @@ ifneq ($(OS),WINNT)
 endif
 endif
 	echo 1 > $@
-$(PCRE_OBJ_TARGET): $(PCRE_SRC_TARGET) $(BUILDDIR)/pcre2-$(PCRE_VER)/checked
+$(PCRE_OBJ_TARGET): $(PCRE_SRC_TARGET)
 	$(call make-install,pcre2-$(PCRE_VER),$(LIBTOOL_CCLD))
 	$(INSTALL_NAME_CMD)libpcre2-8.$(SHLIB_EXT) $@
 	touch -c $@
@@ -1212,6 +1288,13 @@ install-atlas: $(ATLAS_OBJ_TARGET)
 
 ## Mac gfortran BLAS wrapper ##
 GFORTBLAS_FFLAGS :=
+ifeq ($(USE_BLAS64), 1)
+ifeq ($(USEIFC),1)
+GFORTBLAS_FFLAGS += -i8
+else
+GFORTBLAS_FFLAGS += -fdefault-integer-8
+endif
+endif
 ifeq ($(OS),Darwin)
 ifeq ($(USE_SYSTEM_BLAS),1)
 ifeq ($(USE_SYSTEM_LAPACK),0)
@@ -1298,10 +1381,7 @@ ARPACK_CFLAGS :=
 
 ifeq ($(USE_BLAS64), 1)
 ARPACK_CFLAGS += -DBLASINT=int64_t
-ifeq ($(USEIFC),1)
-ARPACK_FFLAGS += -i8
-else
-ARPACK_FFLAGS += -fdefault-integer-8
+ifneq ($(USEIFC),1)
 ifeq ($(USE_SYSTEM_BLAS), 0)
 ifeq ($(OPENBLAS_SYMBOLSUFFIX), 64_)
 ARPACK_FFLAGS += -cpp -ffixed-line-length-none
@@ -1374,8 +1454,6 @@ ifeq ($(OS),$(BUILD_OS))
 	$(MAKE) -C $(dir $@) check $(ARPACK_MFLAGS)
 endif
 	echo 1 > $@
-# XXX: bug_1315 ARPACK tests fail stochastically
-#$(ARPACK_OBJ_TARGET): $(BUILDDIR)/arpack-ng-$(ARPACK_VER)/checked
 $(ARPACK_OBJ_TARGET): $(ARPACK_OBJ_SOURCE) | $(build_shlibdir)
 	$(call make-install,arpack-ng-$(ARPACK_VER),$(ARPACK_MFLAGS))
 ifeq ($(OS), WINNT)
@@ -1460,7 +1538,7 @@ ifeq ($(OS),$(BUILD_OS))
 	$(MAKE) -C $(dir $@) check
 endif
 	echo 1 > $@
-$(FFTW_SINGLE_OBJ_TARGET): $(FFTW_SINGLE_SRC_TARGET) $(BUILDDIR)/fftw-$(FFTW_VER)-single/checked
+$(FFTW_SINGLE_OBJ_TARGET): $(FFTW_SINGLE_SRC_TARGET)
 	$(call make-install,fftw-$(FFTW_VER)-single,)
 ifeq ($(OS), Darwin)
 	$(INSTALL_NAME_CMD)libfftw3f.$(SHLIB_EXT) $(build_shlibdir)/libfftw3f.$(SHLIB_EXT)
@@ -1483,7 +1561,7 @@ ifeq ($(OS),$(BUILD_OS))
 	$(MAKE) -C $(dir $@) check
 endif
 	echo 1 > $@
-$(FFTW_DOUBLE_OBJ_TARGET): $(FFTW_DOUBLE_SRC_TARGET) $(BUILDDIR)/fftw-$(FFTW_VER)-double/checked
+$(FFTW_DOUBLE_OBJ_TARGET): $(FFTW_DOUBLE_SRC_TARGET)
 	$(call make-install,fftw-$(FFTW_VER)-double,)
 ifeq ($(OS), Darwin)
 	$(INSTALL_NAME_CMD)libfftw3.$(SHLIB_EXT) $(build_shlibdir)/libfftw3.$(SHLIB_EXT)
@@ -1521,9 +1599,7 @@ get-fftw: get-fftw-single get-fftw-double
 configure-fftw: configure-fftw-single configure-fftw-double
 compile-fftw: compile-fftw-single compile-fftw-double
 check-fftw: check-fftw-single check-fftw-double
-install-fftw: check-fftw-single check-fftw-double # do these serially, to prevent write conflicts
-	@$(MAKE) -s -f $(JULIAHOME)/deps/Makefile install-fftw-single
-	@$(MAKE) -s -f $(JULIAHOME)/deps/Makefile install-fftw-double
+install-fftw: install-fftw-single install-fftw-double
 
 get-fftw-single: $(SRCDIR)/srccache/fftw-$(FFTW_VER).tar.gz
 configure-fftw-single: $(BUILDDIR)/fftw-$(FFTW_VER)-single/config.status
@@ -1643,7 +1719,7 @@ $(SUITESPARSE_OBJ_TARGET): $(SUITESPARSE_OBJ_SOURCE)
 	$(INSTALL_NAME_CMD)libcamd.$(SHLIB_EXT) $(build_shlibdir)/libcamd.$(SHLIB_EXT) && \
 	$(CC) -shared $(WHOLE_ARCHIVE) libccolamd.a $(NO_WHOLE_ARCHIVE) -o $(build_shlibdir)/libccolamd.$(SHLIB_EXT) $(LDFLAGS) -L$(build_shlibdir) -lsuitesparseconfig $(RPATH_ORIGIN) && \
 	$(INSTALL_NAME_CMD)libccolamd.$(SHLIB_EXT) $(build_shlibdir)/libccolamd.$(SHLIB_EXT) && \
-	$(CXX) -shared $(WHOLE_ARCHIVE) libcholmod.a $(NO_WHOLE_ARCHIVE) -o $(build_shlibdir)/libcholmod.$(SHLIB_EXT) $(LDFLAGS) -L$(build_shlibdir) -lcolamd -lamd -lcamd -lccolamd -lsuitesparseconfig $(LIBBLAS) $(RPATH_ORIGIN) && \
+	$(CXX) -shared $(WHOLE_ARCHIVE) libcholmod.a $(NO_WHOLE_ARCHIVE) -o $(build_shlibdir)/libcholmod.$(SHLIB_EXT) $(LDFLAGS) -L$(build_shlibdir) -lcolamd -lamd -lcamd -lccolamd -lsuitesparseconfig $(LIBLAPACK) $(LIBBLAS) $(RPATH_ORIGIN) && \
 	$(INSTALL_NAME_CMD)libcholmod.$(SHLIB_EXT) $(build_shlibdir)/libcholmod.$(SHLIB_EXT) && \
 	$(CXX) -shared $(WHOLE_ARCHIVE) libumfpack.a $(NO_WHOLE_ARCHIVE) -o $(build_shlibdir)/libumfpack.$(SHLIB_EXT) $(LDFLAGS) -L$(build_shlibdir) -lcholmod -lcolamd -lamd -lsuitesparseconfig $(LIBBLAS) $(RPATH_ORIGIN) && \
 	$(INSTALL_NAME_CMD)libumfpack.$(SHLIB_EXT) $(build_shlibdir)/libumfpack.$(SHLIB_EXT) && \
@@ -1699,11 +1775,10 @@ LIBUNWIND_CFLAGS := -U_FORTIFY_SOURCE $(fPIC)
 LIBUNWIND_CPPFLAGS :=
 
 $(SRCDIR)/srccache/libunwind-$(UNWIND_VER).tar.gz: | $(SRCDIR)/srccache
-	$(JLDOWNLOAD) $@ http://download.savannah.gnu.org/releases/libunwind/$(notdir $@)
+	$(JLDOWNLOAD) $@ https://s3.amazonaws.com/julialang/src/libunwind-$(UNWIND_VER).tar.gz
 $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/configure: $(SRCDIR)/srccache/libunwind-$(UNWIND_VER).tar.gz
 	$(JLCHECKSUM) $<
 	cd $(dir $<) && $(TAR) xfz $<
-	cd $(dir $<)/libunwind-$(UNWIND_VER) && patch -p1 < $(SRCDIR)/libunwind.patch
 	touch -c $@
 $(BUILDDIR)/libunwind-$(UNWIND_VER)/config.status: $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/configure
 	mkdir -p $(dir $@)
@@ -1813,7 +1888,7 @@ ifeq ($(OS),$(BUILD_OS))
 	$(MAKE) -C $(dir $@) $(LIBTOOL_CCLD) check
 endif
 	echo 1 > $@
-$(GMP_OBJ_TARGET): $(GMP_SRC_TARGET) $(BUILDDIR)/gmp-$(GMP_VER)/checked | $(build_shlibdir) $(build_includedir)
+$(GMP_OBJ_TARGET): $(GMP_SRC_TARGET) | $(build_shlibdir) $(build_includedir)
 	$(INSTALL_M) $(BUILDDIR)/gmp-$(GMP_VER)/.libs/libgmp.*$(SHLIB_EXT)* $(build_shlibdir)
 	$(INSTALL_F) $(BUILDDIR)/gmp-$(GMP_VER)/gmp.h $(build_includedir)
 	$(INSTALL_NAME_CMD)libgmp.$(SHLIB_EXT) $@
@@ -1881,7 +1956,7 @@ ifeq ($(OS),$(BUILD_OS))
 	$(MAKE) -C $(dir $@) $(LIBTOOL_CCLD) check $(MPFR_CHECK_MFLAGS)
 endif
 	echo 1 > $@
-$(MPFR_OBJ_TARGET): $(MPFR_SRC_TARGET) $(BUILDDIR)/mpfr-$(MPFR_VER)/checked
+$(MPFR_OBJ_TARGET): $(MPFR_SRC_TARGET)
 	$(call make-install,mpfr-$(MPFR_VER),$(LIBTOOL_CCLD))
 	$(INSTALL_NAME_CMD)libmpfr.$(SHLIB_EXT) $@
 	touch -c $@
@@ -1925,7 +2000,7 @@ ifeq ($(OS),$(BUILD_OS))
 	#$(MAKE) -C $(dir $@) check
 endif
 	echo 1 > $@
-$(PATCHELF_TARGET): $(PATCHELF_SOURCE) $(BUILDDIR)/patchelf-$(PATCHELF_VER)/checked
+$(PATCHELF_TARGET): $(PATCHELF_SOURCE)
 	$(call make-install,patchelf-$(PATCHELF_VER),)
 	touch -c $@
 
@@ -1964,7 +2039,7 @@ $(GIT_SOURCE): $(BUILDDIR)/git-$(GIT_VER)/config.status
 	touch -c $@
 $(BUILDDIR)/git-$(GIT_VER)/checked: $(GIT_SOURCE)
 	echo 1 > $@
-$(GIT_TARGET): $(GIT_SOURCE) $(BUILDDIR)/git-$(GIT_VER)/checked
+$(GIT_TARGET): $(GIT_SOURCE)
 	$(call make-install,git-$(GIT_VER),NO_INSTALL_HARDLINKS=1 bindir="$(build_libexecdir)")
 	touch -c $@
 
@@ -2022,16 +2097,18 @@ LIBGIT2_OBJ_TARGET := $(build_shlibdir)/libgit2.$(SHLIB_EXT)
 
 LIBGIT2_OPTS := $(CMAKE_COMMON) -DTHREADSAFE=ON
 ifeq ($(OS),WINNT)
-LIBGIT2_OPTS += -DWIN32=ON -DMINGW=ON -DUSE_SSH=OFF -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_BUILD_TYPE=RelWithDebInfo
+LIBGIT2_OPTS += -DWIN32=ON -DMINGW=ON -DUSE_SSH=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo
 ifneq ($(ARCH),x86_64)
 LIBGIT2_OPTS += -DCMAKE_C_FLAGS="-mincoming-stack-boundary=2"
 endif
 ifeq ($(BUILD_OS),WINNT)
 LIBGIT2_OPTS += -G"MSYS Makefiles"
 else
-LIBGIT2_OPTS += -DBUILD_CLAR=OFF -DCMAKE_RC_COMPILER=`which $(CROSS_COMPILE)windres` -DDLLTOOL=`which $(CROSS_COMPILE)dlltool`
+LIBGIT2_OPTS += -DBUILD_CLAR=OFF -DDLLTOOL=`which $(CROSS_COMPILE)dlltool`
 LIBGIT2_OPTS += -DCMAKE_FIND_ROOT_PATH=/usr/$(XC_HOST) -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY
 endif
+else
+LIBGIT2_OPTS += -DCMAKE_BUILD_TYPE=Release
 endif
 
 $(BUILDDIR)/$(LIBGIT2_SRC_DIR)/Makefile: $(SRCDIR)/srccache/$(LIBGIT2_SRC_DIR)/CMakeLists.txt

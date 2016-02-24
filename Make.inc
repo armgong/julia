@@ -187,6 +187,7 @@ INSTALL_M := $(JULIAHOME)/contrib/install.sh 755
 LLVMROOT := $(build_prefix)
 LLVM_ASSERTIONS := 0
 LLVM_DEBUG := 0
+#LLVM_USE_CMAKE: defined in deps/Makefile as it depends on LLVM_VER_SHORT
 # set to 1 to get clang and compiler-rt
 BUILD_LLVM_CLANG := 0
 # set to 1 to get lldb (often does not work, no chance with llvm3.2 and earlier)
@@ -199,6 +200,7 @@ BUILD_LLDB := 0
 
 # Path to cmake (override in Make.user if needed)
 CMAKE ?= cmake
+CMAKE_GENERATOR ?= make
 
 # Point pkg-config to only look at our libraries
 export PKG_CONFIG_LIBDIR = $(JULIAHOME)/usr/lib/pkgconfig
@@ -336,18 +338,24 @@ endif
 CC := $(CROSS_COMPILE)gcc
 CXX := $(CROSS_COMPILE)g++
 JCFLAGS := -std=gnu99 -pipe $(fPIC) -fno-strict-aliasing -D_FILE_OFFSET_BITS=64
-JCPPFLAGS :=
+# AArch64 needs this flag to generate the .eh_frame used by libunwind
+JCPPFLAGS := -fasynchronous-unwind-tables
 JCXXFLAGS := -pipe $(fPIC) -fno-rtti
-DEBUGFLAGS := -O0 -ggdb3 -DJL_DEBUG_BUILD -fstack-protector-all
-SHIPFLAGS := -O3 -ggdb3 -falign-functions
+ifneq ($(OS), WINNT)
+# Do no enable on windows to avoid warnings from libuv.
+JCXXFLAGS += -pedantic
+endif
+DEBUGFLAGS := -O0 -ggdb2 -DJL_DEBUG_BUILD -fstack-protector-all
+SHIPFLAGS := -O3 -ggdb2 -falign-functions
 endif
 
 ifeq ($(USECLANG),1)
 CC := $(CROSS_COMPILE)clang
 CXX := $(CROSS_COMPILE)clang++
 JCFLAGS := -pipe $(fPIC) -fno-strict-aliasing -D_FILE_OFFSET_BITS=64
-JCPPFLAGS :=
-JCXXFLAGS := -pipe $(fPIC) -fno-rtti
+# AArch64 needs this flag to generate the .eh_frame used by libunwind
+JCPPFLAGS := -fasynchronous-unwind-tables
+JCXXFLAGS := -pipe $(fPIC) -fno-rtti -pedantic
 DEBUGFLAGS := -O0 -g -DJL_DEBUG_BUILD -fstack-protector-all
 SHIPFLAGS := -O3 -g
 ifeq ($(OS), Darwin)
@@ -379,8 +387,6 @@ DEBUGFLAGS := -O0 -g -DJL_DEBUG_BUILD -fstack-protector-all
 SHIPFLAGS := -O3 -g -falign-functions
 endif
 
-JCPPFLAGS += -ftls-model=global-dynamic
-
 ifeq ($(USECCACHE), 1)
 # expand CC and CXX at declaration time because we will redefine them
 CC_ARG   := $(CC)         # Expand CC and CXX here already because we want
@@ -394,8 +400,8 @@ CXX_BASE := ccache
 ifeq ($(USECLANG),1)
 # ccache and Clang don't do well together
 # http://petereisentraut.blogspot.be/2011/05/ccache-and-clang.html
-CC += -Qunused-arguments -fcolor-diagnostics
-CXX += -Qunused-arguments -fcolor-diagnostics
+CC += -Qunused-arguments
+CXX += -Qunused-arguments
 # http://petereisentraut.blogspot.be/2011/09/ccache-and-clang-part-2.html
 export CCACHE_CPP2 := yes
 endif
@@ -456,8 +462,11 @@ endif
 JCXXFLAGS += $(SANITIZE_OPTS)
 JCFLAGS += $(SANITIZE_OPTS)
 LDFLAGS += $(SANITIZE_LDFLAGS)
-DEPS_CFLAGS += $(SANITIZE_OPTS)
-DEPS_CXXFLAGS += $(SANITIZE_OPTS)
+# FIXME: sanitizing all dependencies doesn't work because of -Wl,--no-undefined
+#        https://github.com/JuliaLang/julia/issues/13858
+#        use LLVM_SANITIZE to sanitize LLVM
+#DEPS_CFLAGS += $(SANITIZE_OPTS)
+#DEPS_CXXFLAGS += $(SANITIZE_OPTS)
 endif
 
 TAR=`which gtar 2>/dev/null || which tar 2>/dev/null`
@@ -490,6 +499,10 @@ endif
 #    since it is set equal to MARCH by default
 
 BUILD_MACHINE := $(shell $(HOSTCC) -dumpmachine)
+
+# Clang spells mingw `-windows-gnu`, but autotools, etc
+# don't recognize that, so canonicalize to mingw32
+BUILD_MACHINE := $(subst windows-gnu,mingw32,$(BUILD_MACHINE))
 
 ifeq ($(ARCH),)
 override ARCH := $(shell $(CC) -dumpmachine | sed "s/\([^-]*\).*$$/\1/")
@@ -599,11 +612,11 @@ JCFLAGS += -fsigned-char
 
 LLVM_ASSERTIONS=1
 #LLVM_FLAGS+="--with-float=hard --with-abi=aapcs-vfp"
-LLVM_VER:=3.7.0
 
 override USE_BLAS64:=0
 override OPENBLAS_DYNAMIC_ARCH:=0
 override OPENBLAS_TARGET_ARCH:=ARMV7
+override USE_SYSTEM_LIBM:=1
 
 endif
 
@@ -615,6 +628,13 @@ CXX += -m$(BINARY)
 FC += -m$(BINARY)
 CC_ARG += -m$(BINARY)
 CXX_ARG += -m$(BINARY)
+endif
+endif
+
+ifeq ($(OS),WINNT)
+ifneq ($(ARCH),x86_64)
+JCFLAGS += -mincoming-stack-boundary=2
+JCXXFLAGS += -mincoming-stack-boundary=2
 endif
 endif
 
@@ -630,6 +650,9 @@ else
 ifeq ($(USE_SYSTEM_LIBUNWIND), 1)
 ifneq ($(OS),Darwin)
 LIBUNWIND:=-lunwind-generic -lunwind
+# Only for linux since we want to use not yet released libunwind features
+JCFLAGS+=-DSYSTEM_LIBUNWIND
+JCPPFLAGS+=-DSYSTEM_LIBUNWIND
 endif
 else
 ifeq ($(OS),Darwin)
@@ -663,6 +686,9 @@ ifeq ($(shell $(LLVM_CONFIG_HOST) --version),3.3)
 # use delayed expansion (= not :=) because spawn isn't defined until later
 LLVM_CONFIG_HOST = $(call spawn,$(LLVM_CONFIG))
 endif
+else
+# llvm-config-host does not exist (cmake build)
+LLVM_CONFIG_HOST = $(call spawn,$(LLVM_CONFIG))
 endif
 endif
 
@@ -789,7 +815,7 @@ else ifneq ($(USEMSVC), 1)
 endif
 
 ifeq ($(OS), Linux)
-OSLIBS += -ldl -lrt -lpthread -Wl,--export-dynamic -Wl,--no-whole-archive $(LIBUNWIND)
+OSLIBS += -Wl,--no-as-needed -ldl -lrt -lpthread -Wl,--export-dynamic,--as-needed,--no-whole-archive $(LIBUNWIND)
 ifneq ($(SANITIZE),1)
 ifneq ($(SANITIZE_MEMORY),1)
 ifneq ($(LLVM_SANITIZE),1)
@@ -828,13 +854,14 @@ ifneq ($(USEMSVC), 1)
 HAVE_SSP := 1
 OSLIBS += -Wl,--export-all-symbols -Wl,--version-script=$(JULIAHOME)/src/julia.expmap \
 	$(NO_WHOLE_ARCHIVE) -lpsapi -lkernel32 -lws2_32 -liphlpapi -lwinmm -ldbghelp
-JLDFLAGS := -Wl,--stack,8388608
 ifeq ($(ARCH),i686)
-JLDFLAGS += -Wl,--large-address-aware
+JLDFLAGS := -Wl,--stack,8388608 -Wl,--large-address-aware
+else #x64
+JLDFLAGS := -Wl,--stack,16777216
 endif
 else #USEMSVC
 OSLIBS += kernel32.lib ws2_32.lib psapi.lib advapi32.lib iphlpapi.lib shell32.lib winmm.lib
-JLDFLAGS := -stack:8388608
+JLDFLAGS := -stack:16777216
 endif
 JCPPFLAGS += -D_WIN32_WINNT=0x0502
 UNTRUSTED_SYSTEM_LIBM := 1

@@ -19,8 +19,9 @@
 Create a sparse matrix `S` of dimensions `m x n` such that `S[I[k], J[k]] = V[k]`.
 The `combine` function is used to combine duplicates. If `m` and `n` are not
 specified, they are set to `maximum(I)` and `maximum(J)` respectively. If the
-`combine` function is not supplied, duplicates are added by default. All elements
-of `I` must satisfy `1 <= I[k] <= m`, and all elements of `J` must satisfy `1 <= J[k] <= n`.
+`combine` function is not supplied, `combine` defaults to `+` unless the elements
+of `V` are Booleans in which case `combine` defaults to `|`. All elements of `I` must
+satisfy `1 <= I[k] <= m`, and all elements of `J` must satisfy `1 <= J[k] <= n`.
 """
 function sparse{Tv,Ti<:Integer}(I::AbstractVector{Ti},
                                 J::AbstractVector{Ti},
@@ -136,69 +137,6 @@ function sparse{Tv,Ti<:Integer}(I::AbstractVector{Ti},
     end
 
     return SparseMatrixCSC(nrow, ncol, RpT, RiT, RxT)
-end
-
-## Transpose and apply f
-
-# Based on Direct Methods for Sparse Linear Systems, T. A. Davis, SIAM, Philadelphia, Sept. 2006.
-# Section 2.5: Transpose
-# http://www.cise.ufl.edu/research/sparse/CSparse/
-function ftranspose!{Tv,Ti}(T::SparseMatrixCSC{Tv,Ti}, S::SparseMatrixCSC{Tv,Ti}, f)
-    (mS, nS) = size(S)
-    nnzS = nnz(S)
-    colptr_S = S.colptr
-    rowval_S = S.rowval
-    nzval_S = S.nzval
-
-    (mT, nT) = size(T)
-    colptr_T = T.colptr
-    rowval_T = T.rowval
-    nzval_T = T.nzval
-
-    fill!(colptr_T, 0)
-    colptr_T[1] = 1
-    for i=1:nnzS
-        @inbounds colptr_T[rowval_S[i]+1] += 1
-    end
-    cumsum!(colptr_T, colptr_T)
-
-    w = copy(colptr_T)
-    @inbounds for j = 1:nS, p = colptr_S[j]:(colptr_S[j+1]-1)
-        ind = rowval_S[p]
-        q = w[ind]
-        w[ind] += 1
-        rowval_T[q] = j
-        nzval_T[q] = f(nzval_S[p])
-    end
-
-    return T
-end
-
-function ftranspose{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti}, f)
-    (nT, mT) = size(S)
-    nnzS = nnz(S)
-    colptr_T = Array(Ti, nT+1)
-    rowval_T = Array(Ti, nnzS)
-    nzval_T = Array(Tv, nnzS)
-
-    T = SparseMatrixCSC(mT, nT, colptr_T, rowval_T, nzval_T)
-    return ftranspose!(T, S, f)
-end
-
-function transpose!{Tv,Ti}(T::SparseMatrixCSC{Tv,Ti}, S::SparseMatrixCSC{Tv,Ti})
-    ftranspose!(T, S, IdFun())
-end
-
-function transpose{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti})
-    ftranspose(S, IdFun())
-end
-
-function ctranspose!{Tv,Ti}(T::SparseMatrixCSC{Tv,Ti}, S::SparseMatrixCSC{Tv,Ti})
-    ftranspose!(T, S, ConjFun())
-end
-
-function ctranspose{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti})
-    ftranspose(S, ConjFun())
 end
 
 # Compute the elimination tree of A using triu(A) returning the parent vector.
@@ -396,13 +334,13 @@ end
 
 
 immutable DropTolFun <: Func{4} end
-call(::DropTolFun, i,j,x,other) = abs(x)>other
+(::DropTolFun)(i,j,x,other) = abs(x)>other
 immutable DropZerosFun <: Func{4} end
-call(::DropZerosFun, i,j,x,other) = x!=0
+(::DropZerosFun)(i,j,x,other) = x!=0
 immutable TriuFun <: Func{4} end
-call(::TriuFun, i,j,x,other) = j>=i + other
+(::TriuFun)(i,j,x,other) = j>=i + other
 immutable TrilFun <: Func{4} end
-call(::TrilFun, i,j,x,other) = i>=j - other
+(::TrilFun)(i,j,x,other) = i>=j - other
 
 droptol!(A::SparseMatrixCSC, tol) = fkeep!(A, DropTolFun(), tol)
 dropzeros!(A::SparseMatrixCSC) = fkeep!(A, DropZerosFun(), nothing)

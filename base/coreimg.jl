@@ -2,7 +2,7 @@
 
 Main.Core.eval(Main.Core, :(baremodule Inference
 using Core: Intrinsics, arrayref, arrayset, arraysize, _expr,
-            kwcall, _apply, typeassert, apply_type, svec
+            _apply, typeassert, apply_type, svec
 ccall(:jl_set_istopmod, Void, (Bool,), false)
 
 eval(x) = Core.eval(Inference,x)
@@ -22,6 +22,7 @@ macro doc(str, def) Expr(:escape, def) end
 
 ## Load essential files and libraries
 include("essentials.jl")
+include("generator.jl")
 include("reflection.jl")
 include("options.jl")
 
@@ -40,8 +41,8 @@ include("number.jl")
 include("int.jl")
 include("operators.jl")
 include("pointer.jl")
-checked_add{T<:Integer}(x::T, y::T) = x+y
-checked_sub{T<:Integer}(x::T, y::T) = x-y
+const checked_add = +
+const checked_sub = -
 
 # core array operations
 include("abstractarray.jl")
@@ -72,12 +73,12 @@ include("inference.jl")
 
 precompile(CallStack, (Expr, Module, Tuple{Void}, EmptyCallStack))
 precompile(_ieval, (Symbol,))
-precompile(abstract_eval, (LambdaStaticData, ObjectIdDict, StaticVarInfo))
-precompile(abstract_interpret, (Bool, ObjectIdDict, StaticVarInfo))
+precompile(abstract_eval, (LambdaInfo, ObjectIdDict, VarInfo))
+precompile(abstract_interpret, (Bool, ObjectIdDict, VarInfo))
 precompile(delete_var!, (Expr, Symbol))
-precompile(eval_annotate, (LambdaStaticData, ObjectIdDict, StaticVarInfo, ObjectIdDict, Array{Any,1}))
+precompile(eval_annotate, (LambdaInfo, ObjectIdDict, VarInfo, ObjectIdDict, Array{Any,1}))
 precompile(is_var_assigned, (Expr, Symbol))
-precompile(isconstantfunc, (SymbolNode, StaticVarInfo))
+precompile(isconstantfunc, (SymbolNode, VarInfo))
 precompile(occurs_more, (Bool, Function, Int))
 precompile(occurs_more, (UInt8, Function, Int))
 precompile(occurs_undef, (Symbol, Expr))

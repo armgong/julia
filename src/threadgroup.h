@@ -9,7 +9,6 @@
 // for the barrier
 typedef struct {
     volatile int sense;
-
 } ti_thread_sense_t;
 
 
@@ -19,7 +18,6 @@ typedef struct {
     uint8_t             num_sockets, num_cores, num_threads_per_core;
 
     // fork/join/barrier
-    uint8_t             forked;
     volatile uint8_t    group_sense;
     ti_thread_sense_t  **thread_sense;
     void                *envelope;
@@ -43,10 +41,8 @@ int  ti_threadgroup_size(ti_threadgroup_t *tg, int16_t *tgsize);
 int  ti_threadgroup_fork(ti_threadgroup_t *tg, int16_t ext_tid,
                          void **bcast_val);
 int  ti_threadgroup_join(ti_threadgroup_t *tg, int16_t ext_tid);
-void ti_threadgroup_barrier(ti_threadgroup_t *tg, int16_t ext_tid);
 int  ti_threadgroup_destroy(ti_threadgroup_t *tg);
 
 extern ti_threadgroup_t *tgworld;
 
 #endif  /* THREADGROUP_H */
-

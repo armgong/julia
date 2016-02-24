@@ -45,7 +45,8 @@ extern char *julia_home;
 #   endif
 #endif
 
-static void JL_NORETURN jl_dlerror(const char *fmt, const char *sym) {
+static void JL_NORETURN jl_dlerror(const char *fmt, const char *sym)
+{
 #ifdef _OS_WINDOWS_
     CHAR reason[256];
     FormatMessageA(FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
@@ -58,7 +59,7 @@ static void JL_NORETURN jl_dlerror(const char *fmt, const char *sym) {
     jl_errorf(fmt, sym, reason);
 }
 
-JL_DLLEXPORT void* jl_dlopen(const char *filename, unsigned flags)
+JL_DLLEXPORT void *jl_dlopen(const char *filename, unsigned flags)
 {
 #if defined(_OS_WINDOWS_)
     needsSymRefreshModuleList = 1;
@@ -254,7 +255,7 @@ const char *jl_dlfind_win32(const char *f_name)
 #else
         return "msvcrt";
 #endif
-    if (jl_dlsym(jl_winsock_handle, f_name))
+    if (jl_dlsym_e(jl_winsock_handle, f_name))
         return "ws2_32";
     // additional common libraries (libc?) could be added here, but in general,
     // it is better to specify the library explicitly in the code. This exists

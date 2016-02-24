@@ -51,6 +51,9 @@ endif
 $(foreach dir,$(DIRS),$(eval $(call dir_target,$(dir))))
 $(foreach link,base test,$(eval $(call symlink_target,$(link),$(build_datarootdir)/julia)))
 
+julia_flisp.boot.inc.phony: julia-deps
+	@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT)/src julia_flisp.boot.inc.phony
+
 # Build the HTML docs (skipped if already exists, notably in tarballs)
 $(BUILDROOT)/doc/_build/html:
 	@$(MAKE) -C $(BUILDROOT)/doc html
@@ -83,7 +86,7 @@ julia-base: julia-deps $(build_sysconfdir)/julia/juliarc.jl $(build_man1dir)/jul
 julia-libccalltest: julia-deps
 	@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT)/src libccalltest
 
-julia-src-release julia-src-debug : julia-src-% : julia-deps
+julia-src-release julia-src-debug : julia-src-% : julia-deps julia_flisp.boot.inc.phony
 	@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT)/src libjulia-$*
 
 julia-ui-release julia-ui-debug : julia-ui-% : julia-src-%
@@ -188,6 +191,7 @@ CORE_SRCS := $(addprefix $(JULIAHOME)/, \
 		base/dict.jl \
 		base/error.jl \
 		base/essentials.jl \
+		base/generator.jl \
 		base/expr.jl \
 		base/functors.jl \
 		base/hashing.jl \
@@ -364,7 +368,7 @@ ifeq ($(OS),WINNT)
 endif
 	$(INSTALL_F) $(build_includedir)/uv* $(DESTDIR)$(includedir)/julia
 endif
-	$(INSTALL_F) $(addprefix $(JULIAHOME)/,src/julia.h src/julia_version.h src/support/*.h) $(DESTDIR)$(includedir)/julia
+	$(INSTALL_F) $(addprefix $(JULIAHOME)/,src/julia.h src/julia_threads.h src/julia_version.h src/support/*.h) $(DESTDIR)$(includedir)/julia
 	# Copy system image
 	-$(INSTALL_F) $(build_private_libdir)/sys.ji $(DESTDIR)$(private_libdir)
 	$(INSTALL_M) $(build_private_libdir)/sys.$(SHLIB_EXT) $(DESTDIR)$(private_libdir)
@@ -618,3 +622,17 @@ endif
 	chmod a+x 7z.dll && \
 	$(call spawn,./7z.exe) x -y -onsis nsis-2.46.5-Unicode-setup.exe && \
 	chmod a+x ./nsis/makensis.exe
+
+# various statistics about the build that may interest the user
+ifeq ($(USE_SYSTEM_LLVM), 1)
+LLVM_SIZE := llvm-size$(EXE)
+else
+LLVM_SIZE := $(build_bindir)/llvm-size$(EXE)
+endif
+build-stats:
+	@echo $(JULCOLOR)' ==> ./julia binary sizes'$(ENDCOLOR)
+	$(call spawn,$(LLVM_SIZE) -A $(build_private_libdir)/sys.$(SHLIB_EXT) $(build_shlibdir)/libjulia.$(SHLIB_EXT) $(build_bindir)/julia$(EXE))
+	@echo $(JULCOLOR)' ==> ./julia launch speedtest'$(ENDCOLOR)
+	@time $(call spawn,$(build_bindir)/julia$(EXE) -e '')
+	@time $(call spawn,$(build_bindir)/julia$(EXE) -e '')
+	@time $(call spawn,$(build_bindir)/julia$(EXE) -e '')

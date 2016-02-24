@@ -36,20 +36,35 @@ fill!(D::Diagonal, x) = (fill!(D.diag, x); D)
 
 full(D::Diagonal) = diagm(D.diag)
 
-getindex(D::Diagonal, i::Int, j::Int) = (checkbounds(D, i, j); unsafe_getindex(D, i, j))
-unsafe_getindex{T}(D::Diagonal{T}, i::Int, j::Int) = i == j ? unsafe_getindex(D.diag, i) : zero(T)
-unsafe_getindex{T}(D::Diagonal{Matrix{T}}, i::Int, j::Int) = i == j ? D.diag[i] : zeros(T, size(D.diag[i
-], 1), size(D.diag[j], 2))
-
-setindex!(D::Diagonal, v, i::Int, j::Int) = (checkbounds(D, i, j); unsafe_setindex!(D, v, i, j))
-function unsafe_setindex!(D::Diagonal, v, i::Int, j::Int)
+@inline function getindex(D::Diagonal, i::Int, j::Int)
+    @boundscheck checkbounds(D, i, j)
     if i == j
-        unsafe_setindex!(D.diag, v, i)
+        @inbounds r = D.diag[i]
+    else
+        r = diagzero(D, i, j)
+    end
+    r
+end
+diagzero{T}(::Diagonal{T},i,j) = zero(T)
+diagzero{T}(D::Diagonal{Matrix{T}},i,j) = zeros(T, size(D.diag[i], 1), size(D.diag[j], 2))
+
+function setindex!(D::Diagonal, v, i::Int, j::Int)
+    @boundscheck checkbounds(D, i, j)
+    if i == j
+        @inbounds D.diag[i] = v
     elseif v != 0
         throw(ArgumentError("cannot set an off-diagonal index ($i, $j) to a nonzero value ($v)"))
     end
     D
 end
+
+
+## structured matrix methods ##
+function Base.replace_in_print_matrix(A::Diagonal,i::Integer,j::Integer,s::AbstractString)
+    i==j ? s : Base.replace_with_centered_mark(s)
+end
+
+parent(D::Diagonal) = D.diag
 
 ishermitian{T<:Real}(D::Diagonal{T}) = true
 ishermitian(D::Diagonal) = all(D.diag .== real(D.diag))
@@ -93,9 +108,9 @@ end
 *{T<:Number}(D::Diagonal, x::T) = Diagonal(D.diag * x)
 /{T<:Number}(D::Diagonal, x::T) = Diagonal(D.diag / x)
 *(Da::Diagonal, Db::Diagonal) = Diagonal(Da.diag .* Db.diag)
-*(D::Diagonal, V::Vector) = D.diag .* V
-*(A::Matrix, D::Diagonal) = scale(A,D.diag)
-*(D::Diagonal, A::Matrix) = scale(D.diag,A)
+*(D::Diagonal, V::AbstractVector) = D.diag .* V
+*(A::AbstractMatrix, D::Diagonal) = scale(A,D.diag)
+*(D::Diagonal, A::AbstractMatrix) = scale(D.diag,A)
 
 A_mul_B!(A::Diagonal,B::AbstractMatrix) = scale!(A.diag,B)
 At_mul_B!(A::Diagonal,B::AbstractMatrix)= scale!(A.diag,B)
@@ -174,7 +189,7 @@ end
 (\)(Da::Diagonal, Db::Diagonal) = Diagonal(Db.diag ./ Da.diag)
 
 function inv{T}(D::Diagonal{T})
-    Di = similar(D.diag)
+    Di = similar(D.diag, typeof(inv(zero(T))))
     for i = 1:length(D.diag)
         if D.diag[i] == zero(T)
             throw(SingularException(i))
@@ -185,14 +200,14 @@ function inv{T}(D::Diagonal{T})
 end
 
 function pinv{T}(D::Diagonal{T})
-    Di = similar(D.diag)
+    Di = similar(D.diag, typeof(inv(zero(T))))
     for i = 1:length(D.diag)
         isfinite(inv(D.diag[i])) ? Di[i]=inv(D.diag[i]) : Di[i]=zero(T)
     end
     Diagonal(Di)
 end
 function pinv{T}(D::Diagonal{T}, tol::Real)
-    Di = similar(D.diag)
+    Di = similar(D.diag, typeof(inv(zero(T))))
     if( !isempty(D.diag) ) maxabsD = maximum(abs(D.diag)) end
     for i = 1:length(D.diag)
         if( abs(D.diag[i]) > tol*maxabsD && isfinite(inv(D.diag[i])) )

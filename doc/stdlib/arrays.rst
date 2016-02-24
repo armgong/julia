@@ -134,6 +134,12 @@ Basic functions
 
    The inverse of ``ind2sub``\ , returns the linear index corresponding to the provided subscripts.
 
+.. function:: LinAlg.checksquare(A)
+
+   .. Docstring generated from Julia source
+
+   Check that a matrix is square, then return its common dimension. For multiple arguments, return a vector.
+
 Constructors
 ------------
 
@@ -269,7 +275,7 @@ Constructors
 
    Constructs an identity matrix of the same dimensions and type as ``A``\ .
 
-.. function:: linspace(start, stop, n=100)
+.. function:: linspace(start, stop, n=50)
 
    .. Docstring generated from Julia source
 
@@ -853,13 +859,13 @@ dense counterparts. The following functions are specific to sparse arrays.
 
    .. Docstring generated from Julia source
 
-   Create a sparse matrix ``S`` of dimensions ``m x n`` such that ``S[I[k], J[k]] = V[k]``\ . The ``combine`` function is used to combine duplicates. If ``m`` and ``n`` are not specified, they are set to ``maximum(I)`` and ``maximum(J)`` respectively. If the ``combine`` function is not supplied, duplicates are added by default. All elements of ``I`` must satisfy ``1 <= I[k] <= m``\ , and all elements of ``J`` must satisfy ``1 <= J[k] <= n``\ .
+   Create a sparse matrix ``S`` of dimensions ``m x n`` such that ``S[I[k], J[k]] = V[k]``\ . The ``combine`` function is used to combine duplicates. If ``m`` and ``n`` are not specified, they are set to ``maximum(I)`` and ``maximum(J)`` respectively. If the ``combine`` function is not supplied, ``combine`` defaults to ``+`` unless the elements of ``V`` are Booleans in which case ``combine`` defaults to ``|``\ . All elements of ``I`` must satisfy ``1 <= I[k] <= m``\ , and all elements of ``J`` must satisfy ``1 <= J[k] <= n``\ .
 
 .. function:: sparsevec(I, V, [m, combine])
 
    .. Docstring generated from Julia source
 
-   Create a sparse vector ``S`` of length ``m`` such that ``S[I[k]] = V[k]``\ . Duplicates are combined using the ``combine`` function, which defaults to ``+`` if it is not provided.
+   Create a sparse vector ``S`` of length ``m`` such that ``S[I[k]] = V[k]``\ . Duplicates are combined using the ``combine`` function, which defaults to ``+`` if no ``combine`` argument is provided, unless the elements of ``V`` are Booleans in which case ``combine`` defaults to ``|``\ .
 
 .. function:: sparsevec(D::Dict, [m])
 
@@ -897,11 +903,11 @@ dense counterparts. The following functions are specific to sparse arrays.
 
    Returns the number of stored (filled) elements in a sparse array.
 
-.. function:: spzeros(m[,n])
+.. function:: spzeros([type,]m[,n])
 
    .. Docstring generated from Julia source
 
-   Create a sparse vector of length ``m`` or sparse matrix of size ``m x n``\ . This sparse array will not contain any nonzero values. No storage will be allocated for nonzero values during construction.
+   Create a sparse vector of length ``m`` or sparse matrix of size ``m x n``\ . This sparse array will not contain any nonzero values. No storage will be allocated for nonzero values during construction. The type defaults to ``Float64`` if not specified.
 
 .. function:: spones(S)
 
@@ -909,11 +915,17 @@ dense counterparts. The following functions are specific to sparse arrays.
 
    Create a sparse array with the same structure as that of ``S``\ , but with every nonzero element having the value ``1.0``\ .
 
-.. function:: speye(type,m[,n])
+.. function:: speye([type,]m[,n])
 
    .. Docstring generated from Julia source
 
-   Create a sparse identity matrix of specified type of size ``m x m``\ . In case ``n`` is supplied, create a sparse identity matrix of size ``m x n``\ .
+   Create a sparse identity matrix of size ``m x m``\ . When ``n`` is supplied, create a sparse identity matrix of size ``m x n``\ . The type defaults to ``Float64`` if not specified.
+
+.. function:: speye(S)
+
+   .. Docstring generated from Julia source
+
+   Create a sparse identity matrix with the same structure as that of  ``S``\ .
 
 .. function:: spdiagm(B, d[, m, n])
 
@@ -925,13 +937,7 @@ dense counterparts. The following functions are specific to sparse arrays.
 
    .. Docstring generated from Julia source
 
-   Create a random length ``m`` sparse vector or ``m`` by ``n`` sparse matrix, in
-   which the probability of any element being nonzero is independently given by
-   ``p`` (and hence the mean density of nonzeros is also exactly ``p``). Nonzero
-   values are sampled from the distribution specified by ``rfn``. The uniform
-   distribution is used in case ``rfn`` is not specified. The optional ``rng``
-   argument specifies a random number generator, see :ref:`Random Numbers
-   <random-numbers>`.
+   Create a random length ``m`` sparse vector or ``m`` by ``n`` sparse matrix, in which the probability of any element being nonzero is independently given by ``p`` (and hence the mean density of nonzeros is also exactly ``p``\ ). Nonzero values are sampled from the distribution specified by ``rfn``\ . The uniform distribution is used in case ``rfn`` is not specified. The optional ``rng`` argument specifies a random number generator, see :ref:`Random Numbers <random-numbers>`\ .
 
 .. function:: sprandn(m[,n],p::AbstractFloat)
 

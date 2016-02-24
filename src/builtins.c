@@ -94,8 +94,7 @@ JL_DLLEXPORT void JL_NORETURN jl_too_many_args(const char *fname, int max)
     jl_exceptionf(jl_argumenterror_type, "%s: too many arguments (expected %d)", fname, max);
 }
 
-JL_DLLEXPORT void JL_NORETURN jl_type_error_rt(const char *fname,
-                                               const char *context,
+JL_DLLEXPORT void JL_NORETURN jl_type_error_rt(const char *fname, const char *context,
                                                jl_value_t *ty, jl_value_t *got)
 {
     jl_value_t *ctxt=NULL;
@@ -106,8 +105,7 @@ JL_DLLEXPORT void JL_NORETURN jl_type_error_rt(const char *fname,
     jl_throw(ex);
 }
 
-JL_DLLEXPORT void JL_NORETURN jl_type_error(const char *fname,
-                                            jl_value_t *expected,
+JL_DLLEXPORT void JL_NORETURN jl_type_error(const char *fname, jl_value_t *expected,
                                             jl_value_t *got)
 {
     jl_type_error_rt(fname, "", expected, got);
@@ -130,8 +128,7 @@ JL_DLLEXPORT void JL_NORETURN jl_bounds_error(jl_value_t *v, jl_value_t *t)
     jl_throw(jl_new_struct((jl_datatype_t*)jl_boundserror_type, v, t));
 }
 
-JL_DLLEXPORT void JL_NORETURN jl_bounds_error_v(jl_value_t *v,
-                                                jl_value_t **idxs, size_t nidxs)
+JL_DLLEXPORT void JL_NORETURN jl_bounds_error_v(jl_value_t *v, jl_value_t **idxs, size_t nidxs)
 {
     jl_value_t *t = NULL;
     // items in idxs are assumed to already be rooted
@@ -140,16 +137,13 @@ JL_DLLEXPORT void JL_NORETURN jl_bounds_error_v(jl_value_t *v,
     jl_throw(jl_new_struct((jl_datatype_t*)jl_boundserror_type, v, t));
 }
 
-JL_DLLEXPORT void JL_NORETURN jl_bounds_error_tuple_int(jl_value_t **v,
-                                                        size_t nv, size_t i)
+JL_DLLEXPORT void JL_NORETURN jl_bounds_error_tuple_int(jl_value_t **v, size_t nv, size_t i)
 {
     // values in v are expected to already be gc-rooted
     jl_bounds_error_int(jl_f_tuple(NULL, v, nv), i);
 }
 
-JL_DLLEXPORT void JL_NORETURN jl_bounds_error_unboxed_int(void *data,
-                                                          jl_value_t *vt,
-                                                          size_t i)
+JL_DLLEXPORT void JL_NORETURN jl_bounds_error_unboxed_int(void *data, jl_value_t *vt, size_t i)
 {
     jl_value_t *t = NULL, *v = NULL;
     // data is expected to be gc-safe (either gc-rooted, or alloca)
@@ -168,8 +162,7 @@ JL_DLLEXPORT void JL_NORETURN jl_bounds_error_int(jl_value_t *v, size_t i)
     jl_throw(jl_new_struct((jl_datatype_t*)jl_boundserror_type, v, t));
 }
 
-JL_DLLEXPORT void JL_NORETURN jl_bounds_error_ints(jl_value_t *v, size_t *idxs,
-                                                   size_t nidxs)
+JL_DLLEXPORT void JL_NORETURN jl_bounds_error_ints(jl_value_t *v, size_t *idxs, size_t nidxs)
 {
     size_t i;
     jl_value_t *t = NULL;
@@ -180,6 +173,22 @@ JL_DLLEXPORT void JL_NORETURN jl_bounds_error_ints(jl_value_t *v, size_t *idxs,
     }
     t = jl_f_tuple(NULL, jl_svec_data(t), nidxs);
     jl_throw(jl_new_struct((jl_datatype_t*)jl_boundserror_type, v, t));
+}
+
+JL_DLLEXPORT void JL_NORETURN jl_eof_error(void)
+{
+    jl_datatype_t *eof_error =
+        (jl_datatype_t*)jl_get_global(jl_base_module, jl_symbol("EOFError"));
+    assert(eof_error != NULL);
+    jl_exceptionf(eof_error, "");
+}
+
+JL_DLLEXPORT jl_value_t *jl_get_keyword_sorter(jl_value_t *f)
+{
+    jl_methtable_t *mt = jl_gf_mtable(f);
+    if (mt->kwsorter == NULL)
+        jl_errorf("function %s does not accept keyword arguments", jl_symbol_name(mt->name));
+    return mt->kwsorter;
 }
 
 JL_CALLABLE(jl_f_throw)
@@ -194,6 +203,10 @@ JL_DLLEXPORT void jl_enter_handler(jl_handler_t *eh)
     JL_SIGATOMIC_BEGIN();
     eh->prev = jl_current_task->eh;
     eh->gcstack = jl_pgcstack;
+#ifdef JULIA_ENABLE_THREADING
+    eh->gc_state = jl_gc_state();
+    eh->locks_len = jl_current_task->locks.len;
+#endif
     jl_current_task->eh = eh;
     // TODO: this should really go after setjmp(). see comment in
     // ctx_switch in task.c.
@@ -241,7 +254,7 @@ static int bits_equal(void *a, void *b, int sz)
 // The solution is to keep the code in jl_egal simple and split out the
 // (more) complex cases into their own functions which are marked with
 // NOINLINE.
-static int NOINLINE compare_svec(jl_value_t *a, jl_value_t *b)
+static int NOINLINE compare_svec(jl_svec_t *a, jl_svec_t *b)
 {
     size_t l = jl_svec_len(a);
     if (l != jl_svec_len(b))
@@ -293,13 +306,12 @@ JL_DLLEXPORT int jl_egal(jl_value_t *a, jl_value_t *b)
     if (ta != (jl_value_t*)jl_typeof(b))
         return 0;
     if (jl_is_svec(a))
-        return compare_svec(a, b);
+        return compare_svec((jl_svec_t*)a, (jl_svec_t*)b);
     jl_datatype_t *dt = (jl_datatype_t*)ta;
     if (dt == jl_datatype_type) {
         jl_datatype_t *dta = (jl_datatype_t*)a;
         jl_datatype_t *dtb = (jl_datatype_t*)b;
-        return dta->name == dtb->name &&
-            jl_egal((jl_value_t*)dta->parameters, (jl_value_t*)dtb->parameters);
+        return dta->name == dtb->name && compare_svec(dta->parameters, dtb->parameters);
     }
     if (dt->mutabl) return 0;
     size_t sz = dt->size;
@@ -316,12 +328,6 @@ JL_CALLABLE(jl_f_is)
     if (args[0] == args[1])
         return jl_true;
     return jl_egal(args[0],args[1]) ? jl_true : jl_false;
-}
-
-JL_CALLABLE(jl_f_no_function)
-{
-    jl_error("invalid function object");
-    return jl_nothing;
 }
 
 JL_CALLABLE(jl_f_typeof)
@@ -358,7 +364,7 @@ JL_CALLABLE(jl_f_sizeof)
     return jl_box_long(jl_datatype_size(dt));
 }
 
-JL_CALLABLE(jl_f_subtype)
+JL_CALLABLE(jl_f_issubtype)
 {
     JL_NARGS(subtype, 2, 2);
     if (!jl_is_typevar(args[0]))
@@ -392,23 +398,12 @@ JL_CALLABLE(jl_f_typeassert)
 
 static jl_function_t *jl_append_any_func;
 
-JL_CALLABLE(jl_f_apply)
+JL_CALLABLE(jl_f__apply)
 {
-    JL_NARGSV(apply, 2);
-    jl_function_t *f;
-    jl_function_t *call_func = (jl_function_t*)args[0];
-    assert(jl_is_function(call_func));
-    if (jl_is_function(args[1])) {
-        f = (jl_function_t*)args[1];
-        --nargs; ++args; /* args[1] becomes args[0] */
-    }
-    else { /* do generic call(args...) instead */
-        f = call_func;
-        // protect "function" arg from splicing
-        args[1] = (jl_value_t*)jl_svec1(args[1]);
-    }
+    JL_NARGSV(apply, 1);
+    jl_function_t *f = args[0];
     if (nargs == 2) {
-        if (f->fptr == &jl_f_svec) {
+        if (f == jl_builtin_svec) {
             if (jl_is_svec(args[1]))
                 return args[1];
             if (jl_is_array(args[1])) {
@@ -422,9 +417,6 @@ JL_CALLABLE(jl_f_apply)
                 return (jl_value_t*)t;
             }
         }
-        if (jl_is_svec(args[1])) {
-            return jl_apply(f, jl_svec_data(args[1]), jl_svec_len(args[1]));
-        }
     }
     size_t n=0, i, j;
     for(i=1; i < nargs; i++) {
@@ -434,7 +426,7 @@ JL_CALLABLE(jl_f_apply)
         else if (jl_is_tuple(args[i])) {
             n += jl_nfields(args[i]);
         }
-        else if (jl_is_array(args[i]) && ((jl_array_t*)args[i])->ptrarray) {
+        else if (jl_is_array(args[i])) {
             n += jl_array_len(args[i]);
         }
         else {
@@ -446,15 +438,21 @@ JL_CALLABLE(jl_f_apply)
                     JL_TYPECHK(apply, tuple, jl_typeof(args[i]));
                 }
             }
-            jl_value_t *argarr = jl_apply(jl_append_any_func, &args[1], nargs-1);
+            jl_array_t *argarr = NULL;
+            JL_GC_PUSH2(&argarr, &f);
+            args[0] = jl_append_any_func;
+            argarr = (jl_array_t*)jl_apply(args, nargs);
             assert(jl_typeis(argarr, jl_array_any_type));
-            JL_GC_PUSH1(&argarr);
-            jl_value_t *result = jl_apply(f, jl_cell_data(argarr), jl_array_len(argarr));
+            jl_array_grow_beg(argarr, 1);
+            jl_cellset(argarr, 0, f);
+            args[0] = f;
+            jl_value_t *result = jl_apply(jl_cell_data(argarr), jl_array_len(argarr));
             JL_GC_POP();
             return result;
         }
     }
     jl_value_t **newargs;
+    n++;
     int onstack = (n < jl_page_size/sizeof(jl_value_t*));
     JL_GC_PUSHARGS(newargs, onstack ? n : 1);
     jl_svec_t *arg_heap = NULL;
@@ -468,86 +466,51 @@ JL_CALLABLE(jl_f_apply)
     //          `jl_cellref` will not be young if `arg_heap` becomes old
     //          since they are allocated before `arg_heap`. Otherwise,
     //          we need to add write barrier for !onstack
-    n = 0;
+    newargs[0] = f;
+    n = 1;
     for(i=1; i < nargs; i++) {
-        if (jl_is_svec(args[i])) {
-            jl_svec_t *t = (jl_svec_t*)args[i];
+        jl_value_t *ai = args[i];
+        if (jl_is_svec(ai)) {
+            jl_svec_t *t = (jl_svec_t*)ai;
             size_t al = jl_svec_len(t);
             for(j=0; j < al; j++)
                 newargs[n++] = jl_svecref(t, j);
         }
-        else if (jl_is_tuple(args[i])) {
-            size_t al = jl_nfields(args[i]);
+        else if (jl_is_tuple(ai)) {
+            size_t al = jl_nfields(ai);
             for(j=0; j < al; j++) {
                 // jl_fieldref may allocate.
-                newargs[n++] = jl_fieldref(args[i], j);
-                if (arg_heap) {
+                newargs[n++] = jl_fieldref(ai, j);
+                if (arg_heap)
                     jl_gc_wb(arg_heap, newargs[n - 1]);
-                }
             }
         }
         else {
-            size_t al = jl_array_len(args[i]);
-            for (j = 0;j < al;j++) {
-                jl_value_t *arg = jl_cellref(args[i], j);
-                // apply with array splatting may have embedded NULL value
-                // #11772
-                if (__unlikely(arg == NULL)) {
-                    jl_throw(jl_undefref_exception);
+            assert(jl_is_array(ai));
+            jl_array_t *aai = (jl_array_t*)ai;
+            size_t al = jl_array_len(aai);
+            if (aai->flags.ptrarray) {
+                for (j = 0; j < al; j++) {
+                    jl_value_t *arg = jl_cellref(aai, j);
+                    // apply with array splatting may have embedded NULL value
+                    // #11772
+                    if (__unlikely(arg == NULL))
+                        jl_throw(jl_undefref_exception);
+                    newargs[n++] = arg;
                 }
-                newargs[n++] = arg;
+            }
+            else {
+                for (j = 0; j < al; j++) {
+                    newargs[n++] = jl_arrayref(aai, j);
+                    if (arg_heap)
+                        jl_gc_wb(arg_heap, newargs[n - 1]);
+                }
             }
         }
     }
-    jl_value_t *result = jl_apply(f, newargs, n);
+    jl_value_t *result = jl_apply(newargs, n);
     JL_GC_POP();
     return result;
-}
-
-JL_CALLABLE(jl_f_kwcall)
-{
-    if (nargs < 4)
-        jl_error("internal error: malformed keyword argument call");
-    jl_function_t *f;
-    jl_function_t *call_func = (jl_function_t*)args[0];
-    assert(jl_is_function(call_func));
-    size_t nkeys = jl_unbox_long(args[1]);
-    size_t pa = 4 + 2*nkeys;
-    jl_array_t *container = (jl_array_t*)args[pa-1];
-    assert(jl_array_len(container) > 0);
-    f = (jl_function_t*)args[pa-2];
-    if (!jl_is_function(f)) {
-        // do generic call(args...; kws...) instead
-        // switch (f container pa...) to (container f pa...)
-        args[pa-2] = args[pa-1];     // TODO: this might not be safe
-        args[pa-1] = (jl_value_t*)f;
-        f = call_func;
-        pa--;
-    }
-
-    if (!jl_is_gf(f))
-        jl_exceptionf(jl_argumenterror_type, "function does not accept keyword arguments");
-    jl_function_t *sorter = ((jl_methtable_t*)f->env)->kwsorter;
-    if (sorter == NULL) {
-        jl_exceptionf(jl_argumenterror_type, "function %s does not accept keyword arguments",
-                      jl_symbol_name(jl_gf_name(f)));
-    }
-
-    for(size_t i=0; i < nkeys*2; i+=2) {
-        jl_cellset(container, i  , args[2+i]);
-        jl_cellset(container, i+1, args[2+i+1]);
-    }
-
-    args += pa-1;
-    nargs -= pa-1;
-    assert(jl_is_gf(sorter));
-    jl_function_t *m = jl_method_lookup((jl_methtable_t*)sorter->env, args, nargs, 1);
-    if (m == jl_bottom_func) {
-        jl_no_method_error(f, args+1, nargs-1);
-        // unreachable
-    }
-
-    return jl_apply(m, args, nargs);
 }
 
 // eval -----------------------------------------------------------------------
@@ -557,9 +520,7 @@ JL_DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex)
     return jl_toplevel_eval_in_warn(m, ex, 0);
 }
 
-JL_DLLEXPORT jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m,
-                                                  jl_value_t *ex,
-                                                  int delay_warn)
+JL_DLLEXPORT jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex, int delay_warn)
 {
     static int jl_warn_on_eval = 0;
     int last_delay_warn = jl_warn_on_eval;
@@ -685,7 +646,7 @@ JL_CALLABLE(jl_f_svec)
 
 // composite types ------------------------------------------------------------
 
-JL_CALLABLE(jl_f_get_field)
+JL_CALLABLE(jl_f_getfield)
 {
     JL_NARGS(getfield, 2, 2);
     jl_value_t *v = args[0];
@@ -714,7 +675,7 @@ JL_CALLABLE(jl_f_get_field)
     return fval;
 }
 
-JL_CALLABLE(jl_f_set_field)
+JL_CALLABLE(jl_f_setfield)
 {
     JL_NARGS(setfield!, 3, 3);
     jl_value_t *v = args[0];
@@ -744,7 +705,7 @@ JL_CALLABLE(jl_f_set_field)
     return args[2];
 }
 
-JL_CALLABLE(jl_f_field_type)
+JL_CALLABLE(jl_f_fieldtype)
 {
     JL_NARGS(fieldtype, 2, 2);
     jl_datatype_t *st = (jl_datatype_t*)args[0];
@@ -815,8 +776,7 @@ int str_isspace(char *p)
     return 1;
 }
 
-JL_DLLEXPORT jl_nullable_float64_t jl_try_substrtod(char *str, size_t offset,
-                                                    size_t len)
+JL_DLLEXPORT jl_nullable_float64_t jl_try_substrtod(char *str, size_t offset, size_t len)
 {
     char *p;
     char *bstr = str+offset;
@@ -868,8 +828,7 @@ JL_DLLEXPORT int jl_substrtod(char *str, size_t offset, size_t len, double *out)
 #define HUGE_VALF (1e25f * 1e25f)
 #endif
 
-JL_DLLEXPORT jl_nullable_float32_t jl_try_substrtof(char *str, size_t offset,
-                                                    size_t len)
+JL_DLLEXPORT jl_nullable_float32_t jl_try_substrtof(char *str, size_t offset, size_t len)
 {
     char *p;
     char *bstr = str+offset;
@@ -957,85 +916,16 @@ JL_DLLEXPORT void jl_show(jl_value_t *stream, jl_value_t *v)
                       jl_symbol_name(((jl_datatype_t*)jl_typeof(v))->name->name));
             return;
         }
-        jl_value_t *args[2] = {stream,v};
-        jl_apply(jl_show_gf, args, 2);
+        jl_value_t *args[3] = {jl_show_gf,stream,v};
+        jl_apply(args, 3);
     }
 }
 
 // internal functions ---------------------------------------------------------
 
-extern int jl_in_inference;
-extern int jl_boot_file_loaded;
-int jl_eval_with_compiler_p(jl_expr_t *ast, jl_expr_t *expr, int compileloops, jl_module_t *m);
-
-static int jl_eval_inner_with_compiler(jl_expr_t *e, jl_module_t *m)
+JL_CALLABLE(jl_f_apply_type)
 {
-    int i;
-    for(i=0; i < jl_array_len(e->args); i++) {
-        jl_value_t *ei = jl_exprarg(e,i);
-        if (jl_is_lambda_info(ei)) {
-            jl_lambda_info_t *li = (jl_lambda_info_t*)ei;
-            if (!jl_is_expr(li->ast)) {
-                li->ast = jl_uncompress_ast(li, li->ast);
-                jl_gc_wb(li, li->ast);
-            }
-            jl_expr_t *a = (jl_expr_t*)li->ast;
-            if (jl_lam_capt(a)->length > 0 && jl_eval_with_compiler_p(a, jl_lam_body(a), 1, m))
-                return 1;
-        }
-        if (jl_is_expr(ei) && jl_eval_inner_with_compiler((jl_expr_t*)ei, m))
-            return 1;
-    }
-    return 0;
-}
-
-void jl_trampoline_compile_linfo(jl_lambda_info_t *linfo, int always_infer)
-{
-    JL_LOCK(codegen);
-    assert(linfo);
-    assert(linfo->specTypes);
-    // to run inference on all thunks. slows down loading files.
-    // NOTE: if this call to inference is removed, type_annotate in inference.jl
-    // needs to be updated to infer inner functions.
-    if (linfo->inferred == 0) {
-        if (!jl_in_inference) {
-            if (!jl_is_expr(linfo->ast)) {
-                linfo->ast = jl_uncompress_ast(linfo, linfo->ast);
-                jl_gc_wb(linfo, linfo->ast);
-            }
-            assert(jl_is_expr(linfo->ast));
-            if (always_infer ||
-                jl_eval_with_compiler_p((jl_expr_t*)linfo->ast, jl_lam_body((jl_expr_t*)linfo->ast), 1, linfo->module) ||
-                // if this function doesn't need to be compiled, but contains inner
-                // functions that do and that capture variables, we need to run
-                // inference on the whole thing to propagate types into the inner
-                // functions. caused issue #12794
-                jl_eval_inner_with_compiler(jl_lam_body((jl_expr_t*)linfo->ast), linfo->module)) {
-                jl_type_infer(linfo, linfo->specTypes, linfo);
-            }
-        }
-    }
-    jl_compile_linfo(linfo, NULL);
-    if (jl_boot_file_loaded && jl_is_expr(linfo->ast)) {
-        linfo->ast = jl_compress_ast(linfo, linfo->ast);
-        jl_gc_wb(linfo, linfo->ast);
-    }
-    JL_UNLOCK(codegen);
-}
-
-JL_CALLABLE(jl_trampoline)
-{
-    assert(jl_is_func(F));
-    jl_function_t *f = (jl_function_t*)F;
-    if (!f->linfo->specTypes) f->linfo->specTypes = jl_anytuple_type; // no gc_wb needed
-    jl_trampoline_compile_linfo(f->linfo, 0);
-    jl_generate_fptr(f);
-    return jl_apply(f, args, nargs);
-}
-
-JL_CALLABLE(jl_f_instantiate_type)
-{
-    JL_NARGSV(instantiate_type, 1);
+    JL_NARGSV(apply_type, 1);
     if (!jl_is_datatype(args[0]) && !jl_is_typector(args[0])) {
         jl_type_error("Type{...} expression", (jl_value_t*)jl_type_type, args[0]);
     }
@@ -1062,20 +952,13 @@ static void jl_check_type_tuple(jl_value_t *t, jl_sym_t *name, const char *ctx)
 JL_CALLABLE(jl_f_applicable)
 {
     JL_NARGSV(applicable, 1);
-    JL_TYPECHK(applicable, function, args[0]);
-    if (!jl_is_gf(args[0]))
-        jl_error("applicable: not a generic function");
-    return jl_method_lookup(jl_gf_mtable(args[0]),
-                            &args[1], nargs-1, 1) != jl_bottom_func ?
+    return jl_method_lookup(jl_gf_mtable(args[0]), args, nargs, 1) != NULL ?
         jl_true : jl_false;
 }
 
 JL_CALLABLE(jl_f_invoke)
 {
     JL_NARGSV(invoke, 2);
-    JL_TYPECHK(invoke, function, args[0]);
-    if (!jl_is_gf(args[0]))
-        jl_error("invoke: not a generic function");
     jl_value_t *argtypes = args[1];
     JL_GC_PUSH1(&argtypes);
     if (jl_is_tuple(args[1])) {
@@ -1088,8 +971,8 @@ JL_CALLABLE(jl_f_invoke)
     }
     if (!jl_tuple_subtype(&args[2], nargs-2, (jl_datatype_t*)argtypes, 1))
         jl_error("invoke: argument type error");
-    jl_value_t *res = jl_gf_invoke((jl_function_t*)args[0],
-                                   (jl_tupletype_t*)argtypes, &args[2], nargs-2);
+    args[1] = args[0];  // move function directly in front of arguments
+    jl_value_t *res = jl_gf_invoke((jl_tupletype_t*)argtypes, &args[1], nargs-1);
     JL_GC_POP();
     return res;
 }
@@ -1108,7 +991,7 @@ JL_CALLABLE(jl_f_invoke)
 #define hash64(a)   int64to32hash(a)
 #endif
 
-static uptrint_t bits_hash(void *b, size_t sz)
+static uintptr_t bits_hash(void *b, size_t sz)
 {
     switch (sz) {
     case 1:  return int32hash(*(int8_t*)b);
@@ -1124,37 +1007,41 @@ static uptrint_t bits_hash(void *b, size_t sz)
     }
 }
 
-static uptrint_t jl_object_id_(jl_value_t *tv, jl_value_t *v)
+static uintptr_t NOINLINE hash_svec(jl_svec_t *v)
+{
+    uintptr_t h = 0;
+    size_t l = jl_svec_len(v);
+    for(size_t i = 0; i < l; i++) {
+        jl_value_t *x = jl_svecref(v,i);
+        uintptr_t u = x==NULL ? 0 : jl_object_id(x);
+        h = bitmix(h, u);
+    }
+    return h;
+}
+
+static uintptr_t jl_object_id_(jl_value_t *tv, jl_value_t *v)
 {
     if (tv == (jl_value_t*)jl_sym_type)
         return ((jl_sym_t*)v)->hash;
-    if (tv == (jl_value_t*)jl_simplevector_type) {
-        uptrint_t h = 0;
-        size_t l = jl_svec_len(v);
-        for(size_t i = 0; i < l; i++) {
-            uptrint_t u = jl_object_id(jl_svecref(v,i));
-            h = bitmix(h, u);
-        }
-        return h;
-    }
+    if (tv == (jl_value_t*)jl_simplevector_type)
+        return hash_svec((jl_svec_t*)v);
     jl_datatype_t *dt = (jl_datatype_t*)tv;
     if (dt == jl_datatype_type) {
         jl_datatype_t *dtv = (jl_datatype_t*)v;
-        uptrint_t h = 0xda1ada1a;
+        uintptr_t h = 0xda1ada1a;
         // has_typevars always returns 0 on name->primary, so that type
         // can exist in the cache. however, interpreter.c mutates its
         // typevars' `bound` fields to 0, corrupting the cache. this is
         // avoided simply by hashing name->primary specially here.
         if (jl_egal(dtv->name->primary, v))
             return bitmix(bitmix(h, dtv->name->uid), 0xaa5566aa);
-        return bitmix(bitmix(h, dtv->name->uid),
-                      jl_object_id((jl_value_t*)dtv->parameters));
+        return bitmix(bitmix(h, dtv->name->uid), hash_svec(dtv->parameters));
     }
     if (dt == jl_typename_type)
         return bitmix(((jl_typename_t*)v)->uid, 0xa1ada1ad);
-    if (dt->mutabl) return inthash((uptrint_t)v);
+    if (dt->mutabl) return inthash((uintptr_t)v);
     size_t sz = jl_datatype_size(tv);
-    uptrint_t h = jl_object_id(tv);
+    uintptr_t h = jl_object_id(tv);
     if (sz == 0) return ~h;
     size_t nf = jl_datatype_nfields(dt);
     if (nf == 0) {
@@ -1163,7 +1050,7 @@ static uptrint_t jl_object_id_(jl_value_t *tv, jl_value_t *v)
     for (size_t f=0; f < nf; f++) {
         size_t offs = jl_field_offset(dt, f);
         char *vo = (char*)jl_data_ptr(v) + offs;
-        uptrint_t u;
+        uintptr_t u;
         if (jl_field_isptr(dt, f)) {
             jl_value_t *f = *(jl_value_t**)vo;
             u = f==NULL ? 0 : jl_object_id(f);
@@ -1181,7 +1068,7 @@ static uptrint_t jl_object_id_(jl_value_t *tv, jl_value_t *v)
     return h;
 }
 
-JL_DLLEXPORT uptrint_t jl_object_id(jl_value_t *v)
+JL_DLLEXPORT uintptr_t jl_object_id(jl_value_t *v)
 {
     return jl_object_id_(jl_typeof(v), v);
 }
@@ -1193,10 +1080,28 @@ static void add_builtin(const char *name, jl_value_t *v)
     jl_set_const(jl_core_module, jl_symbol(name), v);
 }
 
-static void add_builtin_func(const char *name, jl_fptr_t f)
+jl_value_t *jl_mk_builtin_func(const char *name, jl_fptr_t fptr)
 {
-    add_builtin(name, (jl_value_t*)
-                jl_new_closure(f, (jl_value_t*)jl_symbol(name), NULL));
+    jl_sym_t *sname = jl_symbol(name);
+    jl_value_t *f = jl_new_generic_function_with_supertype(sname, jl_core_module, jl_builtin_type, 0);
+    jl_lambda_info_t *li = jl_new_lambda_info(jl_nothing, jl_emptysvec, jl_emptysvec, jl_core_module);
+    li->fptr = fptr;
+    li->name = sname;
+    // TODO jb/functions: what should li->ast be?
+    li->ast = (jl_value_t*)jl_exprn(lambda_sym,0); jl_gc_wb(li, li->ast);
+    jl_method_cache_insert(jl_gf_mtable(f), jl_anytuple_type, li);
+    return f;
+}
+
+jl_fptr_t jl_get_builtin_fptr(jl_value_t *b)
+{
+    assert(jl_subtype(b, (jl_value_t*)jl_builtin_type, 1));
+    return jl_gf_mtable(b)->cache->func->fptr;
+}
+
+static void add_builtin_func(const char *name, jl_fptr_t fptr)
+{
+    add_builtin(name, jl_mk_builtin_func(name, fptr));
 }
 
 void jl_init_primitives(void)
@@ -1204,16 +1109,16 @@ void jl_init_primitives(void)
     add_builtin_func("is", jl_f_is);
     add_builtin_func("typeof", jl_f_typeof);
     add_builtin_func("sizeof", jl_f_sizeof);
-    add_builtin_func("issubtype", jl_f_subtype);
+    add_builtin_func("issubtype", jl_f_issubtype);
     add_builtin_func("isa", jl_f_isa);
     add_builtin_func("typeassert", jl_f_typeassert);
     add_builtin_func("throw", jl_f_throw);
     add_builtin_func("tuple", jl_f_tuple);
 
     // field access
-    add_builtin_func("getfield",  jl_f_get_field);
-    add_builtin_func("setfield!",  jl_f_set_field);
-    add_builtin_func("fieldtype", jl_f_field_type);
+    add_builtin_func("getfield",  jl_f_getfield);
+    add_builtin_func("setfield!",  jl_f_setfield);
+    add_builtin_func("fieldtype", jl_f_fieldtype);
     add_builtin_func("nfields", jl_f_nfields);
     add_builtin_func("isdefined", jl_f_isdefined);
 
@@ -1227,10 +1132,9 @@ void jl_init_primitives(void)
     add_builtin_func("invoke", jl_f_invoke);
 
     // internal functions
-    add_builtin_func("apply_type", jl_f_instantiate_type);
-    add_builtin_func("_apply", jl_f_apply);
-    add_builtin_func("kwcall", jl_f_kwcall);
-    add_builtin_func("_expr", jl_f_new_expr);
+    add_builtin_func("apply_type", jl_f_apply_type);
+    add_builtin_func("_apply", jl_f__apply);
+    add_builtin_func("_expr", jl_f__expr);
     add_builtin_func("svec", jl_f_svec);
 
     // builtin types
@@ -1255,10 +1159,10 @@ void jl_init_primitives(void)
     add_builtin("GenSym", (jl_value_t*)jl_gensym_type);
     add_builtin("IntrinsicFunction", (jl_value_t*)jl_intrinsic_type);
     add_builtin("Function", (jl_value_t*)jl_function_type);
-    add_builtin("LambdaStaticData", (jl_value_t*)jl_lambda_info_type);
+    add_builtin("Builtin", (jl_value_t*)jl_builtin_type);
+    add_builtin("LambdaInfo", (jl_value_t*)jl_lambda_info_type);
     add_builtin("Ref", (jl_value_t*)jl_ref_type);
     add_builtin("Ptr", (jl_value_t*)jl_pointer_type);
-    add_builtin("Box", (jl_value_t*)jl_box_type);
     add_builtin("Task", (jl_value_t*)jl_task_type);
 
     add_builtin("AbstractArray", (jl_value_t*)jl_abstractarray_type);
@@ -1367,16 +1271,6 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
             else if (dv->name == jl_tuple_typename) {
                 n += jl_printf(out, "{}");
             }
-        }
-    }
-    else if (vt == jl_function_type) {
-        if (jl_is_gf(v)) {
-            n += jl_printf(out, "%s", jl_symbol_name(jl_gf_name(v)));
-        }
-        else {
-            n += jl_printf(out, "#<function ");
-            n += jl_static_show_x(out, (jl_value_t*)((jl_function_t*)v)->linfo, depth);
-            n += jl_printf(out, ">");
         }
     }
     else if (vt == jl_intrinsic_type) {
@@ -1525,9 +1419,10 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
         jl_array_t *av = (jl_array_t*)v;
         jl_datatype_t *el_type = (jl_datatype_t*)jl_tparam0(vt);
         for (j = 0; j < tlen; j++) {
-            if (av->ptrarray) {
+            if (av->flags.ptrarray) {
                 n += jl_static_show_x(out, jl_cellref(v, j), depth);
-            } else {
+            }
+            else {
                 char *ptr = ((char*)av->data) + j * av->elsize;
                 n += jl_static_show_x_(out, (jl_value_t*)ptr, el_type, depth);
             }
@@ -1575,7 +1470,8 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
                 char *fld_ptr = (char*)v + offs;
                 if (jl_field_isptr(vt, i)) {
                     n += jl_static_show_x(out, *(jl_value_t**)fld_ptr, depth);
-                } else {
+                }
+                else {
                     n += jl_static_show_x_(out, (jl_value_t*)fld_ptr,
                                            (jl_datatype_t*)jl_field_type(vt, i),
                                            depth);
@@ -1616,13 +1512,22 @@ JL_DLLEXPORT size_t jl_static_show(JL_STREAM *out, jl_value_t *v)
 
 JL_DLLEXPORT size_t jl_static_show_func_sig(JL_STREAM *s, jl_value_t *type)
 {
-    if (!jl_is_tuple_type(type))
+    jl_value_t *ftype = jl_first_argument_datatype(type);
+    if (ftype == NULL)
         return jl_static_show(s, type);
     size_t n = 0;
+    if (jl_nparams(ftype)==0 || ftype == ((jl_datatype_t*)ftype)->name->primary) {
+        n += jl_printf(s, "%s", jl_symbol_name(((jl_datatype_t*)ftype)->name->mt->name));
+    }
+    else {
+        n += jl_printf(s, "(::");
+        n += jl_static_show(s, ftype);
+        n += jl_printf(s, ")");
+    }
     size_t tl = jl_nparams(type);
     n += jl_printf(s, "(");
     size_t i;
-    for (i = 0;i < tl;i++) {
+    for (i = 1; i < tl; i++) {
         jl_value_t *tp = jl_tparam(type, i);
         if (i != tl - 1) {
             n += jl_static_show(s, tp);
@@ -1644,15 +1549,17 @@ JL_DLLEXPORT size_t jl_static_show_func_sig(JL_STREAM *s, jl_value_t *type)
 
 JL_DLLEXPORT void jl_(void *jl_value)
 {
-    jl_in_jl_++;
-    JL_TRY {
+    jl_jmp_buf *old_buf = jl_safe_restore;
+    jl_jmp_buf buf;
+    jl_safe_restore = &buf;
+    if (!jl_setjmp(buf, 0)) {
         (void)jl_static_show((JL_STREAM*)STDERR_FILENO, (jl_value_t*)jl_value);
         jl_printf((JL_STREAM*)STDERR_FILENO,"\n");
     }
-    JL_CATCH {
+    else {
         jl_printf((JL_STREAM*)STDERR_FILENO, "\n!!! ERROR in jl_ -- ABORTING !!!\n");
     }
-    jl_in_jl_--;
+    jl_safe_restore = old_buf;
 }
 
 JL_DLLEXPORT void jl_breakpoint(jl_value_t *v)

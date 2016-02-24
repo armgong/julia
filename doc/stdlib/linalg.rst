@@ -65,59 +65,91 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Compute the LU factorization of ``A``\ , such that ``A[p,:] = L*U``\ .
 
-.. function:: lufact(A [,pivot=Val{true}]) -> F
+.. function:: lufact(A [,pivot=Val{true}]) -> F::LU
 
    .. Docstring generated from Julia source
 
-   Compute the LU factorization of ``A``\ . The return type of ``F`` depends on the type of ``A``\ . In most cases, if ``A`` is a subtype ``S`` of AbstractMatrix with an element type ``T`` supporting ``+``\ , ``-``\ , ``*`` and ``/`` the return type is ``LU{T,S{T}}``\ . If pivoting is chosen (default) the element type should also support ``abs`` and ``<``\ . When ``A`` is sparse and have element of type ``Float32``\ , ``Float64``\ , ``Complex{Float32}``\ , or ``Complex{Float64}`` the return type is ``UmfpackLU``\ . Some examples are shown in the table below.
+   Compute the LU factorization of ``A``\ .
 
-   +-------------------------+--------------------------+------------------------------------------------+
-   | Type of input ``A``     | Type of output ``F``     | Relationship between ``F`` and ``A``           |
-   +=========================+==========================+================================================+
-   | :func:`Matrix`          | ``LU``                   | ``F[:L]*F[:U] == A[F[:p], :]``                 |
-   +-------------------------+--------------------------+------------------------------------------------+
-   | :func:`Tridiagonal`     | ``LU{T,Tridiagonal{T}}`` | ``F[:L]*F[:U] == A[F[:p], :]``                 |
-   +-------------------------+--------------------------+------------------------------------------------+
-   | :func:`SparseMatrixCSC` | ``UmfpackLU``            | ``F[:L]*F[:U] == (F[:Rs] .* A)[F[:p], F[:q]]`` |
-   +-------------------------+--------------------------+------------------------------------------------+
+   In most cases, if ``A`` is a subtype ``S`` of ``AbstractMatrix{T}`` with an element type ``T`` supporting ``+``\ , ``-``\ , ``*`` and ``/``\ , the return type is ``LU{T,S{T}}``\ . If pivoting is chosen (default) the element type should also support ``abs`` and ``<``\ .
 
    The individual components of the factorization ``F`` can be accessed by indexing:
 
-   +-------------+-----------------------------------------+--------+--------------------------+---------------+
-   | Component   | Description                             | ``LU`` | ``LU{T,Tridiagonal{T}}`` | ``UmfpackLU`` |
-   +=============+=========================================+========+==========================+===============+
-   | ``F[:L]``   | ``L`` (lower triangular) part of ``LU`` | ✓      | ✓                        | ✓             |
-   +-------------+-----------------------------------------+--------+--------------------------+---------------+
-   | ``F[:U]``   | ``U`` (upper triangular) part of ``LU`` | ✓      | ✓                        | ✓             |
-   +-------------+-----------------------------------------+--------+--------------------------+---------------+
-   | ``F[:p]``   | (right) permutation ``Vector``          | ✓      | ✓                        | ✓             |
-   +-------------+-----------------------------------------+--------+--------------------------+---------------+
-   | ``F[:P]``   | (right) permutation ``Matrix``          | ✓      | ✓                        |               |
-   +-------------+-----------------------------------------+--------+--------------------------+---------------+
-   | ``F[:q]``   | left permutation ``Vector``             |        |                          | ✓             |
-   +-------------+-----------------------------------------+--------+--------------------------+---------------+
-   | ``F[:Rs]``  | ``Vector`` of scaling factors           |        |                          | ✓             |
-   +-------------+-----------------------------------------+--------+--------------------------+---------------+
-   | ``F[:(:)]`` | ``(L,U,p,q,Rs)`` components             |        |                          | ✓             |
-   +-------------+-----------------------------------------+--------+--------------------------+---------------+
+   +-----------+-----------------------------------------+
+   | Component | Description                             |
+   +===========+=========================================+
+   | ``F[:L]`` | ``L`` (lower triangular) part of ``LU`` |
+   +-----------+-----------------------------------------+
+   | ``F[:U]`` | ``U`` (upper triangular) part of ``LU`` |
+   +-----------+-----------------------------------------+
+   | ``F[:p]`` | (right) permutation ``Vector``          |
+   +-----------+-----------------------------------------+
+   | ``F[:P]`` | (right) permutation ``Matrix``          |
+   +-----------+-----------------------------------------+
 
-   +--------------------+--------+--------------------------+---------------+
-   | Supported function | ``LU`` | ``LU{T,Tridiagonal{T}}`` | ``UmfpackLU`` |
-   +====================+========+==========================+===============+
-   | ``/``              | ✓      |                          |               |
-   +--------------------+--------+--------------------------+---------------+
-   | ``\``              | ✓      | ✓                        | ✓             |
-   +--------------------+--------+--------------------------+---------------+
-   | ``cond``           | ✓      |                          | ✓             |
-   +--------------------+--------+--------------------------+---------------+
-   | ``det``            | ✓      | ✓                        | ✓             |
-   +--------------------+--------+--------------------------+---------------+
-   | ``logdet``         | ✓      | ✓                        |               |
-   +--------------------+--------+--------------------------+---------------+
-   | ``logabsdet``      | ✓      | ✓                        |               |
-   +--------------------+--------+--------------------------+---------------+
-   | ``size``           | ✓      | ✓                        |               |
-   +--------------------+--------+--------------------------+---------------+
+   The relationship between ``F`` and ``A`` is
+
+   ``F[:L]*F[:U] == A[F[:p], :]``
+
+   ``F`` further supports the following functions:
+
+   +--------------------+--------+--------------------------+
+   | Supported function | ``LU`` | ``LU{T,Tridiagonal{T}}`` |
+   +====================+========+==========================+
+   | :func:`/`          | ✓      |                          |
+   +--------------------+--------+--------------------------+
+   | :func:`\\`         | ✓      | ✓                        |
+   +--------------------+--------+--------------------------+
+   | :func:`cond`       | ✓      |                          |
+   +--------------------+--------+--------------------------+
+   | :func:`det`        | ✓      | ✓                        |
+   +--------------------+--------+--------------------------+
+   | :func:`logdet`     | ✓      | ✓                        |
+   +--------------------+--------+--------------------------+
+   | :func:`logabsdet`  | ✓      | ✓                        |
+   +--------------------+--------+--------------------------+
+   | :func:`size`       | ✓      | ✓                        |
+   +--------------------+--------+--------------------------+
+
+.. function:: lufact(A::SparseMatrixCSC) -> F::UmfpackLU
+
+   .. Docstring generated from Julia source
+
+   Compute the LU factorization of a sparse matrix ``A``\ .
+
+   For sparse ``A`` with real or complex element type, the return type of ``F`` is ``UmfpackLU{Tv, Ti}``\ , with ``Tv`` = ``Float64`` or ``Complex128`` respectively and ``Ti`` is an integer type (``Int32`` or ``Int64``\ ).
+
+   The individual components of the factorization ``F`` can be accessed by indexing:
+
+   +-------------+-----------------------------------------+
+   | Component   | Description                             |
+   +=============+=========================================+
+   | ``F[:L]``   | ``L`` (lower triangular) part of ``LU`` |
+   +-------------+-----------------------------------------+
+   | ``F[:U]``   | ``U`` (upper triangular) part of ``LU`` |
+   +-------------+-----------------------------------------+
+   | ``F[:p]``   | right permutation ``Vector``            |
+   +-------------+-----------------------------------------+
+   | ``F[:q]``   | left permutation ``Vector``             |
+   +-------------+-----------------------------------------+
+   | ``F[:Rs]``  | ``Vector`` of scaling factors           |
+   +-------------+-----------------------------------------+
+   | ``F[:(:)]`` | ``(L,U,p,q,Rs)`` components             |
+   +-------------+-----------------------------------------+
+
+   The relation between ``F`` and ``A`` is
+
+   ``F[:L]*F[:U] == (F[:Rs] .* A)[F[:p], F[:q]]``
+
+   ``F`` further supports the following functions:
+
+   * :func:`\\`
+   * :func:`cond`
+   * :func:`det`
+
+   ** Implementation note **
+
+   ``lufact(A::SparseMatrixCSC)`` uses the UMFPACK library that is part of SuiteSparse. As this library only supports sparse matrices with ``Float64`` or ``Complex128`` elements, ``lufact`` converts ``A`` into a copy that is of type ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
 
 .. function:: lufact!(A) -> LU
 
@@ -149,8 +181,9 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Compute the pivoted Cholesky factorization of a dense symmetric positive semi-definite matrix ``A`` and return a ``CholeskyPivoted`` factorization. The ``uplo`` argument may be ``:L`` for using the lower part or ``:U`` for the upper part of ``A``\ . The default is to use ``:U``\ . The triangular Cholesky factor can be obtained from the factorization ``F`` with: ``F[:L]`` and ``F[:U]``\ . The following functions are available for ``PivotedCholesky`` objects: ``size``\ , ``, ``inv``\ , ``det``\ , and ``rank``\ . The argument ``tol`` determines the tolerance for determining the rank. For negative values, the tolerance is the machine precision.
 
-.. function:: cholfact(::Union{SparseMatrixCSC,Symmetric{Float64,SparseMatrixCSC{Flaot64,
-                  SuiteSparse_long}},Hermitian{Complex{Float64},SparseMatrixCSC{Complex{Float64},
+.. function:: cholfact(::Union{SparseMatrixCSC{<:Real},SparseMatrixCSC{Complex{<:Real}},
+                  Symmetric{<:Real,SparseMatrixCSC{<:Real,
+                  SuiteSparse_long}},Hermitian{Complex{<:Real},SparseMatrixCSC{Complex{<:Real},
                   SuiteSparse_long}}}; shift = 0.0, perm=Int[]) -> CHOLMOD.Factor
 
    .. Docstring generated from Julia source
@@ -159,16 +192,25 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Setting optional ``shift`` keyword argument computes the factorization of ``A+shift*I`` instead of ``A``\ . If the ``perm`` argument is nonempty, it should be a permutation of ``1:size(A,1)`` giving the ordering to use (instead of CHOLMOD's default AMD ordering).
 
-   The function calls the C library CHOLMOD and many other functions from the library are wrapped but not exported.
+   ** Note **
 
-.. function:: cholfact!(F::Factor, A::Union{SparseMatrixCSC,
-              Symmetric{Float64,SparseMatrixCSC{Float64,SuiteSparse_long}},
-              Hermitian{Complex{Float64},SparseMatrixCSC{Complex{Float64},SuiteSparse_long}}};
-              shift = 0.0) -> CHOLMOD.Factor
+   This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
+
+   Many other functions from CHOLMOD are wrapped but not exported from the ``Base.SparseArrays.CHOLMOD`` module.
+
+.. function:: cholfact!(F::Factor, A::Union{SparseMatrixCSC{<:Real},
+                  SparseMatrixCSC{Complex{<:Real}},
+                  Symmetric{<:Real,SparseMatrixCSC{<:Real,SuiteSparse_long}},
+                  Hermitian{Complex{<:Real},SparseMatrixCSC{Complex{<:Real},SuiteSparse_long}}};
+                  shift = 0.0) -> CHOLMOD.Factor
 
    .. Docstring generated from Julia source
 
-   Compute the LDLt factorization of ``A``\ , reusing the symbolic factorization ``F``\ .
+   Compute the Cholesky (:math:`LL'`\ ) factorization of ``A``\ , reusing the symbolic factorization ``F``\ .
+
+   ** Note **
+
+   This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
 
 .. function:: cholfact!(A::StridedMatrix, uplo::Symbol, Val{false}) -> Cholesky
 
@@ -216,27 +258,36 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Compute an ``LDLt`` factorization of a real symmetric tridiagonal matrix such that ``A = L*Diagonal(d)*L'`` where ``L`` is a unit lower triangular matrix and ``d`` is a vector. The main use of an ``LDLt`` factorization ``F = ldltfact(A)`` is to solve the linear system of equations ``Ax = b`` with ``F\b``\ .
 
-.. function:: ldltfact(::Union{SparseMatrixCSC,
-                  Symmetric{Float64,SparseMatrixCSC{Flaot64,SuiteSparse_long}},
-                  Hermitian{Complex{Float64},SparseMatrixCSC{Complex{Float64},SuiteSparse_long}}};
+.. function:: ldltfact(::Union{SparseMatrixCSC{<:Real},SparseMatrixCSC{Complex{<:Real}},
+                  Symmetric{<:Real,SparseMatrixCSC{<:Real,SuiteSparse_long}},
+                  Hermitian{Complex{<:Real},SparseMatrixCSC{Complex{<:Real},SuiteSparse_long}}};
                   shift = 0.0, perm=Int[]) -> CHOLMOD.Factor
 
    .. Docstring generated from Julia source
 
-   Compute the ``LDLt`` factorization of a sparse symmetric or Hermitian matrix. A fill-reducing permutation is used. ``F = ldltfact(A)`` is most frequently used to solve systems of equations ``A*x = b`` with ``F``\ . The returned factorization object ``F`` also supports the methods ``diag``\ , ``det``\ , and ``logdet``\ . You can extract individual factors from ``F`` using ``F[:L]``\ . However, since pivoting is on by default, the factorization is internally represented as ``A == P'*L*D*L'*P`` with a permutation matrix ``P``\ ; using just ``L`` without accounting for ``P`` will give incorrect answers. To include the effects of permutation, it's typically preferable to extact "combined" factors like ``PtL = F[:PtL]`` (the equivalent of ``P'*L``\ ) and ``LtP = F[:UP]`` (the equivalent of ``L'*P``\ ). The complete list of supported factors is ``:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP``\ .
+   Compute the :math:`LDL'` factorization of a sparse symmetric or Hermitian matrix. A fill-reducing permutation is used. ``F = ldltfact(A)`` is most frequently used to solve systems of equations ``A*x = b`` with ``F``\ . The returned factorization object ``F`` also supports the methods ``diag``\ , ``det``\ , and ``logdet``\ . You can extract individual factors from ``F`` using ``F[:L]``\ . However, since pivoting is on by default, the factorization is internally represented as ``A == P'*L*D*L'*P`` with a permutation matrix ``P``\ ; using just ``L`` without accounting for ``P`` will give incorrect answers. To include the effects of permutation, it's typically preferable to extact "combined" factors like ``PtL = F[:PtL]`` (the equivalent of ``P'*L``\ ) and ``LtP = F[:UP]`` (the equivalent of ``L'*P``\ ). The complete list of supported factors is ``:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP``\ .
 
    Setting optional ``shift`` keyword argument computes the factorization of ``A+shift*I`` instead of ``A``\ . If the ``perm`` argument is nonempty, it should be a permutation of ``1:size(A,1)`` giving the ordering to use (instead of CHOLMOD's default AMD ordering).
 
-   The function calls the C library CHOLMOD and many other functions from the library are wrapped but not exported.
+   ** Note **
 
-.. function:: ldltfact!(F::Factor, A::Union{SparseMatrixCSC,
-                  Symmetric{Float64,SparseMatrixCSC{Float64,SuiteSparse_long}},
-                  Hermitian{Complex{Float64},SparseMatrixCSC{Complex{Float64},SuiteSparse_long}}};
+   This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
+
+   Many other functions from CHOLMOD are wrapped but not exported from the ``Base.SparseArrays.CHOLMOD`` module.
+
+.. function:: ldltfact!(F::Factor, A::Union{SparseMatrixCSC{<:Real},
+                  SparseMatrixCSC{Complex{<:Real}},
+                  Symmetric{<:Real,SparseMatrixCSC{<:Real,SuiteSparse_long}},
+                  Hermitian{Complex{<:Real},SparseMatrixCSC{Complex{<:Real},SuiteSparse_long}}};
                   shift = 0.0) -> CHOLMOD.Factor
 
    .. Docstring generated from Julia source
 
-   Compute the LDLt factorization of ``A``\ , reusing the symbolic factorization ``F``\ .
+   Compute the :math:`LDL'` factorization of ``A``\ , reusing the symbolic factorization ``F``\ .
+
+   ** Note **
+
+   This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
 
 .. function:: ldltfact!(::SymTridiagonal) -> LDLt
 
@@ -567,19 +618,29 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Compute the Singular Value Decomposition (SVD) of ``A`` and return an ``SVD`` object. ``U``\ , ``S``\ , ``V`` and ``Vt`` can be obtained from the factorization ``F`` with ``F[:U]``\ , ``F[:S]``\ , ``F[:V]`` and ``F[:Vt]``\ , such that ``A = U*diagm(S)*Vt``\ . If ``thin`` is ``true``\ , an economy mode decomposition is returned. The algorithm produces ``Vt`` and hence ``Vt`` is more efficient to extract than ``V``\ . The default is to produce a thin decomposition.
+   Compute the singular value decomposition (SVD) of ``A`` and return an ``SVD`` object.
+
+   ``U``\ , ``S``\ , ``V`` and ``Vt`` can be obtained from the factorization ``F`` with ``F[:U]``\ , ``F[:S]``\ , ``F[:V]`` and ``F[:Vt]``\ , such that ``A = U*diagm(S)*Vt``\ . The algorithm produces ``Vt`` and hence ``Vt`` is more efficient to extract than ``V``\ .
+
+   If ``thin=true`` (default), a thin SVD is returned. For a :math:`M \times N` matrix ``A``\ , ``U`` is :math:`M \times M` for a full SVD (``thin=false``\ ) and :math:`M \times \min(M, N)` for a thin SVD.
 
 .. function:: svdfact!(A, [thin=true]) -> SVD
 
    .. Docstring generated from Julia source
 
-   ``svdfact!`` is the same as :func:`svdfact`\ , but saves space by overwriting the input ``A``\ , instead of creating a copy. If ``thin`` is ``true``\ , an economy mode decomposition is returned. The default is to produce a thin decomposition.
+   ``svdfact!`` is the same as :func:`svdfact`\ , but saves space by overwriting the input ``A``\ , instead of creating a copy.
+
+   If ``thin=true`` (default), a thin SVD is returned. For a :math:`M \times N` matrix ``A``\ , ``U`` is :math:`M \times M` for a full SVD (``thin=false``\ ) and :math:`M \times \min(M, N)` for a thin SVD.
 
 .. function:: svd(A, [thin=true]) -> U, S, V
 
    .. Docstring generated from Julia source
 
-   Wrapper around ``svdfact`` extracting all parts the factorization to a tuple. Direct use of ``svdfact`` is therefore generally more efficient. Computes the SVD of ``A``\ , returning ``U``\ , vector ``S``\ , and ``V`` such that ``A == U*diagm(S)*V'``\ . If ``thin`` is ``true``\ , an economy mode decomposition is returned. The default is to produce a thin decomposition.
+   Computes the SVD of ``A``\ , returning ``U``\ , vector ``S``\ , and ``V`` such that ``A == U*diagm(S)*V'``\ .
+
+   If ``thin=true`` (default), a thin SVD is returned. For a :math:`M \times N` matrix ``A``\ , ``U`` is :math:`M \times M` for a full SVD (``thin=false``\ ) and :math:`M \times \min(M, N)` for a thin SVD.
+
+   ``svd`` is a wrapper around :func:`svdfact(A)`\ , extracting all parts of the ``SVD`` factorization to a tuple. Direct use of ``svdfact`` is therefore more efficient.
 
 .. function:: svdvals(A)
 
@@ -591,25 +652,38 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Returns the singular values of ``A``\ , while saving space by overwriting the input.
+   Returns the singular values of ``A``\ , saving space by overwriting the input.
 
 .. function:: svdfact(A, B) -> GeneralizedSVD
 
    .. Docstring generated from Julia source
 
-   Compute the generalized SVD of ``A`` and ``B``\ , returning a ``GeneralizedSVD`` Factorization object ``F``\ , such that ``A = F[:U]*F[:D1]*F[:R0]*F[:Q]'`` and ``B = F[:V]*F[:D2]*F[:R0]*F[:Q]'``\ .
+   Compute the generalized SVD of ``A`` and ``B``\ , returning a ``GeneralizedSVD`` factorization object ``F``\ , such that ``A = F[:U]*F[:D1]*F[:R0]*F[:Q]'`` and ``B = F[:V]*F[:D2]*F[:R0]*F[:Q]'``\ .
+
+   For an M-by-N matrix ``A`` and P-by-N matrix ``B``\ ,
+
+   * ``F[:U]`` is a M-by-M orthogonal matrix,
+   * ``F[:V]`` is a P-by-P orthogonal matrix,
+   * ``F[:Q]`` is a N-by-N orthogonal matrix,
+   * ``F[:R0]`` is a (K+L)-by-N matrix whose rightmost (K+L)-by-(K+L) block is            nonsingular upper block triangular,
+   * ``F[:D1]`` is a M-by-(K+L) diagonal matrix with 1s in the first K entries,
+   * ``F[:D2]`` is a P-by-(K+L) matrix whose top right L-by-L block is diagonal,
+
+   ``K+L`` is the effective numerical rank of the matrix ``[A; B]``\ .
+
+   The entries of ``F[:D1]`` and ``F[:D2]`` are related, as explained in the LAPACK documentation for the `generalized SVD <http://www.netlib.org/lapack/lug/node36.html>`_ and the `xGGSVD3 <http://www.netlib.org/lapack/explore-html/d6/db3/dggsvd3_8f.html>`_ routine which is called underneath (in LAPACK 3.6.0 and newer).
 
 .. function:: svd(A, B) -> U, V, Q, D1, D2, R0
 
    .. Docstring generated from Julia source
 
-   Wrapper around ``svdfact`` extracting all parts the factorization to a tuple. Direct use of ``svdfact`` is therefore generally more efficient. The function returns the generalized SVD of ``A`` and ``B``\ , returning ``U``\ , ``V``\ , ``Q``\ , ``D1``\ , ``D2``\ , and ``R0`` such that ``A = U*D1*R0*Q'`` and ``B = V*D2*R0*Q'``\ .
+   Wrapper around :func:`svdfact(A, B)` extracting all parts of the factorization to a tuple. Direct use of ``svdfact`` is therefore generally more efficient. The function returns the generalized SVD of ``A`` and ``B``\ , returning ``U``\ , ``V``\ , ``Q``\ , ``D1``\ , ``D2``\ , and ``R0`` such that ``A = U*D1*R0*Q'`` and ``B = V*D2*R0*Q'``\ .
 
 .. function:: svdvals(A, B)
 
    .. Docstring generated from Julia source
 
-   Return only the singular values from the generalized singular value decomposition of ``A`` and ``B``\ .
+   Return the generalized singular values from the generalized singular value decomposition of ``A`` and ``B``\ .
 
 .. function:: givens{T}(::T, ::T, ::Integer, ::Integer) -> {Givens, T}
 
@@ -1029,7 +1103,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Computes eigenvalues ``d`` of ``A`` using Lanczos or Arnoldi iterations for real symmetric or general nonsymmetric matrices respectively.
+   Computes eigenvalues ``d`` of ``A`` using implicitly restarted Lanczos or Arnoldi iterations for real symmetric or general nonsymmetric matrices respectively.
 
    The following keyword arguments are supported:
 
@@ -1055,7 +1129,8 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    | ``:BE``   | compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only) |
    +-----------+-----------------------------------------------------------------------------------------------------------------------------+
 
-   * ``tol``\ : tolerance (:math:`tol \le 0.0` defaults to ``DLAMCH('EPS')``\ )
+   * ``tol``\ : parameter defining the relative tolerance for convergence of Ritz values (eigenvalue estimates).      A Ritz value :math:`θ` is considered converged when its associated residual      is less than or equal to the product of ``tol`` and :math:`max(ɛ^{2/3}, |θ|)`\ ,      where ``ɛ = eps(real(eltype(A)))/2`` is LAPACK's machine epsilon.      The residual associated with :math:`θ` and its corresponding Ritz vector :math:`v`      is defined as the norm :math:`||Av - vθ||`\ .      The specified value of ``tol`` should be positive; otherwise, it is ignored      and :math:`ɛ` is used instead.      Default: :math:`ɛ`\ .
+
    * ``maxiter``\ : Maximum number of iterations (default = 300)
    * ``sigma``\ : Specifies the level shift used in inverse iteration. If ``nothing`` (default),   defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma``   using shift and invert iterations.
    * ``ritzvec``\ : Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
@@ -1075,11 +1150,20 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    | real or complex | inverse with level shift ``sigma`` | :math:`(A - \sigma I )^{-1}`       |
    +-----------------+------------------------------------+------------------------------------+
 
+   **note**
+
+   Although ``tol`` has a default value, the best choice depends strongly on the matrix ``A``\ . We recommend that users _always_ specify a value for ``tol`` which suits their specific needs.
+
+   For details of how the errors in the computed eigenvalues are estimated, see:
+
+   * B. N. Parlett, "The Symmetric Eigenvalue Problem", SIAM: Philadelphia, 2/e   (1998), Ch. 13.2, "Accessing Accuracy in Lanczos Problems", pp. 290-292 ff.
+   * R. B. Lehoucq and D. C. Sorensen, "Deflation Techniques for an Implicitly   Restarted Arnoldi Iteration", SIAM Journal on Matrix Analysis and   Applications (1996), 17(4), 789–821.  doi:10.1137/S0895479895281484
+
 .. function:: eigs(A, B; nev=6, ncv=max(20,2*nev+1), which="LM", tol=0.0, maxiter=300, sigma=nothing, ritzvec=true, v0=zeros((0,))) -> (d,[v,],nconv,niter,nmult,resid)
 
    .. Docstring generated from Julia source
 
-   Computes generalized eigenvalues ``d`` of ``A`` and ``B`` using Lanczos or Arnoldi iterations for real symmetric or general nonsymmetric matrices respectively.
+   Computes generalized eigenvalues ``d`` of ``A`` and ``B`` using implicitly restarted Lanczos or Arnoldi iterations for real symmetric or general nonsymmetric matrices respectively.
 
    The following keyword arguments are supported:
 
@@ -1105,7 +1189,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    | ``:BE``   | compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only) |
    +-----------+-----------------------------------------------------------------------------------------------------------------------------+
 
-   * ``tol``\ : tolerance (:math:`tol \le 0.0` defaults to ``DLAMCH('EPS')``\ )
+   * ``tol``\ : relative tolerance used in the convergence criterion for eigenvalues, similar to      ``tol`` in the :func:`eigs` method for the ordinary eigenvalue      problem, but effectively for the eigenvalues of :math:`B^{-1} A` instead of :math:`A`\ .      See the documentation for the ordinary eigenvalue problem in      :func:`eigs` and the accompanying note about ``tol``\ .
    * ``maxiter``\ : Maximum number of iterations (default = 300)
    * ``sigma``\ : Specifies the level shift used in inverse iteration. If ``nothing`` (default),   defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma``   using shift and invert iterations.
    * ``ritzvec``\ : Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
@@ -1125,19 +1209,29 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    | real or complex | inverse with level shift ``sigma`` | :math:`(A - \sigma B )^{-1}B = v\nu` |
    +-----------------+------------------------------------+--------------------------------------+
 
-.. function:: svds(A; nsv=6, ritzvec=true, tol=0.0, maxiter=1000) -> (left_sv, s, right_sv, nconv, niter, nmult, resid)
+.. function:: svds(A; nsv=6, ritzvec=true, tol=0.0, maxiter=1000) -> ([left_sv,] s, [right_sv,] nconv, niter, nmult, resid)
 
    .. Docstring generated from Julia source
 
-   ``svds`` computes largest singular values ``s`` of ``A`` using Lanczos or Arnoldi iterations. Uses :func:`eigs` underneath.
+   Computes the largest singular values ``s`` of ``A`` using implicitly restarted Lanczos iterations derived from :func:`eigs`\ .
 
-   Inputs are:
+   **Inputs**
 
-   * ``A``\ : Linear operator. It can either subtype of ``AbstractArray`` (e.g., sparse matrix) or   duck typed. For duck typing ``A`` has to support ``size(A)``\ , ``eltype(A)``\ , ``A * vector`` and   ``A' * vector``\ .
+   * ``A``\ : Linear operator whose singular values are desired. ``A`` may be represented   as a subtype of ``AbstractArray``\ , e.g., a sparse matrix, or any other type   supporting the four methods ``size(A)``\ , ``eltype(A)``\ , ``A * vector``\ , and   ``A' * vector``\ .
    * ``nsv``\ : Number of singular values.
-   * ``ritzvec``\ : Whether to return the left and right singular vectors ``left_sv`` and ``right_sv``\ ,   default is ``true``\ . If ``false`` the singular vectors are omitted from the output.
+   * ``ritzvec``\ : If ``true``\ , return the left and right singular vectors ``left_sv`` and ``right_sv``\ .    If ``false``\ , omit the singular vectors. Default: ``true``\ .
    * ``tol``\ : tolerance, see :func:`eigs`\ .
    * ``maxiter``\ : Maximum number of iterations, see :func:`eigs`\ .
+
+   **Outputs**
+
+   * ``left_sv``\ : Left singular vectors (only if ``ritzvec = true``\ ).
+   * ``s``\ : A vector of length ``nsv`` containing the requested singular values.
+   * ``right_sv``\ : Right singular vectors (only if ``ritzvec = true``\ ).
+   * ``nconv``\ : Number of converged singular values.
+   * ``niter``\ : Number of iterations.
+   * ``nmult``\ : Number of matrix–vector products used.
+   * ``resid``\ : Final residual vector.
 
    **Example**
 
@@ -1145,6 +1239,10 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
        X = sprand(10, 5, 0.2)
        svds(X, nsv = 2)
+
+   **Implementation note**
+
+   ``svds(A)`` is formally equivalent to calling ``eigs`` to perform implicitly restarted Lanczos tridiagonalization on the Hermitian matrix :math:`\begin{pmatrix} 0 & A^\prime \\ A & 0 \end{pmatrix}`\ , whose eigenvalues are plus and minus the singular values of :math:`A`\ .
 
 .. function:: peakflops(n; parallel=false)
 

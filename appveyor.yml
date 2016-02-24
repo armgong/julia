@@ -1,5 +1,6 @@
 environment:
 #  USEMSVC: "1"
+  JULIA_TEST_MAXRSS_MB: 500
   matrix:
   - ARCH: "i686"
   - ARCH: "x86_64"
@@ -31,8 +32,8 @@ cache:
 # Cache any downloads from sourceforge because it's really unreliable
   - i686-4.9.2-release-win32-sjlj-rt_v4-rev3.7z
   - x86_64-4.9.2-release-win32-seh-rt_v4-rev3.7z
-  - llvm-3.3-i686-w64-mingw32-juliadeps.7z
-  - llvm-3.3-x86_64-w64-mingw32-juliadeps.7z
+  - llvm-3.7.1-i686-w64-mingw32-juliadeps-r04.7z
+  - llvm-3.7.1-x86_64-w64-mingw32-juliadeps-r04.7z
 
 build_script:
 # If there's a newer build queued for the same PR, cancel this one
@@ -47,7 +48,7 @@ build_script:
 # Unable to find Digest::SHA or Digest::SHA::PurePerl
   - set PATH=%PATH:C:\Perl\bin;=%
 #  - '"%VS120COMNTOOLS%\..\..\VC\vcvarsall.bat" x86_amd64'
-  - C:\MinGW\msys\1.0\bin\sh --login /c/projects/julia/contrib/windows/msys_build.sh
+  - C:\msys64\usr\bin\sh.exe --login /c/projects/julia/contrib/windows/msys_build.sh
 
 test_script:
   - usr\bin\julia -e "versioninfo()"

@@ -4,8 +4,6 @@
 
 module Checked
 
-import Base: checked_neg, checked_abs, checked_add, checked_sub, checked_mul,
-       checked_div, checked_rem, checked_fld, checked_mod, checked_cld
 export checked_neg, checked_abs, checked_add, checked_sub, checked_mul,
        checked_div, checked_rem, checked_fld, checked_mod, checked_cld
 
@@ -14,6 +12,29 @@ import Core.Intrinsics: box, unbox,
        checked_srem_int,
        checked_uadd_int, checked_usub_int, checked_umul_int, checked_udiv_int,
        checked_urem_int
+
+# define promotion behavior for checked operations
+checked_add(x::Integer, y::Integer) = checked_add(promote(x,y)...)
+checked_sub(x::Integer, y::Integer) = checked_sub(promote(x,y)...)
+checked_mul(x::Integer, y::Integer) = checked_mul(promote(x,y)...)
+checked_div(x::Integer, y::Integer) = checked_div(promote(x,y)...)
+checked_rem(x::Integer, y::Integer) = checked_rem(promote(x,y)...)
+checked_fld(x::Integer, y::Integer) = checked_fld(promote(x,y)...)
+checked_mod(x::Integer, y::Integer) = checked_mod(promote(x,y)...)
+checked_cld(x::Integer, y::Integer) = checked_cld(promote(x,y)...)
+
+# fallback catchall rules to prevent infinite recursion if promotion succeeds,
+# but no method exists to handle those types
+checked_neg{T<:Integer}(x::T) = no_op_err("checked_neg", T)
+checked_abs{T<:Integer}(x::T) = no_op_err("checked_abs", T)
+checked_add{T<:Integer}(x::T, y::T) = no_op_err("checked_add", T)
+checked_sub{T<:Integer}(x::T, y::T) = no_op_err("checked_sub", T)
+checked_mul{T<:Integer}(x::T, y::T) = no_op_err("checked_mul", T)
+checked_div{T<:Integer}(x::T, y::T) = no_op_err("checked_div", T)
+checked_rem{T<:Integer}(x::T, y::T) = no_op_err("checked_rem", T)
+checked_fld{T<:Integer}(x::T, y::T) = no_op_err("checked_fld", T)
+checked_mod{T<:Integer}(x::T, y::T) = no_op_err("checked_mod", T)
+checked_cld{T<:Integer}(x::T, y::T) = no_op_err("checked_cld", T)
 
 typealias SignedInt Union{Int8,Int16,Int32,Int64,Int128}
 typealias UnsignedInt Union{UInt8,UInt16,UInt32,UInt64,UInt128}
@@ -81,14 +102,18 @@ end
 function checked_neg{T<:UnsignedInt}(x::T)
     checked_sub(T(0), x)
 end
+if BrokenSignedInt != Union{}
 function checked_neg{T<:BrokenSignedInt}(x::T)
     r = -x
     (x<0) & (r<0) && throw(OverflowError())
     r
 end
+end
+if BrokenUnsignedInt != Union{}
 function checked_neg{T<:BrokenUnsignedInt}(x::T)
     x != 0 && throw(OverflowError())
     T(0)
+end
 end
 
 """
@@ -124,17 +149,21 @@ end
 function checked_add{T<:UnsignedInt}(x::T, y::T)
     box(T, checked_uadd_int(unbox(T,x), unbox(T,y)))
 end
+if BrokenSignedInt != Union{}
 function checked_add{T<:BrokenSignedInt}(x::T, y::T)
     r = x + y
     # x and y have the same sign, and the result has a different sign
     (x<0) == (y<0) != (r<0) && throw(OverflowError())
     r
 end
+end
+if BrokenUnsignedInt != Union{}
 function checked_add{T<:BrokenUnsignedInt}(x::T, y::T)
     # x + y > typemax(T)
     # Note: ~y == -y-1
     x > ~y && throw(OverflowError())
     x + y
+end
 end
 
 # Handle multiple arguments
@@ -167,16 +196,20 @@ end
 function checked_sub{T<:UnsignedInt}(x::T, y::T)
     box(T, checked_usub_int(unbox(T,x), unbox(T,y)))
 end
+if BrokenSignedInt != Union{}
 function checked_sub{T<:BrokenSignedInt}(x::T, y::T)
     r = x - y
     # x and y have different signs, and the result has a different sign than x
     (x<0) != (y<0) == (r<0) && throw(OverflowError())
     r
 end
+end
+if BrokenUnsignedInt != Union{}
 function checked_sub{T<:BrokenUnsignedInt}(x::T, y::T)
     # x - y < 0
     x < y && throw(OverflowError())
     x - y
+end
 end
 
 """
@@ -194,15 +227,19 @@ end
 function checked_mul{T<:UnsignedInt}(x::T, y::T)
     box(T, checked_umul_int(unbox(T,x), unbox(T,y)))
 end
+if BrokenSignedIntMul != Union{} && BrokenSignedIntMul != Int128
 function checked_mul{T<:BrokenSignedIntMul}(x::T, y::T)
     r = widemul(x, y)
     r % T != r && throw(OverflowError())
     r % T
 end
+end
+if BrokenUnsignedIntMul != Union{} && BrokenUnsignedIntMul != UInt128
 function checked_mul{T<:BrokenUnsignedIntMul}(x::T, y::T)
     r = widemul(x, y)
     r % T != r && throw(OverflowError())
     r % T
+end
 end
 if Int128 <: BrokenSignedIntMul
     # Avoid BigInt

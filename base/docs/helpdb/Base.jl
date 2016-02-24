@@ -48,9 +48,10 @@ the same object. `fill!(A, Foo())` will return `A` filled with the result of eva
 fill!
 
 """
-    read!(stream, array::Array)
+    read!(stream::IO, array::Union{Array, BitArray})
+    read!(filename::AbstractString, array::Union{Array, BitArray})
 
-Read binary data from a stream, filling in the argument `array`.
+Read binary data from an I/O stream or file, filling in `array`.
 """
 read!
 
@@ -314,13 +315,6 @@ Compute a "2d histogram" with respect to the bins delimited by the edges given i
 hist2d!
 
 """
-    fieldtype(T, name::Symbol | index::Int)
-
-Determine the declared type of a field (specified by name or index) in a composite DataType `T`.
-"""
-fieldtype
-
-"""
     hypot(x, y)
 
 Compute the ``\\sqrt{x^2+y^2}`` avoiding overflow and underflow.
@@ -452,9 +446,11 @@ the mantissa.
 precision
 
 """
-    readlines(stream)
+    readlines(stream::IO)
+    readlines(filename::AbstractString)
 
-Read all lines as an array.
+Read all lines of an I/O stream or a file as a vector of strings.
+The text is assumed to be encoded in UTF-8.
 """
 readlines
 
@@ -537,7 +533,7 @@ Ac_rdiv_B
 
 
 """
-    linspace(start, stop, n=100)
+    linspace(start, stop, n=50)
 
 Construct a range of `n` linearly spaced elements from `start` to `stop`.
 """
@@ -1018,9 +1014,11 @@ See `rounding` for available rounding modes.
 Float32
 
 """
-    readuntil(stream, delim)
+    readuntil(stream::IO, delim)
+    readuntil(filename::AbstractString, delim)
 
-Read a string, up to and including the given delimiter byte.
+Read a string from an I/O stream or a file, up to and including the given delimiter byte.
+The text is assumed to be encoded in UTF-8.
 """
 readuntil
 
@@ -1230,9 +1228,9 @@ An operation tried to write to memory that is read-only.
 ReadOnlyMemoryError
 
 """
-    startswith(string, prefix | chars)
+    startswith(string, prefix)
 
-Returns `true` if `string` starts with `prefix`. If the second argument is a vector or set
+Returns `true` if `string` starts with `prefix`. If `prefix` is a vector or set
 of characters, tests whether the first character of `string` belongs to that set.
 """
 startswith
@@ -1379,20 +1377,6 @@ For example, if `dims` is `[1,2]` and `A` is 4-dimensional, `f` is called on `A[
 for all `i` and `j`.
 """
 mapslices
-
-"""
-    svdvals(A)
-
-Returns the singular values of `A`.
-"""
-svdvals(A)
-
-"""
-    svdvals(A, B)
-
-Return only the singular values from the generalized singular value decomposition of `A` and `B`.
-"""
-svdvals(A, B)
 
 """
     issocket(path) -> Bool
@@ -1603,26 +1587,6 @@ of the problem that is solved on each processor.
 peakflops
 
 """
-    svd(A, [thin=true]) -> U, S, V
-
-Wrapper around `svdfact` extracting all parts the factorization to a tuple. Direct use of
-`svdfact` is therefore generally more efficient. Computes the SVD of `A`, returning `U`,
-vector `S`, and `V` such that `A == U*diagm(S)*V'`. If `thin` is `true`, an economy mode
-decomposition is returned. The default is to produce a thin decomposition.
-"""
-svd
-
-"""
-    svd(A, B) -> U, V, Q, D1, D2, R0
-
-Wrapper around `svdfact` extracting all parts the factorization to a tuple. Direct use of
-`svdfact` is therefore generally more efficient. The function returns the generalized SVD of
-`A` and `B`, returning `U`, `V`, `Q`, `D1`, `D2`, and `R0` such that `A = U*D1*R0*Q'` and `B =
-V*D2*R0*Q'`.
-"""
-svd(A::AbstractMatrix, B::AbstractMatrix)
-
-"""
     ones(type, dims)
 
 Create an array of all ones of specified type. The type defaults to `Float64` if not specified.
@@ -1780,13 +1744,6 @@ sumabs(itr)
 Sum absolute values of elements of an array over the given dimensions.
 """
 sumabs(A, dims)
-
-"""
-    svdvals!(A)
-
-Returns the singular values of `A`, while saving space by overwriting the input.
-"""
-svdvals!
 
 """
     consume(task, values...)
@@ -1969,13 +1926,6 @@ shift in each dimension.
 circshift
 
 """
-    fieldnames(x::DataType)
-
-Get an array of the fields of a `DataType`.
-"""
-fieldnames
-
-"""
     yield()
 
 Switch to the scheduler to allow another scheduled task to run. A task that calls this
@@ -2023,15 +1973,15 @@ value returned by `f`.
 open(f::Function, command::Cmd, mod::AbstractString="r", stdio=DevNull)
 
 """
-    open(file_name, [read, write, create, truncate, append]) -> IOStream
+    open(filename, [read, write, create, truncate, append]) -> IOStream
 
 Open a file in a mode specified by five boolean arguments. The default is to open files for
 reading only. Returns a stream for accessing the file.
 """
-open(file_name, ::Bool, ::Bool, ::Bool, ::Bool, ::Bool)
+open(filename, ::Bool, ::Bool, ::Bool, ::Bool, ::Bool)
 
 """
-    open(file_name, [mode]) -> IOStream
+    open(filename, [mode]) -> IOStream
 
 Alternate syntax for open, where a string-based mode specifier is used instead of the five
 booleans. The values of `mode` correspond to those from `fopen(3)` or Perl `open`, and are
@@ -2046,7 +1996,7 @@ equivalent to setting the following boolean groups:
 | a    | write, create, append         |
 | a+   | read, write, create, append   |
 """
-open(file_name, mode="r")
+open(filename, mode="r")
 
 """
     open(f::Function, args...)
@@ -2054,7 +2004,7 @@ open(file_name, mode="r")
 Apply the function `f` to the result of `open(args...)` and close the resulting file
 descriptor upon completion.
 
-**Example**: `open(readall, "file.txt")`
+**Example**: `open(readstring, "file.txt")`
 """
 open(f::Function, args...)
 
@@ -2078,40 +2028,6 @@ sort(A,dim,?,?,?,?)
 Kronecker tensor product of two vectors or two matrices.
 """
 kron
-
-"""
-    >>(x, n)
-
-Right bit shift operator, preserving the sign of `x`.
-"""
-Base.(:(>>))
-
-"""
-    fieldoffsets(type)
-
-The byte offset of each field of a type relative to the data start. For example, we could
-use it in the following manner to summarize information about a struct type:
-
-```jldoctest
-julia> structinfo(T) = [zip(fieldoffsets(T),fieldnames(T),T.types)...];
-
-julia> structinfo(StatStruct)
-12-element Array{Tuple{Int64,Symbol,DataType},1}:
- (0,:device,UInt64)
- (8,:inode,UInt64)
- (16,:mode,UInt64)
- (24,:nlink,Int64)
- (32,:uid,UInt64)
- (40,:gid,UInt64)
- (48,:rdev,UInt64)
- (56,:size,Int64)
- (64,:blksize,Int64)
- (72,:blocks,Int64)
- (80,:mtime,Float64)
- (88,:ctime,Float64)
-```
-"""
-fieldoffsets
 
 """
     randn([rng], [dims...])
@@ -2184,8 +2100,7 @@ isdigit
 """
     @windows
 
-Given `@windows? a : b`, do `a` on Windows and `b` elsewhere. See documentation for Handling
-Platform Variations in the Calling C and Fortran Code section of the manual.
+Given `@windows? a : b`, do `a` on Windows and `b` elsewhere. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
 """
 :@windows
 
@@ -2193,10 +2108,24 @@ Platform Variations in the Calling C and Fortran Code section of the manual.
     @unix
 
 Given `@unix? a : b`, do `a` on Unix systems (including Linux and OS X) and `b` elsewhere.
-See documentation for Handling Platform Variations in the Calling C and Fortran Code section
-of the manual.
+See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
 """
 :@unix
+
+"""
+    @windows_only
+
+A macro that evaluates the given expression only on Windows systems. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
+"""
+:@windows_only
+
+"""
+    @unix_only
+
+A macro that evaluates the given expression only on Unix systems (including Linux and OS X). See
+documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
+"""
+:@unix_only
 
 """
     num2hex(f)
@@ -2438,19 +2367,13 @@ the process.
 triu!(M, k)
 
 """
-    readall(stream::IO)
+    readstring(stream::IO)
+    readstring(filename::AbstractString)
 
-Read the entire contents of an I/O stream as a string.
+Read the entire contents of an I/O stream or a file as a string.
+The text is assumed to be encoded in UTF-8.
 """
-readall(stream::IO)
-
-"""
-    readall(filename::AbstractString)
-
-Open `filename`, read the entire contents as a string, then close the file. Equivalent to
-`open(readall, filename)`.
-"""
-readall(filename::AbstractString)
+readstring
 
 """
     poll_file(path, interval_s::Real, timeout_s::Real) -> (previous::StatStruct, current::StatStruct)
@@ -2468,9 +2391,11 @@ it is more reliable and efficient, although in some situations it may not be ava
 poll_file
 
 """
-    eachline(stream)
+    eachline(stream::IO)
+    eachline(filename::AbstractString)
 
-Create an iterable object that will yield each line from a stream.
+Create an iterable object that will yield each line from an I/O stream or a file.
+The text is assumed to be encoded in UTF-8.
 """
 eachline
 
@@ -3043,9 +2968,10 @@ Show an expression and result, returning the result.
 """
     showcompact(x)
 
+
 Show a more compact representation of a value. This is used for printing array elements. If
-a new type has a different compact representation, it should overload `showcompact(io, x)`
-where the first argument is a stream.
+a new type has a different compact representation,
+it should test `Base.limit_output(io)` in its normal `show` method.
 """
 showcompact
 
@@ -3056,25 +2982,6 @@ Determine whether `T` is a concrete type that can have instances, meaning its on
 are itself and `None` (but `T` itself is not `None`).
 """
 isleaftype
-
-"""
-    svdfact(A, [thin=true]) -> SVD
-
-Compute the Singular Value Decomposition (SVD) of `A` and return an `SVD` object. `U`, `S`,
-`V` and `Vt` can be obtained from the factorization `F` with `F[:U]`, `F[:S]`, `F[:V]` and
-`F[:Vt]`, such that `A = U*diagm(S)*Vt`. If `thin` is `true`, an economy mode decomposition
-is returned. The algorithm produces `Vt` and hence `Vt` is more efficient to extract than
-`V`. The default is to produce a thin decomposition.
-"""
-svdfact(A)
-
-"""
-    svdfact(A, B) -> GeneralizedSVD
-
-Compute the generalized SVD of `A` and `B`, returning a `GeneralizedSVD` Factorization
-object `F`, such that `A = F[:U]*F[:D1]*F[:R0]*F[:Q]'` and `B = F[:V]*F[:D2]*F[:R0]*F[:Q]'`.
-"""
-svdfact(A, B)
 
 """
     string(xs...)
@@ -3328,7 +3235,7 @@ addprocs()
 
 """
 ```
-addprocs(machines; tunnel=false, sshflags=``, max_parallel=10, exeflags=``) -> List of process identifiers
+addprocs(machines; keyword_args...) -> List of process identifiers
 ```
 
 Add processes on remote machines via SSH. Requires julia to be installed in the same
@@ -3348,23 +3255,38 @@ it will launch as many workers as the number of cores on the specific host.
 
 Keyword arguments:
 
-`tunnel`: if `true` then SSH tunneling will be used to connect to the worker from the
-master process.
+* `tunnel`: if `true` then SSH tunneling will be used to connect to the worker from the
+            master process. Default is `false`.
 
-`sshflags`: specifies additional ssh options, e.g.
+* `sshflags`: specifies additional ssh options, e.g.
 
     sshflags=`-i /home/foo/bar.pem`
 
-`max_parallel`: specifies the maximum number of workers connected to in parallel at a host.
-Defaults to 10.
+* `max_parallel`: specifies the maximum number of workers connected to in parallel at a host.
+                  Defaults to 10.
 
-`dir`: specifies the working directory on the workers. Defaults to the host's current
-directory (as found by `pwd()`)
+* `dir`: specifies the working directory on the workers. Defaults to the host's current
+         directory (as found by `pwd()`)
 
-`exename`: name of the julia executable. Defaults to `"\$JULIA_HOME/julia"` or
-`"\$JULIA_HOME/julia-debug"` as the case may be.
+* `exename`: name of the julia executable. Defaults to `"\$JULIA_HOME/julia"` or
+             `"\$JULIA_HOME/julia-debug"` as the case may be.
 
-`exeflags`: additional flags passed to the worker processes.
+* `exeflags`: additional flags passed to the worker processes.
+
+* `topology`: Specifies how the workers connect to each other. Sending a message
+            between unconnected workers results in an error.
+
+  + `topology=:all_to_all`  :  All processes are connected to each other.
+                      This is the default.
+
+  + `topology=:master_slave`  :  Only the driver process, i.e. pid 1 connects to the
+                        workers. The workers do not connect to each other.
+
+  + `topology=:custom`  :  The `launch` method of the cluster manager specifes the
+                  connection topology via fields `ident` and `connect_idents` in
+                  `WorkerConfig`. A worker with a cluster manager identity `ident`
+                  will connect to all workers specified in `connect_idents`.
+
 
 Environment variables :
 
@@ -3394,49 +3316,9 @@ addprocs(manager::ClusterManager)
     mkpath(path, [mode])
 
 Create all directories in the given `path`, with permissions `mode`. `mode` defaults to
-0o777, modified by the current file creation mask.
+`0o777`, modified by the current file creation mask.
 """
 mkpath
-
-"""
-    lufact(A [,pivot=Val{true}]) -> F
-
-Compute the LU factorization of `A`. The return type of `F` depends on the type of `A`. In
-most cases, if `A` is a subtype `S` of AbstractMatrix with an element type `T` supporting `+`, `-`, `*`
-and `/` the return type is `LU{T,S{T}}`. If pivoting is chosen (default) the element type
-should also support `abs` and `<`. When `A` is sparse and have element of type `Float32`,
-`Float64`, `Complex{Float32}`, or `Complex{Float64}` the return type is `UmfpackLU`. Some
-examples are shown in the table below.
-
-| Type of input `A`                              | Type of output `F`     | Relationship between `F` and `A`             |
-|:-----------------------------------------------|:-----------------------|:---------------------------------------------|
-| [`Matrix`](:func:`Matrix`)                     | `LU`                   | `F[:L]*F[:U] == A[F[:p], :]`                 |
-| [`Tridiagonal`](:func:`Tridiagonal`)           | `LU{T,Tridiagonal{T}}` | `F[:L]*F[:U] == A[F[:p], :]`                 |
-| [`SparseMatrixCSC`](:func:`SparseMatrixCSC`)   | `UmfpackLU`            | `F[:L]*F[:U] == (F[:Rs] .* A)[F[:p], F[:q]]` |
-
-The individual components of the factorization `F` can be accessed by indexing:
-
-| Component | Description                         | `LU` | `LU{T,Tridiagonal{T}}` | `UmfpackLU` |
-|:----------|:------------------------------------|:-----|:-----------------------|:------------|
-| `F[:L]`   | `L` (lower triangular) part of `LU` | ✓    | ✓                      | ✓           |
-| `F[:U]`   | `U` (upper triangular) part of `LU` | ✓    | ✓                      | ✓           |
-| `F[:p]`   | (right) permutation `Vector`        | ✓    | ✓                      | ✓           |
-| `F[:P]`   | (right) permutation `Matrix`        | ✓    | ✓                      |             |
-| `F[:q]`   | left permutation `Vector`           |      |                        | ✓           |
-| `F[:Rs]`  | `Vector` of scaling factors         |      |                        | ✓           |
-| `F[:(:)]` | `(L,U,p,q,Rs)` components           |      |                        | ✓           |
-
-| Supported function | `LU` | `LU{T,Tridiagonal{T}}` | `UmfpackLU` |
-|:-------------------|:-----|:-----------------------|:------------|
-| `/`                | ✓    |                        |             |
-| `\\`               | ✓    | ✓                      | ✓           |
-| `cond`             | ✓    |                        | ✓           |
-| `det`              | ✓    | ✓                      | ✓           |
-| `logdet`           | ✓    | ✓                      |             |
-| `logabsdet`        | ✓    | ✓                      |             |
-| `size`             | ✓    | ✓                      |             |
-"""
-lufact
 
 """
     besselix(nu, x)
@@ -4048,13 +3930,6 @@ itself). For matrices, returns an identity matrix of the appropriate size and ty
 one
 
 """
-    parseip(addr)
-
-Parse a string specifying an IPv4 or IPv6 ip address.
-"""
-parseip
-
-"""
     rationalize([Type=Int,] x; tol=eps(x))
 
 Approximate floating point number `x` as a Rational number with components of the given
@@ -4250,10 +4125,11 @@ Squared absolute value of `x`.
 abs2
 
 """
-    write(stream, x)
+    write(stream::IO, x)
+    write(filename::AbstractString, x)
 
-Write the canonical binary representation of a value to the given stream. Returns the number
-of bytes written into the stream.
+Write the canonical binary representation of a value to the given I/O stream or file.
+Returns the number of bytes written into the stream.
 
 You can write multiple values with the same :func:`write` call. i.e. the following are
 equivalent:
@@ -4624,15 +4500,6 @@ interrupt safe. Intended to be called using `do` block syntax as follows:
     end
 """
 disable_sigint
-
-"""
-    svdfact!(A, [thin=true]) -> SVD
-
-`svdfact!` is the same as [`svdfact`](:func:`svdfact`), but saves space by overwriting the
-input `A`, instead of creating a copy. If `thin` is `true`, an economy mode decomposition is
-returned. The default is to produce a thin decomposition.
-"""
-svdfact!
 
 """
     hist2d(M, e1, e2) -> (edge1, edge2, counts)
@@ -5483,11 +5350,21 @@ is no file path involved, no path processing or fetching from node 1 is done.
 include_string
 
 """
-    chmod(path, mode)
+    chmod(path, mode; recursive=false)
 
-Change the permissions mode of `path` to `mode`. Only integer `mode`s (e.g. 0o777) are currently supported.
+Change the permissions mode of `path` to `mode`. Only integer `mode`s (e.g. `0o777`) are
+currently supported. If `recursive=true` and the path is a directory all permissions in
+that directory will be recursively changed.
 """
 chmod
+
+"""
+    chown(path, owner, group=-1)
+
+Change the owner and/or group of `path` to `owner` and/or `group`. If the value entered for `owner` or `group`
+is `-1` the corresponding ID will not change. Only integer `owner`s and `group`s are currently supported.
+"""
+chown
 
 """
     gamma(x)
@@ -6144,20 +6021,28 @@ ERROR: ArgumentError: indices must be unique and sorted
 deleteat!(collection, itr)
 
 """
-    read(stream, type)
+    read(stream::IO, T)
 
-Read a value of the given type from a stream, in canonical binary representation.
+Read a single value of type `T` from `stream`, in canonical binary representation.
 """
 read(stream, t)
 
 """
-    read(stream, type, dims)
+    read(stream::IO, T, dims)
 
-Read a series of values of the given type from a stream, in canonical binary representation.
-`dims` is either a tuple or a series of integer arguments specifying the size of `Array` to
-return.
+Read a series of values of type `T` from `stream`, in canonical binary representation.
+`dims` is either a tuple or a series of integer arguments specifying the size of the `Array{T}`
+to return.
 """
 read(stream, t, dims)
+
+"""
+    read(filename::AbstractString, args...)
+
+Open a file and read its contents. `args` is passed to `read`: this is equivalent to
+`open(io->read(io, args...), filename)`.
+"""
+read(filename, args...)
 
 """
     @timev
@@ -6237,13 +6122,6 @@ after the end of the string.
 nextind
 
 """
-    >>>(x, n)
-
-Unsigned right bit shift operator.
-"""
-Base.(:(>>>))
-
-"""
     @timed
 
 A macro to execute an expression, and return the value of the expression, elapsed time,
@@ -6259,13 +6137,6 @@ Prints the native assembly instructions generated for running the method matchin
 generic function and type signature to `STDOUT`.
 """
 code_native
-
-"""
-    isgeneric(f::Function) -> Bool
-
-Determine whether a `Function` is generic.
-"""
-isgeneric
 
 """
     symdiff(s1,s2...)
@@ -6292,10 +6163,12 @@ Dirichlet eta function ``\\eta(s) = \\sum^\\infty_{n=1}(-)^{n-1}/n^{s}``.
 eta
 
 """
-    isdefined([object,] index | symbol)
+    isdefined([m::Module,] s::Symbol)
+    isdefined(object, s::Symbol)
+    isdefined(a::AbstractArray, index::Int)
 
-Tests whether an assignable location is defined. The arguments can be an array and index, a
-composite object and field name (as a symbol), or a module and a symbol. With a single
+Tests whether an assignable location is defined. The arguments can be a module and a symbol,
+a composite object and field name (as a symbol), or an array and index. With a single
 symbol argument, tests whether a global variable with that name is defined in
 `current_module()`.
 """
@@ -6397,7 +6270,7 @@ besselk
 """
     readchomp(x)
 
-Read the entirety of `x` as a string but remove trailing newlines. Equivalent to `chomp(readall(x))`.
+Read the entirety of `x` as a string but remove trailing newlines. Equivalent to `chomp(readstring(x))`.
 """
 readchomp
 
@@ -6437,12 +6310,13 @@ Compute the inverse secant of `x`, where the output is in degrees.
 asecd
 
 """
-    readbytes!(stream, b::Vector{UInt8}, nb=length(b); all=true)
+    readbytes!(stream::IO, b::AbstractVector{UInt8}, nb=length(b); all=true)
 
-Read at most `nb` bytes from the stream into `b`, returning the number of bytes read
-(increasing the size of `b` as needed).
+Read at most `nb` bytes from `stream` into `b`, returning the number of bytes read.
+The size of `b` will be increased if needed (i.e. if `nb` is greater than `length(b)`
+and enough bytes could be read), but it will never be decreased.
 
-See `readbytes` for a description of the `all` option.
+See `read` for a description of the `all` option.
 """
 readbytes!
 
@@ -6668,10 +6542,16 @@ ndims
 """
     @osx
 
-Given `@osx? a : b`, do `a` on OS X and `b` elsewhere. See documentation for Handling
-Platform Variations in the Calling C and Fortran Code section of the manual.
+Given `@osx? a : b`, do `a` on OS X and `b` elsewhere. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
 """
 :@osx
+
+"""
+    @osx_only
+
+A macro that evaluates the given expression only on OS X systems. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
+"""
+:@osx_only
 
 """
     ishermitian(A) -> Bool
@@ -6823,32 +6703,6 @@ DomainError
 Test whether a matrix is symmetric.
 """
 issym
-
-"""
-    svds(A; nsv=6, ritzvec=true, tol=0.0, maxiter=1000) -> (left_sv, s, right_sv, nconv, niter, nmult, resid)
-
-`svds` computes largest singular values `s` of `A` using Lanczos or Arnoldi iterations. Uses
-[`eigs`](:func:`eigs`) underneath.
-
-Inputs are:
-
-* `A`: Linear operator. It can either subtype of `AbstractArray` (e.g., sparse matrix) or
-  duck typed. For duck typing `A` has to support `size(A)`, `eltype(A)`, `A * vector` and
-  `A' * vector`.
-* `nsv`: Number of singular values.
-* `ritzvec`: Whether to return the left and right singular vectors `left_sv` and `right_sv`,
-  default is `true`. If `false` the singular vectors are omitted from the output.
-* `tol`: tolerance, see [`eigs`](:func:`eigs`).
-* `maxiter`: Maximum number of iterations, see [`eigs`](:func:`eigs`).
-
-**Example**
-
-```julia
-X = sprand(10, 5, 0.2)
-svds(X, nsv = 2)
-```
-"""
-svds
 
 """
     acosh(x)
@@ -7415,17 +7269,19 @@ The inverse of `ind2sub`, returns the linear index corresponding to the provided
 sub2ind
 
 """
-    super(T::DataType)
+    supertype(T::DataType)
 
 Return the supertype of DataType `T`.
 """
-super
+supertype
 
 """
-    readline(stream=STDIN)
+    readline(stream::IO=STDIN)
+    readline(filename::AbstractString)
 
 Read a single line of text, including a trailing newline character (if one is reached before
-the end of the input), from the given `stream` (defaults to `STDIN`),
+the end of the input), from the given I/O stream or file (defaults to `STDIN`).
+When reading from a file, the text is assumed to be encoded in UTF-8.
 """
 readline
 
@@ -7740,13 +7596,6 @@ Register a function `f(x)` to be called when there are no program-accessible ref
 `x`. The behavior of this function is unpredictable if `x` is of a bits type.
 """
 finalizer
-
-"""
-    <<(x, n)
-
-Left bit shift operator.
-"""
-Base.(:(<<))
 
 """
     csch(x)
@@ -8357,10 +8206,16 @@ cumprod!
 """
     @linux
 
-Given `@linux? a : b`, do `a` on Linux and `b` elsewhere. See documentation for Handling
-Platform Variations in the Calling C and Fortran Code section of the manual.
+Given `@linux? a : b`, do `a` on Linux and `b` elsewhere. See documentation [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
 """
 :@linux
+
+"""
+    @linux_only
+
+A macro that evaluates the given expression only on Linux systems. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
+"""
+:@linux_only
 
 """
     complement(s)
@@ -8423,8 +8278,9 @@ graphemes
 """
     @__FILE__ -> AbstractString
 
-`@__FILE__` expands to a string with the absolute path and file name of the script being
-run. Returns `nothing` if run from a REPL or an empty string if evaluated by `julia -e <expr>`.
+`@__FILE__` expands to a string with the absolute file path of the file containing the
+macro. Returns `nothing` if run from a REPL or an empty string if evaluated by
+`julia -e <expr>`. Alternatively see [`PROGRAM_FILE`](:data:`PROGRAM_FILE`).
 """
 :@__FILE__
 
@@ -8514,9 +8370,9 @@ Returns `true` if `path` is a mount point, `false` otherwise.
 ismount
 
 """
-    endswith(string, suffix | chars)
+    endswith(string, suffix)
 
-Returns `true` if `string` ends with `suffix`. If the second argument is a vector or set of
+Returns `true` if `string` ends with `suffix`. If `suffix` is a vector or set of
 characters, tests whether the last character of `string` belongs to that set.
 """
 endswith
@@ -8741,22 +8597,6 @@ promote_rule
 Equivalent to `stat(file).mtime`.
 """
 mtime
-
-"""
-    SharedArray(T::Type, dims::NTuple; init=false, pids=Int[])
-
-Construct a `SharedArray` of a bitstype `T` and size `dims` across the processes specified
-by `pids` - all of which have to be on the same host.
-
-If `pids` is left unspecified, the shared array will be mapped across all processes on the
-current host, including the master. But, `localindexes` and `indexpids` will only refer to
-worker processes. This facilitates work distribution code to use workers for actual
-computation with the master process acting as a driver.
-
-If an `init` function of the type `initfn(S::SharedArray)` is specified, it is called on all
-the participating workers.
-"""
-SharedArray
 
 """
     logspace(start, stop, n=50)
@@ -9776,7 +9616,9 @@ redirect_stdout(stream)
 """
     print_with_color(color::Symbol, [io], strings...)
 
-Print strings in a color specified as a symbol, for example `:red` or `:blue`.
+Print strings in a color specified as a symbol.
+
+`color` may take any of the values $(Base.available_text_colors_docstring).
 """
 print_with_color
 
@@ -9943,7 +9785,7 @@ isvalid(::AbstractString,i)
     esc(e::ANY)
 
 Only valid in the context of an `Expr` returned from a macro. Prevents the macro hygiene
-pass from turning embedded variables into gensym variables. See the [marcro](:ref:`man-macros`)
+pass from turning embedded variables into gensym variables. See the [macro](:ref:`man-macros`)
 section of the Metaprogramming chapter of the manual for more details and examples.
 """
 esc
@@ -10084,7 +9926,7 @@ eigfact(A,B)
 """
     mkdir(path, [mode])
 
-Make a new directory with name `path` and permissions `mode`. `mode` defaults to 0o777,
+Make a new directory with name `path` and permissions `mode`. `mode` defaults to `0o777`,
 modified by the current file creation mask.
 """
 mkdir
@@ -10156,21 +9998,6 @@ This is only needed if your module depends on a file that is not used via `inclu
 no effect outside of compilation.
 """
 include_dependency
-
-"""
-    __precompile__(isprecompilable::Bool=true)
-
-Specify whether the file calling this function is precompilable. If `isprecompilable` is
-`true`, then `__precompile__` throws an exception when the file is loaded by
-`using`/`import`/`require` *unless* the file is being precompiled, and in a module file it
-causes the module to be automatically precompiled when it is imported. Typically,
-`__precompile__()` should occur before the `module` declaration in the file, or better yet
-`VERSION >= v"0.4" && __precompile__()` in order to be backward-compatible with Julia 0.3.
-
-If a module or file is *not* safely precompilable, it should call `__precompile__(false)` in
-order to throw an error if Julia attempts to precompile it.
-"""
-__precompile__
 
 """
     randn!([rng], A::Array{Float64,N})
@@ -10275,16 +10102,16 @@ a series of integer arguments.
 cell
 
 """
-    readbytes(stream, nb=typemax(Int); all=true)
+    read(stream::IO, nb=typemax(Int); all=true)
 
-Read at most `nb` bytes from the stream, returning a `Vector{UInt8}` of the bytes read.
+Read at most `nb` bytes from `stream`, returning a `Vector{UInt8}` of the bytes read.
 
 If `all` is `true` (the default), this function will block repeatedly trying to read all
 requested bytes, until an error or end-of-file occurs. If `all` is `false`, at most one
 `read` call is performed, and the amount of data returned is device-dependent. Note that not
 all stream types support the `all` option.
 """
-readbytes
+read
 
 """
     eig(A,[irange,][vl,][vu,][permute=true,][scale=true]) -> D, V
@@ -10479,11 +10306,11 @@ updated as appropriate before returning.
 deepcopy
 
 """
-    widen(type | x)
+    widen(x)
 
-If the argument is a type, return a "larger" type (for numeric types, this will be
+If `x` is a type, return a "larger" type (for numeric types, this will be
 a type with at least as much range and precision as the argument, and usually more).
-Otherwise the argument `x` is converted to `widen(typeof(x))`.
+Otherwise `x` is converted to `widen(typeof(x))`.
 
 ```jldoctest
 julia> widen(Int32)
@@ -10685,7 +10512,7 @@ DivideError
 """
     AssertionError([msg])
 
-The asserted condition did not evalutate to `true`.
+The asserted condition did not evaluate to `true`.
 Optional argument `msg` is a descriptive error string.
 """
 AssertionError

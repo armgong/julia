@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-import Base.LinAlg: chksquare
+import Base.LinAlg: checksquare
 
 ## Functions to switch to 0-based indexing to call external sparse solvers
 
@@ -171,7 +171,7 @@ end
 function fwdTriSolve!(A::SparseMatrixCSC, B::AbstractVecOrMat)
 # forward substitution for CSC matrices
     nrowB, ncolB  = size(B, 1), size(B, 2)
-    ncol = LinAlg.chksquare(A)
+    ncol = LinAlg.checksquare(A)
     if nrowB != ncol
         throw(DimensionMismatch("A is $(ncol) columns and B has $(nrowB) rows"))
     end
@@ -216,7 +216,7 @@ end
 function bwdTriSolve!(A::SparseMatrixCSC, B::AbstractVecOrMat)
 # backward substitution for CSC matrices
     nrowB, ncolB = size(B, 1), size(B, 2)
-    ncol = LinAlg.chksquare(A)
+    ncol = LinAlg.checksquare(A)
     if nrowB != ncol
         throw(DimensionMismatch("A is $(ncol) columns and B has $(nrowB) rows"))
     end
@@ -516,14 +516,14 @@ function cond(A::SparseMatrixCSC, p::Real=2)
     elseif p == 2
         throw(ArgumentError("2-norm condition number is not implemented for sparse matrices, try cond(full(A), 2) instead"))
     else
-        throw(ArgumentError("second argment must be either 1 or Inf, got $p"))
+        throw(ArgumentError("second argument must be either 1 or Inf, got $p"))
     end
 end
 
 function normestinv{T}(A::SparseMatrixCSC{T}, t::Integer = min(2,maximum(size(A))))
     maxiter = 5
     # Check the input
-    n = chksquare(A)
+    n = checksquare(A)
     F = factorize(A)
     if t <= 0
         throw(ArgumentError("number of blocks must be a positive integer"))
@@ -602,7 +602,7 @@ function normestinv{T}(A::SparseMatrixCSC{T}, t::Integer = min(2,maximum(size(A)
         end
 
         if T <: Real
-            # Check wether cols of S are parallel to cols of S or S_old
+            # Check whether cols of S are parallel to cols of S or S_old
             for j = 1:t
                 while true
                     repeated = false
@@ -815,7 +815,13 @@ function scale!(C::SparseMatrixCSC, A::SparseMatrixCSC, b::Number)
     C
 end
 
-scale!(C::SparseMatrixCSC, b::Number, A::SparseMatrixCSC) = scale!(C, A, b)
+function scale!(C::SparseMatrixCSC, b::Number, A::SparseMatrixCSC)
+    size(A)==size(C) || throw(DimensionMismatch())
+    copyinds!(C, A)
+    resize!(C.nzval, length(A.nzval))
+    scale!(C.nzval, b, A.nzval)
+    C
+end
 
 scale!(A::SparseMatrixCSC, b::Number) = (scale!(A.nzval, b); A)
 scale!(b::Number, A::SparseMatrixCSC) = (scale!(b, A.nzval); A)
@@ -831,7 +837,7 @@ function factorize(A::SparseMatrixCSC)
     if m == n
         if istril(A)
             if istriu(A)
-                return return Diagonal(A)
+                return Diagonal(A)
             else
                 return LowerTriangular(A)
             end

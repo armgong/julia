@@ -225,8 +225,31 @@ b = randn(3)
 @test scale(0.5, dA) == scale!(0.5, copy(sA))
 @test scale!(sC, 0.5, sA) == scale!(sC, sA, 0.5)
 
-# conj
+# copy!
+let
+    A = sprand(5, 5, 0.2)
+    B = sprand(5, 5, 0.2)
+    copy!(A, B)
+    @test A == B
+    @test pointer(A.nzval) != pointer(B.nzval)
+    @test pointer(A.rowval) != pointer(B.rowval)
+    @test pointer(A.colptr) != pointer(B.colptr)
+    # Test size(A) != size(B)
+    B = sprand(3, 3, 0.2)
+    copy!(A, B)
+    @test A[1:9] == B[:]
+    # Test eltype(A) != eltype(B), size(A) != size(B)
+    B = sparse(rand(Float32, 3, 3))
+    copy!(A, B)
+    @test A[1:9] == B[:]
+    # Test eltype(A) != eltype(B), size(A) == size(B)
+    A = sparse(rand(Float64, 3, 3))
+    B = sparse(rand(Float32, 3, 3))
+    copy!(A, B)
+    @test A == B
+end
 
+# conj
 cA = sprandn(5,5,0.2) + im*sprandn(5,5,0.2)
 @test full(conj(cA)) == conj(full(cA))
 
@@ -951,7 +974,7 @@ A = sparse(tril(rand(5,5)))
 srand(1234321)
 A = triu(sprand(10,10,0.2))       # symperm operates on upper triangle
 perm = randperm(10)
-@test symperm(A,perm).colptr == [1,2,3,3,3,4,5,5,7,9,10]
+@test symperm(A,perm).colptr == [1,1,2,4,5,5,6,8,8,9,10]
 
 # droptol
 @test Base.droptol!(A,0.01).colptr == [1,1,1,2,2,3,4,6,6,7,9]
@@ -1098,10 +1121,11 @@ A = sparse(reshape([1.0],1,1))
 Ac = sprandn(20,20,.5) + im* sprandn(20,20,.5)
 Ar = sprandn(20,20,.5)
 @test cond(A,1) == 1.0
-@test_approx_eq_eps cond(Ar,1) cond(full(Ar),1) 1e-4
-@test_approx_eq_eps cond(Ac,1) cond(full(Ac),1) 1e-4
-@test_approx_eq_eps cond(Ar,Inf) cond(full(Ar),Inf) 1e-4
-@test_approx_eq_eps cond(Ac,Inf) cond(full(Ac),Inf) 1e-4
+# For a discussion of the tolerance, see #14778
+@test 0.99 <= cond(Ar, 1) \ norm(Ar, 1) * norm(inv(full(Ar)), 1) < 3
+@test 0.99 <= cond(Ac, 1) \ norm(Ac, 1) * norm(inv(full(Ac)), 1) < 3
+@test 0.99 <= cond(Ar, Inf) \ norm(Ar, Inf) * norm(inv(full(Ar)), Inf) < 3
+@test 0.99 <= cond(Ac, Inf) \ norm(Ac, Inf) * norm(inv(full(Ac)), Inf) < 3
 @test_throws ArgumentError cond(A,2)
 @test_throws ArgumentError cond(A,3)
 let Arect = spzeros(10, 6)
@@ -1177,6 +1201,11 @@ let
     A = spdiagm(rand(5)) + sprandn(5,5,0.2)
     A = A*A.'
     @test abs(det(factorize(Symmetric(A)))) ≈ abs(det(factorize(full(A))))
+    @test factorize(triu(A)) == triu(A)
+    @test isa(factorize(triu(A)), UpperTriangular{Float64, SparseMatrixCSC{Float64, Int}})
+    @test factorize(tril(A)) == tril(A)
+    @test isa(factorize(tril(A)), LowerTriangular{Float64, SparseMatrixCSC{Float64, Int}})
+    @test factorize(A[:,1:4])\ones(size(A,1)) ≈ full(A[:,1:4])\ones(size(A,1))
     @test_throws ErrorException chol(A)
     @test_throws ErrorException lu(A)
     @test_throws ErrorException eig(A)
@@ -1193,4 +1222,25 @@ let
     A[2,2] = 0
     @test_throws LinAlg.SingularException LowerTriangular(A)\ones(n)
     @test_throws LinAlg.SingularException UpperTriangular(A)\ones(n)
+end
+
+# https://groups.google.com/forum/#!topic/julia-dev/QT7qpIpgOaA
+@test sparse([1,1], [1,1], [true, true]) == sparse([1,1], [1,1], [true, true], 1, 1) == fill(true, 1, 1)
+@test sparsevec([1,1], [true, true]) == sparsevec([1,1], [true, true], 1) == fill(true, 1)
+
+# issparse for specialized matrix types
+let
+    m = sprand(10, 10, 0.1)
+    @test issparse(Symmetric(m))
+    @test issparse(Hermitian(m))
+    @test issparse(LowerTriangular(m))
+    @test issparse(LinAlg.UnitLowerTriangular(m))
+    @test issparse(UpperTriangular(m))
+    @test issparse(LinAlg.UnitUpperTriangular(m))
+    @test issparse(Symmetric(full(m))) == false
+    @test issparse(Hermitian(full(m))) == false
+    @test issparse(LowerTriangular(full(m))) == false
+    @test issparse(LinAlg.UnitLowerTriangular(full(m))) == false
+    @test issparse(UpperTriangular(full(m))) == false
+    @test issparse(LinAlg.UnitUpperTriangular(full(m))) == false
 end

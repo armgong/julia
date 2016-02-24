@@ -16,8 +16,7 @@ region_t *jl_gc_find_region(void *ptr, int maybe)
 // singleton object), this usually returns the same pointer which points to
 // the next object but it can also return NULL if the pointer is pointing to
 // the end of the page.
-JL_DLLEXPORT jl_taggedvalue_t *jl_gc_find_taggedvalue_pool(char *p,
-                                                           size_t *osize_p)
+JL_DLLEXPORT jl_taggedvalue_t *jl_gc_find_taggedvalue_pool(char *p, size_t *osize_p)
 {
     region_t *r = find_region(p, 1);
     // Not in the pool
@@ -55,12 +54,12 @@ void jl_(void *jl_value);
 
 // mark verification
 #ifdef GC_VERIFY
-static jl_value_t* lostval = 0;
+static jl_value_t *lostval = 0;
 static arraylist_t lostval_parents;
 static arraylist_t lostval_parents_done;
 static int verifying;
 
-static void add_lostval_parent(jl_value_t* parent)
+static void add_lostval_parent(jl_value_t *parent)
 {
     for(int i = 0; i < lostval_parents_done.len; i++) {
         if ((jl_value_t*)lostval_parents_done.items[i] == parent)
@@ -143,7 +142,7 @@ static void clear_mark(int bits)
     FOR_EACH_HEAP () {
         v = big_objects;
         while (v != NULL) {
-            void* gcv = &v->header;
+            void *gcv = &v->header;
             if (!verifying) arraylist_push(&bits_save[gc_bits(gcv)], gcv);
             gc_bits(gcv) = bits;
             v = v->next;
@@ -152,14 +151,14 @@ static void clear_mark(int bits)
 
     v = big_objects_marked;
     while (v != NULL) {
-        void* gcv = &v->header;
+        void *gcv = &v->header;
         if (!verifying) arraylist_push(&bits_save[gc_bits(gcv)], gcv);
         gc_bits(gcv) = bits;
         v = v->next;
     }
 
     for (int h = 0; h < REGION_COUNT; h++) {
-        region_t* region = regions[h];
+        region_t *region = regions[h];
         if (!region) break;
         for (int pg_i = 0; pg_i < REGION_PG_COUNT/32; pg_i++) {
             uint32_t line = region->freemap[pg_i];
@@ -206,12 +205,12 @@ static void gc_verify_track(void)
             jl_printf(JL_STDERR, "Could not find the missing link. We missed a toplevel root. This is odd.\n");
             break;
         }
-        jl_value_t* lostval_parent = NULL;
+        jl_value_t *lostval_parent = NULL;
         for(int i = 0; i < lostval_parents.len; i++) {
             lostval_parent = (jl_value_t*)lostval_parents.items[i];
             int clean_len = bits_save[GC_CLEAN].len;
             for(int j = 0; j < clean_len + bits_save[GC_QUEUED].len; j++) {
-                void* p = bits_save[j >= clean_len ? GC_QUEUED : GC_CLEAN].items[j >= clean_len ? j - clean_len : j];
+                void *p = bits_save[j >= clean_len ? GC_QUEUED : GC_CLEAN].items[j >= clean_len ? j - clean_len : j];
                 if (jl_valueof(p) == lostval_parent) {
                     lostval = lostval_parent;
                     lostval_parent = NULL;
@@ -246,7 +245,7 @@ static void gc_verify(void)
     post_mark(&finalizer_list_marked, 1);
     int clean_len = bits_save[GC_CLEAN].len;
     for(int i = 0; i < clean_len + bits_save[GC_QUEUED].len; i++) {
-        gcval_t* v = (gcval_t*)bits_save[i >= clean_len ? GC_QUEUED : GC_CLEAN].items[i >= clean_len ? i - clean_len : i];
+        gcval_t *v = (gcval_t*)bits_save[i >= clean_len ? GC_QUEUED : GC_CLEAN].items[i >= clean_len ? i - clean_len : i];
         if (gc_marked(v)) {
             jl_printf(JL_STDERR, "Error. Early free of %p type :", v);
             jl_(jl_typeof(jl_valueof(v)));
@@ -264,6 +263,8 @@ static void gc_verify(void)
     }
     restore();
     gc_verify_track();
+    gc_debug_print_status();
+    gc_debug_critical_error();
     abort();
 }
 
@@ -286,6 +287,7 @@ typedef struct {
 
 typedef struct {
     int sweep_mask;
+    int wait_for_debugger;
     jl_alloc_num_t pool;
     jl_alloc_num_t other;
     jl_alloc_num_t print;
@@ -293,6 +295,7 @@ typedef struct {
 
 JL_DLLEXPORT jl_gc_debug_env_t jl_gc_debug_env = {
     GC_MARKED_NOESC,
+    0,
     {0, 0, 0, 0},
     {0, 0, 0, 0},
     {0, 0, 0, 0}
@@ -302,7 +305,7 @@ static void gc_debug_alloc_init(jl_alloc_num_t *num, const char *name)
 {
     // Not very generic and robust but good enough for a debug option
     char buff[128];
-    sprintf(buff, "JL_GC_ALLOC_%s", name);
+    sprintf(buff, "JULIA_GC_ALLOC_%s", name);
     char *env = getenv(buff);
     if (!env)
         return;
@@ -324,10 +327,11 @@ static char *gc_stack_lo;
 static void gc_debug_init(void)
 {
     gc_stack_lo = (char*)gc_get_stack_ptr();
-    char *env = getenv("JL_GC_NO_GENERATIONAL");
-    if (env && strcmp(env, "0") != 0) {
+    char *env = getenv("JULIA_GC_NO_GENERATIONAL");
+    if (env && strcmp(env, "0") != 0)
         jl_gc_debug_env.sweep_mask = GC_MARKED;
-    }
+    env = getenv("JULIA_GC_WAIT_FOR_DEBUGGER");
+    jl_gc_debug_env.wait_for_debugger = env && strcmp(env, "0") != 0;
     gc_debug_alloc_init(&jl_gc_debug_env.pool, "POOL");
     gc_debug_alloc_init(&jl_gc_debug_env.other, "OTHER");
     gc_debug_alloc_init(&jl_gc_debug_env.print, "PRINT");
@@ -349,8 +353,18 @@ void gc_debug_print_status(void)
     uint64_t other_count = jl_gc_debug_env.other.num;
     jl_safe_printf("Allocations: %" PRIu64 " "
                    "(Pool: %" PRIu64 "; Other: %" PRIu64 "); GC: %d\n",
-                   pool_count + other_count, pool_count, other_count,
-                   n_pause);
+                   pool_count + other_count, pool_count, other_count, n_pause);
+}
+
+void gc_debug_critical_error(void)
+{
+    gc_debug_print_status();
+    if (!jl_gc_debug_env.wait_for_debugger)
+        return;
+    jl_safe_printf("Waiting for debugger to attach\n");
+    while (1) {
+        sleep(1000);
+    }
 }
 
 static inline void gc_debug_print(void)
@@ -401,6 +415,20 @@ static inline int gc_debug_check_other(void)
 static inline int gc_debug_check_pool(void)
 {
     return 0;
+}
+
+void gc_debug_print_status(void)
+{
+    // May not be accurate but should be helpful enough
+    uint64_t pool_count = gc_num.poolalloc;
+    uint64_t big_count = gc_num.bigalloc;
+    jl_safe_printf("Allocations: %" PRIu64 " "
+                   "(Pool: %" PRIu64 "; Big: %" PRIu64 "); GC: %d\n",
+                   pool_count + big_count, pool_count, big_count, n_pause);
+}
+
+void gc_debug_critical_error(void)
+{
 }
 
 static inline void gc_debug_print(void)

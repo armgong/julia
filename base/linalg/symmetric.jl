@@ -5,13 +5,13 @@ immutable Symmetric{T,S<:AbstractMatrix} <: AbstractMatrix{T}
     data::S
     uplo::Char
 end
-Symmetric(A::AbstractMatrix, uplo::Symbol=:U) = (chksquare(A);Symmetric{eltype(A),typeof(A)}(A, char_uplo(uplo)))
+Symmetric(A::AbstractMatrix, uplo::Symbol=:U) = (checksquare(A);Symmetric{eltype(A),typeof(A)}(A, char_uplo(uplo)))
 immutable Hermitian{T,S<:AbstractMatrix} <: AbstractMatrix{T}
     data::S
     uplo::Char
 end
 function Hermitian(A::AbstractMatrix, uplo::Symbol=:U)
-    n = chksquare(A)
+    n = checksquare(A)
     for i=1:n
         isreal(A[i, i]) || throw(ArgumentError(
             "Cannot construct Hermitian from matrix with nonreal diagonals"))
@@ -23,12 +23,19 @@ typealias HermOrSym{T,S} Union{Hermitian{T,S}, Symmetric{T,S}}
 typealias RealHermSymComplexHerm{T<:Real,S} Union{Hermitian{T,S}, Symmetric{T,S}, Hermitian{Complex{T},S}}
 
 size(A::HermOrSym, args...) = size(A.data, args...)
-getindex(A::Symmetric, i::Integer, j::Integer) = (A.uplo == 'U') == (i < j) ? getindex(A.data, i, j) : getindex(A.data, j, i)
-getindex(A::Hermitian, i::Integer, j::Integer) = (A.uplo == 'U') == (i < j) ? getindex(A.data, i, j) : conj(getindex(A.data, j, i))
-unsafe_getindex(A::Symmetric, i::Integer, j::Integer) = (A.uplo == 'U') == (i < j) ? unsafe_getindex(A.data, i, j) : unsafe_getindex(A.data, j, i)
-unsafe_getindex(A::Hermitian, i::Integer, j::Integer) = (A.uplo == 'U') == (i < j) ? unsafe_getindex(A.data, i, j) : conj(unsafe_getindex(A.data, j, i))
+@inline function getindex(A::Symmetric, i::Integer, j::Integer)
+    @boundscheck checkbounds(A, i, j)
+    @inbounds r = (A.uplo == 'U') == (i < j) ? A.data[i, j] : A.data[j, i]
+    r
+end
+@inline function getindex(A::Hermitian, i::Integer, j::Integer)
+    @boundscheck checkbounds(A, i, j)
+    @inbounds r = (A.uplo == 'U') == (i < j) ? A.data[i, j] : conj(A.data[j, i])
+    r
+end
 full(A::Symmetric) = copytri!(copy(A.data), A.uplo)
 full(A::Hermitian) = copytri!(copy(A.data), A.uplo, true)
+parent(A::HermOrSym) = A.data
 convert{T,S<:AbstractMatrix}(::Type{Symmetric{T,S}},A::Symmetric{T,S}) = A
 convert{T,S<:AbstractMatrix}(::Type{Symmetric{T,S}},A::Symmetric) = Symmetric{T,S}(convert(S,A.data),A.uplo)
 convert{T}(::Type{AbstractMatrix{T}}, A::Symmetric) = Symmetric(convert(AbstractMatrix{T}, A.data), symbol(A.uplo))
@@ -144,11 +151,6 @@ eigfact!{T<:BlasReal,S<:StridedMatrix}(A::RealHermSymComplexHerm{T,S}, vl::Real,
 # Because of #6721 it is necessary to specify the parameters explicitly here.
 eigfact{T1<:Real,T2}(A::RealHermSymComplexHerm{T1,T2}, vl::Real, vh::Real) = (T = eltype(A); S = promote_type(Float32, typeof(zero(T)/norm(one(T)))); eigfact!(S != T ? convert(AbstractMatrix{S}, A) : copy(A), vl, vh))
 
-function eig{T<:Real,S}(A::Union{Hermitian{T,S}, Symmetric{T,S}, Hermitian{Complex{T},S}}, args...)
-    F = eigfact(A, args...)
-    return F.values, F.vectors
-end
-
 eigvals!{T<:BlasReal,S<:StridedMatrix}(A::RealHermSymComplexHerm{T,S}) = LAPACK.syevr!('N', 'A', A.uplo, A.data, 0.0, 0.0, 0, 0, -1.0)[1]
 # Because of #6721 it is necessary to specify the parameters explicitly here.
 eigvals{T1<:Real,T2}(A::RealHermSymComplexHerm{T1,T2}) = (T = eltype(A); S = promote_type(Float32, typeof(zero(T)/norm(one(T)))); eigvals!(S != T ? convert(AbstractMatrix{S}, A) : copy(A)))
@@ -190,7 +192,7 @@ function expm(A::Symmetric)
     return Symmetric((F.vectors * Diagonal(exp(F.values))) * F.vectors')
 end
 function expm{T}(A::Hermitian{T})
-    n = chksquare(A)
+    n = checksquare(A)
     F = eigfact(A)
     retmat = (F.vectors * Diagonal(exp(F.values))) * F.vectors'
     if T <: Real
@@ -218,7 +220,7 @@ for (funm, func) in ([:logm,:log], [:sqrtm,:sqrt])
         end
 
         function ($funm){T}(A::Hermitian{T})
-            n = chksquare(A)
+            n = checksquare(A)
             F = eigfact(A)
             if isposdef(F)
                 retmat = (F.vectors * Diagonal(($func)(F.values))) * F.vectors'

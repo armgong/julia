@@ -15,7 +15,7 @@ convert(::Type{Float16}, x::Irrational) = Float16(Float32(x))
 convert{T<:Real}(::Type{Complex{T}}, x::Irrational) = convert(Complex{T}, convert(T,x))
 convert{T<:Integer}(::Type{Rational{T}}, x::Irrational) = convert(Rational{T}, Float64(x))
 
-@generated function call{T<:Union{Float32,Float64},s}(t::Type{T},c::Irrational{s},r::RoundingMode)
+@generated function (t::Type{T}){T<:Union{Float32,Float64},s}(c::Irrational{s},r::RoundingMode)
     f = T(big(c()),r())
     :($f)
 end
@@ -130,8 +130,8 @@ log(::Irrational{:e}) = 1 # use 1 to correctly promote expressions like log(x)/l
 log(::Irrational{:e}, x) = log(x)
 
 # align along = for nice Array printing
-function alignment(x::Irrational)
-    m = match(r"^(.*?)(=.*)$", sprint(showcompact_lim, x))
-    m === nothing ? (length(sprint(showcompact_lim, x)), 0) :
+function alignment(io::IO, x::Irrational)
+    m = match(r"^(.*?)(=.*)$", sprint(0, showcompact_lim, x, env=io))
+    m === nothing ? (length(sprint(0, showcompact_lim, x, env=io)), 0) :
     (length(m.captures[1]), length(m.captures[2]))
 end

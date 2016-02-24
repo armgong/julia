@@ -1,6 +1,25 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+import Base: *
 using Base.Test
+
+# A custom Quaternion type with minimal defined interface and methods.
+# Used to test scale and scale! methods to show non-commutativity.
+immutable Quaternion{T<:Real} <: Number
+    s::T
+    v1::T
+    v2::T
+    v3::T
+    norm::Bool
+end
+Quaternion(s::Real, v1::Real, v2::Real, v3::Real, n::Bool = false) =
+    Quaternion( promote(s, v1, v2, v3)..., n)
+Quaternion(a::Vector) = Quaternion(0, a[1], a[2], a[3])
+(*)(q::Quaternion, w::Quaternion) = Quaternion(q.s*w.s - q.v1*w.v1 - q.v2*w.v2 - q.v3*w.v3,
+                                               q.s*w.v1 + q.v1*w.s + q.v2*w.v3 - q.v3*w.v2,
+                                               q.s*w.v2 - q.v1*w.v3 + q.v2*w.s + q.v3*w.v1,
+                                               q.s*w.v3 + q.v1*w.v2 - q.v2*w.v1 + q.v3*w.s,
+                                               q.norm && w.norm)
 
 debug = false
 
@@ -38,6 +57,10 @@ let X = [3  9   5;
          2  1  10]
     @test diff(X,1) == [4  -5 -3; -5  -3  8]
     @test diff(X,2) == [6 -4; -3 -2; -1 9]
+    @test diff(sub(X, 1:2, 1:2),1) == [4 -5]
+    @test diff(sub(X, 1:2, 1:2),2) == reshape([6; -3], (2,1))
+    @test diff(sub(X, 2:3, 2:3),1) == [-3 8]
+    @test diff(sub(X, 2:3, 2:3),2) == reshape([-2; 9], (2,1))
     @test_throws ArgumentError diff(X,3)
     @test_throws ArgumentError diff(X,-1)
 end
@@ -45,11 +68,13 @@ end
 x = float([1:12;])
 y = [5.5; 6.3; 7.6; 8.8; 10.9; 11.79; 13.48; 15.02; 17.77; 20.81; 22.0; 22.99]
 @test_approx_eq linreg(x,y) [2.5559090909090867, 1.6960139860139862]
+@test_approx_eq linreg(sub(x,1:6),sub(y,1:6)) [3.8366666666666642,1.3271428571428574]
 
 # test diag
 let A = eye(4)
     @test diag(A) == ones(4)
     @test diag(sub(A, 1:3, 1:3)) == ones(3)
+    @test diag(sub(A, 1:2, 1:2)) == ones(2)
 end
 
 # test generic axpy
@@ -70,42 +95,76 @@ y = ['a','b','c','d','e']
 
 @test trace(Bidiagonal(ones(5),zeros(4),true)) == 5
 
-# 2-argument version of scale
-a = reshape([1.:6;], (2,3))
-@test scale(a, 5.) == a*5
-@test scale(5., a) == a*5
-@test scale(a, [1.; 2.; 3.]) == a.*[1 2 3]
-@test scale([1.; 2.], a) == a.*[1; 2]
-@test scale(a, [1; 2; 3]) == a.*[1 2 3]
-@test scale([1; 2], a) == a.*[1; 2]
-@test scale(eye(Int, 2), 0.5) == 0.5*eye(2)
-@test scale([1; 2], sub(a, :, :)) == a.*[1; 2]
-@test scale(sub([1; 2], :), a) == a.*[1; 2]
-@test_throws DimensionMismatch scale(a, ones(2))
-@test_throws DimensionMismatch scale(ones(3), a)
 
-# 2-argument version of scale!
-@test scale!(copy(a), 5.) == a*5
-@test scale!(5., copy(a)) == a*5
-b = randn(Base.LinAlg.SCAL_CUTOFF) # make sure we try BLAS path
-@test scale!(copy(b), 5.) == b*5
-@test scale!(copy(a), [1.; 2.; 3.]) == a.*[1 2 3]
-@test scale!([1.; 2.], copy(a)) == a.*[1; 2]
-@test scale!(copy(a), [1; 2; 3]) == a.*[1 2 3]
-@test scale!([1; 2], copy(a)) == a.*[1; 2]
-@test_throws DimensionMismatch scale!(a, ones(2))
-@test_throws DimensionMismatch scale!(ones(3), a)
+# array and subarray tests
+let aa = reshape([1.:6;], (2,3))
+    for atype in ("Array", "SubArray")
+        if atype == "Array"
+            a = aa
+        else
+            a = sub(aa, 1:2, 1:2)
+        end
 
-# 3-argument version of scale!
-@test scale!(similar(a), 5., a) == a*5
-@test scale!(similar(a), a, 5.) == a*5
-@test scale!(similar(a), a, [1.; 2.; 3.]) == a.*[1 2 3]
-@test scale!(similar(a), [1.; 2.], a) == a.*[1; 2]
-@test scale!(similar(a), a, [1; 2; 3]) == a.*[1 2 3]
-@test scale!(similar(a), [1; 2], a) == a.*[1; 2]
-@test_throws DimensionMismatch scale!(similar(a), a, ones(2))
-@test_throws DimensionMismatch scale!(similar(a), ones(3), a)
-@test_throws DimensionMismatch scale!(Array(Float64, 3, 2), a, ones(3))
+        # 2-argument version of scale
+        @test scale(a, 5.) == a*5
+        @test scale(5., a) == a*5
+        @test scale([1.; 2.], a) == a.*[1; 2]
+        @test scale([1; 2], a) == a.*[1; 2]
+        @test scale(eye(Int, 2), 0.5) == 0.5*eye(2)
+        @test scale([1; 2], sub(a, :, :)) == a.*[1; 2]
+        @test scale(sub([1; 2], :), a) == a.*[1; 2]
+        @test_throws DimensionMismatch scale(ones(3), a)
+
+        if atype == "Array"
+            @test scale(a, [1.; 2.; 3.]) == a.*[1 2 3]
+            @test scale(a, [1; 2; 3]) == a.*[1 2 3]
+            @test_throws DimensionMismatch scale(a, ones(2))
+        else
+            @test scale(a, [1.; 2.]) == a.*[1 2]
+            @test scale(a, [1; 2]) == a.*[1 2]
+            @test_throws DimensionMismatch scale(a, ones(3))
+        end
+
+        # 2-argument version of scale!
+        @test scale!(copy(a), 5.) == a*5
+        @test scale!(5., copy(a)) == a*5
+        b = randn(Base.LinAlg.SCAL_CUTOFF) # make sure we try BLAS path
+        subB = sub(b, :, :)
+        @test scale!(copy(b), 5.) == b*5
+        @test scale!(copy(subB), 5.) == subB*5
+        @test scale!([1.; 2.], copy(a)) == a.*[1; 2]
+        @test scale!([1; 2], copy(a)) == a.*[1; 2]
+        @test_throws DimensionMismatch scale!(ones(3), a)
+
+        if atype == "Array"
+            @test scale!(copy(a), [1.; 2.; 3.]) == a.*[1 2 3]
+            @test scale!(copy(a), [1; 2; 3]) == a.*[1 2 3]
+            @test_throws DimensionMismatch scale!(a, ones(2))
+        else
+            @test scale!(copy(a), [1.; 2.]) == a.*[1 2]
+            @test scale!(copy(a), [1; 2]) == a.*[1 2]
+            @test_throws DimensionMismatch scale!(a, ones(3))
+        end
+
+        # 3-argument version of scale!
+        @test scale!(similar(a), 5., a) == a*5
+        @test scale!(similar(a), a, 5.) == a*5
+        @test scale!(similar(a), [1.; 2.], a) == a.*[1; 2]
+        @test scale!(similar(a), [1; 2], a) == a.*[1; 2]
+        @test_throws DimensionMismatch scale!(similar(a), ones(3), a)
+        @test_throws DimensionMismatch scale!(Array(Float64, 3, 2), a, ones(3))
+
+        if atype == "Array"
+            @test scale!(similar(a), a, [1.; 2.; 3.]) == a.*[1 2 3]
+            @test scale!(similar(a), a, [1; 2; 3]) == a.*[1 2 3]
+            @test_throws DimensionMismatch scale!(similar(a), a, ones(2))
+        else
+            @test scale!(similar(a), a, [1.; 2.]) == a.*[1 2]
+            @test scale!(similar(a), a, [1; 2]) == a.*[1 2]
+            @test_throws DimensionMismatch scale!(similar(a), a, ones(3))
+        end
+    end
+end
 
 # scale real matrix by complex type
 @test_throws InexactError scale!([1.0], 2.0im)
@@ -118,6 +177,12 @@ b = randn(Base.LinAlg.SCAL_CUTOFF) # make sure we try BLAS path
 @test isequal(scale(Float64[1.0], big(2.0)im), Complex{BigFloat}[2.0im])
 @test isequal(scale(BigFloat[1.0], 2.0im),     Complex{BigFloat}[2.0im])
 @test isequal(scale(BigFloat[1.0], 2.0f0im),   Complex{BigFloat}[2.0im])
+
+# test scale and scale! for non-commutative multiplication
+q = Quaternion([0.44567, 0.755871, 0.882548, 0.423612])
+qmat = []
+push!(qmat, Quaternion([0.015007, 0.355067, 0.418645, 0.318373]))
+@test scale!(q, copy(qmat)) != scale!(copy(qmat), q)
 
 # test ops on Numbers
 for elty in [Float32,Float64,Complex64,Complex128]
@@ -180,3 +245,6 @@ let
     @test norm(w) === 1.0
     @test norm(normalize!(v) - w, Inf) < eps()
 end
+
+# Issue 14657
+@test det([true false; false true]) == det(eye(Int, 2))

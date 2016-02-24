@@ -4,15 +4,33 @@ Julia v0.5.0 Release Notes
 New language features
 ---------------------
 
+  * Generator expressions, e.g. `f(i) for i in 1:n` (#4470). This returns an iterator
+    that computes the specified values on demand.
+
+  * Macro expander functions are now generic, so macros can have multiple definitions
+    (e.g. for different numbers of arguments, or optional arguments) ([#8846], [#9627]).
+    However note that the argument types refer to the syntax tree representation, and not
+    to the types of run time values.
+
   * `x ∈ X` is now a synonym for `x in X` in `for` loops and comprehensions,
     as it already was in comparisons ([#13824]).
 
 Language changes
 ----------------
 
+  * Each function and closure now has its own type. The captured variables of a closure
+    are fields of its type. `Function` is now an abstract type, and is the default supertype
+    of functions and closures. All functions, including anonymous functions,
+    are generic and support all features (e.g. keyword arguments).
+    Instead of adding methods to `call`, methods are added by type using the syntax
+    `(::ftype)(...) = ...`. `call` is deprecated ([#13412]).
+
   * `using` and `import` are now case-sensitive even on case-insensitive filesystems (common on Mac and Windows) ([#13542]).
 
   * Relational symbols are now allowed as infix operators ([#8036]).
+
+  * A warning is always given when a method is overwritten (previously, this was done only when the new
+    and old definitions were in separate modules) ([#14759]).
 
 Command-line option changes
 ---------------------------
@@ -83,6 +101,8 @@ Library improvements
   * Statistics:
 
     * Improve performance of `quantile` ([#14413]).
+
+  * The new `Base.StackTraces` module makes stack traces easier to use programmatically. ([#14469])
 
 Deprecated or removed
 ---------------------
@@ -164,6 +184,8 @@ New language features
     See http://docs.julialang.org/en/latest/manual/parallel-computing/#remoterefs-and-abstractchannels for details.
 
   * `@__LINE__` special macro now available to reflect invocation source line number ([#12727]).
+
+  * `PROGRAM_FILE` global is now available for determining the name of the running script ([#14114]).
 
 Language changes
 ----------------
@@ -1632,6 +1654,7 @@ Too numerous to mention.
 [#8827]: https://github.com/JuliaLang/julia/issues/8827
 [#8832]: https://github.com/JuliaLang/julia/issues/8832
 [#8845]: https://github.com/JuliaLang/julia/issues/8845
+[#8846]: https://github.com/JuliaLang/julia/issues/8846
 [#8854]: https://github.com/JuliaLang/julia/issues/8854
 [#8867]: https://github.com/JuliaLang/julia/issues/8867
 [#8872]: https://github.com/JuliaLang/julia/issues/8872
@@ -1664,6 +1687,7 @@ Too numerous to mention.
 [#9575]: https://github.com/JuliaLang/julia/issues/9575
 [#9578]: https://github.com/JuliaLang/julia/issues/9578
 [#9597]: https://github.com/JuliaLang/julia/issues/9597
+[#9627]: https://github.com/JuliaLang/julia/issues/9627
 [#9666]: https://github.com/JuliaLang/julia/issues/9666
 [#9690]: https://github.com/JuliaLang/julia/issues/9690
 [#9701]: https://github.com/JuliaLang/julia/issues/9701
@@ -1741,14 +1765,23 @@ Too numerous to mention.
 [#12727]: https://github.com/JuliaLang/julia/issues/12727
 [#12739]: https://github.com/JuliaLang/julia/issues/12739
 [#13062]: https://github.com/JuliaLang/julia/issues/13062
+[#13232]: https://github.com/JuliaLang/julia/issues/13232
 [#13338]: https://github.com/JuliaLang/julia/issues/13338
 [#13387]: https://github.com/JuliaLang/julia/issues/13387
+[#13412]: https://github.com/JuliaLang/julia/issues/13412
 [#13440]: https://github.com/JuliaLang/julia/issues/13440
 [#13465]: https://github.com/JuliaLang/julia/issues/13465
-[#13496]: https://github.com/JuliaLang/julia/issues/13496
 [#13480]: https://github.com/JuliaLang/julia/issues/13480
 [#13496]: https://github.com/JuliaLang/julia/issues/13496
 [#13542]: https://github.com/JuliaLang/julia/issues/13542
 [#13680]: https://github.com/JuliaLang/julia/issues/13680
 [#13681]: https://github.com/JuliaLang/julia/issues/13681
+[#13780]: https://github.com/JuliaLang/julia/issues/13780
 [#13824]: https://github.com/JuliaLang/julia/issues/13824
+[#13897]: https://github.com/JuliaLang/julia/issues/13897
+[#14243]: https://github.com/JuliaLang/julia/issues/14243
+[#14413]: https://github.com/JuliaLang/julia/issues/14413
+[#14424]: https://github.com/JuliaLang/julia/issues/14424
+[#14759]: https://github.com/JuliaLang/julia/issues/14759
+[#14114]: https://github.com/JuliaLang/julia/issues/14114
+[#14469]: https://github.com/JuliaLang/julia/issues/14469

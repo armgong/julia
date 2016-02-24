@@ -2,13 +2,13 @@
 
 ### Common definitions
 
-import Base: Func, AddFun, MulFun, MaxFun, MinFun, SubFun
+import Base: Func, AddFun, MulFun, MaxFun, MinFun, SubFun, sort
 
 immutable ComplexFun <: Func{2} end
-call(::ComplexFun, x::Real, y::Real) = complex(x, y)
+(::ComplexFun)(x::Real, y::Real) = complex(x, y)
 
 immutable DotFun <: Func{2} end
-call(::DotFun, x::Number, y::Number) = conj(x) * y
+(::DotFun)(x::Number, y::Number) = conj(x) * y
 
 typealias UnaryOp Union{Function, Func{1}}
 typealias BinaryOp Union{Function, Func{2}}
@@ -122,7 +122,8 @@ end
 
 Create a sparse vector `S` of length `m` such that `S[I[k]] = V[k]`.
 Duplicates are combined using the `combine` function, which defaults to
-`+` if it is not provided.
+`+` if no `combine` argument is provided, unless the elements of `V` are Booleans
+in which case `combine` defaults to `|`.
 """
 function sparsevec{Tv,Ti<:Integer}(I::AbstractVector{Ti}, V::AbstractVector{Tv}, combine::BinaryOp)
     length(I) == length(V) ||
@@ -147,23 +148,25 @@ function sparsevec{Tv,Ti<:Integer}(I::AbstractVector{Ti}, V::AbstractVector{Tv},
     _sparsevector!(collect(Ti, I), collect(Tv, V), len, combine)
 end
 
-sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::AbstractVector) =
+sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::Union{Number, AbstractVector}) =
     sparsevec(I, V, AddFun())
 
-sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::AbstractVector, len::Integer) =
+sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::Union{Number, AbstractVector},
+    len::Integer) =
     sparsevec(I, V, len, AddFun())
+
+sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::Union{Bool, AbstractVector{Bool}}) =
+    sparsevec(I, V, OrFun())
+
+sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::Union{Bool, AbstractVector{Bool}},
+    len::Integer) =
+    sparsevec(I, V, len, OrFun())
 
 sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, v::Number, combine::BinaryOp) =
     sparsevec(I, fill(v, length(I)), combine)
 
 sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, v::Number, len::Integer, combine::BinaryOp) =
     sparsevec(I, fill(v, length(I)), len, combine)
-
-sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, v::Number) =
-    sparsevec(I, v, AddFun())
-
-sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, v::Number, len::Integer) =
-    sparsevec(I, v, len, AddFun())
 
 
 ### Construction from dictionary
@@ -585,8 +588,7 @@ getindex(x::AbstractSparseVector, ::Colon) = copy(x)
 ### show and friends
 
 function showarray(io::IO, x::AbstractSparseVector;
-                   header::Bool=true, limit::Bool=Base._limit_output,
-                   rows = Base.tty_size()[1], repr=false)
+                   header::Bool=true, repr=false)
 
     n = length(x)
     nzind = nonzeroinds(x)
@@ -596,13 +598,15 @@ function showarray(io::IO, x::AbstractSparseVector;
     if header
         println(io, summary(x))
     end
-    half_screen_rows = limit ? div(rows - 8, 2) : typemax(Int)
+
+    limit::Bool = Base.limit_output(io)
+    half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
     pad = ndigits(n)
     sep = "\n\t"
     for k = 1:length(nzind)
         if k < half_screen_rows || k > xnnz - half_screen_rows
             print(io, "  ", '[', rpad(nzind[k], pad), "]  =  ")
-            showcompact(io, nzval[k])
+            Base.showcompact_lim(io, nzval[k])
             println(io)
         elseif k == half_screen_rows
             println(io, "   ", " "^pad, "   \u22ee")
@@ -616,7 +620,7 @@ function summary(x::AbstractSparseVector)
 end
 
 show(io::IO, x::AbstractSparseVector) = showarray(io, x)
-writemime(io::IO, ::MIME"text/plain", x::AbstractSparseVector) = Base.with_output_limit(()->show(io, x))
+writemime(io::IO, ::MIME"text/plain", x::AbstractSparseVector) = show(IOContext(io, :limit_output => true), x)
 
 ### Conversion to matrix
 
@@ -1490,4 +1494,141 @@ function _At_or_Ac_mul_B{TvA,TiA,TvX,TiX}(tfun::BinaryOp, A::SparseMatrixCSC{TvA
         resize!(ynzval, jr)
     end
     SparseVector(n, ynzind, ynzval)
+end
+
+
+# define matrix division operations involving triangular matrices and sparse vectors
+# the valid left-division operations are A[t|c]_ldiv_B[!] and \
+# the valid right-division operations are A(t|c)_rdiv_B[t|c][!]
+# see issue #14005 for discussion of these methods
+for isunittri in (true, false), islowertri in (true, false)
+    unitstr = isunittri ? "Unit" : ""
+    halfstr = islowertri ? "Lower" : "Upper"
+    tritype = :(Base.LinAlg.$(symbol(string(unitstr, halfstr, "Triangular"))))
+
+    # build out-of-place left-division operations
+    for (istrans, func, ipfunc) in (
+        (false, :(\),         :(A_ldiv_B!)),
+        (true,  :(At_ldiv_B), :(At_ldiv_B!)),
+        (true,  :(Ac_ldiv_B), :(Ac_ldiv_B!)) )
+
+        # broad method where elements are Numbers
+        @eval function ($func){TA<:Number,Tb<:Number,S}(A::$tritype{TA,S}, b::SparseVector{Tb})
+            TAb = $(isunittri ?
+                :(typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb))) :
+                :(typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))) )
+            ($ipfunc)(convert(AbstractArray{TAb}, A), convert(Array{TAb}, b))
+        end
+
+        # faster method requiring good view support of the
+        # triangular matrix type. hence the StridedMatrix restriction.
+        @eval function ($func){TA<:Number,Tb<:Number,S<:StridedMatrix}(A::$tritype{TA,S}, b::SparseVector{Tb})
+            TAb = $(isunittri ?
+                :(typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb))) :
+                :(typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))) )
+            r = convert(Array{TAb}, b)
+            # this operation involves only b[nzrange], so we extract
+            # and operate on solely that section for efficiency
+            nzrange = $( (islowertri && !istrans) || (!islowertri && istrans) ?
+                :(b.nzind[1]:b.n) :
+                :(1:b.nzind[end]) )
+            nzrangeviewr = sub(r, nzrange)
+            nzrangeviewA = $tritype(sub(A.data, nzrange, nzrange))
+            ($ipfunc)(convert(AbstractArray{TAb}, nzrangeviewA), nzrangeviewr)
+            r
+        end
+
+        # fallback where elements are not Numbers
+        @eval ($func){TA,Tb,S}(A::$tritype{TA,S}, b::SparseVector{Tb}) = ($ipfunc)(A, copy(b))
+    end
+
+    # build in-place left-division operations
+    for (istrans, func) in (
+        (false, :(A_ldiv_B!)),
+        (true,  :(At_ldiv_B!)),
+        (true,  :(Ac_ldiv_B!)) )
+
+        # the generic in-place left-division methods handle these cases, but
+        # we can achieve greater efficiency where the triangular matrix provides
+        # good view support. hence the StridedMatrix restriction.
+        @eval function ($func){TA,Tb,S<:StridedMatrix}(A::$tritype{TA,S}, b::SparseVector{Tb})
+            # densify the relevant part of b in one shot rather
+            # than potentially repeatedly reallocating during the solve
+            $( (islowertri && !istrans) || (!islowertri && istrans) ?
+                :(_densifyfirstnztoend!(b)) :
+                :(_densifystarttolastnz!(b)) )
+            # this operation involves only the densified section, so
+            # for efficiency we extract and operate on solely that section
+            # furthermore we operate on that section as a dense vector
+            # such that dispatch has a chance to exploit, e.g., tuned BLAS
+            nzrange = $( (islowertri && !istrans) || (!islowertri && istrans) ?
+                :(b.nzind[1]:b.n) :
+                :(1:b.nzind[end]) )
+            nzrangeviewbnz = sub(b.nzval, nzrange - b.nzind[1] + 1)
+            nzrangeviewA = $tritype(sub(A.data, nzrange, nzrange))
+            ($func)(nzrangeviewA, nzrangeviewbnz)
+            # could strip any miraculous zeros here perhaps
+            b
+        end
+    end
+end
+
+# helper functions for in-place matrix division operations defined above
+"Densifies `x::SparseVector` from its first nonzero (`x[x.nzind[1]]`) through its end (`x[x.n]`)."
+function _densifyfirstnztoend!(x::SparseVector)
+    # lengthen containers
+    oldnnz = nnz(x)
+    newnnz = x.n - x.nzind[1] + 1
+    resize!(x.nzval, newnnz)
+    resize!(x.nzind, newnnz)
+    # redistribute nonzero values over lengthened container
+    # initialize now-allocated zero values simultaneously
+    nextpos = newnnz
+    @inbounds for oldpos in oldnnz:-1:1
+        nzi = x.nzind[oldpos]
+        nzv = x.nzval[oldpos]
+        newpos = nzi - x.nzind[1] + 1
+        newpos < nextpos && (x.nzval[newpos+1:nextpos] = 0)
+        newpos == oldpos && break
+        x.nzval[newpos] = nzv
+        nextpos = newpos - 1
+    end
+    # finally update lengthened nzinds
+    x.nzind[2:end] = (x.nzind[1]+1):x.n
+    x
+end
+"Densifies `x::SparseVector` from its beginning (`x[1]`) through its last nonzero (`x[x.nzind[end]]`)."
+function _densifystarttolastnz!(x::SparseVector)
+    # lengthen containers
+    oldnnz = nnz(x)
+    newnnz = x.nzind[end]
+    resize!(x.nzval, newnnz)
+    resize!(x.nzind, newnnz)
+    # redistribute nonzero values over lengthened container
+    # initialize now-allocated zero values simultaneously
+    nextpos = newnnz
+    @inbounds for oldpos in oldnnz:-1:1
+        nzi = x.nzind[oldpos]
+        nzv = x.nzval[oldpos]
+        nzi < nextpos && (x.nzval[nzi+1:nextpos] = 0)
+        nzi == oldpos && (nextpos = 0; break)
+        x.nzval[nzi] = nzv
+        nextpos = nzi - 1
+    end
+    nextpos > 0 && (x.nzval[1:nextpos] = 0)
+    # finally update lengthened nzinds
+    x.nzind[1:newnnz] = 1:newnnz
+    x
+end
+
+#sorting
+function sort{Tv,Ti}(x::SparseVector{Tv,Ti}; kws...)
+    allvals = push!(copy(nonzeros(x)),zero(Tv))
+    sinds = sortperm(allvals;kws...)
+    n,k = length(x),length(allvals)
+    z = findfirst(sinds,k)
+    newnzind = collect(Ti,1:k-1)
+    newnzind[z:end]+= n-k+1
+    newnzvals = allvals[deleteat!(sinds[1:k],z)]
+    SparseVector(n,newnzind,newnzvals)
 end

@@ -1,10 +1,9 @@
 // This file is a part of Julia. License is MIT: http://julialang.org/license
+
 // Windows
 
 #define sig_stack_size 131072 // 128k reserved for SEGV handling
 static BOOL (*pSetThreadStackGuarantee)(PULONG);
-
-JL_DLLEXPORT void gdblookup(ptrint_t ip);
 
 // Copied from MINGW_FLOAT_H which may not be found due to a collision with the builtin gcc float.h
 // eventually we can probably integrate this into OpenLibm.
@@ -169,6 +168,13 @@ static LONG WINAPI _exception_handler(struct _EXCEPTION_POINTERS *ExceptionInfo,
                 jl_throw_in_ctx(jl_stackovf_exception, ExceptionInfo->ContextRecord,in_ctx&&pSetThreadStackGuarantee);
                 return EXCEPTION_CONTINUE_EXECUTION;
             case EXCEPTION_ACCESS_VIOLATION:
+#ifdef JULIA_ENABLE_THREADING
+                if (ExceptionInfo->ExceptionRecord->ExceptionInformation[1] ==
+                    (intptr_t)jl_gc_signal_page) {
+                    jl_gc_signal_wait();
+                    return EXCEPTION_CONTINUE_EXECUTION;
+                }
+#endif
                 if (ExceptionInfo->ExceptionRecord->ExceptionInformation[0] == 1) { // writing to read-only memory (e.g. mmap)
                     jl_throw_in_ctx(jl_readonlymemory_exception, ExceptionInfo->ContextRecord,in_ctx);
                     return EXCEPTION_CONTINUE_EXECUTION;
@@ -220,7 +226,7 @@ static LONG WINAPI _exception_handler(struct _EXCEPTION_POINTERS *ExceptionInfo,
                 jl_safe_printf("UNKNOWN"); break;
         }
         jl_safe_printf(" at 0x%Ix -- ", (size_t)ExceptionInfo->ExceptionRecord->ExceptionAddress);
-        gdblookup((ptrint_t)ExceptionInfo->ExceptionRecord->ExceptionAddress);
+        jl_gdblookup((intptr_t)ExceptionInfo->ExceptionRecord->ExceptionAddress);
 
         jl_critical_error(0, ExceptionInfo->ContextRecord, jl_bt_data, &jl_bt_size);
         static int recursion = 0;
@@ -294,12 +300,13 @@ static DWORD WINAPI profile_bt( LPVOID lparam )
                 break;
             }
             // Get backtrace data
-            bt_size_cur += rec_backtrace_ctx((ptrint_t*)bt_data_prof+bt_size_cur, bt_size_max-bt_size_cur-1, &ctxThread);
+            bt_size_cur += rec_backtrace_ctx((intptr_t*)bt_data_prof+bt_size_cur, bt_size_max-bt_size_cur-1, &ctxThread);
             // Mark the end of this block with 0
             bt_data_prof[bt_size_cur] = 0;
             bt_size_cur++;
             if ((DWORD)-1 == ResumeThread(hMainThread)) {
                 fputs("failed to resume main thread! aborting.",stderr);
+                gc_debug_critical_error();
                 abort();
             }
         }

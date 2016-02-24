@@ -5,12 +5,16 @@
 #include <llvm/ADT/APFloat.h>
 #include <llvm/Support/MathExtras.h>
 
-extern "C" {
 #include "APInt-C.h"
 #include "julia.h"
-}
 
 using namespace llvm;
+
+#ifdef LLVM39
+inline uint64_t RoundUpToAlignment(uint64_t Value, uint64_t Align, uint64_t Skew = 0) {
+    return alignTo(Value, Align, Skew);
+}
+#endif
 
 /* create "APInt s" from "integerPart *ps" */
 #define CREATE(s) \

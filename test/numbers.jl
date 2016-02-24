@@ -933,6 +933,9 @@ end
 @test 2.0^63 != UInt64(2)^63+1
 
 @test typemax(UInt64) != 2.0^64
+# issue #9085
+f9085() = typemax(UInt64) != 2.0^64
+@test f9085()
 
 @test typemax(UInt64) < Float64(typemax(UInt64))
 @test typemax(Int64) < Float64(typemax(Int64))
@@ -1125,7 +1128,7 @@ end
 @test_approx_eq (Complex(1,2)/Complex(2.5,3.0))*Complex(2.5,3.0) Complex(1,2)
 @test 0.7 < real(sqrt(Complex(0,1))) < 0.707107
 
-for T in [Int8, Int16, Int32, Int64, Int128]
+for T in Base.BitSigned_types
     @test abs(typemin(T)) == -typemin(T)
     #for x in (typemin(T),convert(T,-1),zero(T),one(T),typemax(T))
     #    @test signed(unsigned(x)) == x
@@ -1137,8 +1140,8 @@ end
 #    @test unsigned(signed(x)) == x
 #end
 
-for S = [Int8,  Int16,  Int32,  Int64],
-    U = [UInt8, UInt16, UInt32, UInt64]
+for S = Base.BitSigned64_types,
+    U = Base.BitUnsigned64_types
     @test !(-one(S) == typemax(U))
     @test -one(S) != typemax(U)
     @test -one(S) < typemax(U)
@@ -1146,7 +1149,7 @@ for S = [Int8,  Int16,  Int32,  Int64],
 end
 
 # check type of constructed rationals
-int_types = [Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64]
+int_types = Base.BitInteger64_types
 for N = int_types, D = int_types
     T = promote_type(N,D)
     @test typeof(convert(N,2)//convert(D,3)) <: Rational{T}
@@ -1156,9 +1159,9 @@ end
 @test typeof(convert(Rational{Integer},1)) === Rational{Integer}
 
 # check type of constructed complexes
-real_types = [Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Float32, Float64,
-              Rational{Int8}, Rational{UInt8}, Rational{Int16}, Rational{UInt16},
-              Rational{Int32}, Rational{UInt32}, Rational{Int64}, Rational{UInt64}]
+real_types = [Base.BitInteger64_types...,
+              [Rational{T} for T in Base.BitInteger64_types]...,
+              Float32, Float64]
 for A = real_types, B = real_types
     T = promote_type(A,B)
     @test typeof(Complex(convert(A,2),convert(B,3))) <: Complex{T}
@@ -2707,3 +2710,51 @@ end
 # issue #12536
 @test Rational{Int16}(1,2) === Rational(Int16(1),Int16(2))
 @test Rational{Int16}(500000,1000000) === Rational(Int16(1),Int16(2))
+
+
+rand_int = rand(Int8)
+
+for T in [Int8, Int16, Int32, Int128, BigInt]
+    @test num(convert(T, rand_int)) == rand_int
+    @test den(convert(T, rand_int)) == 1
+
+    @test typemin(Rational{T}) == -one(T)//zero(T)
+    @test typemax(Rational{T}) == one(T)//zero(T)
+    @test widen(Rational{T}) == Rational{widen(T)}
+end
+
+@test Rational(Float32(rand_int)) == Rational(rand_int)
+
+@test Rational(Rational(rand_int)) == Rational(rand_int)
+
+@test begin
+    var = -Rational(UInt32(0))
+    var == UInt32(0)
+end
+
+@test Rational(rand_int, 3)/Complex(3, 2) == Complex(Rational(rand_int, 13), -Rational(rand_int*2, 39))
+
+@test Complex(rand_int, 0) == Rational(rand_int)
+@test Rational(rand_int) == Complex(rand_int, 0)
+
+@test (Complex(rand_int, 4) == Rational(rand_int)) == false
+@test (Rational(rand_int) == Complex(rand_int, 4)) == false
+
+@test trunc(Rational(BigInt(rand_int), BigInt(3))) == Rational(trunc(BigInt, Rational(BigInt(rand_int),BigInt(3))))
+@test  ceil(Rational(BigInt(rand_int), BigInt(3))) == Rational( ceil(BigInt, Rational(BigInt(rand_int),BigInt(3))))
+@test round(Rational(BigInt(rand_int), BigInt(3))) == Rational(round(BigInt, Rational(BigInt(rand_int),BigInt(3))))
+
+
+for a = -3:3
+    @test Rational(Float32(a)) == Rational(a)
+    @test Rational(a)//2 == a//2
+    @test a//Rational(2) == Rational(a/2)
+    @test a.//[-2, -1, 1, 2] == [-a//2, -a//1, a//1, a//2]
+    for b=-3:3, c=1:3
+        @test b//(a+c*im) == b*a//(a^2+c^2)-(b*c//(a^2+c^2))*im
+        for d=-3:3
+            @test (a+b*im)//(c+d*im) == (a*c+b*d+(b*c-a*d)*im)//(c^2+d^2)
+            @test Complex(Rational(a)+b*im)//Complex(Rational(c)+d*im) == Complex(a+b*im)//Complex(c+d*im)
+        end
+    end
+end

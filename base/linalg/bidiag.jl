@@ -37,7 +37,32 @@ function getindex{T}(A::Bidiagonal{T}, i::Integer, j::Integer)
     if !((1 <= i <= size(A,2)) && (1 <= j <= size(A,2)))
         throw(BoundsError(A,(i,j)))
     end
-    i == j ? A.dv[i] : (A.isupper && (i == j-1)) || (!A.isupper && (i == j+1)) ? A.ev[min(i,j)] : zero(T)
+    if i == j
+        return A.dv[i]
+    elseif (istriu(A) && (i == j - 1)) || (istril(A) && (i == j + 1))
+        return A.ev[min(i,j)]
+    else
+        return zero(T)
+    end
+end
+
+function setindex!(A::Bidiagonal, x, i::Integer, j::Integer)
+    if i == j
+        A.dv[i] = x
+    elseif (istriu(A) && (i == j - 1)) || (istril(A) && (i == j + 1))
+        return A.ev[min(i,j)] = x
+    else
+        throw(ArgumentError("cannot set elements outside main and $(istriu(A) ? "super": "sub") diagonals."))
+    end
+end
+
+## structured matrix methods ##
+function Base.replace_in_print_matrix(A::Bidiagonal,i::Integer,j::Integer,s::AbstractString)
+    if A.isupper
+        i==j || i==j-1 ? s : Base.replace_with_centered_mark(s)
+    else
+        i==j || i==j+1 ? s : Base.replace_with_centered_mark(s)
+    end
 end
 
 #Converting from Bidiagonal to dense Matrix
@@ -67,6 +92,13 @@ function convert{T}(::Type{Tridiagonal{T}}, A::Bidiagonal)
 end
 promote_rule{T,S}(::Type{Tridiagonal{T}}, ::Type{Bidiagonal{S}})=Tridiagonal{promote_type(T,S)}
 
+# No-op for trivial conversion Bidiagonal{T} -> Bidiagonal{T}
+convert{T}(::Type{Bidiagonal{T}}, A::Bidiagonal{T}) = A
+# Convert Bidiagonal{Told} to Bidiagonal{Tnew} by constructing a new instance with converted elements
+convert{Tnew,Told}(::Type{Bidiagonal{Tnew}}, A::Bidiagonal{Told}) = Bidiagonal(convert(Vector{Tnew}, A.dv), convert(Vector{Tnew}, A.ev), A.isupper)
+# When asked to convert Bidiagonal{Told} to AbstractMatrix{Tnew}, preserve structure by converting to Bidiagonal{Tnew} <: AbstractMatrix{Tnew}
+convert{Tnew,Told}(::Type{AbstractMatrix{Tnew}}, A::Bidiagonal{Told}) = convert(Bidiagonal{Tnew}, A)
+
 big(B::Bidiagonal) = Bidiagonal(big(B.dv), big(B.ev), B.isupper)
 
 ###################
@@ -75,15 +107,11 @@ big(B::Bidiagonal) = Bidiagonal(big(B.dv), big(B.ev), B.isupper)
 
 #Singular values
 svdvals!{T<:BlasReal}(M::Bidiagonal{T}) = LAPACK.bdsdc!(M.isupper ? 'U' : 'L', 'N', M.dv, M.ev)[1]
-function svd{T<:BlasReal}(M::Bidiagonal{T})
-    d, e, U, Vt, Q, iQ = LAPACK.bdsdc!(M.isupper ? 'U' : 'L', 'I', copy(M.dv), copy(M.ev))
-    return U, d, Vt'
-end
-function svdfact!(M::Bidiagonal, thin::Bool=true)
+function svdfact!{T<:BlasReal}(M::Bidiagonal{T}; thin::Bool=true)
     d, e, U, Vt, Q, iQ = LAPACK.bdsdc!(M.isupper ? 'U' : 'L', 'I', M.dv, M.ev)
     SVD(U, d, Vt)
 end
-svdfact(M::Bidiagonal, thin::Bool=true) = svdfact!(copy(M),thin)
+svdfact(M::Bidiagonal; thin::Bool=true) = svdfact!(copy(M),thin=thin)
 
 ####################
 # Generic routines #
@@ -194,7 +222,7 @@ end
 /(A::Bidiagonal, B::Number) = Bidiagonal(A.dv/B, A.ev/B, A.isupper)
 ==(A::Bidiagonal, B::Bidiagonal) = (A.dv==B.dv) && (A.ev==B.ev) && (A.isupper==B.isupper)
 
-SpecialMatrix = Union{Diagonal, Bidiagonal, SymTridiagonal, Tridiagonal, AbstractTriangular}
+SpecialMatrix = Union{Bidiagonal, SymTridiagonal, Tridiagonal, AbstractTriangular}
 *(A::SpecialMatrix, B::SpecialMatrix)=full(A)*full(B)
 
 #Generic multiplication
@@ -204,8 +232,8 @@ end
 
 #Linear solvers
 A_ldiv_B!(A::Union{Bidiagonal, AbstractTriangular}, b::AbstractVector) = naivesub!(A, b)
-At_ldiv_B!(A::Union{Bidiagonal, AbstractTriangular}, b::AbstractVector) = A_ldiv_B!(transpose(A), b)
-Ac_ldiv_B!(A::Union{Bidiagonal, AbstractTriangular}, b::AbstractVector) = A_ldiv_B!(ctranspose(A), b)
+At_ldiv_B!(A::Bidiagonal, b::AbstractVector) = A_ldiv_B!(transpose(A), b)
+Ac_ldiv_B!(A::Bidiagonal, b::AbstractVector) = A_ldiv_B!(ctranspose(A), b)
 function A_ldiv_B!(A::Union{Bidiagonal, AbstractTriangular}, B::AbstractMatrix)
     nA,mA = size(A)
     tmp = similar(B,size(B,1))
@@ -220,7 +248,6 @@ function A_ldiv_B!(A::Union{Bidiagonal, AbstractTriangular}, B::AbstractMatrix)
     end
     B
 end
-
 for func in (:Ac_ldiv_B!, :At_ldiv_B!)
     @eval function ($func)(A::Union{Bidiagonal, AbstractTriangular}, B::AbstractMatrix)
         nA,mA = size(A)
@@ -237,9 +264,6 @@ for func in (:Ac_ldiv_B!, :At_ldiv_B!)
         B
     end
 end
-Ac_ldiv_B(A::Union{Bidiagonal, AbstractTriangular}, B::AbstractMatrix) = Ac_ldiv_B!(A,copy(B))
-At_ldiv_B(A::Union{Bidiagonal, AbstractTriangular}, B::AbstractMatrix) = At_ldiv_B!(A,copy(B))
-
 #Generic solver using naive substitution
 function naivesub!{T}(A::Bidiagonal{T}, b::AbstractVector, x::AbstractVector = b)
     N = size(A, 2)
@@ -262,9 +286,15 @@ function naivesub!{T}(A::Bidiagonal{T}, b::AbstractVector, x::AbstractVector = b
     x
 end
 
-function \{T,S}(A::Bidiagonal{T}, B::AbstractVecOrMat{S})
-    TS = typeof(zero(T)*zero(S) + zero(T)*zero(S))
-    TS == S ? A_ldiv_B!(A, copy(B)) : A_ldiv_B!(A, convert(AbstractArray{TS}, B))
+### Generic promotion methods and fallbacks
+for (f,g) in ((:\, :A_ldiv_B!), (:At_ldiv_B, :At_ldiv_B!), (:Ac_ldiv_B, :Ac_ldiv_B!))
+    @eval begin
+        function ($f){TA<:Number,TB<:Number}(A::Bidiagonal{TA}, B::AbstractVecOrMat{TB})
+            TAB = typeof((zero(TA)*zero(TB) + zero(TA)*zero(TB))/one(TA))
+            ($g)(convert(AbstractArray{TAB}, A), copy_oftype(B, TAB))
+        end
+        ($f)(A::Bidiagonal, B::AbstractVecOrMat) = ($g)(A, copy(B))
+    end
 end
 
 factorize(A::Bidiagonal) = A

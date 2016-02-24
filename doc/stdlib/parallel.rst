@@ -157,7 +157,7 @@ General Parallel Computing Support
 
    Note that workers do not run a ``.juliarc.jl`` startup script, nor do they synchronize their global state (such as global variables, new method definitions, and loaded modules) with any of the other running processes.
 
-.. function:: addprocs(machines; tunnel=false, sshflags=``, max_parallel=10, exeflags=``) -> List of process identifiers
+.. function:: addprocs(machines; keyword_args...) -> List of process identifiers
 
    .. Docstring generated from Julia source
 
@@ -173,21 +173,29 @@ General Parallel Computing Support
 
    Keyword arguments:
 
-   ``tunnel``\ : if ``true`` then SSH tunneling will be used to connect to the worker from the master process.
+   * ``tunnel``\ : if ``true`` then SSH tunneling will be used to connect to the worker from the             master process. Default is ``false``\ .
 
-   ``sshflags``\ : specifies additional ssh options, e.g.
+   * ``sshflags``\ : specifies additional ssh options, e.g.
 
    .. code-block:: julia
 
        sshflags=`-i /home/foo/bar.pem`
 
-   ``max_parallel``\ : specifies the maximum number of workers connected to in parallel at a host. Defaults to 10.
+   * ``max_parallel``\ : specifies the maximum number of workers connected to in parallel at a host.                   Defaults to 10.
 
-   ``dir``\ : specifies the working directory on the workers. Defaults to the host's current directory (as found by ``pwd()``\ )
+   * ``dir``\ : specifies the working directory on the workers. Defaults to the host's current          directory (as found by ``pwd()``\ )
 
-   ``exename``\ : name of the julia executable. Defaults to ``"$JULIA_HOME/julia"`` or ``"$JULIA_HOME/julia-debug"`` as the case may be.
+   * ``exename``\ : name of the julia executable. Defaults to ``"$JULIA_HOME/julia"`` or              ``"$JULIA_HOME/julia-debug"`` as the case may be.
 
-   ``exeflags``\ : additional flags passed to the worker processes.
+   * ``exeflags``\ : additional flags passed to the worker processes.
+
+   * ``topology``\ : Specifies how the workers connect to each other. Sending a message             between unconnected workers results in an error.
+
+   * ``topology=:all_to_all``  :  All processes are connected to each other.                       This is the default.
+
+   * ``topology=:master_slave``  :  Only the driver process, i.e. pid 1 connects to the                         workers. The workers do not connect to each other.
+
+   * ``topology=:custom``  :  The ``launch`` method of the cluster manager specifes the                   connection topology via fields ``ident`` and ``connect_idents`` in                   ``WorkerConfig``\ . A worker with a cluster manager identity ``ident``                   will connect to all workers specified in ``connect_idents``\ .
 
    Environment variables :
 
@@ -491,6 +499,22 @@ Shared Arrays
 
    If an ``init`` function of the type ``initfn(S::SharedArray)`` is specified, it is called on all the participating workers.
 
+.. function:: SharedArray(filename::AbstractString, T::Type, dims::NTuple, [offset=0]; mode=nothing, init=false, pids=Int[])
+
+   .. Docstring generated from Julia source
+
+   Construct a ``SharedArray`` backed by the file ``filename``\ , with element type ``T`` (must be a ``bitstype``\ ) and size ``dims``\ , across the processes specified by ``pids`` - all of which have to be on the same host. This file is mmapped into the host memory, with the following consequences:
+
+   * The array data must be represented in binary format (e.g., an ASCII   format like CSV cannot be supported)
+
+   * Any changes you make to the array values (e.g., ``A[3] = 0``\ ) will   also change the values on disk
+
+   If ``pids`` is left unspecified, the shared array will be mapped across all processes on the current host, including the master. But, ``localindexes`` and ``indexpids`` will only refer to worker processes. This facilitates work distribution code to use workers for actual computation with the master process acting as a driver.
+
+   ``mode`` must be one of ``"r"``\ , ``"r+"``\ , ``"w+"``\ , or ``"a+"``\ , and defaults to ``"r+"`` if the file specified by ``filename`` already exists, or ``"w+"`` if not. If an ``init`` function of the type ``initfn(S::SharedArray)`` is specified, it is called on all the participating workers. You cannot specify an ``init`` function if the file is not writable.
+
+   ``offset`` allows you to skip the specified number of bytes at the beginning of the file.
+
 .. function:: procs(S::SharedArray)
 
    .. Docstring generated from Julia source
@@ -508,6 +532,14 @@ Shared Arrays
    .. Docstring generated from Julia source
 
    Returns the index of the current worker into the ``pids`` vector, i.e., the list of workers mapping the SharedArray
+
+.. function:: localindexes(S::SharedArray)
+
+   .. Docstring generated from Julia source
+
+   Returns a range describing the "default" indexes to be handled by the current process.  This range should be interpreted in the sense of linear indexing, i.e., as a sub-range of ``1:length(S)``\ .  In multi-process contexts, returns an empty range in the parent process (or any process for which ``indexpids`` returns 0).
+
+   It's worth emphasizing that ``localindexes`` exists purely as a convenience, and you can partition work on the array among workers any way you wish.  For a SharedArray, all indexes should be equally fast for each worker process.
 
 Cluster Manager Interface
 -------------------------

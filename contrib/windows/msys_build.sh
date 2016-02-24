@@ -10,6 +10,8 @@
 cd `dirname "$0"`/../..
 # Stop on error
 set -e
+# Make sure stdin exists (not true on appveyor msys2)
+exec < /dev/null
 
 curlflags="curl --retry 10 -k -L -y 5"
 checksum_download() {
@@ -106,23 +108,19 @@ rm -f usr/bin/libjulia.dll
 rm -f usr/bin/libjulia-debug.dll
 
 if [ -z "$USEMSVC" ]; then
-  if [ -z "`which ${CROSS_COMPILE}gcc 2>/dev/null`" ]; then
+  if [ -z "`which ${CROSS_COMPILE}gcc 2>/dev/null`" -o -n "$APPVEYOR" ]; then
     f=$ARCH-4.9.2-release-win32-$exc-rt_v4-rev3.7z
     checksum_download \
         "$f" "https://bintray.com/artifact/download/tkelman/generic/$f"
     echo "Extracting $f"
     $SEVENZIP x -y $f >> get-deps.log
-    export PATH=$PATH:$PWD/mingw$bits/bin
+    export PATH=$PWD/mingw$bits/bin:$PATH
     # If there is a version of make.exe here, it is mingw32-make which won't work
     rm -f mingw$bits/bin/make.exe
   fi
   export AR=${CROSS_COMPILE}ar
 
-  f=llvm-3.3-$ARCH-w64-mingw32-juliadeps.7z
-  # The MinGW binary version of LLVM doesn't include libgtest or libgtest_main
-  mkdir -p usr/lib
-  $AR cr usr/lib/libgtest.a
-  $AR cr usr/lib/libgtest_main.a
+  f=llvm-3.7.1-$ARCH-w64-mingw32-juliadeps-r04.7z
 else
   echo "override USEMSVC = 1" >> Make.user
   echo "override ARCH = $ARCH" >> Make.user
@@ -142,7 +140,8 @@ checksum_download \
     "$f" "https://bintray.com/artifact/download/tkelman/generic/$f"
 echo "Extracting $f"
 $SEVENZIP x -y $f >> get-deps.log
-echo 'override LLVM_CONFIG = $(JULIAHOME)/usr/bin/llvm-config' >> Make.user
+echo 'override LLVM_CONFIG := $(JULIAHOME)/usr/tools/llvm-config.exe' >> Make.user
+echo 'override LLVM_SIZE := $(JULIAHOME)/usr/tools/llvm-size.exe' >> Make.user
 
 if [ -z "`which make 2>/dev/null`" ]; then
   if [ -n "`uname | grep CYGWIN`" ]; then
@@ -200,5 +199,6 @@ fi
 echo 'FORCE_ASSERTIONS = 1' >> Make.user
 
 cat Make.user
-make VERBOSE=1
+make -j3 VERBOSE=1
+make build-stats
 #make debug

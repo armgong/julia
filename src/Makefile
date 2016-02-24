@@ -35,7 +35,7 @@ SRCS += gc
 endif
 
 ifeq ($(JULIACODEGEN),LLVM)
-SRCS += codegen disasm debuginfo llvm-simdloop
+SRCS += codegen disasm debuginfo llvm-simdloop llvm-gcroot
 FLAGS += -I$(shell $(LLVM_CONFIG_HOST) --includedir)
 LLVM_LIBS := all
 else
@@ -43,7 +43,7 @@ SRCS += anticodegen
 LLVM_LIBS := support
 endif
 
-HEADERS := $(addprefix $(SRCDIR)/,julia.h julia_internal.h options.h) $(BUILDDIR)/julia_version.h $(wildcard $(SRCDIR)/support/*.h) $(LIBUV_INC)/uv.h
+HEADERS := $(addprefix $(SRCDIR)/,julia.h julia_threads.h julia_internal.h options.h) $(BUILDDIR)/julia_version.h $(wildcard $(SRCDIR)/support/*.h) $(LIBUV_INC)/uv.h
 
 # In LLVM < 3.4, --ldflags includes both options and libraries, so use it both before and after --libs
 # In LLVM >= 3.4, --ldflags has only options, and --system-libs has the libraries.
@@ -103,14 +103,15 @@ libccalltest: $(build_shlibdir)/libccalltest.$(SHLIB_EXT)
 $(build_shlibdir)/libccalltest.$(SHLIB_EXT): $(SRCDIR)/ccalltest.c
 	@$(call PRINT_CC, $(CC) $(CFLAGS) $(CPPFLAGS) $(DEBUGFLAGS) -O3 $< $(fPIC) -shared -o $@ $(LDFLAGS))
 
+julia_flisp.boot.inc.phony: $(BUILDDIR)/julia_flisp.boot.inc
 
-$(BUILDDIR)/julia_flisp.boot.inc: $(BUILDDIR)/julia_flisp.boot $(FLISP_EXECUTABLE)
-	@$(call PRINT_FLISP, $(call spawn,$(FLISP_EXECUTABLE)) $(call cygpath_w,$(SRCDIR)/bin2hex.scm) < $< > $@)
+$(BUILDDIR)/julia_flisp.boot.inc: $(BUILDDIR)/julia_flisp.boot $(FLISP_EXECUTABLE_release)
+	@$(call PRINT_FLISP, $(call spawn,$(FLISP_EXECUTABLE_release)) $(call cygpath_w,$(SRCDIR)/bin2hex.scm) < $< > $@)
 
 $(BUILDDIR)/julia_flisp.boot: $(addprefix $(SRCDIR)/,jlfrontend.scm \
-		julia-parser.scm julia-syntax.scm match.scm utils.scm mk_julia_flisp_boot.scm) \
-		$(FLISP_EXECUTABLE)
-	@$(call PRINT_FLISP, $(call spawn,$(FLISP_EXECUTABLE)) \
+		julia-parser.scm julia-syntax.scm match.scm utils.scm ast.scm macroexpand.scm mk_julia_flisp_boot.scm) \
+		$(FLISP_EXECUTABLE_release)
+	@$(call PRINT_FLISP, $(call spawn,$(FLISP_EXECUTABLE_release)) \
 		$(call cygpath_w,$(SRCDIR)/mk_julia_flisp_boot.scm) $(call cygpath_w,$(dir $<)) $(notdir $<) $(call cygpath_w,$@))
 
 # additional dependency links
@@ -121,7 +122,7 @@ $(BUILDDIR)/builtins.o $(BUILDDIR)/builtins.dbg.obj: $(SRCDIR)/table.c
 $(BUILDDIR)/gc.o $(BUILDDIR)/gc.dbg.obj: $(SRCDIR)/gc-debug.c
 $(BUILDDIR)/signal-handling.o $(BUILDDIR)/signal-handling.dbg.obj: $(addprefix $(SRCDIR)/,signals-*.c)
 $(BUILDDIR)/dump.o $(BUILDDIR)/dump.dbg.obj: $(addprefix $(SRCDIR)/,common_symbols1.inc common_symbols2.inc)
-$(addprefix $(BUILDDIR)/,threading.o threading.dbg.obj gc.o gc.dbg.obj init.c init.dbg.obj task.o task.dbg.obj): $(addprefix $(SRCDIR)/,threading.h threadgroup.h ia_misc.h)
+$(addprefix $(BUILDDIR)/,threading.o threading.dbg.obj gc.o gc.dbg.obj init.c init.dbg.obj task.o task.dbg.obj): $(addprefix $(SRCDIR)/,threading.h threadgroup.h)
 $(addprefix $(BUILDDIR)/,APInt-C.o APInt-C.dbg.obj runtime_intrinsics.o runtime_intrinsics.dbg.obj): $(SRCDIR)/APInt-C.h
 
 # archive library file rules
@@ -200,4 +201,4 @@ clean-support:
 
 cleanall: clean clean-flisp clean-support
 
-.PHONY: default all debug release clean cleanall clean-* libccalltest
+.PHONY: default all debug release clean cleanall clean-* libccalltest julia_flisp.boot.inc.phony
