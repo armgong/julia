@@ -5350,11 +5350,21 @@ is no file path involved, no path processing or fetching from node 1 is done.
 include_string
 
 """
-    chmod(path, mode)
+    chmod(path, mode; recursive=false)
 
-Change the permissions mode of `path` to `mode`. Only integer `mode`s (e.g. `0o777`) are currently supported.
+Change the permissions mode of `path` to `mode`. Only integer `mode`s (e.g. `0o777`) are
+currently supported. If `recursive=true` and the path is a directory all permissions in
+that directory will be recursively changed.
 """
 chmod
+
+"""
+    chown(path, owner, group=-1)
+
+Change the owner and/or group of `path` to `owner` and/or `group`. If the value entered for `owner` or `group`
+is `-1` the corresponding ID will not change. Only integer `owner`s and `group`s are currently supported.
+"""
+chown
 
 """
     gamma(x)

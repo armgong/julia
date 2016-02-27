@@ -8,6 +8,13 @@ using Base.Test
 
 # check sparse matrix construction
 @test isequal(full(sparse(complex(ones(5,5),ones(5,5)))), complex(ones(5,5),ones(5,5)))
+@test_throws ArgumentError sparse([1,2,3], [1,2], [1,2,3], 3, 3)
+@test_throws ArgumentError sparse([1,2,3], [1,2,3], [1,2], 3, 3)
+@test_throws ArgumentError sparse([1,2,3], [1,2,3], [1,2,3], 0, 1)
+@test_throws ArgumentError sparse([1,2,3], [1,2,3], [1,2,3], 1, 0)
+@test_throws ArgumentError sparse([1,2,4], [1,2,3], [1,2,3], 3, 3)
+@test_throws ArgumentError sparse([1,2,3], [1,2,4], [1,2,3], 3, 3)
+@test isequal(sparse(Int[], Int[], Int[], 0, 0), SparseMatrixCSC(0, 0, Int[1], Int[], Int[]))
 
 # check matrix operations
 se33 = speye(3)
@@ -73,6 +80,18 @@ p = [2, 1, 4]
 a116[p, p] = reshape(1:9, 3, 3)
 s116[p, p] = reshape(1:9, 3, 3)
 @test a116 == s116
+
+# squeeze
+for i = 1:5
+    am = sprand(20, 1, 0.2)
+    av = squeeze(am, 2)
+    @test ndims(av) == 1
+    @test all(av.==am)
+    am = sprand(1, 20, 0.2)
+    av = squeeze(am, 1)
+    @test ndims(av) == 1
+    @test all(av.'.==am)
+end
 
 # matrix-vector multiplication (non-square)
 for i = 1:5
@@ -326,7 +345,10 @@ mfe22 = eye(Float64, 2)
 @test_throws ArgumentError sparsevec([3,5,7],[0.1,0.0,3.2],4)
 
 # issue #5169
-@test nnz(sparse([1,1],[1,2],[0.0,-0.0])) == 0
+@test nnz(sparse([1,1],[1,2],[0.0,-0.0])) == 2
+@test nnz(Base.SparseArrays.dropzeros!(sparse([1,1],[1,2],[0.0,-0.0]))) == 0
+# changed from `== 0` to `== 2` and added dropzeros! form in #14798,
+# matching sparse()'s behavioral revision discussed in #12605, #9928, #9906, #6769
 
 # issue #5386
 K,J,V = findnz(SparseMatrixCSC(2,1,[1,3],[1,2],[1.0,0.0]))
@@ -337,7 +359,10 @@ A = speye(Bool, 5)
 @test find(A) == find(x -> x == true, A) == find(full(A))
 
 # issue #5437
-@test nnz(sparse([1,2,3],[1,2,3],[0.0,1.0,2.0])) == 2
+@test nnz(sparse([1,2,3],[1,2,3],[0.0,1.0,2.0])) == 3
+@test nnz(Base.SparseArrays.dropzeros!(sparse([1,2,3],[1,2,3],[0.0,1.0,2.0]))) == 2
+# changed from `== 2` to `== 3` and added dropzeros! form in #14798,
+# matching sparse()'s behavioral revision discussed in #12605, #9928, #9906, #6769
 
 # issue #5824
 @test sprand(4,5,0.5).^0 == sparse(ones(4,5))
@@ -978,6 +1003,12 @@ perm = randperm(10)
 
 # droptol
 @test Base.droptol!(A,0.01).colptr == [1,1,1,2,2,3,4,6,6,7,9]
+@test isequal(Base.droptol!(sparse([1], [1], [1]), 1), SparseMatrixCSC(1,1,Int[1,1],Int[],Int[]))
+
+# dropzeros
+A = sparse([1 2 3; 4 5 6; 7 8 9])
+A.nzval[2] = A.nzval[6] = A.nzval[7] = 0
+@test Base.dropzeros!(A).colptr == [1, 3, 5, 7]
 
 #trace
 @test_throws DimensionMismatch trace(sparse(ones(5,6)))
@@ -1000,6 +1031,13 @@ AF = full(A)
 @test_throws BoundsError tril(A,-6)
 @test_throws BoundsError triu(A,6)
 @test_throws BoundsError triu(A,-6)
+@test_throws ArgumentError tril!(sparse([1,2,3], [1,2,3], [1,2,3], 3, 4), 4)
+@test_throws ArgumentError tril!(sparse([1,2,3], [1,2,3], [1,2,3], 3, 4), -3)
+@test_throws ArgumentError triu!(sparse([1,2,3], [1,2,3], [1,2,3], 3, 4), 4)
+@test_throws ArgumentError triu!(sparse([1,2,3], [1,2,3], [1,2,3], 3, 4), -3)
+
+# fkeep trim option
+@test isequal(length(tril!(sparse([1,2,3], [1,2,3], [1,2,3], 3, 4), -1).rowval), 0)
 
 # test norm
 
@@ -1227,3 +1265,20 @@ end
 # https://groups.google.com/forum/#!topic/julia-dev/QT7qpIpgOaA
 @test sparse([1,1], [1,1], [true, true]) == sparse([1,1], [1,1], [true, true], 1, 1) == fill(true, 1, 1)
 @test sparsevec([1,1], [true, true]) == sparsevec([1,1], [true, true], 1) == fill(true, 1)
+
+# issparse for specialized matrix types
+let
+    m = sprand(10, 10, 0.1)
+    @test issparse(Symmetric(m))
+    @test issparse(Hermitian(m))
+    @test issparse(LowerTriangular(m))
+    @test issparse(LinAlg.UnitLowerTriangular(m))
+    @test issparse(UpperTriangular(m))
+    @test issparse(LinAlg.UnitUpperTriangular(m))
+    @test issparse(Symmetric(full(m))) == false
+    @test issparse(Hermitian(full(m))) == false
+    @test issparse(LowerTriangular(full(m))) == false
+    @test issparse(LinAlg.UnitLowerTriangular(full(m))) == false
+    @test issparse(UpperTriangular(full(m))) == false
+    @test issparse(LinAlg.UnitUpperTriangular(full(m))) == false
+end

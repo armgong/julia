@@ -56,6 +56,7 @@ end
 @test !isdir(file)
 @test isfile(file)
 @test !islink(file)
+
 @test filemode(file) & 0o444 > 0 # readable
 @test filemode(file) & 0o222 > 0 # writable
 chmod(file, filemode(file) & 0o7555)
@@ -63,6 +64,42 @@ chmod(file, filemode(file) & 0o7555)
 chmod(file, filemode(file) | 0o222)
 @test filemode(file) & 0o111 == 0
 @test filesize(file) == 0
+
+@windows_only begin
+    permissions = 0o444
+    @test filemode(dir) & 0o777 != permissions
+    @test filemode(subdir) & 0o777 != permissions
+    @test filemode(file) & 0o777 != permissions
+    chmod(dir, permissions, recursive=true)
+    @test filemode(dir) & 0o777 == permissions
+    @test filemode(subdir) & 0o777 == permissions
+    @test filemode(file) & 0o777 == permissions
+    chmod(dir, 0o666, recursive=true)  # Reset permissions in case someone wants to use these later
+end
+@unix_only begin
+    mktempdir() do tmpdir
+        tmpfile=joinpath(tmpdir, "tempfile.txt")
+        touch(tmpfile)
+        chmod(tmpfile, 0o707)
+        linkfile=joinpath(dir, "tempfile.txt")
+        symlink(tmpfile, linkfile)
+        permissions=0o776
+        @test filemode(dir) & 0o777 != permissions
+        @test filemode(subdir) & 0o777 != permissions
+        @test filemode(file) & 0o777 != permissions
+        @test filemode(linkfile) & 0o777 != permissions
+        @test filemode(tmpfile) & 0o777 != permissions
+        chmod(dir, permissions, recursive=true)
+        @test filemode(dir) & 0o777 == permissions
+        @test filemode(subdir) & 0o777 == permissions
+        @test filemode(file) & 0o777 == permissions
+        @test lstat(link).mode & 0o777 != permissions  # Symbolic links are not modified.
+        @test filemode(linkfile) & 0o777 != permissions  # Symbolic links are not followed.
+        @test filemode(tmpfile) & 0o777 != permissions
+        rm(linkfile)
+    end
+end
+
 # On windows the filesize of a folder is the accumulation of all the contained
 # files and is thus zero in this case.
 @windows_only @test filesize(dir) == 0
@@ -119,6 +156,22 @@ rm(c_tmpdir, recursive=true)
 @test_throws Base.UVError rm(c_tmpdir, recursive=true)
 @test rm(c_tmpdir, force=true, recursive=true) === nothing
 
+# chown will give an error if the user does not have permissions to change files
+@unix_only if get(ENV, "USER", "") == "root"
+    chown(file, -2, -1)  # Change the file owner to nobody
+    @test stat(file).uid !=0
+    chown(file, 0, -2)  # Change the file group to nogroup (and owner back to root)
+    @test stat(file).gid !=0
+    @test stat(file).uid ==0
+    chown(file, -1, 0)
+    @test stat(file).gid ==0
+    @test stat(file).uid ==0
+else
+    @test_throws Base.UVError chown(file, -2, -1)  # Non-root user cannot change ownership to another user
+    @test_throws Base.UVError chown(file, -1, -2)  # Non-root user cannot change group to a group they are not a member of (eg: nogroup)
+end
+
+@windows_only @test chown(file, -2, -2) == nothing  # chown shouldn't cause any errors for Windows
 
 #######################################################################
 # This section tests file watchers.                                   #

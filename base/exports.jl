@@ -104,7 +104,6 @@ export
     SharedArray,
     SharedMatrix,
     SharedVector,
-    StatStruct,
     StepRange,
     StridedArray,
     StridedMatrix,
@@ -690,6 +689,7 @@ export
     qr,
     qrfact!,
     qrfact,
+    lq,
     lqfact!,
     lqfact,
     rank,
@@ -1275,6 +1275,7 @@ export
 # filesystem operations
     cd,
     chmod,
+    chown,
     cp,
     ctime,
     download,

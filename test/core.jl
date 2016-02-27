@@ -3758,3 +3758,32 @@ module I13229
     end
     @test z == 10
 end
+
+# issue #12474
+@generated function f12474(::Any)
+    :(for i in 1
+      end)
+end
+let
+    ast12474 = code_typed(f12474, Tuple{Float64})
+    for (_, vartype) in ast12474[1].args[2][1]
+        @test isleaftype(vartype)
+    end
+end
+
+# issue #15186
+let ex = quote
+             $(if true; :(test); end)
+         end
+    @test ex.args[2] == :test
+end
+
+# issue #15180
+function f15180{T}(x::T)
+    X = Array(T, 1)
+    X[1] = x
+    @noinline ef{J}(::J) = (J,X[1]) # Use T
+    ef{J}(::J, ::Int) = (T,J)
+    return ef
+end
+@test map(f15180(1), [1,2]) == [(Int,1),(Int,1)]
