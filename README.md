@@ -256,7 +256,7 @@ Building Julia requires that the following software be installed:
 
 - **[GNU make]**                — building dependencies.
 - **[gcc & g++][gcc]** (>= 4.7) or **[Clang][clang]** (>= 3.1, Xcode 4.3.3 on OS X) — compiling and linking C, C++
-- **[gfortran][gcc]**           — compiling and linking Fortran libraries
+- **[gfortran]**                — compiling and linking Fortran libraries
 - **[git]**                     — version control and package management (version 1.7.3+ required)
 - **[perl]**                    — preprocessing of header files of libraries.
 - **[wget]**, **[curl]**, or **[fetch]** (FreeBSD) — to automatically download external libraries.
@@ -280,7 +280,7 @@ Julia uses the following external libraries, which are automatically downloaded 
 - **[SuiteSparse]** (>= 4.1) — library of linear algebra routines for sparse matrices.
 - **[ARPACK]**               — collection of subroutines designed to solve large, sparse eigenvalue problems.
 - **[FFTW]** (>= 3.3)        — library for computing fast Fourier transforms very quickly and efficiently.
-- **[PCRE]** (>= 8.31)       — Perl-compatible regular expressions library.
+- **[PCRE]** (>= 10.00)      — Perl-compatible regular expressions library.
 - **[GMP]** (>= 5.0)         — GNU multiple precision arithmetic library, needed for `BigInt` support.
 - **[MPFR]** (>= 3.0)        — GNU multiple precision floating point library, needed for arbitrary precision floating point (`BigFloat`) support.
 - **[libgit2]** (>= 0.21)    — Git linkable library, used by Julia's package manager
@@ -296,6 +296,7 @@ For a longer overview of Julia's dependencies, see these [slides](https://github
 [m4]:           http://www.gnu.org/software/m4
 [gcc]:          http://gcc.gnu.org
 [clang]:        http://clang.llvm.org
+[gfortran]:     https://gcc.gnu.org/fortran/
 [curl]:         http://curl.haxx.se
 [fetch]:        http://www.freebsd.org/cgi/man.cgi?fetch(1)
 [git]:          http://git-scm.com

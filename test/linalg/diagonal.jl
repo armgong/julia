@@ -31,6 +31,10 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
     @test full(abs(D)) == abs(DM)
     @test full(imag(D)) == imag(DM)
 
+    @test parent(D) == d
+    @test D[1,1] == d[1]
+    @test D[1,2] == 0
+
     debug && println("Simple unary functions")
     for op in (-,)
       @test op(D)==op(DM)
@@ -164,12 +168,12 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
             @test isa(similar(D, Int, (3,2)), Matrix{Int})
 
             #10036
-            @test issym(D2)
+            @test issymmetric(D2)
             @test ishermitian(D2)
             if elty <: Complex
                 dc = d + im*convert(Vector{elty}, ones(n))
                 D3 = Diagonal(dc)
-                @test issym(D3)
+                @test issymmetric(D3)
                 @test !ishermitian(D3)
             end
 

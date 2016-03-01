@@ -207,12 +207,6 @@ for elty1 in (Float32, Float64, BigFloat, Complex64, Complex128, Complex{BigFloa
             end
         end
 
-        @test scale(A1,0.5) == 0.5*A1
-        @test scale(0.5,A1) == 0.5*A1
-        @test scale(A1,0.5im) == 0.5im*A1
-        @test scale(0.5im,A1) == 0.5im*A1
-
-
         # Binary operations
         @test A1*0.5 == full(A1)*0.5
         @test 0.5*A1 == 0.5*full(A1)
@@ -359,6 +353,9 @@ for elty1 in (Float32, Float64, BigFloat, Complex64, Complex128, Complex{BigFloa
             @test_approx_eq A1\B' full(A1)\B'
             @test_approx_eq A1.'\B.' full(A1).'\B.'
             @test_approx_eq A1'\B' full(A1)'\B'
+            @test_throws DimensionMismatch A1\ones(elty1,n+2)
+            @test_throws DimensionMismatch A1'\ones(elty1,n+2)
+            @test_throws DimensionMismatch A1.'\ones(elty1,n+2)
             if t1 == UpperTriangular || t1 == LowerTriangular
                 @test_throws Base.LinAlg.SingularException naivesub!(t1(zeros(elty1,n,n)),ones(eltyB,n))
             end
