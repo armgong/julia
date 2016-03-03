@@ -1558,8 +1558,8 @@ current `include` path but does not use it to search for files (see help for `in
 This function is typically used to load library code, and is implicitly called by `using` to
 load packages.
 
-When searching for files, `require` first looks in the current working directory, then looks
-for package code under `Pkg.dir()`, then tries paths in the global array `LOAD_PATH`.
+When searching for files, `require` first looks for package code under `Pkg.dir()`, then tries
+paths in the global array `LOAD_PATH`.
 """
 require
 
@@ -4383,20 +4383,6 @@ i-th dimension of `A` should be repeated.
 repeat
 
 """
-    scale(A, b)
-    scale(b, A)
-
-Scale an array `A` by a scalar `b`, returning a new array.
-
-If `A` is a matrix and `b` is a vector, then `scale(A,b)` scales each column `i` of `A` by
-`b[i]` (similar to `A*diagm(b)`), while `scale(b,A)` scales each row `i` of `A` by `b[i]`
-(similar to `diagm(b)*A`), returning a new array.
-
-Note: for large `A`, `scale` can be much faster than `A .* b` or `b .* A`, due to the use of BLAS.
-"""
-scale
-
-"""
     ReentrantLock()
 
 Creates a reentrant lock. The same task can acquire the lock as many times as required. Each
@@ -6680,12 +6666,11 @@ issetuid
     scale!(A, b)
     scale!(b, A)
 
-Scale an array `A` by a scalar `b`, similar to [`scale`](:func:`scale`) but overwriting `A`
-in-place.
+Scale an array `A` by a scalar `b` overwriting `A` in-place.
 
 If `A` is a matrix and `b` is a vector, then `scale!(A,b)` scales each column `i` of `A` by
-`b[i]` (similar to `A*diagm(b)`), while `scale!(b,A)` scales each row `i` of `A` by `b[i]`
-(similar to `diagm(b)*A`), again operating in-place on `A`.
+`b[i]` (similar to `A*Diagonal(b)`), while `scale!(b,A)` scales each row `i` of `A` by `b[i]`
+(similar to `Diagonal(b)*A`), again operating in-place on `A`.
 
 """
 scale!
@@ -6698,11 +6683,11 @@ The arguments to a function or constructor are outside the valid domain.
 DomainError
 
 """
-    issym(A) -> Bool
+    issymmetric(A) -> Bool
 
 Test whether a matrix is symmetric.
 """
-issym
+issymmetric
 
 """
     acosh(x)
@@ -8427,7 +8412,7 @@ rand!
 
 Compute the Bunch-Kaufman [^Bunch1977] factorization of a real symmetric or complex Hermitian
 matrix `A` and return a `BunchKaufman` object. The following functions are available for
-`BunchKaufman` objects: `size`, `\\`, `inv`, `issym`, `ishermitian`.
+`BunchKaufman` objects: `size`, `\\`, `inv`, `issymmetric`, `ishermitian`.
 
 [^Bunch1977]: J R Bunch and L Kaufman, Some stable methods for calculating inertia and solving symmetric linear systems, Mathematics of Computation 31:137 (1977), 163-179. [url](http://www.ams.org/journals/mcom/1977-31-137/S0025-5718-1977-0428694-0).
 

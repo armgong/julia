@@ -179,7 +179,7 @@ function ^(A::Matrix, p::Number)
     v, X = eig(A)
     any(v.<0) && (v = complex(v))
     Xinv = ishermitian(A) ? X' : inv(X)
-    scale(X, v.^p)*Xinv
+    (X * Diagonal(v.^p)) * Xinv
 end
 
 # Matrix exponential
@@ -340,7 +340,7 @@ end
 logm(a::Complex) = log(a)
 
 function sqrtm{T<:Real}(A::StridedMatrix{T})
-    if issym(A)
+    if issymmetric(A)
         return full(sqrtm(Symmetric(A)))
     end
     n = checksquare(A)
@@ -483,7 +483,7 @@ function pinv{T}(A::StridedMatrix{T}, tol::Real)
     index       = SVD.S .> tol*maximum(SVD.S)
     Sinv[index] = one(Stype) ./ SVD.S[index]
     Sinv[find(!isfinite(Sinv))] = zero(Stype)
-    return SVD.Vt'scale(Sinv, SVD.U')
+    return SVD.Vt' * (Diagonal(Sinv) * SVD.U')
 end
 function pinv{T}(A::StridedMatrix{T})
     tol = eps(real(float(one(T))))*maximum(size(A))

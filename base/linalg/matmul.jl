@@ -38,8 +38,6 @@ function scale!(C::AbstractMatrix, b::AbstractVector, A::AbstractMatrix)
     end
     C
 end
-scale(A::AbstractMatrix, b::AbstractVector) = scale!(similar(A, promote_op(MulFun(),eltype(A),eltype(b))), A, b)
-scale(b::AbstractVector, A::AbstractMatrix) = scale!(similar(b, promote_op(MulFun(),eltype(b),eltype(A)), size(A)), b, A)
 
 # Dot products
 
@@ -256,7 +254,7 @@ function syrk_wrapper!{T<:BlasFloat}(C::StridedMatrix{T}, tA::Char, A::StridedVe
         return matmul3x3!(C,tA,tAt,A,A)
     end
 
-    if stride(A, 1) == 1 && stride(A, 2) >= size(A, 1)
+    if stride(A, 1) == stride(C, 1) == 1 && stride(A, 2) >= size(A, 1) && stride(C, 2) >= size(C, 1)
         return copytri!(BLAS.syrk!('U', tA, one(T), A, zero(T), C), 'U')
     end
     return generic_matmatmul!(C, tA, tAt, A, A)
@@ -287,7 +285,7 @@ function herk_wrapper!{T<:BlasReal}(C::Union{StridedMatrix{T}, StridedMatrix{Com
     # Result array does not need to be initialized as long as beta==0
     #    C = Array(T, mA, mA)
 
-    if stride(A, 1) == 1 && stride(A, 2) >= size(A, 1)
+    if stride(A, 1) == stride(C, 1) == 1 && stride(A, 2) >= size(A, 1) && stride(C, 2) >= size(C, 1)
         return copytri!(BLAS.herk!('U', tA, one(T), A, zero(T), C), 'U', true)
     end
     return generic_matmatmul!(C,tA, tAt, A, A)
@@ -330,7 +328,7 @@ function gemm_wrapper!{T<:BlasFloat}(C::StridedVecOrMat{T}, tA::Char, tB::Char,
         return matmul3x3!(C,tA,tB,A,B)
     end
 
-    if stride(A, 1) == stride(B, 1) == 1 && stride(A, 2) >= size(A, 1) && stride(B, 2) >= size(B, 1)
+    if stride(A, 1) == stride(B, 1) == stride(C, 1) == 1 && stride(A, 2) >= size(A, 1) && stride(B, 2) >= size(B, 1) && stride(C, 2) >= size(C, 1)
         return BLAS.gemm!(tA, tB, one(T), A, B, zero(T), C)
     end
     generic_matmatmul!(C, tA, tB, A, B)
@@ -439,11 +437,12 @@ const Cbuf = Array(UInt8, tilebufsize)
 function generic_matmatmul!{T,S,R}(C::AbstractMatrix{R}, tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
     mA, nA = lapack_size(tA, A)
     mB, nB = lapack_size(tB, B)
+    mC, nC = size(C)
 
-    if mA == nA == nB == 2
+    if mA == nA == mB == nB == mC == nC == 2
         return matmul2x2!(C, tA, tB, A, B)
     end
-    if mA == nA == nB == 3
+    if mA == nA == mB == nB == mC == nC == 3
         return matmul3x3!(C, tA, tB, A, B)
     end
     _generic_matmatmul!(C, tA, tB, A, B)

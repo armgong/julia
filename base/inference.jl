@@ -27,6 +27,7 @@ type VarInfo
     label_counter::Int   # index of the current highest label for this function
     fedbackvars::ObjectIdDict
     mod::Module
+    linfo::LambdaInfo
 end
 
 function VarInfo(linfo::LambdaInfo, ast=linfo.ast)
@@ -42,18 +43,8 @@ function VarInfo(linfo::LambdaInfo, ast=linfo.ast)
     end
     gensym_types = Any[ NF for i = 1:(ngs::Int) ]
     nl = label_counter(body)+1
-    if length(linfo.sparam_vals) > 0
-        n = length(linfo.sparam_syms)
-        sp = Array(Any, n*2)
-        for i = 1:n
-            sp[i*2-1] = linfo.sparam_syms[i]
-            sp[i*2  ] = linfo.sparam_vals[i]
-        end
-        sp = svec(sp...)
-    else
-        sp = svec()
-    end
-    VarInfo(sp, vars, gensym_types, vinflist, nl, ObjectIdDict(), linfo.module)
+    sp = linfo.sparam_vals
+    VarInfo(sp, vars, gensym_types, vinflist, nl, ObjectIdDict(), linfo.module, linfo)
 end
 
 type VarState
@@ -79,8 +70,8 @@ end
 inference_stack = EmptyCallStack()
 
 function is_static_parameter(sv::VarInfo, s::Symbol)
-    sp = sv.sp
-    for i=1:2:length(sp)
+    sp = sv.linfo.sparam_syms
+    for i=1:length(sp)
         if is(sp[i],s)
             return true
         end
@@ -443,13 +434,13 @@ const apply_type_tfunc = function (A::ANY, args...)
                     push!(tparams, val)
                     continue
                 elseif isa(inference_stack,CallStack) && isa(A[i],Symbol)
-                    sp = inference_stack.sv.sp
+                    sp = inference_stack.sv.linfo.sparam_syms
                     s = A[i]
                     found = false
-                    for j=1:2:length(sp)
+                    for j=1:length(sp)
                         if is(sp[j],s)
                             # static parameter
-                            val = sp[j+1]
+                            val = inference_stack.sv.sp[j]
                             if valid_tparam(val)
                                 push!(tparams, val)
                                 found = true
@@ -857,16 +848,17 @@ function abstract_apply(af::ANY, fargs, aargtypes::Vector{Any}, vtypes, sv, e)
 end
 
 function isconstantargs(args, argtypes::Vector{Any}, sv::VarInfo)
-    if isempty(argtypes)
+    if length(argtypes) == 1 # just the function
         return true
     end
-    if is(args,()) || isvarargtype(argtypes[end])
+    if isvarargtype(argtypes[end])
         return false
     end
-    for i = 2:length(args)
-        arg = args[i]
+    for i = 2:length(argtypes)
         t = argtypes[i]
         if !isType(t) || has_typevars(t.parameters[1])
+            args === () && return false
+            arg = args[i]
             if isconstantref(arg, sv) === false
                 return false
             end
@@ -876,13 +868,13 @@ function isconstantargs(args, argtypes::Vector{Any}, sv::VarInfo)
 end
 
 function _ieval_args(args, argtypes::Vector{Any}, sv::VarInfo)
-    c = cell(length(args)-1)
+    c = cell(length(argtypes) - 1)
     for i = 2:length(argtypes)
         t = argtypes[i]
         if isType(t) && !has_typevars(t.parameters[1])
-            c[i-1] = t.parameters[1]
+            c[i - 1] = t.parameters[1]
         else
-            c[i-1] = _ieval(isconstantref(args[i], sv), sv)
+            c[i - 1] = _ieval(isconstantref(args[i], sv), sv)
         end
     end
     return c
@@ -901,7 +893,6 @@ function pure_eval_call(f::ANY, fargs, argtypes::ANY, sv, e)
     end
 
     args = _ieval_args(fargs, argtypes, sv)
-    tm = _topmod(sv)
     atype = Tuple{type_typeof(f), Any[type_typeof(a) for a in args]...}
     meth = _methods_by_ftype(atype, 1)
     if meth === false || length(meth) != 1
@@ -923,29 +914,12 @@ function pure_eval_call(f::ANY, fargs, argtypes::ANY, sv, e)
         end
     end
 
-    local v
     try
         v = f(args...)
+        return type_typeof(v)
     catch
         return false
     end
-    if isa(e, Expr) # replace Expr with a constant
-        stmts = Any[] # check if any arguments aren't effect_free and need to be kept around
-        for i = 1:length(fargs)
-            arg = fargs[i]
-            if !effect_free(arg, sv, false)
-                push!(stmts, arg)
-            end
-        end
-        if isempty(stmts)
-            e.head = :inert # eval_annotate will turn this into a QuoteNode
-            e.args = Any[v]
-        else
-            e.head = :call # should get cleaned up by tuple elimination
-            e.args = Any[top_getfield, Expr(:call, top_tuple, stmts..., v), length(stmts) + 1]
-        end
-    end
-    return type_typeof(v)
 end
 
 
@@ -1165,11 +1139,11 @@ end
 function abstract_eval_symbol(s::Symbol, vtypes::ObjectIdDict, sv::VarInfo)
     t = get(vtypes,s,NF)
     if is(t,NF)
-        sp = sv.sp
-        for i=1:2:length(sp)
+        sp = sv.linfo.sparam_syms
+        for i=1:length(sp)
             if is(sp[i],s)
                 # static parameter
-                val = sp[i+1]
+                val = sv.sp[i]
                 if isa(val,TypeVar)
                     # static param bound to typevar
                     if Any <: val.ub
@@ -1436,7 +1410,7 @@ function typeinf(linfo::LambdaInfo, atypes::ANY, sparams::SimpleVector, def, cop
         end
     end
     # TODO: typeinf currently gets stuck without this
-    if linfo.name === :abstract_interpret || linfo.name === :tuple_elim_pass || linfo.name === :abstract_call_gf
+    if linfo.name === :abstract_interpret || linfo.name === :alloc_elim_pass || linfo.name === :abstract_call_gf
         return (linfo.ast, Any)
     end
 
@@ -1571,18 +1545,10 @@ function typeinf_uncached(linfo::LambdaInfo, atypes::ANY, sparams::SimpleVector,
 
     if length(linfo.sparam_vals) > 0
         # handled by VarInfo constructor
+    elseif isempty(sparams) && !isempty(linfo.sparam_syms)
+        sv.sp = svec(Any[ TypeVar(sym, Any, true) for sym in linfo.sparam_syms ]...)
     else
-        sp = Any[]
-        for i = 1:2:length(sparams)
-            push!(sp, sparams[i].name)
-            push!(sp, sparams[i+1])
-        end
-        for i = 1:length(linfo.sparam_syms)
-            sym = linfo.sparam_syms[i]
-            push!(sp, sym)
-            push!(sp, TypeVar(sym, Any, true))
-        end
-        sv.sp = svec(sp...)
+        sv.sp = sparams
     end
 
     args = f_argnames(ast)
@@ -1861,7 +1827,7 @@ function typeinf_uncached(linfo::LambdaInfo, atypes::ANY, sparams::SimpleVector,
                 sv.vars = append_any(f_argnames(fulltree), map(vi->vi[1], fulltree.args[2][1]))
                 inbounds_meta_elim_pass(fulltree.args[3])
             end
-            tuple_elim_pass(fulltree, sv)
+            alloc_elim_pass(fulltree, sv)
             getfield_elim_pass(fulltree.args[3], sv)
         end
         linfo.inferred = true
@@ -1929,8 +1895,6 @@ function eval_annotate(e::ANY, vtypes::ANY, sv::VarInfo, decls, undefs)
         return e
     #elseif is(head,:gotoifnot) || is(head,:return)
     #    e.typ = Any
-    elseif is(head,:inert)
-        return QuoteNode(e.args[1])
     elseif is(head,:(=))
     #    e.typ = Any
         s = e.args[1]
@@ -2244,11 +2208,10 @@ end
 # static parameters are ok if all the static parameter values are leaf types,
 # meaning they are fully known.
 # `ft` is the type of the function. `f` is the exact function if known, or else `nothing`.
-function inlineable(f::ANY, ft::ANY, e::Expr, atype::ANY, sv::VarInfo, enclosing_ast::Expr)
+function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::VarInfo, enclosing_ast::Expr)
     local linfo,
         metharg::Type,
-        atypes = atype.parameters,
-        argexprs = copy(e.args),
+        argexprs = e.args,
         incompletematch = false
 
     if (is(f, typeassert) || is(ft, typeof(typeassert))) && length(atypes)==3
@@ -2268,12 +2231,15 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atype::ANY, sv::VarInfo, enclosing
         return (isbits(atypes[2].parameters[1]),())
     end
     # special-case inliners for known pure functions that compute types
-    if isType(e.typ)
-        if (is(f,apply_type) || is(f,fieldtype) ||
+    if isType(e.typ) && !has_typevars(e.typ.parameters[1],true)
+        if (is(f,apply_type) || is(f,fieldtype) || is(f,typeof) ||
             istopfunction(topmod, f, :typejoin) ||
-            istopfunction(topmod, f, :promote_type)) &&
-                !has_typevars(e.typ.parameters[1],true)
-            return (e.typ.parameters[1],())
+            istopfunction(topmod, f, :promote_type))
+            if effect_free(argexprs[2], sv, true)
+                return (e.typ.parameters[1],())
+            else
+                return (e.typ.parameters[1], Any[argexprs[2]])
+            end
         end
     end
     if isa(f,IntrinsicFunction) || ft === IntrinsicFunction
@@ -2281,6 +2247,10 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atype::ANY, sv::VarInfo, enclosing
     end
 
     local methfunc
+    atype = Tuple{atypes...}
+    if length(atype.parameters)-1 > MAX_TUPLETYPE_LEN
+        atype = limit_tuple_type(atype)
+    end
     meth = _methods_by_ftype(atype, 1)
     if meth === false || length(meth) != 1
         return NF
@@ -2296,6 +2266,31 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atype::ANY, sv::VarInfo, enclosing
     if linfo === NF
         return NF
     end
+    if linfo.pure && isconstantargs(argexprs, atypes, sv)
+        # check if any arguments aren't effect_free and need to be kept around
+        stmts = Any[]
+        for i = 1:length(argexprs)
+            arg = argexprs[i]
+            if !effect_free(arg, sv, false)
+                push!(stmts, arg)
+            end
+        end
+
+        if isType(e.typ) && !has_typevars(e.typ.parameters[1])
+            return (QuoteNode(e.typ.parameters[1]), stmts)
+        end
+
+        constargs = _ieval_args(argexprs, atypes, sv)
+        try
+            v = f(constargs...)
+            return (QuoteNode(v), stmts)
+        catch ex
+            thrw = Expr(:call, TopNode(:throw), QuoteNode(ex))
+            thrw.typ = Bottom
+            return (thrw, stmts)
+        end
+    end
+
     methfunc = meth[3].func
     methsig = meth[3].sig
     if !(atype <: metharg)
@@ -2314,8 +2309,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atype::ANY, sv::VarInfo, enclosing
     else
         spvals = Any[]
         for i = 1:length(spnames)
-            methsp[2 * i - 1].name === spnames[i] || error("sp env in the wrong order")
-            si = methsp[2 * i]
+            si = methsp[i]
             if isa(si, TypeVar)
                 return NF
             end
@@ -2429,7 +2423,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atype::ANY, sv::VarInfo, enclosing
         vaname = args[na]
         len_argexprs = length(argexprs)
         valen = len_argexprs-na+1
-        if valen>0 && !occurs_outside_getfield(body, vaname, sv, valen)
+        if valen>0 && !occurs_outside_getfield(body, vaname, sv, valen, ())
             # argument tuple is not used as a whole, so convert function body
             # to one accepting the exact number of arguments we have.
             newnames = unique_names(ast,valen)
@@ -2437,7 +2431,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atype::ANY, sv::VarInfo, enclosing
                 body = astcopy(body)
                 needcopy = false
             end
-            replace_getfield!(ast, body, vaname, newnames, sv, 1)
+            replace_getfield!(ast, body, vaname, newnames, (), sv, 1)
             args = vcat(args[1:na-1], newnames)
             na = length(args)
 
@@ -2471,6 +2465,9 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atype::ANY, sv::VarInfo, enclosing
 
     @assert na == length(argexprs)
 
+    if argexprs === e.args
+        argexprs = copy(argexprs)
+    end
     if needcopy
         body = astcopy(body)
     end
@@ -2491,7 +2488,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atype::ANY, sv::VarInfo, enclosing
     end
 
     # see if each argument occurs only once in the body expression
-    stmts = []
+    stmts = Any[]
     stmts_free = true # true = all entries of stmts are effect_free
 
     # when 1 method matches the inferred types, there is still a chance
@@ -2925,15 +2922,14 @@ function inlining_pass(e::Expr, sv, ast)
     end
 
     for ninline = 1:100
-        ata = Any[exprtype(e.args[i],sv) for i in 2:length(e.args)]
-        for a in ata
+        ata = cell(length(e.args))
+        ata[1] = ft
+        for i = 2:length(e.args)
+            a = exprtype(e.args[i], sv)
             (a === Bottom || isvarargtype(a)) && return (e, stmts)
+            ata[i] = a
         end
-        atype = Tuple{ft, ata...}
-        if length(atype.parameters)-1 > MAX_TUPLETYPE_LEN
-            atype = limit_tuple_type(atype)
-        end
-        res = inlineable(f, ft, e, atype, sv, ast)
+        res = inlineable(f, ft, e, ata, sv, ast)
         if isa(res,Tuple)
             if isa(res[2],Array) && !isempty(res[2])
                 append!(stmts,res[2])
@@ -3190,28 +3186,27 @@ symequal(x::Symbol    , y::SymbolNode) = is(x,y.name)
 symequal(x::GenSym    , y::GenSym)     = is(x.id,y.id)
 symequal(x::ANY       , y::ANY)        = is(x,y)
 
-function occurs_outside_getfield(e::ANY, sym::ANY, sv::VarInfo, tuplen::Int)
+function occurs_outside_getfield(e::ANY, sym::ANY, sv::VarInfo, field_count, field_names)
     if is(e, sym) || (isa(e, SymbolNode) && is(e.name, sym))
         return true
     end
     if isa(e,Expr)
         e = e::Expr
         if is_known_call(e, getfield, sv) && symequal(e.args[2],sym)
-            targ = e.args[2]
-            if !(exprtype(targ,sv) <: Tuple)
-                return true
-            end
             idx = e.args[3]
-            if !isa(idx,Int) || !(1 <= idx <= tuplen)
-                return true
+            if isa(idx,QuoteNode) && (idx.value in field_names)
+                return false
             end
-            return false
+            if isa(idx,Int) && (1 <= idx <= field_count)
+                return false
+            end
+            return true
         end
         if is(e.head,:(=))
-            return occurs_outside_getfield(e.args[2], sym, sv, tuplen)
+            return occurs_outside_getfield(e.args[2], sym, sv, field_count, field_names)
         else
             for a in e.args
-                if occurs_outside_getfield(a, sym, sv, tuplen)
+                if occurs_outside_getfield(a, sym, sv, field_count, field_names)
                     return true
                 end
             end
@@ -3230,37 +3225,45 @@ function inbounds_meta_elim_pass(e::Expr)
     end
 end
 
-# replace getfield(tuple(exprs...), i) with exprs[i]
+# does the same job as alloc_elim_pass for allocations inline in getfields
+# TODO can probably be removed when we switch to a linear IR
 function getfield_elim_pass(e::Expr, sv)
     for i = 1:length(e.args)
         ei = e.args[i]
         if isa(ei,Expr)
             getfield_elim_pass(ei, sv)
             if is_known_call(ei, getfield, sv) && length(ei.args)==3 &&
-                isa(ei.args[3],Int)
+                (isa(ei.args[3],Int) || isa(ei.args[3],QuoteNode))
                 e1 = ei.args[2]
                 j = ei.args[3]
                 if isa(e1,Expr)
-                    if is_known_call(e1, tuple, sv) && (1 <= j < length(e1.args))
-                        ok = true
-                        for k = 2:length(e1.args)
-                            k == j+1 && continue
-                            if !effect_free(e1.args[k], sv, true)
-                                ok = false; break
+                    alloc = is_immutable_allocation(e1, sv)
+                    if !is(alloc, false)
+                        flen, fnames = alloc
+                        if isa(j,QuoteNode)
+                            j = findfirst(fnames, j.value)
+                        end
+                        if 1 <= j <= flen
+                            ok = true
+                            for k = 2:length(e1.args)
+                                k == j+1 && continue
+                                if !effect_free(e1.args[k], sv, true)
+                                    ok = false; break
+                                end
+                            end
+                            if ok
+                                e.args[i] = e1.args[j+1]
                             end
                         end
-                        if ok
-                            e.args[i] = e1.args[j+1]
-                        end
                     end
-                elseif isa(e1,Tuple) && (1 <= j <= length(e1))
+                elseif isa(e1,Tuple) && isa(j,Int) && (1 <= j <= length(e1))
                     e1j = e1[j]
                     if !(isa(e1j,Number) || isa(e1j,AbstractString) || isa(e1j,Tuple) ||
                          isa(e1j,Type))
                         e1j = QuoteNode(e1j)
                     end
                     e.args[i] = e1j
-                elseif isa(e1,QuoteNode) && isa(e1.value,Tuple) && (1 <= j <= length(e1.value))
+                elseif isa(e1,QuoteNode) && isa(e1.value,Tuple) && isa(j,Int) && (1 <= j <= length(e1.value))
                     e.args[i] = QuoteNode(e1.value[j])
                 end
             end
@@ -3268,8 +3271,34 @@ function getfield_elim_pass(e::Expr, sv)
     end
 end
 
-# eliminate allocation of unnecessary tuples
-function tuple_elim_pass(ast::Expr, sv::VarInfo)
+# check if e is a successful allocation of an immutable struct
+# if it is, returns (n,f) such that it is always valid to call
+# getfield(..., 1 <= x <= n) or getfield(..., x in f) on the result
+function is_immutable_allocation(e :: ANY, sv::VarInfo)
+    isa(e, Expr) || return false
+    if is_known_call(e, tuple, sv)
+        return (length(e.args)-1,())
+    elseif e.head === :new
+        typ = exprtype(e, sv)
+        if isleaftype(typ) && !typ.mutable
+            @assert(isa(typ,DataType))
+            nf = length(e.args)-1
+            names = fieldnames(typ)
+            @assert(nf <= nfields(typ))
+            if nf < nfields(typ)
+                # some fields were left undef
+                # we could potentially propagate Bottom
+                # for pointer fields
+                names = names[1:nf]
+            end
+            return (nf, names)
+        end
+    end
+    false
+end
+# eliminate allocation of unnecessary immutables
+# that are only used as arguments to safe getfield calls
+function alloc_elim_pass(ast::Expr, sv::VarInfo)
     bexpr = ast.args[3]::Expr
     body = (ast.args[3].args)::Array{Any,1}
     vs = find_sa_vars(ast)
@@ -3283,10 +3312,11 @@ function tuple_elim_pass(ast::Expr, sv::VarInfo)
         end
         var = e.args[1]
         rhs = e.args[2]
-        if isa(rhs,Expr) && is_known_call(rhs, tuple, sv)
+        alloc = is_immutable_allocation(rhs, sv)
+        if !is(alloc,false)
+            nv, field_names = alloc
             tup = rhs.args
-            nv = length(tup)-1
-            if occurs_outside_getfield(bexpr, var, sv, nv) || !is_local(sv, var)
+            if occurs_outside_getfield(bexpr, var, sv, nv, field_names) || !is_local(sv, var)
                 i += 1
                 continue
             end
@@ -3309,14 +3339,14 @@ function tuple_elim_pass(ast::Expr, sv::VarInfo)
                 end
             end
             i += n_ins
-            replace_getfield!(ast, bexpr, var, vals, sv, i)
+            replace_getfield!(ast, bexpr, var, vals, field_names, sv, i)
         else
             i += 1
         end
     end
 end
 
-function replace_getfield!(ast, e::ANY, tupname, vals, sv, i0)
+function replace_getfield!(ast, e::ANY, tupname, vals, field_names, sv, i0)
     if !isa(e,Expr)
         return
     end
@@ -3324,7 +3354,14 @@ function replace_getfield!(ast, e::ANY, tupname, vals, sv, i0)
         a = e.args[i]
         if isa(a,Expr) && is_known_call(a, getfield, sv) &&
             symequal(a.args[2],tupname)
-            val = vals[a.args[3]]
+            idx = if isa(a.args[3], Int)
+                a.args[3]
+            else
+                @assert isa(a.args[3], QuoteNode)
+                findfirst(field_names, a.args[3].value)
+            end
+            @assert(idx > 0) # clients should check that all getfields are valid
+            val = vals[idx]
             # original expression might have better type info than
             # the tuple element expression that's replacing it.
             if isa(val,SymbolNode)
@@ -3347,7 +3384,7 @@ function replace_getfield!(ast, e::ANY, tupname, vals, sv, i0)
             end
             e.args[i] = val
         else
-            replace_getfield!(ast, a, tupname, vals, sv, 1)
+            replace_getfield!(ast, a, tupname, vals, field_names, sv, 1)
         end
     end
 end

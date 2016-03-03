@@ -228,20 +228,20 @@ sA = sprandn(3, 7, 0.5)
 sC = similar(sA)
 dA = full(sA)
 b = randn(7)
-@test scale(dA, b) == scale(sA, b)
-@test scale(dA, b) == scale!(sC, sA, b)
-@test scale(dA, b) == scale!(copy(sA), b)
+@test dA * Diagonal(b) == sA * Diagonal(b)
+@test dA * Diagonal(b) == scale!(sC, sA, b)
+@test dA * Diagonal(b) == scale!(copy(sA), b)
 b = randn(3)
-@test scale(b, dA) == scale(b, sA)
-@test scale(b, dA) == scale!(sC, b, sA)
-@test scale(b, dA) == scale!(b, copy(sA))
+@test Diagonal(b) * dA == Diagonal(b) * sA
+@test Diagonal(b) * dA == scale!(sC, b, sA)
+@test Diagonal(b) * dA == scale!(b, copy(sA))
 
-@test scale(dA, 0.5) == scale(sA, 0.5)
-@test scale(dA, 0.5) == scale!(sC, sA, 0.5)
-@test scale(dA, 0.5) == scale!(copy(sA), 0.5)
-@test scale(0.5, dA) == scale(0.5, sA)
-@test scale(0.5, dA) == scale!(sC, sA, 0.5)
-@test scale(0.5, dA) == scale!(0.5, copy(sA))
+@test dA * 0.5            == sA * 0.5
+@test dA * 0.5            == scale!(sC, sA, 0.5)
+@test dA * 0.5            == scale!(copy(sA), 0.5)
+@test 0.5 * dA            == 0.5 * sA
+@test 0.5 * dA            == scale!(sC, sA, 0.5)
+@test 0.5 * dA            == scale!(0.5, copy(sA))
 @test scale!(sC, 0.5, sA) == scale!(sC, sA, 0.5)
 
 # copy!
@@ -439,6 +439,8 @@ for (aa116, ss116) in [(a116, s116), (ad116, sd116)]
     ss116[i,j] = 0
     @test ss116[i,j] == 0
     ss116 = sparse(aa116)
+
+    @test ss116[:,:] == copy(ss116)
 
     # range indexing
     @test full(ss116[i,:]) == aa116[i,:]
@@ -951,6 +953,7 @@ end
 
 # test throws
 A = sprandbool(5,5,0.2)
+@test_throws ArgumentError reinterpret(Complex128,A)
 @test_throws ArgumentError reinterpret(Complex128,A,(5,5))
 @test_throws DimensionMismatch reinterpret(Int8,A,(20,))
 @test_throws DimensionMismatch reshape(A,(20,2))
@@ -1048,43 +1051,43 @@ A = sparse([1.0])
 @test_throws ArgumentError norm(sprand(5,5,0.2),3)
 @test_throws ArgumentError norm(sprand(5,5,0.2),2)
 
-# test ishermitian and issym real matrices
+# test ishermitian and issymmetric real matrices
 A = speye(5,5)
 @test ishermitian(A) == true
-@test issym(A) == true
+@test issymmetric(A) == true
 A[1,3] = 1.0
 @test ishermitian(A) == false
-@test issym(A) == false
+@test issymmetric(A) == false
 A[3,1] = 1.0
 @test ishermitian(A) == true
-@test issym(A) == true
+@test issymmetric(A) == true
 
-# test ishermitian and issym complex matrices
+# test ishermitian and issymmetric complex matrices
 A = speye(5,5) + im*speye(5,5)
 @test ishermitian(A) == false
-@test issym(A) == true
+@test issymmetric(A) == true
 A[1,4] = 1.0 + im
 @test ishermitian(A) == false
-@test issym(A) == false
+@test issymmetric(A) == false
 
 A = speye(Complex128, 5,5)
 A[3,2] = 1.0 + im
 @test ishermitian(A) == false
-@test issym(A) == false
+@test issymmetric(A) == false
 A[2,3] = 1.0 - im
 @test ishermitian(A) == true
-@test issym(A) == false
+@test issymmetric(A) == false
 
 A = sparse(zeros(5,5))
 @test ishermitian(A) == true
-@test issym(A) == true
+@test issymmetric(A) == true
 
 # Test with explicit zeros
 A = speye(Complex128, 5,5)
 A[3,1] = 2
 A.nzval[2] = 0.0
 @test ishermitian(A) == true
-@test issym(A) == true
+@test issymmetric(A) == true
 
 # equality ==
 A1 = speye(10)

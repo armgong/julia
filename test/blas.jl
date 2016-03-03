@@ -113,7 +113,7 @@ for elty in [Float32, Float64, Complex64, Complex128]
 
         # scal
         α = rand(elty)
-        @test BLAS.scal(n,α,a,1) ≈ scale(α,a)
+        @test BLAS.scal(n,α,a,1) ≈ α * a
 
         # trsv
         A = triu(rand(elty,n,n))
@@ -132,7 +132,7 @@ for elty in [Float32, Float64, Complex64, Complex128]
 
         A = rand(elty,n,n)
         A = A + A.'
-        @test issym(A)
+        @test issymmetric(A)
         @test_approx_eq triu(BLAS.syr!('U',α,x,copy(A))) triu(A + α*x*x.')
         @test_throws DimensionMismatch BLAS.syr!('U',α,ones(elty,n+1),copy(A))
 

@@ -3750,7 +3750,7 @@ end
 module I13229
     using Base.Test
     global z = 0
-    @time @profile for i = 1:5
+    @timed @profile for i = 1:5
         function f(x)
             return x + i
         end
@@ -3845,3 +3845,28 @@ let ary = Vector{Any}(10)
         check_undef_and_fill(ary, 1:(2n + 4))
     end
 end
+
+# pr #15259
+immutable A15259
+    x
+    y
+end
+# check that allocation was ellided
+@eval f15259(x,y) = (a = $(Expr(:new, :A15259, :x, :y)); (a.x, a.y, getfield(a,1), getfield(a, 2)))
+@test isempty(filter(x -> isa(x,Expr) && x.head === :(=) &&
+                          isa(x.args[2], Expr) && x.args[2].head === :new,
+                     code_typed(f15259, (Any,Int))[1].args[3].args))
+@test f15259(1,2) == (1,2,1,2)
+# check that error cases are still correct
+@eval g15259(x,y) = (a = $(Expr(:new, :A15259, :x, :y)); a.z)
+@test_throws ErrorException g15259(1,1)
+@eval h15259(x,y) = (a = $(Expr(:new, :A15259, :x, :y)); getfield(a, 3))
+@test_throws BoundsError h15259(1,1)
+
+# issue #15283
+j15283 = 0
+let
+    k15283 = j15283+=1
+end
+@test j15283 == 1
+@test !isdefined(:k15283)

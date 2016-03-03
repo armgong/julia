@@ -423,7 +423,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Compute the Bunch-Kaufman [Bunch1977]_ factorization of a real symmetric or complex Hermitian matrix ``A`` and return a ``BunchKaufman`` object. The following functions are available for ``BunchKaufman`` objects: ``size``\ , ``\``\ , ``inv``\ , ``issym``\ , ``ishermitian``\ .
+   Compute the Bunch-Kaufman [Bunch1977]_ factorization of a real symmetric or complex Hermitian matrix ``A`` and return a ``BunchKaufman`` object. The following functions are available for ``BunchKaufman`` objects: ``size``\ , ``\``\ , ``inv``\ , ``issymmetric``\ , ``ishermitian``\ .
 
    .. [Bunch1977] J R Bunch and L Kaufman, Some stable methods for calculating inertia and solving symmetric linear systems, Mathematics of Computation 31:137 (1977), 163-179. `url <http://www.ams.org/journals/mcom/1977-31-137/S0025-5718-1977-0428694-0>`_\ .
 
@@ -823,25 +823,14 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Construct a diagonal matrix and place ``v`` on the ``k``\ th diagonal.
 
-.. function:: scale(A, b)
-              scale(b, A)
-
-   .. Docstring generated from Julia source
-
-   Scale an array ``A`` by a scalar ``b``\ , returning a new array.
-
-   If ``A`` is a matrix and ``b`` is a vector, then ``scale(A,b)`` scales each column ``i`` of ``A`` by ``b[i]`` (similar to ``A*diagm(b)``\ ), while ``scale(b,A)`` scales each row ``i`` of ``A`` by ``b[i]`` (similar to ``diagm(b)*A``\ ), returning a new array.
-
-   Note: for large ``A``\ , ``scale`` can be much faster than ``A .* b`` or ``b .* A``\ , due to the use of BLAS.
-
 .. function:: scale!(A, b)
               scale!(b, A)
 
    .. Docstring generated from Julia source
 
-   Scale an array ``A`` by a scalar ``b``\ , similar to :func:`scale` but overwriting ``A`` in-place.
+   Scale an array ``A`` by a scalar ``b`` overwriting ``A`` in-place.
 
-   If ``A`` is a matrix and ``b`` is a vector, then ``scale!(A,b)`` scales each column ``i`` of ``A`` by ``b[i]`` (similar to ``A*diagm(b)``\ ), while ``scale!(b,A)`` scales each row ``i`` of ``A`` by ``b[i]`` (similar to ``diagm(b)*A``\ ), again operating in-place on ``A``\ .
+   If ``A`` is a matrix and ``b`` is a vector, then ``scale!(A,b)`` scales each column ``i`` of ``A`` by ``b[i]`` (similar to ``A*Diagonal(b)``\ ), while ``scale!(b,A)`` scales each row ``i`` of ``A`` by ``b[i]`` (similar to ``Diagonal(b)*A``\ ), again operating in-place on ``A``\ .
 
 .. function:: Tridiagonal(dl, d, du)
 
@@ -1093,7 +1082,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Computes the solution ``X`` to the Sylvester equation ``AX + XB + C = 0``\ , where ``A``\ , ``B`` and ``C`` have compatible dimensions and ``A`` and ``-B`` have no eigenvalues with equal real part.
 
-.. function:: issym(A) -> Bool
+.. function:: issymmetric(A) -> Bool
 
    .. Docstring generated from Julia source
 
