@@ -2309,8 +2309,7 @@ static bool emit_builtin_call(jl_cgval_t *ret, jl_value_t *f, jl_value_t **args,
 
     else if (f==jl_builtin_typeof && nargs==1) {
         jl_cgval_t arg1 = emit_expr(args[1], ctx);
-        Value *lty = emit_typeof(arg1);
-        *ret = mark_julia_type(lty, true, jl_datatype_type, ctx);
+        *ret = emit_typeof(arg1,ctx);
         JL_GC_POP();
         return true;
     }
@@ -2380,7 +2379,7 @@ static bool emit_builtin_call(jl_cgval_t *ret, jl_value_t *f, jl_value_t **args,
                 if (jl_is_leaf_type(tp0)) {
                     jl_cgval_t arg1 = emit_expr(args[1], ctx);
                     *ret = mark_julia_type(
-                            builder.CreateICmpEQ(emit_typeof(arg1),
+                            builder.CreateICmpEQ(emit_typeof_boxed(arg1,ctx),
                                                  literal_pointer_val(tp0)),
                             false,
                             jl_bool_type, ctx);
@@ -3140,6 +3139,16 @@ static void emit_assignment(jl_value_t *l, jl_value_t *r, jl_codectx_t *ctx)
                     emit_unbox(vtype, slot, slot.typ),
                     false, slot.typ, ctx);
         }
+        else if (slot.isboxed) {
+            // see if inference had a better type for the gensym than the expression (after inlining getfield on a Tuple)
+            jl_value_t *gensym_types = jl_lam_gensyms(ctx->ast);
+            if (jl_is_array(gensym_types)) {
+                jl_value_t *declType = jl_cellref(gensym_types, idx);
+                if (declType != slot.typ) {
+                    slot = remark_julia_type(slot, declType);
+                }
+            }
+        }
         ctx->gensym_SAvalues.at(idx) = slot; // now gensym_SAvalues[idx] contains the SAvalue
         ctx->gensym_assigned.at(idx) = true;
         return;
@@ -3488,6 +3497,7 @@ static jl_cgval_t emit_expr(jl_value_t *expr, jl_codectx_t *ctx)
         if (jl_is_type_type(ty) &&
             jl_is_datatype(jl_tparam0(ty)) &&
             jl_is_leaf_type(jl_tparam0(ty))) {
+            assert(nargs <= jl_datatype_nfields(jl_tparam0(ty))+1);
             return emit_new_struct(jl_tparam0(ty),nargs,args,ctx);
         }
         Value *typ = boxed(emit_expr(args[0], ctx), ctx);
@@ -4702,8 +4712,10 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
             else if (specsig) {
                 if (type_is_ghost(llvmArgType)) // this argument is not actually passed
                     theArg = ghostValue(argType);
-                else if (llvmArgType->isAggregateType())
+                else if (llvmArgType->isAggregateType()) {
                     theArg = mark_julia_slot(&*AI++, argType); // this argument is by-pointer
+                    theArg.isimmutable = true;
+                }
                 else
                     theArg = mark_julia_type(&*AI++, isboxed, argType, &ctx, /*needsgcroot*/false);
             }

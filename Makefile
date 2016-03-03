@@ -106,7 +106,7 @@ julia-debug julia-release : julia-% : julia-ui-% julia-sysimg-% julia-symlink ju
 debug release : % : julia-%
 
 julia-genstdlib: julia-sysimg-$(JULIA_BUILD_MODE)
-	@$(call PRINT_JULIA, $(JULIA_EXECUTABLE) $(JULIAHOME)/doc/genstdlib.jl)
+	@$(call PRINT_JULIA, $(JULIA_EXECUTABLE) $(call cygpath_w, $(JULIAHOME)/doc/genstdlib.jl))
 
 docs: julia-genstdlib
 	@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT)/doc
@@ -470,7 +470,7 @@ endif
 
 ifeq ($(OS), WINNT)
 	[ ! -d $(JULIAHOME)/dist-extras ] || ( cd $(JULIAHOME)/dist-extras && \
-		cp 7z.exe 7z.dll libexpat-1.dll zlib1.dll libgfortran-3.dll libquadmath-0.dll libstdc++-6.dll libgcc_s_s*-1.dll libssp-0.dll $(BUILDROOT)/julia-$(JULIA_COMMIT)/bin && \
+		cp 7z.exe 7z.dll libexpat-1.dll zlib1.dll $(BUILDROOT)/julia-$(JULIA_COMMIT)/bin && \
 	    mkdir $(BUILDROOT)/julia-$(JULIA_COMMIT)/Git && \
 	    7z x PortableGit.7z -o"$(BUILDROOT)/julia-$(JULIA_COMMIT)/Git" && \
 	    echo "[core] eol = lf" >> "$(GITCONFIG)" && \

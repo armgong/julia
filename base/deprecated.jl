@@ -990,3 +990,12 @@ end
 export call
 
 @deprecate_binding LambdaStaticData LambdaInfo
+
+# Changed issym to issymmetric. #15192
+@deprecate issym issymmetric
+
+# 15258
+@deprecate scale(α::Number, A::AbstractArray) α*A
+@deprecate scale(A::AbstractArray, α::Number) A*α
+@deprecate scale(A::AbstractMatrix, x::AbstractVector) A*Diagonal(x)
+@deprecate scale(x::AbstractVector, A::AbstractMatrix) Diagonal(x)*A
