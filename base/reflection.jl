@@ -188,10 +188,14 @@ function _methods(f::ANY,t::ANY,lim)
 end
 function _methods_by_ftype(t::ANY, lim)
     tp = t.parameters
+    nu = 1
     for ti in tp
         if isa(ti, Union)
-            return _methods(Any[tp...], length(tp), lim, [])
+            nu *= length(ti.types)
         end
+    end
+    if 1 < nu <= 64
+        return _methods(Any[tp...], length(tp), lim, [])
     end
     return ccall(:jl_matching_methods, Any, (Any,Int32), t, lim)
 end
@@ -291,11 +295,9 @@ function code_typed(f::ANY, types::ANY=Tuple; optimize=true)
     for x in _methods(f,types,-1)
         linfo = func_for_method_checked(x, types)
         if optimize
-            (tree, ty) = Core.Inference.typeinf(linfo, x[1], x[2], linfo,
-                                                true, true)
+            (tree, ty) = Core.Inference.typeinf(linfo, x[1], x[2], true)
         else
-            (tree, ty) = Core.Inference.typeinf_uncached(linfo, x[1], x[2],
-                                                         optimize=false)
+            (tree, ty) = Core.Inference.typeinf_uncached(linfo, x[1], x[2], optimize=false)
         end
         if !isa(tree, Expr)
             tree = ccall(:jl_uncompress_ast, Any, (Any,Any), linfo, tree)

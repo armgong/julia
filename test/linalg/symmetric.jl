@@ -59,12 +59,20 @@ let n=10
         # full
         @test asym == full(Hermitian(asym))
 
+        # parent
+
+        @test asym == parent(Hermitian(asym))
+
+        # getindex
+        @test asym[1,1] == Hermitian(asym)[1,1]
+        @test asym[1,1] == Symmetric(asym)[1,1]
+
         #trace
         @test trace(asym) == trace(Hermitian(asym))
 
-        # issym, ishermitian
+        # issymmetric, ishermitian
         if eltya <: Real
-            @test issym(Symmetric(asym))
+            @test issymmetric(Symmetric(asym))
             @test ishermitian(Symmetric(asym))
         end
         if eltya <: Complex

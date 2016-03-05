@@ -336,9 +336,6 @@ jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast, jl_svec_t *tvars, jl_svec_
                 called |= (1<<(i-1));
         }
         li->called = called;
-        if (tvars != jl_emptysvec)
-            if (jl_has_intrinsics(li, (jl_expr_t*)ast, ctx))
-                li->needs_sparam_vals_ducttape = 1;
     }
     return li;
 }
@@ -596,6 +593,7 @@ JL_DLLEXPORT jl_datatype_t *jl_new_uninitialized_datatype(size_t nfields, int8_t
     t->nfields = nfields;
     t->haspadding = 0;
     t->pointerfree = 0;
+    t->depth = 0;
     return t;
 }
 

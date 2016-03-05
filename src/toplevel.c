@@ -317,8 +317,6 @@ static int jl_eval_with_compiler_p(jl_lambda_info_t *li, jl_expr_t *expr, int co
     return 0;
 }
 
-extern int jl_in_inference;
-
 static jl_value_t *require_func=NULL;
 
 static jl_module_t *eval_import_path_(jl_array_t *args, int retrying)
@@ -549,9 +547,7 @@ jl_value_t *jl_toplevel_eval_flex(jl_value_t *e, int fast)
 
     thk->specTypes = (jl_tupletype_t*)jl_typeof(jl_emptytuple); // no gc_wb needed
     if (ewc) {
-        if (!jl_in_inference) {
-            jl_type_infer(thk, thk);
-        }
+        jl_type_infer(thk, jl_true);
         jl_value_t *dummy_f_arg=NULL;
         result = jl_call_method_internal(thk, &dummy_f_arg, 1);
     }
@@ -710,7 +706,7 @@ jl_value_t *jl_first_argument_datatype(jl_value_t *argtypes)
     return (jl_value_t*)first_arg_datatype(argtypes, 0);
 }
 
-static jl_lambda_info_t *expr_to_lambda(jl_lambda_info_t *f)
+static jl_lambda_info_t *expr_to_lambda(jl_expr_t *f)
 {
     // this occurs when there is a closure being added to an out-of-scope function
     // the user should only do this at the toplevel
@@ -729,10 +725,10 @@ static jl_lambda_info_t *expr_to_lambda(jl_lambda_info_t *f)
         jl_svecset(tvar_syms, i, jl_arrayref(tvar_syms_arr, i));
     }
     // wrap in a LambdaInfo
-    f = jl_new_lambda_info((jl_value_t*)f, tvar_syms, jl_emptysvec, jl_current_module);
-    jl_preresolve_globals(f->ast, f);
+    jl_lambda_info_t *li = jl_new_lambda_info((jl_value_t*)f, tvar_syms, jl_emptysvec, jl_current_module);
+    jl_preresolve_globals(li->ast, li);
     JL_GC_POP();
-    return f;
+    return li;
 }
 
 JL_DLLEXPORT void jl_method_def(jl_svec_t *argdata, jl_lambda_info_t *f, jl_value_t *isstaged)
@@ -745,7 +741,10 @@ JL_DLLEXPORT void jl_method_def(jl_svec_t *argdata, jl_lambda_info_t *f, jl_valu
     JL_GC_PUSH1(&f);
 
     if (!jl_is_lambda_info(f))
-        f = expr_to_lambda(f);
+        f = expr_to_lambda((jl_expr_t*)f);
+    if (tvars != jl_emptysvec && !f->needs_sparam_vals_ducttape &&
+        jl_has_intrinsics(f, (jl_expr_t*)f->ast, f->module))
+        f->needs_sparam_vals_ducttape = 1;
 
     assert(jl_is_lambda_info(f));
     assert(jl_is_tuple_type(argtypes));

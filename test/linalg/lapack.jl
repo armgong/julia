@@ -16,7 +16,7 @@ let # syevr
         A = convert(Array{elty, 2}, A)
         Asym = A'A
         vals, Z = LAPACK.syevr!('V', copy(Asym))
-        @test_approx_eq Z*scale(vals, Z') Asym
+        @test_approx_eq Z * (Diagonal(vals) * Z') Asym
         @test all(vals .> 0.0)
         @test_approx_eq LAPACK.syevr!('N','V','U',copy(Asym),0.0,1.0,4,5,-1.0)[1] vals[vals .< 1.0]
         @test_approx_eq LAPACK.syevr!('N','I','U',copy(Asym),0.0,1.0,4,5,-1.0)[1] vals[4:5]
@@ -330,6 +330,13 @@ for elty in (Float32, Float64, Complex64, Complex128)
     @test_approx_eq triu(inv(A)) triu(LAPACK.sytri_rook!('U',B,ipiv))
     @test_throws DimensionMismatch LAPACK.sytrs_rook!('U',B,ipiv,rand(elty,11,5))
     @test LAPACK.sytrf_rook!('U',zeros(elty,0,0)) == (zeros(elty,0,0),zeros(BlasInt,0))
+    A = rand(elty,10,10)
+    A = A + A.' #symmetric!
+    b = rand(elty,10)
+    c = A \ b
+    b,A = LAPACK.sysv_rook!('U',A,b)
+    @test_approx_eq b c
+    @test_throws DimensionMismatch LAPACK.sysv_rook!('U',A,rand(elty,11))
 end
 
 # hetrs
@@ -391,6 +398,13 @@ for elty in (Complex64, Complex128)
     b,A = LAPACK.hesv!('U',A,b)
     @test_approx_eq b c
     @test_throws DimensionMismatch LAPACK.hesv!('U',A,rand(elty,11))
+    A = rand(elty,10,10)
+    A = A + A' #hermitian!
+    b = rand(elty,10)
+    c = A \ b
+    b,A = LAPACK.hesv_rook!('U',A,b)
+    @test_approx_eq b c
+    @test_throws DimensionMismatch LAPACK.hesv_rook!('U',A,rand(elty,11))
 end
 
 #ptsv

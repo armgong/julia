@@ -239,6 +239,15 @@
   (or (eq? name 'call) (and (pair? name) (sym-ref? name)
                             (equal? (caddr name) '(inert call)))))
 
+(define (replace-vars e renames)
+  (cond ((symbol? e)      (lookup e renames e))
+        ((or (not (pair? e)) (quoted? e))  e)
+        ((memq (car e) '(-> function scope-block)) e)
+        (else
+         (cons (car e)
+               (map (lambda (x) (replace-vars x renames))
+                    (cdr e))))))
+
 ;; construct the (method ...) expression for one primitive method definition,
 ;; assuming optional and keyword args are already handled
 (define (method-def-expr- name sparams argl body isstaged)
@@ -258,17 +267,23 @@
             (name  (if iscall #f name))
             (types (llist-types argl))
             (body  (method-lambda-expr argl body))
+            ;; HACK: the typevars need to be bound to jlgensyms, since this code
+            ;; might be moved to a different scope by closure-convert.
+            (temps (map (lambda (x) (make-jlgensym)) names))
+            (renames (map cons names temps))
             (mdef
              (if (null? sparams)
                  `(method ,name (call (top svec) (curly Tuple ,@(dots->vararg types)) (call (top svec)))
                           ,body ,isstaged)
                  `(method ,name
-                          (scope-block
-                           (block
-                            ,@(map (lambda (n) `(local ,n)) names)
-                            ,@(map make-assignment names (symbols->typevars names bounds #t))
-                            (call (top svec) (curly Tuple ,@(dots->vararg types))
-                                  (call (top svec) ,@names))))
+                          (block
+                           ,@(map make-assignment temps (symbols->typevars names bounds #t))
+                           (call (top svec) (curly Tuple
+                                                   ,@(dots->vararg
+                                                      (map (lambda (ty)
+                                                             (replace-vars ty renames))
+                                                           types)))
+                                 (call (top svec) ,@temps)))
                           ,body ,isstaged))))
        (if (and iscall (not (null? argl)))
            (let* ((n (arg-name (car argl)))
@@ -2271,9 +2286,10 @@
         ((eq? (car e) 'module)
          (error "module expression not at top level"))
         (else
-         (map (lambda (x)
-                (resolve-scopes- x env implicitglobals lam renames #f))
-              e))))
+         (cons (car e)
+               (map (lambda (x)
+                      (resolve-scopes- x env implicitglobals lam renames #f))
+                    (cdr e))))))
 
 (define (resolve-scopes e) (resolve-scopes- e '() '() #f '() #f))
 
@@ -2453,12 +2469,12 @@ f(x) = yt(x)
 (define (clear-capture-bits vinfos)
   (map vinfo:not-capt vinfos))
 
-(define (convert-lambda lam fname interp)
+(define (convert-lambda lam fname interp capt-sp)
   `(lambda ,(lam:args lam)
      (,(clear-capture-bits (car (lam:vinfo lam)))
       ()
       ,(caddr (lam:vinfo lam))
-      ,(cadddr (lam:vinfo lam)))
+      ,(delete-duplicates (append (lam:sp lam) capt-sp)))
      ,(add-box-inits-to-body
        lam
        (cl-convert (cadddr lam) fname lam (table) #f interp))))
@@ -2701,7 +2717,7 @@ f(x) = yt(x)
                                       (cl-convert (cadddr lam2) 'anon lam2 (table) #f interp)))
                                   ,(last e))))
                        (else
-                        (let* ((exprs     (lift-toplevel (convert-lambda lam2 '|#anon| #t)))
+                        (let* ((exprs     (lift-toplevel (convert-lambda lam2 '|#anon| #t '())))
                                (top-stmts (cdr exprs))
                                (newlam    (renumber-jlgensym (linearize (car exprs))))
                                (vi        (lam:vinfo newlam))
@@ -2785,8 +2801,10 @@ f(x) = yt(x)
                             (begin (and name (put! namemap name tname))
                                    typedef)))
                      ,@sp-inits
-                     ,@(map (lambda (gs tvar) (make-assignment gs `(call (top TypeVar) ',tvar (top Any) true)))
-                            method-sp capt-sp)
+                     ,@(if short '()
+                           (map (lambda (gs tvar)
+                                  (make-assignment gs `(call (top TypeVar) ',tvar (top Any) true)))
+                                method-sp capt-sp))
                      ,@(if short '()
                            `((method #f
                                      ,(cl-convert
@@ -2796,7 +2814,7 @@ f(x) = yt(x)
                                                       (if iskw
                                                           (caddr (lam:args lam2))
                                                           (car (lam:args lam2)))
-                                                      #f)
+                                                      #f capt-sp)
                                      ,(last e))))
                      ,(if exists
                           '(null)
@@ -2897,14 +2915,27 @@ f(x) = yt(x)
                   (let* ((arg (car lst))
                          (aval (compile arg break-labels #t #f)))
                     (loop (cdr lst)
-                          (cons (if (and temps? (pair? (cdr lst))
+                          (cons (if (and temps?
                                          (not (simple-atom? arg))  (not (jlgensym? arg))
-                                         (not (simple-atom? aval)) (not (jlgensym? aval)))
+                                         (not (simple-atom? aval)) (not (jlgensym? aval))
+                                         (not (and (pair? arg)
+                                                   (memq (car arg) '(& quote inert top copyast))))
+                                         (not (and (symbol? arg)
+                                                   (or (null? (cdr lst))
+                                                       (null? vals)))))
                                     (let ((tmp (make-jlgensym)))
                                       (emit `(= ,tmp ,aval))
                                       tmp)
                                     aval)
                                 vals))))))))
+    (define (compile-cond ex break-labels)
+      (let ((cnd (compile ex break-labels #t #f)))
+        (if (and *very-linear-mode*
+                 (not (or (simple-atom? cnd) (jlgensym? cnd) (symbol? cnd))))
+            (let ((tmp (make-jlgensym)))
+              (emit `(= ,tmp ,cnd))
+              tmp)
+            cnd)))
     ;; the interpreter loop. `break-labels` keeps track of the labels to jump to
     ;; for all currently closing break-blocks.
     ;; `value` means we are in a context where a value is required; a meaningful
@@ -2952,7 +2983,7 @@ f(x) = yt(x)
              (compile (cadr e) break-labels #t #t)
              '(null))
             ((if)
-             (let ((test `(gotoifnot ,(compile (cadr e) break-labels #t #f) _))
+             (let ((test `(gotoifnot ,(compile-cond (cadr e) break-labels) _))
                    (end-jump `(goto _))
                    (val (if (and value (not tail)) (new-mutable-var) #f)))
                (emit test)
@@ -2973,7 +3004,7 @@ f(x) = yt(x)
             ((_while)
              (let* ((endl (make-label))
                     (topl (make&mark-label))
-                    (test (compile (cadr e) break-labels #t #f)))
+                    (test (compile-cond (cadr e) break-labels)))
                (emit `(gotoifnot ,test ,endl))
                (compile (caddr e) break-labels #f #f)
                (emit `(goto ,topl))
