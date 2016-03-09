@@ -276,9 +276,10 @@ static MDNode *tbaa_array;              // Julia array
 static MDNode *tbaa_arrayptr;               // The pointer inside a jl_array_t
 static MDNode *tbaa_arraysize;              // A size in a jl_array_t
 static MDNode *tbaa_arraylen;               // The len in a jl_array_t
-static MDNode *tbaa_sveclen;           // The len in a jl_svec_t
-static MDNode *tbaa_func;           // A jl_function_t
-static MDNode *tbaa_datatype;       // A jl_datatype_t
+static MDNode *tbaa_arrayflags;             // The flags in a jl_array_t
+static MDNode *tbaa_sveclen;            // The len in a jl_svec_t
+static MDNode *tbaa_func;               // A jl_function_t
+static MDNode *tbaa_datatype;           // A jl_datatype_t
 static MDNode *tbaa_const;          // Memory that is immutable by the time LLVM can see it
 
 // Basic DITypes
@@ -796,8 +797,7 @@ static void alloc_local(jl_sym_t *s, jl_codectx_t *ctx)
 static void maybe_alloc_arrayvar(jl_sym_t *s, jl_codectx_t *ctx)
 {
     jl_value_t *jt = ctx->vars[s].value.typ;
-    if (jl_is_array_type(jt) && jl_is_leaf_type(jt) && jl_is_long(jl_tparam1(jt)) &&
-        jl_unbox_long(jl_tparam1(jt)) != 1) {
+    if (arraytype_constshape(jt)) {
         // TODO: this optimization does not yet work with 1-d arrays, since the
         // length and data pointer can change at any time via push!
         // we could make it work by reloading the metadata when the array is
@@ -5125,6 +5125,7 @@ static void init_julia_llvm_env(Module *m)
     tbaa_arrayptr = tbaa_make_child("jtbaa_arrayptr",tbaa_array);
     tbaa_arraysize = tbaa_make_child("jtbaa_arraysize",tbaa_array);
     tbaa_arraylen = tbaa_make_child("jtbaa_arraylen",tbaa_array);
+    tbaa_arrayflags = tbaa_make_child("jtbaa_arrayflags",tbaa_array);
     tbaa_sveclen = tbaa_make_child("jtbaa_sveclen",tbaa_value);
     tbaa_func = tbaa_make_child("jtbaa_func",tbaa_value);
     tbaa_datatype = tbaa_make_child("jtbaa_datatype",tbaa_value);
@@ -5794,48 +5795,56 @@ static void init_julia_llvm_env(Module *m)
 }
 
 // Helper to figure out what features to set for the LLVM target
-// If the user specifies native ( or does not specify ) we default
+// If the user specifies native (or does not specify) we default
 // using the API provided by LLVM
 static inline SmallVector<std::string,10> getTargetFeatures() {
-  StringMap<bool> HostFeatures;
-  if( !strcmp(jl_options.cpu_target,"native") )
-  {
-    // On earlier versions of LLVM this is empty
-    llvm::sys::getHostCPUFeatures(HostFeatures);
-  }
+    StringMap<bool> HostFeatures;
+    if (!strcmp(jl_options.cpu_target,"native"))
+    {
+        // On earlier versions of LLVM this is empty
+        llvm::sys::getHostCPUFeatures(HostFeatures);
+    }
 
-  // Platform specific overides follow
+    // Platform specific overides follow
 #if defined(_CPU_X86_64_) || defined(_CPU_X86_)
 #ifndef USE_MCJIT
     // Temporarily disable Haswell BMI2 features due to LLVM bug.
-  HostFeatures["bmi2"] = false;
-  HostFeatures["avx2"] = false;
+    HostFeatures["bmi2"] = false;
+    HostFeatures["avx2"] = false;
 #endif
 #ifdef V128_BUG
-  HostFeatures["avx"] = false;
+    HostFeatures["avx"] = false;
 #endif
+#endif
+#if defined(_CPU_X86_64_)
+    // Require cx16 (cmpxchg16b)
+    // We need this for 128-bit atomic operations. We only need this
+    // when threading is enabled; however, to test whether this
+    // excludes important systems, we require this even when threading
+    // is disabled.
+    HostFeatures["cx16"] = true;
 #endif
 
-  // Figure out if we know the cpu_target
-  std::string cpu = strcmp(jl_options.cpu_target,"native") ? jl_options.cpu_target : sys::getHostCPUName();
-  if (cpu.empty() || cpu == "generic") {
-    jl_printf(JL_STDERR, "WARNING: unable to determine host cpu name.\n");
+    // Figure out if we know the cpu_target
+    std::string cpu = strcmp(jl_options.cpu_target,"native") ? jl_options.cpu_target : sys::getHostCPUName();
+    if (cpu.empty() || cpu == "generic") {
+        jl_printf(JL_STDERR, "WARNING: unable to determine host cpu name.\n");
 #if defined(_CPU_ARM_) && defined(__ARM_PCS_VFP)
-    // Check if this is required when you have read the features directly from the processor
-    // This affects the platform calling convention.
-    // TODO: enable vfp3 for ARMv7+ (but adapt the ABI)
-    HostFeatures["vfp2"] = true;
+        // Check if this is required when you have read the features directly from the processor
+        // This affects the platform calling convention.
+        // TODO: enable vfp3 for ARMv7+ (but adapt the ABI)
+        HostFeatures["vfp2"] = true;
 #endif
-  }
+    }
 
-  SmallVector<std::string,10> attr;
-  for( StringMap<bool>::const_iterator it = HostFeatures.begin(); it != HostFeatures.end(); it++  )
-  {
-    std::string att = it->getValue() ? it->getKey().str() :
-                      std::string("-") + it->getKey().str();
-    attr.append( 1, att );
-  }
-  return attr;
+    SmallVector<std::string,10> attr;
+    for (StringMap<bool>::const_iterator it = HostFeatures.begin(); it != HostFeatures.end(); it++)
+    {
+        std::string att = it->getValue() ? it->getKey().str() :
+                          std::string("-") + it->getKey().str();
+        attr.append(1, att);
+    }
+    return attr;
 }
 
 extern "C" void jl_init_debuginfo(void);

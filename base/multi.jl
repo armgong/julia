@@ -49,6 +49,7 @@ type JoinPGRPMsg <: AbstractMsg
     self_is_local::Bool
     notify_oid::Tuple
     topology::Symbol
+    worker_pool
 end
 type JoinCompleteMsg <: AbstractMsg
     notify_oid::Tuple
@@ -487,7 +488,7 @@ end
 
 function test_existing_ref(r::Future)
     found = getkey(client_refs, r, false)
-    if !is(found,false)
+    if !is(found,false) && (client_refs[r] == true)
         if isnull(found.v) && !isnull(r.v)
             # we have recd the value from another source, probably a deserialized ref, send a del_client message
             send_del_client(r)
@@ -502,7 +503,7 @@ end
 
 function test_existing_ref(r::RemoteChannel)
     found = getkey(client_refs, r, false)
-    !is(found,false) && return found
+    !is(found,false) && (client_refs[r] == true) && return found
     client_refs[r] = true
     finalizer(r, send_del_client)
     r
@@ -577,6 +578,14 @@ function isready(rr::RemoteChannel, args...)
     end
 end
 
+function del_client(rr::AbstractRemoteRef)
+    del_client(remoteref_id(rr), myid())
+    if haskey(client_refs, rr)
+        client_refs[rr] = false
+    end
+    nothing
+end
+
 del_client(id, client) = del_client(PGRP, id, client)
 function del_client(pg, id, client)
 # As a workaround to issue https://github.com/JuliaLang/julia/issues/14445
@@ -612,7 +621,7 @@ end
 
 function send_del_client(rr)
     if rr.where == myid()
-        del_client(remoteref_id(rr), myid())
+        del_client(rr)
     elseif rr.where in procs() # process only if a valid worker
         w = worker_from_id(rr.where)
         push!(w.del_msgs, (remoteref_id(rr), myid()))
@@ -1045,6 +1054,8 @@ function handle_msg(msg::JoinPGRPMsg, r_stream, w_stream)
 
     for wt in wait_tasks; wait(wt); end
 
+    set_default_worker_pool(msg.worker_pool)
+
     send_msg_now(controller, JoinCompleteMsg(msg.notify_oid, Sys.CPU_CORES, getpid()))
 end
 
@@ -1070,6 +1081,8 @@ function handle_msg(msg::JoinCompleteMsg, r_stream, w_stream)
 
     ntfy_channel = lookup_ref(msg.notify_oid)
     put!(ntfy_channel, w.id)
+
+    put!(default_worker_pool(), w)
 end
 
 function disable_threaded_libs()
@@ -1384,7 +1397,7 @@ function create_worker(manager, wconfig)
     end
 
     all_locs = map(x -> isa(x, Worker) ? (get(x.config.connect_at, ()), x.id, isa(x.manager, LocalManager)) : ((), x.id, true), join_list)
-    send_msg_now(w, JoinPGRPMsg(w.id, all_locs, isa(w.manager, LocalManager), ntfy_oid, PGRP.topology))
+    send_msg_now(w, JoinPGRPMsg(w.id, all_locs, isa(w.manager, LocalManager), ntfy_oid, PGRP.topology, default_worker_pool()))
 
     @schedule manage(w.manager, w.id, w.config, :register)
     wait(rr_ntfy_join)
