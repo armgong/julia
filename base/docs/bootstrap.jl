@@ -27,13 +27,22 @@ function __bootexpand(str, obj)
 end
 
 function __bootexpand(expr::Expr)
-    if expr.head !== :->
-        throw(ArgumentError("Wrong argument to @doc"))
-    end
-    __bootexpand(expr.args...)
+    expr.head === :-> || throw(ArgumentError("Wrong argument to @doc"))
+    str = Core.arrayref(expr.args, 1)
+    obj = Core.arrayref(Core.arrayref(expr.args, 2).args, 2)
+    __bootexpand(str, obj)
 end
 
 setexpand!(__bootexpand)
+
+# The following docstrings are basic sanity checks for `__bootexpand`.
+
+@doc """
+Captures and stores docstrings in `DocBootstrap.docs` before the real docsystem is defined.
+
+Note: this expander is later replaced by the more feature-complete `Docs.docm`.
+""" ->
+__bootexpand(str, obj)
 
 """
     DocBootstrap :: Module
@@ -51,11 +60,17 @@ DocBootstrap
 Move all docstrings from `DocBootstrap.docs` to their module's metadata dict.
 """
 function loaddocs()
-    node = docs
+    # To keep the ordering of docstrings consistent within the entire docsystem we need to
+    # reverse the contents of `docs` (a stack) before evaluating each docstring.
+    node  = docs
+    stack = []
     while node ≠ nothing
-        mod, str, obj = node.head
-        eval(mod, :(Base.@doc($str, $obj, false)))
+        push!(stack, node.head)
         node = node.tail
+    end
+    while !isempty(stack)
+        mod, str, obj = pop!(stack)
+        eval(mod, :(Base.@doc($str, $obj, false)))
     end
     global docs = nothing
 end

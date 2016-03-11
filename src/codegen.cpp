@@ -276,9 +276,10 @@ static MDNode *tbaa_array;              // Julia array
 static MDNode *tbaa_arrayptr;               // The pointer inside a jl_array_t
 static MDNode *tbaa_arraysize;              // A size in a jl_array_t
 static MDNode *tbaa_arraylen;               // The len in a jl_array_t
-static MDNode *tbaa_sveclen;           // The len in a jl_svec_t
-static MDNode *tbaa_func;           // A jl_function_t
-static MDNode *tbaa_datatype;       // A jl_datatype_t
+static MDNode *tbaa_arrayflags;             // The flags in a jl_array_t
+static MDNode *tbaa_sveclen;            // The len in a jl_svec_t
+static MDNode *tbaa_func;               // A jl_function_t
+static MDNode *tbaa_datatype;           // A jl_datatype_t
 static MDNode *tbaa_const;          // Memory that is immutable by the time LLVM can see it
 
 // Basic DITypes
@@ -417,6 +418,7 @@ static Function *jlgetnthfieldchecked_func;
 static Function *resetstkoflw_func;
 #endif
 static Function *diff_gc_total_bytes_func;
+static Function *jlarray_data_owner_func;
 
 // placeholder functions
 static Function *gcroot_func;
@@ -796,8 +798,7 @@ static void alloc_local(jl_sym_t *s, jl_codectx_t *ctx)
 static void maybe_alloc_arrayvar(jl_sym_t *s, jl_codectx_t *ctx)
 {
     jl_value_t *jt = ctx->vars[s].value.typ;
-    if (jl_is_array_type(jt) && jl_is_leaf_type(jt) && jl_is_long(jl_tparam1(jt)) &&
-        jl_unbox_long(jl_tparam1(jt)) != 1) {
+    if (arraytype_constshape(jt)) {
         // TODO: this optimization does not yet work with 1-d arrays, since the
         // length and data pointer can change at any time via push!
         // we could make it work by reloading the metadata when the array is
@@ -1293,15 +1294,24 @@ void jl_extern_c(jl_function_t *f, jl_value_t *rt, jl_value_t *argt, char *name)
     assert(jl_is_tuple_type(argt));
     Function *llvmf = jl_cfunction_object(f, rt, (jl_tupletype_t*)argt);
     if (llvmf) {
-        #ifndef LLVM35
-        new GlobalAlias(llvmf->getType(), GlobalValue::ExternalLinkage, name, llvmf, llvmf->getParent());
-        #elif defined(LLVM37) && !defined(LLVM38)
-        GlobalAlias::create(cast<PointerType>(llvmf->getType()),
-                            GlobalValue::ExternalLinkage, name, llvmf, llvmf->getParent());
-        #else
-        GlobalAlias::create(llvmf->getType()->getElementType(), llvmf->getType()->getAddressSpace(),
-                            GlobalValue::ExternalLinkage, name, llvmf, llvmf->getParent());
-        #endif
+        Function *active_llvmf = active_module->getFunction(llvmf->getName());
+        // In imaging mode, and in most cases in JIT mode (where the wrapper is specifically
+        // compiled for this function), we can simply use a global alias.
+        if (active_llvmf) {
+            #ifndef LLVM35
+            new GlobalAlias(llvmf->getType(), GlobalValue::ExternalLinkage, name, llvmf, llvmf->getParent());
+            #elif defined(LLVM37) && !defined(LLVM38)
+            GlobalAlias::create(cast<PointerType>(llvmf->getType()),
+                                GlobalValue::ExternalLinkage, name, active_llvmf, active_module);
+            #else
+            GlobalAlias::create(llvmf->getType()->getElementType(), llvmf->getType()->getAddressSpace(),
+                                GlobalValue::ExternalLinkage, name, active_llvmf, active_module);
+            #endif
+        } else {
+            // Otherwise we use a global mapping
+            assert(!imaging_mode);
+            jl_ExecutionEngine->addGlobalMapping(llvmf->getName(), (void*)getAddressForOrCompileFunction(llvmf));
+        }
     }
 }
 
@@ -1421,6 +1431,16 @@ void *jl_get_llvmf(jl_function_t *f, jl_tupletype_t *tt, bool getwrapper, bool g
 #endif
     JL_GC_POP();
     return llvmf;
+}
+
+extern "C" JL_DLLEXPORT
+uint64_t jl_get_llvm_fptr(llvm::Function *llvmf)
+{
+#if defined(USE_ORCJIT) || defined(USE_MCJIT)
+    return getAddressForOrCompileFunction(llvmf);
+#else
+    return jl_ExecutionEngine->getPointerToFunction(llvmf);
+#endif
 }
 
 extern "C" JL_DLLEXPORT
@@ -2309,8 +2329,7 @@ static bool emit_builtin_call(jl_cgval_t *ret, jl_value_t *f, jl_value_t **args,
 
     else if (f==jl_builtin_typeof && nargs==1) {
         jl_cgval_t arg1 = emit_expr(args[1], ctx);
-        Value *lty = emit_typeof(arg1);
-        *ret = mark_julia_type(lty, true, jl_datatype_type, ctx);
+        *ret = emit_typeof(arg1,ctx);
         JL_GC_POP();
         return true;
     }
@@ -2380,7 +2399,7 @@ static bool emit_builtin_call(jl_cgval_t *ret, jl_value_t *f, jl_value_t **args,
                 if (jl_is_leaf_type(tp0)) {
                     jl_cgval_t arg1 = emit_expr(args[1], ctx);
                     *ret = mark_julia_type(
-                            builder.CreateICmpEQ(emit_typeof(arg1),
+                            builder.CreateICmpEQ(emit_typeof_boxed(arg1,ctx),
                                                  literal_pointer_val(tp0)),
                             false,
                             jl_bool_type, ctx);
@@ -2584,10 +2603,26 @@ static bool emit_builtin_call(jl_cgval_t *ret, jl_value_t *f, jl_value_t **args,
                             builder.CreateCondBr(is_owned, ownedBB, mergeBB);
                             builder.SetInsertPoint(ownedBB);
                             // load owner pointer
-                            Value *own_ptr = builder.CreateLoad(
-                                builder.CreateBitCast(builder.CreateConstGEP1_32(
-                                    builder.CreateBitCast(aryv, T_pint8), jl_array_data_owner_offset(nd)),
-                                    T_ppjlvalue));
+                            Value *own_ptr;
+                            if (jl_is_long(ndp)) {
+                                own_ptr = builder.CreateLoad(
+                                    builder.CreateBitCast(
+                                        builder.CreateConstGEP1_32(
+                                            builder.CreateBitCast(aryv, T_pint8),
+                                            jl_array_data_owner_offset(nd)),
+                                        T_ppjlvalue));
+                            }
+                            else {
+#ifdef LLVM37
+                                own_ptr = builder.CreateCall(
+                                    prepare_call(jlarray_data_owner_func),
+                                    {aryv});
+#else
+                                own_ptr = builder.CreateCall(
+                                    prepare_call(jlarray_data_owner_func),
+                                    aryv);
+#endif
+                            }
                             builder.CreateBr(mergeBB);
                             builder.SetInsertPoint(mergeBB);
                             data_owner = builder.CreatePHI(T_pjlvalue, 2);
@@ -3498,6 +3533,7 @@ static jl_cgval_t emit_expr(jl_value_t *expr, jl_codectx_t *ctx)
         if (jl_is_type_type(ty) &&
             jl_is_datatype(jl_tparam0(ty)) &&
             jl_is_leaf_type(jl_tparam0(ty))) {
+            assert(nargs <= jl_datatype_nfields(jl_tparam0(ty))+1);
             return emit_new_struct(jl_tparam0(ty),nargs,args,ctx);
         }
         Value *typ = boxed(emit_expr(args[0], ctx), ctx);
@@ -4712,8 +4748,10 @@ static void emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declaratio
             else if (specsig) {
                 if (type_is_ghost(llvmArgType)) // this argument is not actually passed
                     theArg = ghostValue(argType);
-                else if (llvmArgType->isAggregateType())
+                else if (llvmArgType->isAggregateType()) {
                     theArg = mark_julia_slot(&*AI++, argType); // this argument is by-pointer
+                    theArg.isimmutable = true;
+                }
                 else
                     theArg = mark_julia_type(&*AI++, isboxed, argType, &ctx, /*needsgcroot*/false);
             }
@@ -5123,6 +5161,7 @@ static void init_julia_llvm_env(Module *m)
     tbaa_arrayptr = tbaa_make_child("jtbaa_arrayptr",tbaa_array);
     tbaa_arraysize = tbaa_make_child("jtbaa_arraysize",tbaa_array);
     tbaa_arraylen = tbaa_make_child("jtbaa_arraylen",tbaa_array);
+    tbaa_arrayflags = tbaa_make_child("jtbaa_arrayflags",tbaa_array);
     tbaa_sveclen = tbaa_make_child("jtbaa_sveclen",tbaa_value);
     tbaa_func = tbaa_make_child("jtbaa_func",tbaa_value);
     tbaa_datatype = tbaa_make_child("jtbaa_datatype",tbaa_value);
@@ -5741,6 +5780,19 @@ static void init_julia_llvm_env(Module *m)
 #endif
         false);
 #endif
+    std::vector<Type*> array_owner_args(0);
+    array_owner_args.push_back(T_pjlvalue);
+    jlarray_data_owner_func =
+        Function::Create(FunctionType::get(T_pjlvalue, array_owner_args, false),
+                         Function::ExternalLinkage,
+                         "jl_array_data_owner", m);
+    jlarray_data_owner_func->setAttributes(
+        jlarray_data_owner_func->getAttributes()
+        .addAttribute(jlarray_data_owner_func->getContext(),
+                      AttributeSet::FunctionIndex, Attribute::ReadOnly)
+        .addAttribute(jlarray_data_owner_func->getContext(),
+                      AttributeSet::FunctionIndex, Attribute::NoUnwind));
+    add_named_global(jlarray_data_owner_func, jl_array_data_owner);
 
     gcroot_func =
         Function::Create(FunctionType::get(T_ppjlvalue, false),
@@ -5792,48 +5844,56 @@ static void init_julia_llvm_env(Module *m)
 }
 
 // Helper to figure out what features to set for the LLVM target
-// If the user specifies native ( or does not specify ) we default
+// If the user specifies native (or does not specify) we default
 // using the API provided by LLVM
 static inline SmallVector<std::string,10> getTargetFeatures() {
-  StringMap<bool> HostFeatures;
-  if( !strcmp(jl_options.cpu_target,"native") )
-  {
-    // On earlier versions of LLVM this is empty
-    llvm::sys::getHostCPUFeatures(HostFeatures);
-  }
+    StringMap<bool> HostFeatures;
+    if (!strcmp(jl_options.cpu_target,"native"))
+    {
+        // On earlier versions of LLVM this is empty
+        llvm::sys::getHostCPUFeatures(HostFeatures);
+    }
 
-  // Platform specific overides follow
+    // Platform specific overides follow
 #if defined(_CPU_X86_64_) || defined(_CPU_X86_)
 #ifndef USE_MCJIT
     // Temporarily disable Haswell BMI2 features due to LLVM bug.
-  HostFeatures["bmi2"] = false;
-  HostFeatures["avx2"] = false;
+    HostFeatures["bmi2"] = false;
+    HostFeatures["avx2"] = false;
 #endif
 #ifdef V128_BUG
-  HostFeatures["avx"] = false;
+    HostFeatures["avx"] = false;
 #endif
+#endif
+#if defined(_CPU_X86_64_)
+    // Require cx16 (cmpxchg16b)
+    // We need this for 128-bit atomic operations. We only need this
+    // when threading is enabled; however, to test whether this
+    // excludes important systems, we require this even when threading
+    // is disabled.
+    HostFeatures["cx16"] = true;
 #endif
 
-  // Figure out if we know the cpu_target
-  std::string cpu = strcmp(jl_options.cpu_target,"native") ? jl_options.cpu_target : sys::getHostCPUName();
-  if (cpu.empty() || cpu == "generic") {
-    jl_printf(JL_STDERR, "WARNING: unable to determine host cpu name.\n");
+    // Figure out if we know the cpu_target
+    std::string cpu = strcmp(jl_options.cpu_target,"native") ? jl_options.cpu_target : sys::getHostCPUName();
+    if (cpu.empty() || cpu == "generic") {
+        jl_printf(JL_STDERR, "WARNING: unable to determine host cpu name.\n");
 #if defined(_CPU_ARM_) && defined(__ARM_PCS_VFP)
-    // Check if this is required when you have read the features directly from the processor
-    // This affects the platform calling convention.
-    // TODO: enable vfp3 for ARMv7+ (but adapt the ABI)
-    HostFeatures["vfp2"] = true;
+        // Check if this is required when you have read the features directly from the processor
+        // This affects the platform calling convention.
+        // TODO: enable vfp3 for ARMv7+ (but adapt the ABI)
+        HostFeatures["vfp2"] = true;
 #endif
-  }
+    }
 
-  SmallVector<std::string,10> attr;
-  for( StringMap<bool>::const_iterator it = HostFeatures.begin(); it != HostFeatures.end(); it++  )
-  {
-    std::string att = it->getValue() ? it->getKey().str() :
-                      std::string("-") + it->getKey().str();
-    attr.append( 1, att );
-  }
-  return attr;
+    SmallVector<std::string,10> attr;
+    for (StringMap<bool>::const_iterator it = HostFeatures.begin(); it != HostFeatures.end(); it++)
+    {
+        std::string att = it->getValue() ? it->getKey().str() :
+                          std::string("-") + it->getKey().str();
+        attr.append(1, att);
+    }
+    return attr;
 }
 
 extern "C" void jl_init_debuginfo(void);

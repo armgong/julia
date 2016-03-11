@@ -11,7 +11,6 @@
 // free pages as soon as they are empty. if not defined, then we
 // will wait for the next GC, to allow the space to be reused more
 // efficiently. default = on.
-#define FREE_PAGES_EAGER
 #include <stdlib.h>
 #include <string.h>
 #ifndef _MSC_VER
@@ -135,6 +134,13 @@ typedef struct _bigval_t {
         size_t sz;
         uintptr_t age : 2;
     };
+    #ifdef _P64 // Add padding so that char data[] below is 64-byte aligned
+        // (8 pointers of 8 bytes each) - (4 other pointers in struct)
+        void *_padding[8 - 4];
+    #else
+        // (16 pointers of 4 bytes each) - (4 other pointers in struct)
+        void *_padding[16 - 4];
+    #endif
     //struct buff_t <>;
     union {
         uintptr_t header;
@@ -146,7 +152,7 @@ typedef struct _bigval_t {
 #if !defined(_COMPILER_MICROSOFT_)
     int _dummy[0];
 #endif
-    // must be 16-aligned here, in 32 & 64b
+    // must be 64-byte aligned here, in 32 & 64 bit modes
     char data[];
 } bigval_t;
 
@@ -171,7 +177,7 @@ typedef struct _pool_t {
 
 #define GC_PAGE_LG2 14 // log2(size of a page)
 #define GC_PAGE_SZ (1 << GC_PAGE_LG2) // 16k
-#define GC_PAGE_OFFSET (16 - (sizeof_jl_taggedvalue_t % 16))
+#define GC_PAGE_OFFSET (JL_SMALL_BYTE_ALIGNMENT - (sizeof_jl_taggedvalue_t % JL_SMALL_BYTE_ALIGNMENT))
 
 // pool page metadata
 typedef struct _gcpage_t {
@@ -264,6 +270,11 @@ typedef struct {
     jl_thread_heap_t *heap;
 } jl_single_heap_index_t;
 
+// Include before gc-debug for objprofile
+static const uintptr_t jl_buff_tag = 0x4eade800;
+static void *const jl_malloc_tag = (void*)0xdeadaa01;
+static void *const jl_singleton_tag = (void*)0xdeadaa02;
+
 #define current_heap __current_heap_idx.heap
 #define current_heap_index __current_heap_idx.index
 // This chould trigger a false positive warning with both gcc and clang
@@ -316,7 +327,6 @@ static arraylist_t finalizer_list;
 static arraylist_t finalizer_list_marked;
 static arraylist_t to_finalize;
 
-static int check_timeout = 0;
 #define should_timeout() 0
 
 #define gc_bits(o) (((gcval_t*)(o))->gc_bits)
@@ -437,15 +447,8 @@ static int jl_gc_finalizers_inhibited; // don't run finalizers during codegen #1
 
 // malloc wrappers, aligned allocation
 
-#if defined(_P64) || defined(__APPLE__)
-#define malloc_a16(sz) malloc(sz)
-#define realloc_a16(p, sz, oldsz) realloc((p), (sz))
-#define free_a16(p) free(p)
-#else
-#define malloc_a16(sz) jl_malloc_aligned(sz, 16)
-#define realloc_a16(p, sz, oldsz) jl_realloc_aligned(p, sz, oldsz, 16)
-#define free_a16(p) jl_free_aligned(p)
-#endif
+#define malloc_cache_align(sz) jl_malloc_aligned(sz, JL_CACHE_BYTE_ALIGNMENT)
+#define realloc_cache_align(p, sz, oldsz) jl_realloc_aligned(p, sz, oldsz, JL_CACHE_BYTE_ALIGNMENT)
 
 static void schedule_finalization(void *o, void *f)
 {
@@ -626,7 +629,6 @@ static uint8_t *page_age(gcpage_t *pg)
 // GC knobs and self-measurement variables
 static int64_t last_gc_total_bytes = 0;
 
-static int gc_inc_steps = 1;
 #ifdef _P64
 #define default_collect_interval (5600*1024*sizeof(void*))
 static size_t max_collect_interval = 1250000000UL;
@@ -644,11 +646,6 @@ static int64_t promoted_bytes = 0;
 static size_t current_pg_count = 0;
 static size_t max_pg_count = 0;
 
-#ifdef OBJPROFILE
-static htable_t obj_counts[3];
-static htable_t obj_sizes[3];
-#endif
-
 JL_DLLEXPORT size_t jl_gc_total_freed_bytes=0;
 #ifdef GC_FINAL_STATS
 static uint64_t max_pause = 0;
@@ -656,7 +653,7 @@ static uint64_t total_sweep_time = 0;
 static uint64_t total_mark_time = 0;
 static uint64_t total_fin_time = 0;
 #endif
-int sweeping = 0;
+static int sweeping = 0;
 
 /*
  * The state transition looks like :
@@ -703,39 +700,8 @@ int sweeping = 0;
 static int64_t scanned_bytes; // young bytes scanned while marking
 static int64_t perm_scanned_bytes; // old bytes scanned while marking
 static int prev_sweep_mask = GC_MARKED;
-static size_t scanned_bytes_goal;
 
-static const uintptr_t jl_buff_tag = 0x4eade800;
-static void *const jl_malloc_tag = (void*)0xdeadaa01;
 static size_t array_nbytes(jl_array_t*);
-static inline void objprofile_count(void *ty, int old, int sz)
-{
-#ifdef OBJPROFILE
-#ifdef GC_VERIFY
-    if (verifying) return;
-#endif
-    if ((intptr_t)ty <= 0x10)
-        ty = (void*)jl_buff_tag;
-    void **bp = ptrhash_bp(&obj_counts[old], ty);
-    if (*bp == HT_NOTFOUND)
-        *bp = (void*)2;
-    else
-        (*((intptr_t*)bp))++;
-    bp = ptrhash_bp(&obj_sizes[old], ty);
-    if (*bp == HT_NOTFOUND)
-        *bp = (void*)(intptr_t)(1 + sz);
-    else
-        *((intptr_t*)bp) += sz;
-#endif
-}
-
-//static inline void gc_setmark_other(jl_value_t *v, int mark_mode) // unused function
-//{
-//    jl_taggedvalue_t *o = jl_astaggedvalue(v);
-//    _gc_setmark(o, mark_mode);
-//    verify_val(o);
-//}
-
 #define inc_sat(v,s) v = (v) >= s ? s : (v)+1
 
 static inline int gc_setmark_big(void *o, int mark_mode)
@@ -1007,10 +973,10 @@ static NOINLINE void *alloc_big(size_t sz)
 {
     maybe_collect();
     size_t offs = offsetof(bigval_t, header);
-    size_t allocsz = LLT_ALIGN(sz + offs, 16);
+    size_t allocsz = LLT_ALIGN(sz + offs, JL_CACHE_BYTE_ALIGNMENT);
     if (allocsz < sz)  // overflow in adding offs, size was "negative"
         jl_throw(jl_memory_exception);
-    bigval_t *v = (bigval_t*)malloc_a16(allocsz);
+    bigval_t *v = (bigval_t*)malloc_cache_align(allocsz);
     if (v == NULL)
         jl_throw(jl_memory_exception);
     jl_atomic_fetch_add(&allocd_bytes, allocsz);
@@ -1070,7 +1036,7 @@ static bigval_t **sweep_big_list(int sweep_mask, bigval_t **pv)
 #ifdef MEMDEBUG
             memset(v, 0xbb, v->sz&~3);
 #endif
-            free_a16(v);
+            jl_free_aligned(v);
             big_freed++;
         }
         big_total++;
@@ -1137,7 +1103,7 @@ static void jl_gc_free_array(jl_array_t *a)
     if (a->flags.how == 2) {
         char *d = (char*)a->data - a->offset*a->elsize;
         if (a->flags.isaligned)
-            free_a16(d);
+            jl_free_aligned(d);
         else
             free(d);
         freed_bytes += array_nbytes(a);
@@ -1369,11 +1335,7 @@ static void sweep_pool_region(gcval_t ***pfl, int region_i, int sweep_mask)
 // Returns pointer to terminal pointer of list rooted at *pfl.
 static gcval_t **sweep_page(pool_t *p, gcpage_t *pg, gcval_t **pfl, int sweep_mask, int osize)
 {
-#ifdef FREE_PAGES_EAGER
     int freedall;
-#else
-    int empty;
-#endif
     gcval_t **prev_pfl = pfl;
     gcval_t *v;
     size_t old_nfree = 0, nfree = 0;
@@ -1598,8 +1560,6 @@ static void grow_mark_stack(void)
     mark_stack = mark_stack_base + offset;
     mark_stack_size = newsz;
 }
-
-static int max_msp = 0;
 
 static void reset_remset(void)
 {
@@ -1907,7 +1867,7 @@ static int push_root(jl_value_t *v, int d, int bits)
         refyoung = GC_MARKED_NOESC;
     }
     else if (vt == (jl_value_t*)jl_symbol_type) {
-        //gc_setmark_other(v, GC_MARKED); // symbols have their own allocator and are never freed
+        // symbols have their own allocator and are never freed
     }
     // this check should not be needed but it helps catching corruptions early
     else if (gc_typeof(vt) == (jl_value_t*)jl_datatype_type) {
@@ -1971,7 +1931,6 @@ static int push_root(jl_value_t *v, int d, int bits)
  queue_the_root:
     if (mark_sp >= mark_stack_size) grow_mark_stack();
     mark_stack[mark_sp++] = (jl_value_t*)v;
-    max_msp = max_msp > mark_sp ? max_msp : mark_sp;
     return bits;
 }
 
@@ -1988,11 +1947,8 @@ static void visit_mark_stack_inc(int mark_mode)
 
 static void visit_mark_stack(int mark_mode)
 {
-    int ct = check_timeout;
-    check_timeout = 0;
     visit_mark_stack_inc(mark_mode);
     assert(!mark_sp);
-    check_timeout = ct;
 }
 
 void jl_mark_box_caches(void);
@@ -2005,7 +1961,6 @@ extern jl_module_t *jl_old_base_module;
 extern jl_array_t *jl_module_init_order;
 
 static int inc_count = 0;
-static int quick_count = 0;
 
 // mark the initial root set
 static void pre_mark(void)
@@ -2050,14 +2005,11 @@ static void pre_mark(void)
     gc_push_root(jl_false, 0);
 }
 
-static int n_finalized;
-
 // find unmarked objects that need to be finalized from the finalizer list "list".
 // this must happen last in the mark phase.
 // if dryrun == 1, it does not schedule any actual finalization and only marks finalizers
 static void post_mark(arraylist_t *list, int dryrun)
 {
-    n_finalized = 0;
     for(size_t i=0; i < list->len; i+=2) {
         jl_value_t *v = (jl_value_t*)list->items[i];
         jl_value_t *fin = (jl_value_t*)list->items[i+1];
@@ -2083,7 +2035,6 @@ static void post_mark(arraylist_t *list, int dryrun)
             }
             gc_push_root(v, 0);
             if (!dryrun) schedule_finalization(v, fin);
-            n_finalized++;
         }
         if (!dryrun && isold) {
             arraylist_push(&finalizer_list_marked, v);
@@ -2136,46 +2087,6 @@ static void all_pool_stats(void);
 static void big_obj_stats(void);
 #endif
 
-#ifdef OBJPROFILE
-static void reset_obj_profile(void)
-{
-    for(int g=0; g < 3; g++) {
-        htable_reset(&obj_counts[g], 0);
-        htable_reset(&obj_sizes[g], 0);
-    }
-}
-
-static void print_obj_profile(htable_t nums, htable_t sizes)
-{
-    for(int i=0; i < nums.size; i+=2) {
-        if (nums.table[i+1] != HT_NOTFOUND) {
-            void *ty = nums.table[i];
-            int num = (intptr_t)nums.table[i + 1] - 1;
-            size_t sz = (uintptr_t)ptrhash_get(&sizes, ty) - 1;
-            jl_printf(JL_STDERR, "   %6d : %4d kB of (%p) ",
-                      num, (int)(sz / 1024), ty);
-            if (ty == (void*)jl_buff_tag)
-                jl_printf(JL_STDERR, "buffer");
-            else if (ty == jl_malloc_tag)
-                jl_printf(JL_STDERR, "malloc");
-            else
-                jl_static_show(JL_STDERR, (jl_value_t*)ty);
-            jl_printf(JL_STDERR, "\n");
-        }
-    }
-}
-
-static void print_obj_profiles(void)
-{
-    jl_printf(JL_STDERR, "Transient mark :\n");
-    print_obj_profile(obj_counts[0], obj_sizes[0]);
-    jl_printf(JL_STDERR, "Perm mark :\n");
-    print_obj_profile(obj_counts[1], obj_sizes[1]);
-    jl_printf(JL_STDERR, "Remset :\n");
-    print_obj_profile(obj_counts[2], obj_sizes[2]);
-}
-#endif
-
 #if defined(GC_TIME)
 static int saved_mark_sp = 0;
 #endif
@@ -2192,14 +2103,7 @@ static void _jl_gc_collect(int full, char *stack_hi)
 #endif
     int64_t last_perm_scanned_bytes = perm_scanned_bytes;
     if (!sweeping) {
-
         inc_count++;
-        quick_count++;
-
-        scanned_bytes_goal = inc_count*(live_bytes/gc_inc_steps + mark_sp*sizeof(void*));
-        scanned_bytes_goal = scanned_bytes_goal < MIN_SCAN_BYTES ? MIN_SCAN_BYTES : scanned_bytes_goal;
-        if (gc_inc_steps > 1)
-            check_timeout = 1;
         assert(mark_sp == 0);
 
         // 1. mark every object in the remset
@@ -2291,10 +2195,8 @@ static void _jl_gc_collect(int full, char *stack_hi)
             all_pool_stats();
             big_obj_stats();
 #endif
-#ifdef OBJPROFILE
-            print_obj_profiles();
-            reset_obj_profile();
-#endif
+            objprofile_printall();
+            objprofile_reset();
             total_allocd_bytes += allocd_bytes_since_sweep;
             if (prev_sweep_mask == GC_MARKED_NOESC)
                 promoted_bytes += perm_scanned_bytes - last_perm_scanned_bytes;
@@ -2320,7 +2222,6 @@ static void _jl_gc_collect(int full, char *stack_hi)
                 last_long_collect_interval = collect_interval;
                 sweep_mask = GC_MARKED;
                 promoted_bytes = 0;
-                quick_count = 0;
             }
             else {
                 collect_interval = default_collect_interval/2;
@@ -2496,7 +2397,7 @@ void *reallocb(void *b, size_t sz)
         if (allocsz < sz)  // overflow in adding offs, size was "negative"
             jl_throw(jl_memory_exception);
         bigval_t *bv = bigval_header(buff);
-        bv = (bigval_t*)realloc_a16(bv, allocsz, bv->sz&~3);
+        bv = (bigval_t*)realloc_cache_align(bv, allocsz, bv->sz&~3);
         if (bv == NULL)
             jl_throw(jl_memory_exception);
         return &bv->data[0];
@@ -2535,7 +2436,7 @@ JL_DLLEXPORT jl_value_t *jl_gc_alloc_0w(void)
 
 JL_DLLEXPORT jl_value_t *jl_gc_alloc_1w(void)
 {
-    const int sz = LLT_ALIGN(sizeof_jl_taggedvalue_t + sizeof(void*), 16);
+    const int sz = LLT_ALIGN(sizeof_jl_taggedvalue_t + sizeof(void*), JL_SMALL_BYTE_ALIGNMENT);
     void *tag = NULL;
 #ifdef MEMDEBUG
     tag = alloc_big(sz);
@@ -2548,7 +2449,7 @@ JL_DLLEXPORT jl_value_t *jl_gc_alloc_1w(void)
 
 JL_DLLEXPORT jl_value_t *jl_gc_alloc_2w(void)
 {
-    const int sz = LLT_ALIGN(sizeof_jl_taggedvalue_t + sizeof(void*) * 2, 16);
+    const int sz = LLT_ALIGN(sizeof_jl_taggedvalue_t + sizeof(void*) * 2, JL_SMALL_BYTE_ALIGNMENT);
     void *tag = NULL;
 #ifdef MEMDEBUG
     tag = alloc_big(sz);
@@ -2561,7 +2462,7 @@ JL_DLLEXPORT jl_value_t *jl_gc_alloc_2w(void)
 
 JL_DLLEXPORT jl_value_t *jl_gc_alloc_3w(void)
 {
-    const int sz = LLT_ALIGN(sizeof_jl_taggedvalue_t + sizeof(void*) * 3, 16);
+    const int sz = LLT_ALIGN(sizeof_jl_taggedvalue_t + sizeof(void*) * 3, JL_SMALL_BYTE_ALIGNMENT);
     void *tag = NULL;
 #ifdef MEMDEBUG
     tag = alloc_big(sz);
@@ -2608,7 +2509,7 @@ jl_thread_heap_t *jl_mk_thread_heap(void)
 #ifdef JULIA_ENABLE_THREADING
     // Cache-aligned malloc
     jl_thread_heap =
-        (jl_thread_heap_t*)jl_malloc_aligned(sizeof(jl_thread_heap_t), 64);
+        (jl_thread_heap_t*)jl_malloc_aligned(sizeof(jl_thread_heap_t), JL_CACHE_BYTE_ALIGNMENT);
 #endif
     FOR_CURRENT_HEAP () {
         const int *szc = sizeclasses;
@@ -2654,12 +2555,7 @@ void jl_gc_init(void)
     arraylist_new(&lostval_parents_done, 0);
 #endif
 
-#ifdef OBJPROFILE
-    for(int g=0; g<3; g++) {
-        htable_new(&obj_counts[g], 0);
-        htable_new(&obj_sizes[g], 0);
-    }
-#endif
+    objprofile_init();
 #ifdef GC_FINAL_STATS
     process_t0 = jl_clock_now();
 #endif
@@ -2777,6 +2673,7 @@ static void big_obj_stats(void)
 
 JL_DLLEXPORT void *jl_gc_counted_malloc(size_t sz)
 {
+    sz += JL_SMALL_BYTE_ALIGNMENT;
     maybe_collect();
     allocd_bytes += sz;
     gc_num.malloc++;
@@ -2788,6 +2685,7 @@ JL_DLLEXPORT void *jl_gc_counted_malloc(size_t sz)
 
 JL_DLLEXPORT void *jl_gc_counted_calloc(size_t nm, size_t sz)
 {
+    nm += JL_SMALL_BYTE_ALIGNMENT;
     maybe_collect();
     allocd_bytes += nm*sz;
     gc_num.malloc++;
@@ -2800,15 +2698,15 @@ JL_DLLEXPORT void *jl_gc_counted_calloc(size_t nm, size_t sz)
 JL_DLLEXPORT void jl_gc_counted_free(void *p, size_t sz)
 {
     free(p);
-    freed_bytes += sz;
+    freed_bytes += sz + JL_SMALL_BYTE_ALIGNMENT;
     gc_num.freecall++;
 }
 
-JL_DLLEXPORT void *jl_gc_counted_realloc_with_old_size(void *p, size_t old,
-                                                       size_t sz)
+JL_DLLEXPORT void *jl_gc_counted_realloc_with_old_size(void *p, size_t old, size_t sz)
 {
+    old += JL_SMALL_BYTE_ALIGNMENT;
+    sz += JL_SMALL_BYTE_ALIGNMENT;
     maybe_collect();
-
     if (sz < old)
        freed_bytes += (old - sz);
     else
@@ -2822,7 +2720,7 @@ JL_DLLEXPORT void *jl_gc_counted_realloc_with_old_size(void *p, size_t old,
 
 JL_DLLEXPORT void *jl_malloc(size_t sz)
 {
-    int64_t *p = (int64_t *)jl_gc_counted_malloc(sz + 16);
+    int64_t *p = (int64_t *)jl_gc_counted_malloc(sz);
     p[0] = sz;
     return (void *)(p + 2);
 }
@@ -2831,7 +2729,7 @@ JL_DLLEXPORT void *jl_calloc(size_t nm, size_t sz)
 {
     int64_t *p;
     size_t nmsz = nm*sz;
-    p = (int64_t *)jl_gc_counted_calloc(nmsz + 16, 1);
+    p = (int64_t *)jl_gc_counted_calloc(nmsz, 1);
     p[0] = nmsz;
     return (void *)(p + 2);
 }
@@ -2840,7 +2738,7 @@ JL_DLLEXPORT void jl_free(void *p)
 {
     int64_t *pp = (int64_t *)p - 2;
     size_t sz = pp[0];
-    jl_gc_counted_free(pp, sz + 16);
+    jl_gc_counted_free(pp, sz);
 }
 
 JL_DLLEXPORT void *jl_realloc(void *p, size_t sz)
@@ -2855,7 +2753,7 @@ JL_DLLEXPORT void *jl_realloc(void *p, size_t sz)
         pp = (int64_t *)p - 2;
         szold = pp[0];
     }
-    int64_t *pnew = (int64_t *)jl_gc_counted_realloc_with_old_size(pp, szold + 16, sz + 16);
+    int64_t *pnew = (int64_t *)jl_gc_counted_realloc_with_old_size(pp, szold, sz);
     pnew[0] = sz;
     return (void *)(pnew + 2);
 }
@@ -2863,12 +2761,12 @@ JL_DLLEXPORT void *jl_realloc(void *p, size_t sz)
 JL_DLLEXPORT void *jl_gc_managed_malloc(size_t sz)
 {
     maybe_collect();
-    size_t allocsz = LLT_ALIGN(sz, 16);
+    size_t allocsz = LLT_ALIGN(sz, JL_CACHE_BYTE_ALIGNMENT);
     if (allocsz < sz)  // overflow in adding offs, size was "negative"
         jl_throw(jl_memory_exception);
     allocd_bytes += allocsz;
     gc_num.malloc++;
-    void *b = malloc_a16(allocsz);
+    void *b = malloc_cache_align(allocsz);
     if (b == NULL)
         jl_throw(jl_memory_exception);
     return b;
@@ -2879,7 +2777,7 @@ JL_DLLEXPORT void *jl_gc_managed_realloc(void *d, size_t sz, size_t oldsz,
 {
     maybe_collect();
 
-    size_t allocsz = LLT_ALIGN(sz, 16);
+    size_t allocsz = LLT_ALIGN(sz, JL_CACHE_BYTE_ALIGNMENT);
     if (allocsz < sz)  // overflow in adding offs, size was "negative"
         jl_throw(jl_memory_exception);
 
@@ -2895,7 +2793,7 @@ JL_DLLEXPORT void *jl_gc_managed_realloc(void *d, size_t sz, size_t oldsz,
 
     void *b;
     if (isaligned)
-        b = realloc_a16(d, allocsz, oldsz);
+        b = realloc_cache_align(d, allocsz, oldsz);
     else
         b = realloc(d, allocsz);
     if (b == NULL)

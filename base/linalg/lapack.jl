@@ -3893,13 +3893,12 @@ for (syconv, sysv, sytrf, sytri, sytrs, elty) in
                        Ptr{BlasInt}, Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt}),
                       &uplo, &n, A, &stride(A,2), ipiv, work, &lwork, info)
                 chkargsok(info[])
-                chknonsingular(info[])
                 if i == 1
                     lwork = BlasInt(real(work[1]))
                     work = Array($elty, lwork)
                 end
             end
-            return A, ipiv
+            return A, ipiv, info[]
         end
 
         #       SUBROUTINE DSYTRI2( UPLO, N, A, LDA, IPIV, WORK, LWORK, INFO )
@@ -4044,13 +4043,12 @@ for (sysv, sytrf, sytri, sytrs, elty) in
                        Ptr{BlasInt}, Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt}),
                       &uplo, &n, A, &stride(A,2), ipiv, work, &lwork, info)
                 chkargsok(info[])
-                chknonsingular(info[])
                 if i == 1
                     lwork = BlasInt(real(work[1]))
                     work = Array($elty, lwork)
                 end
             end
-            return A, ipiv
+            return A, ipiv, info[]
         end
 
         #      SUBROUTINE DSYTRI_ROOK( UPLO, N, A, LDA, IPIV, WORK, INFO )
@@ -4187,13 +4185,12 @@ for (syconv, hesv, hetrf, hetri, hetrs, elty, relty) in
                        Ptr{BlasInt}, Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt}),
                       &uplo, &n, A, &max(1,stride(A,2)), ipiv, work, &lwork, info)
                 chkargsok(info[])
-                chknonsingular(info[])
                 if i == 1
                     lwork = BlasInt(real(work[1]))
                     work = Array($elty, lwork)
                 end
             end
-            A, ipiv
+            A, ipiv, info[]
         end
 
 #       SUBROUTINE ZHETRI2( UPLO, N, A, LDA, IPIV, WORK, LWORK, INFO )
@@ -4334,13 +4331,12 @@ for (hesv, hetrf, hetri, hetrs, elty, relty) in
                        Ptr{BlasInt}, Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt}),
                       &uplo, &n, A, &max(1,stride(A,2)), ipiv, work, &lwork, info)
                 chkargsok(info[])
-                chknonsingular(info[])
                 if i == 1
                     lwork = BlasInt(real(work[1]))
                     work = Array($elty, lwork)
                 end
             end
-            A, ipiv
+            A, ipiv, info[]
         end
 
         #       SUBROUTINE ZHETRI_ROOK( UPLO, N, A, LDA, IPIV, WORK, INFO )
@@ -4456,13 +4452,12 @@ for (sysv, sytrf, sytri, sytrs, elty, relty) in
                        Ptr{BlasInt}, Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt}),
                       &uplo, &n, A, &max(1,stride(A,2)), ipiv, work, &lwork, info)
                 chkargsok(info[])
-                chknonsingular(info[])
                 if i == 1
                     lwork = BlasInt(real(work[1]))
                     work = Array($elty, lwork)
                 end
             end
-            A, ipiv
+            A, ipiv, info[]
         end
 
 #       SUBROUTINE ZSYTRI2( UPLO, N, A, LDA, IPIV, WORK, LWORK, INFO )
@@ -4608,13 +4603,12 @@ for (sysv, sytrf, sytri, sytrs, elty, relty) in
                        Ptr{BlasInt}, Ptr{$elty}, Ptr{BlasInt}, Ptr{BlasInt}),
                       &uplo, &n, A, &max(1,stride(A,2)), ipiv, work, &lwork, info)
                 chkargsok(info[])
-                chknonsingular(info[])
                 if i == 1
                     lwork = BlasInt(real(work[1]))
                     work = Array($elty, lwork)
                 end
             end
-            A, ipiv
+            A, ipiv, info[]
         end
 
         #       SUBROUTINE ZSYTRI_ROOK( UPLO, N, A, LDA, IPIV, WORK, INFO )
@@ -4689,13 +4683,16 @@ factorization.
 sysv!(uplo::Char, A::StridedMatrix, B::StridedVecOrMat)
 
 """
-    sytrf!(uplo, A) -> (A, ipiv)
+    sytrf!(uplo, A) -> (A, ipiv, info)
 
 Computes the Bunch-Kaufman factorization of a symmetric matrix `A`. If
 `uplo = U`, the upper half of `A` is stored. If `uplo = L`, the lower
 half is stored.
 
-Returns `A`, overwritten by the factorization, and a pivot vector `ipiv`.
+Returns `A`, overwritten by the factorization, a pivot vector `ipiv`, and
+the error code `info` which is a non-negative integer. If `info` is positive
+the matrix is singular and the diagonal part of the factorization is exactly
+zero at position `info`.
 """
 sytrf!(uplo::Char, A::StridedMatrix)
 
@@ -4731,13 +4728,16 @@ factorization.
 hesv!(uplo::Char, A::StridedMatrix, B::StridedVecOrMat)
 
 """
-    hetrf!(uplo, A) -> (A, ipiv)
+    hetrf!(uplo, A) -> (A, ipiv, info)
 
 Computes the Bunch-Kaufman factorization of a Hermitian matrix `A`. If
 `uplo = U`, the upper half of `A` is stored. If `uplo = L`, the lower
 half is stored.
 
-Returns `A`, overwritten by the factorization, and a pivot vector.
+Returns `A`, overwritten by the factorization, a pivot vector `ipiv`, and
+the error code `info` which is a non-negative integer. If `info` is positive
+the matrix is singular and the diagonal part of the factorization is exactly
+zero at position `info`.
 """
 hetrf!(uplo::Char, A::StridedMatrix)
 

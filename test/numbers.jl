@@ -1663,10 +1663,10 @@ end
 @test isnan(eps(-Inf))
 
 @test .1+.1+.1 != .3
-# TODO: uncomment when isapprox() becomes part of base.
-# @test isapprox(.1+.1+.1, .3)
-# @test !isapprox(.1+.1+.1-.3, 0)
-# @test isapprox(.1+.1+.1-.3, 0, eps(.3))
+@test isapprox(.1+.1+.1, .3)
+@test !isapprox(.1+.1+.1-.3, 0)
+@test isapprox(.1+.1+.1-.3, 0, atol=eps(.3))
+@test isapprox(1.1,1.1f0)
 
 @test div(1e50,1) == 1e50
 @test fld(1e50,1) == 1e50
@@ -2775,6 +2775,8 @@ let T = Rational
     @test_approx_eq x^true big(xf)^true
     @test_approx_eq x^false big(xf)^false
     @test_approx_eq x^1 big(xf)^1
+    @test_approx_eq xf^Rational(2, 1) xf*xf
+    @test Complex(1., 1.)^Rational(2,1) == Complex(1., 1.)*Complex(1.,1.) == Complex(0., 2.)
 end
 
 for Tf = (Float16, Float32, Float64), Ti = (Int16, Int32, Int64)

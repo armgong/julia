@@ -289,7 +289,7 @@ static Value *julia_to_native(Type *to, bool toboxed, jl_value_t *jlto, const jl
                 }
                 else {
                     nbytes = tbaa_decorate(tbaa_datatype, builder.CreateLoad(
-                                    builder.CreateGEP(builder.CreatePointerCast(emit_typeof(jvinfo), T_pint32),
+                                    builder.CreateGEP(builder.CreatePointerCast(emit_typeof_boxed(jvinfo,ctx), T_pint32),
                                         ConstantInt::get(T_size, offsetof(jl_datatype_t,size)/sizeof(int32_t))),
                                     false));
                     ai = builder.CreateAlloca(T_int8, nbytes);
@@ -303,7 +303,7 @@ static Value *julia_to_native(Type *to, bool toboxed, jl_value_t *jlto, const jl
         }
         // emit maybe copy
         *needStackRestore = true;
-        Value *jvt = emit_typeof(jvinfo);
+        Value *jvt = emit_typeof_boxed(jvinfo, ctx);
         BasicBlock *mutableBB = BasicBlock::Create(getGlobalContext(),"is-mutable",ctx->f);
         BasicBlock *immutableBB = BasicBlock::Create(getGlobalContext(),"is-immutable",ctx->f);
         BasicBlock *afterBB = BasicBlock::Create(getGlobalContext(),"after",ctx->f);
@@ -1090,7 +1090,7 @@ static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
         assert(!(jl_is_expr(argi) && ((jl_expr_t*)argi)->head == amp_sym));
         jl_cgval_t ary = emit_expr(argi, ctx);
         JL_GC_POP();
-        return mark_or_box_ccall_result(builder.CreateBitCast(emit_arrayptr(boxed(ary, ctx)), lrt),
+        return mark_or_box_ccall_result(builder.CreateBitCast(emit_arrayptr(ary, ctx), lrt),
                                         retboxed, args[2], rt, static_rt, ctx);
     }
     if (fptr == (void(*)(void))&jl_value_ptr ||

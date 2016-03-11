@@ -32,7 +32,7 @@ function HTML(xs...)
 end
 
 writemime(io::IO, ::MIME"text/html", h::HTML) = print(io, h.content)
-writemime(io::IO, ::MIME"text/html", h::HTML{Function}) = h.content(io)
+writemime{F <: Function}(io::IO, ::MIME"text/html", h::HTML{F}) = h.content(io)
 
 """
     @html_str -> Docs.HTML
@@ -69,7 +69,7 @@ type Text{T}
 end
 
 print(io::IO, t::Text) = print(io, t.content)
-print(io::IO, t::Text{Function}) = t.content(io)
+print{F <: Function}(io::IO, t::Text{F}) = t.content(io)
 writemime(io::IO, ::MIME"text/plain", t::Text) = print(io, t)
 
 """
@@ -335,17 +335,24 @@ function docsearch(haystack::Array, needle)
     false
 end
 function docsearch(haystack, needle)
-    warn_once("unable to search documentation of type $(typeof(haystack))")
+    Base.warn_once("unable to search documentation of type $(typeof(haystack))")
     false
 end
 
 ## Searching specific documentation objects
 function docsearch(haystack::MultiDoc, needle)
-    for v in values(haystack.fields)
-        docsearch(v, needle) && return true
-    end
     for v in values(haystack.docs)
         docsearch(v, needle) && return true
+    end
+    false
+end
+
+function docsearch(haystack::DocStr, needle)
+    docsearch(parsedoc(haystack), needle) && return true
+    if haskey(haystack.data, :fields)
+        for doc in values(haystack.data[:fields])
+            docsearch(doc, needle) && return true
+        end
     end
     false
 end
@@ -394,10 +401,7 @@ function apropos(io::IO, needle::Regex)
         # Module doc might be in README.md instead of the META dict
         docsearch(doc(mod), needle) && println(io, mod)
         for (k, v) in meta(mod)
-            (k === meta(mod) || k === mod) && continue
-            if docsearch(v, needle)
-                println(io, k)
-            end
+            docsearch(v, needle) && println(io, k)
         end
     end
 end

@@ -3845,3 +3845,52 @@ let ary = Vector{Any}(10)
         check_undef_and_fill(ary, 1:(2n + 4))
     end
 end
+
+# pr #15259
+immutable A15259
+    x
+    y
+end
+# check that allocation was ellided
+@eval f15259(x,y) = (a = $(Expr(:new, :A15259, :x, :y)); (a.x, a.y, getfield(a,1), getfield(a, 2)))
+@test isempty(filter(x -> isa(x,Expr) && x.head === :(=) &&
+                          isa(x.args[2], Expr) && x.args[2].head === :new,
+                     code_typed(f15259, (Any,Int))[1].args[3].args))
+@test f15259(1,2) == (1,2,1,2)
+# check that error cases are still correct
+@eval g15259(x,y) = (a = $(Expr(:new, :A15259, :x, :y)); a.z)
+@test_throws ErrorException g15259(1,1)
+@eval h15259(x,y) = (a = $(Expr(:new, :A15259, :x, :y)); getfield(a, 3))
+@test_throws BoundsError h15259(1,1)
+
+# issue #15283
+j15283 = 0
+let
+    k15283 = j15283+=1
+end
+@test j15283 == 1
+@test !isdefined(:k15283)
+
+# issue #15264
+module Test15264
+    mod1{T}(x::T) = x < 1 ? x : mod1(x-1)
+end
+@test Test15264.mod1 !== Base.mod1
+
+# check that medium-sized array is 64-byte aligned (#15139)
+@test Int(pointer(Vector{Float64}(1024))) % 64 == 0
+
+# PR #15413
+# Make sure arrayset can handle `Array{T}` (where `T` is a type and not a
+# `TypeVar`) without crashing
+let
+    function arrayset_unknown_dim{T}(::Type{T}, n)
+        Base.arrayset(reshape(Vector{T}(1), ones(Int, n)...), 2, 1)
+    end
+    arrayset_unknown_dim(Any, 1)
+    arrayset_unknown_dim(Any, 2)
+    arrayset_unknown_dim(Any, 3)
+    arrayset_unknown_dim(Int, 1)
+    arrayset_unknown_dim(Int, 2)
+    arrayset_unknown_dim(Int, 3)
+end

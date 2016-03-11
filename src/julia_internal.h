@@ -189,7 +189,7 @@ jl_value_t *jl_interpret_toplevel_expr(jl_value_t *e);
 jl_value_t *jl_static_eval(jl_value_t *ex, void *ctx_, jl_module_t *mod,
                            jl_lambda_info_t *li, int sparams, int allow_alloc);
 int jl_is_toplevel_only_expr(jl_value_t *e);
-void jl_type_infer(jl_lambda_info_t *li, jl_lambda_info_t *def);
+void jl_type_infer(jl_lambda_info_t *li, jl_value_t *toplevel);
 
 jl_lambda_info_t *jl_get_unspecialized(jl_lambda_info_t *method);
 jl_lambda_info_t *jl_method_lookup_by_type(jl_methtable_t *mt, jl_tupletype_t *types,
@@ -258,6 +258,8 @@ void jl_gc_signal_wait(void);
 void jl_dump_bitcode(char *fname, const char *sysimg_data, size_t sysimg_len);
 void jl_dump_objfile(char *fname, int jit_model, const char *sysimg_data, size_t sysimg_len);
 int32_t jl_get_llvm_gv(jl_value_t *p);
+// the first argument to jl_idtable_rehash is used to return a value
+// make sure it is rooted if it is used after the function returns
 void jl_idtable_rehash(jl_array_t **pa, size_t newsz);
 
 JL_DLLEXPORT jl_methtable_t *jl_new_method_table(jl_sym_t *name, jl_module_t *module);
@@ -444,6 +446,7 @@ JL_DLLEXPORT jl_value_t *jl_select_value(jl_value_t *isfalse, jl_value_t *a, jl_
 JL_DLLEXPORT jl_value_t *jl_arraylen(jl_value_t *a);
 int jl_array_store_unboxed(jl_value_t *el_type);
 int jl_array_isdefined(jl_value_t **args, int nargs);
+JL_DLLEXPORT jl_value_t *(jl_array_data_owner)(jl_array_t *a);
 
 JL_DEFINE_MUTEX_EXT(codegen)
 
@@ -498,6 +501,9 @@ STATIC_INLINE void jl_free_aligned(void *p)
     free(p);
 }
 #endif
+
+#define JL_SMALL_BYTE_ALIGNMENT 16
+#define JL_CACHE_BYTE_ALIGNMENT 64
 
 #ifdef __cplusplus
 }

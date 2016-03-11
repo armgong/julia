@@ -96,35 +96,35 @@ for elty in (Float32,Float64)
         end
     end
 end
-A_mul_B!(y::StridedVector, A::StridedVecOrMat, x::StridedVector) = generic_matvecmul!(y, 'N', A, x)
+A_mul_B!(y::AbstractVector, A::AbstractVecOrMat, x::AbstractVector) = generic_matvecmul!(y, 'N', A, x)
 
 function At_mul_B{T<:BlasFloat,S}(A::StridedMatrix{T}, x::StridedVector{S})
     TS = promote_op(MulFun(),arithtype(T),arithtype(S))
     At_mul_B!(similar(x,TS,size(A,2)), A, convert(AbstractVector{TS}, x))
 end
-function At_mul_B{T,S}(A::StridedMatrix{T}, x::StridedVector{S})
+function At_mul_B{T,S}(A::AbstractMatrix{T}, x::AbstractVector{S})
     TS = promote_op(MulFun(),arithtype(T),arithtype(S))
     At_mul_B!(similar(x,TS,size(A,2)), A, x)
 end
 At_mul_B!{T<:BlasFloat}(y::StridedVector{T}, A::StridedVecOrMat{T}, x::StridedVector{T}) = gemv!(y, 'T', A, x)
-At_mul_B!(y::StridedVector, A::StridedVecOrMat, x::StridedVector) = generic_matvecmul!(y, 'T', A, x)
+At_mul_B!(y::AbstractVector, A::AbstractVecOrMat, x::AbstractVector) = generic_matvecmul!(y, 'T', A, x)
 
 function Ac_mul_B{T<:BlasFloat,S}(A::StridedMatrix{T}, x::StridedVector{S})
     TS = promote_op(MulFun(),arithtype(T),arithtype(S))
     Ac_mul_B!(similar(x,TS,size(A,2)),A,convert(AbstractVector{TS},x))
 end
-function Ac_mul_B{T,S}(A::StridedMatrix{T}, x::StridedVector{S})
+function Ac_mul_B{T,S}(A::AbstractMatrix{T}, x::AbstractVector{S})
     TS = promote_op(MulFun(),arithtype(T),arithtype(S))
     Ac_mul_B!(similar(x,TS,size(A,2)), A, x)
 end
 
 Ac_mul_B!{T<:BlasReal}(y::StridedVector{T}, A::StridedVecOrMat{T}, x::StridedVector{T}) = At_mul_B!(y, A, x)
 Ac_mul_B!{T<:BlasComplex}(y::StridedVector{T}, A::StridedVecOrMat{T}, x::StridedVector{T}) = gemv!(y, 'C', A, x)
-Ac_mul_B!(y::StridedVector, A::StridedVecOrMat, x::StridedVector) = generic_matvecmul!(y, 'C', A, x)
+Ac_mul_B!(y::AbstractVector, A::AbstractVecOrMat, x::AbstractVector) = generic_matvecmul!(y, 'C', A, x)
 
 # Matrix-matrix multiplication
 
-function (*){T,S}(A::AbstractMatrix{T}, B::StridedMatrix{S})
+function (*){T,S}(A::AbstractMatrix{T}, B::AbstractMatrix{S})
     TS = promote_op(MulFun(), arithtype(T), arithtype(S))
     A_mul_B!(similar(B, TS, (size(A,1), size(B,2))), A, B)
 end
@@ -139,16 +139,16 @@ for elty in (Float32,Float64)
         end
     end
 end
-A_mul_B!(C::StridedMatrix, A::StridedVecOrMat, B::StridedVecOrMat) = generic_matmatmul!(C, 'N', 'N', A, B)
+A_mul_B!(C::AbstractMatrix, A::AbstractVecOrMat, B::AbstractVecOrMat) = generic_matmatmul!(C, 'N', 'N', A, B)
 
-function At_mul_B{T,S}(A::AbstractMatrix{T}, B::StridedMatrix{S})
+function At_mul_B{T,S}(A::AbstractMatrix{T}, B::AbstractMatrix{S})
     TS = promote_op(MulFun(),arithtype(T), arithtype(S))
     At_mul_B!(similar(B, TS, (size(A,2), size(B,2))), A, B)
 end
 At_mul_B!{T<:BlasFloat}(C::StridedMatrix{T}, A::StridedVecOrMat{T}, B::StridedVecOrMat{T}) = is(A,B) ? syrk_wrapper!(C, 'T', A) : gemm_wrapper!(C, 'T', 'N', A, B)
-At_mul_B!(C::StridedMatrix, A::StridedVecOrMat, B::StridedVecOrMat) = generic_matmatmul!(C, 'T', 'N', A, B)
+At_mul_B!(C::AbstractMatrix, A::AbstractVecOrMat, B::AbstractVecOrMat) = generic_matmatmul!(C, 'T', 'N', A, B)
 
-function A_mul_Bt{T,S}(A::AbstractMatrix{T}, B::StridedMatrix{S})
+function A_mul_Bt{T,S}(A::AbstractMatrix{T}, B::AbstractMatrix{S})
     TS = promote_op(MulFun(),arithtype(T), arithtype(S))
     A_mul_Bt!(similar(B, TS, (size(A,1), size(B,1))), A, B)
 end
@@ -163,42 +163,42 @@ for elty in (Float32,Float64)
         end
     end
 end
-A_mul_Bt!(C::StridedVecOrMat, A::StridedVecOrMat, B::StridedVecOrMat) = generic_matmatmul!(C, 'N', 'T', A, B)
+A_mul_Bt!(C::AbstractVecOrMat, A::AbstractVecOrMat, B::AbstractVecOrMat) = generic_matmatmul!(C, 'N', 'T', A, B)
 
-function At_mul_Bt{T,S}(A::AbstractMatrix{T}, B::StridedVecOrMat{S})
+function At_mul_Bt{T,S}(A::AbstractMatrix{T}, B::AbstractVecOrMat{S})
     TS = promote_op(MulFun(),arithtype(T), arithtype(S))
     At_mul_Bt!(similar(B, TS, (size(A,2), size(B,1))), A, B)
 end
 At_mul_Bt!{T<:BlasFloat}(C::StridedMatrix{T}, A::StridedVecOrMat{T}, B::StridedVecOrMat{T}) = gemm_wrapper!(C, 'T', 'T', A, B)
-At_mul_Bt!(C::StridedMatrix, A::StridedVecOrMat, B::StridedVecOrMat) = generic_matmatmul!(C, 'T', 'T', A, B)
+At_mul_Bt!(C::AbstractMatrix, A::AbstractVecOrMat, B::AbstractVecOrMat) = generic_matmatmul!(C, 'T', 'T', A, B)
 
 Ac_mul_B{T<:BlasReal}(A::StridedMatrix{T}, B::StridedMatrix{T}) = At_mul_B(A, B)
 Ac_mul_B!{T<:BlasReal}(C::StridedMatrix{T}, A::StridedVecOrMat{T}, B::StridedVecOrMat{T}) = At_mul_B!(C, A, B)
-function Ac_mul_B{T,S}(A::StridedMatrix{T}, B::StridedMatrix{S})
+function Ac_mul_B{T,S}(A::AbstractMatrix{T}, B::AbstractMatrix{S})
     TS = promote_op(MulFun(),arithtype(T), arithtype(S))
     Ac_mul_B!(similar(B, TS, (size(A,2), size(B,2))), A, B)
 end
 Ac_mul_B!{T<:BlasComplex}(C::StridedMatrix{T}, A::StridedVecOrMat{T}, B::StridedVecOrMat{T}) = is(A,B) ? herk_wrapper!(C,'C',A) : gemm_wrapper!(C,'C', 'N', A, B)
-Ac_mul_B!(C::StridedMatrix, A::StridedVecOrMat, B::StridedVecOrMat) = generic_matmatmul!(C, 'C', 'N', A, B)
+Ac_mul_B!(C::AbstractMatrix, A::AbstractVecOrMat, B::AbstractVecOrMat) = generic_matmatmul!(C, 'C', 'N', A, B)
 
 A_mul_Bc{T<:BlasFloat,S<:BlasReal}(A::StridedMatrix{T}, B::StridedMatrix{S}) = A_mul_Bt(A, B)
 A_mul_Bc!{T<:BlasFloat,S<:BlasReal}(C::StridedMatrix{T}, A::StridedVecOrMat{T}, B::StridedVecOrMat{S}) = A_mul_Bt!(C, A, B)
-function A_mul_Bc{T,S}(A::StridedMatrix{T}, B::StridedMatrix{S})
+function A_mul_Bc{T,S}(A::AbstractMatrix{T}, B::AbstractMatrix{S})
     TS = promote_op(MulFun(),arithtype(T),arithtype(S))
     A_mul_Bc!(similar(B,TS,(size(A,1),size(B,1))),A,B)
 end
 A_mul_Bc!{T<:BlasComplex}(C::StridedMatrix{T}, A::StridedVecOrMat{T}, B::StridedVecOrMat{T}) = is(A,B) ? herk_wrapper!(C, 'N', A) : gemm_wrapper!(C, 'N', 'C', A, B)
-A_mul_Bc!(C::StridedMatrix, A::StridedVecOrMat, B::StridedVecOrMat) = generic_matmatmul!(C, 'N', 'C', A, B)
+A_mul_Bc!(C::AbstractMatrix, A::AbstractVecOrMat, B::AbstractVecOrMat) = generic_matmatmul!(C, 'N', 'C', A, B)
 
-Ac_mul_Bc{T,S}(A::AbstractMatrix{T}, B::StridedMatrix{S}) = Ac_mul_Bc!(similar(B, promote_op(MulFun(),arithtype(T), arithtype(S)), (size(A,2), size(B,1))), A, B)
+Ac_mul_Bc{T,S}(A::AbstractMatrix{T}, B::AbstractMatrix{S}) = Ac_mul_Bc!(similar(B, promote_op(MulFun(),arithtype(T), arithtype(S)), (size(A,2), size(B,1))), A, B)
 Ac_mul_Bc!{T<:BlasFloat}(C::StridedMatrix{T}, A::StridedVecOrMat{T}, B::StridedVecOrMat{T}) = gemm_wrapper!(C, 'C', 'C', A, B)
-Ac_mul_Bc!(C::StridedMatrix, A::StridedVecOrMat, B::StridedVecOrMat) = generic_matmatmul!(C, 'C', 'C', A, B)
-Ac_mul_Bt{T,S}(A::AbstractMatrix{T}, B::StridedMatrix{S}) = Ac_mul_Bt(similar(B, promote_op(MulFun(),arithtype(A), arithtype(B)), (size(A,2), size(B,1))), A, B)
-Ac_mul_Bt!(C::StridedMatrix, A::StridedVecOrMat, B::StridedVecOrMat) = generic_matmatmul!(C, 'C', 'T', A, B)
+Ac_mul_Bc!(C::AbstractMatrix, A::AbstractVecOrMat, B::AbstractVecOrMat) = generic_matmatmul!(C, 'C', 'C', A, B)
+Ac_mul_Bt{T,S}(A::AbstractMatrix{T}, B::AbstractMatrix{S}) = Ac_mul_Bt(similar(B, promote_op(MulFun(),arithtype(A), arithtype(B)), (size(A,2), size(B,1))), A, B)
+Ac_mul_Bt!(C::AbstractMatrix, A::AbstractVecOrMat, B::AbstractVecOrMat) = generic_matmatmul!(C, 'C', 'T', A, B)
 
 # Supporting functions for matrix multiplication
 
-function copytri!(A::StridedMatrix, uplo::Char, conjugate::Bool=false)
+function copytri!(A::AbstractMatrix, uplo::Char, conjugate::Bool=false)
     n = checksquare(A)
     if uplo == 'U'
         for i = 1:(n-1), j = (i+1):n
@@ -254,7 +254,7 @@ function syrk_wrapper!{T<:BlasFloat}(C::StridedMatrix{T}, tA::Char, A::StridedVe
         return matmul3x3!(C,tA,tAt,A,A)
     end
 
-    if stride(A, 1) == 1 && stride(A, 2) >= size(A, 1)
+    if stride(A, 1) == stride(C, 1) == 1 && stride(A, 2) >= size(A, 1) && stride(C, 2) >= size(C, 1)
         return copytri!(BLAS.syrk!('U', tA, one(T), A, zero(T), C), 'U')
     end
     return generic_matmatmul!(C, tA, tAt, A, A)
@@ -285,7 +285,7 @@ function herk_wrapper!{T<:BlasReal}(C::Union{StridedMatrix{T}, StridedMatrix{Com
     # Result array does not need to be initialized as long as beta==0
     #    C = Array(T, mA, mA)
 
-    if stride(A, 1) == 1 && stride(A, 2) >= size(A, 1)
+    if stride(A, 1) == stride(C, 1) == 1 && stride(A, 2) >= size(A, 1) && stride(C, 2) >= size(C, 1)
         return copytri!(BLAS.herk!('U', tA, one(T), A, zero(T), C), 'U', true)
     end
     return generic_matmatmul!(C,tA, tAt, A, A)
@@ -328,7 +328,7 @@ function gemm_wrapper!{T<:BlasFloat}(C::StridedVecOrMat{T}, tA::Char, tB::Char,
         return matmul3x3!(C,tA,tB,A,B)
     end
 
-    if stride(A, 1) == stride(B, 1) == 1 && stride(A, 2) >= size(A, 1) && stride(B, 2) >= size(B, 1)
+    if stride(A, 1) == stride(B, 1) == stride(C, 1) == 1 && stride(A, 2) >= size(A, 1) && stride(B, 2) >= size(B, 1) && stride(C, 2) >= size(C, 1)
         return BLAS.gemm!(tA, tB, one(T), A, B, zero(T), C)
     end
     generic_matmatmul!(C, tA, tB, A, B)
@@ -437,11 +437,12 @@ const Cbuf = Array(UInt8, tilebufsize)
 function generic_matmatmul!{T,S,R}(C::AbstractMatrix{R}, tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
     mA, nA = lapack_size(tA, A)
     mB, nB = lapack_size(tB, B)
+    mC, nC = size(C)
 
-    if mA == nA == nB == 2
+    if mA == nA == mB == nB == mC == nC == 2
         return matmul2x2!(C, tA, tB, A, B)
     end
-    if mA == nA == nB == 3
+    if mA == nA == mB == nB == mC == nC == 3
         return matmul3x3!(C, tA, tB, A, B)
     end
     _generic_matmatmul!(C, tA, tB, A, B)

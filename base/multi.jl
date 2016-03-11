@@ -49,6 +49,7 @@ type JoinPGRPMsg <: AbstractMsg
     self_is_local::Bool
     notify_oid::Tuple
     topology::Symbol
+    worker_pool
 end
 type JoinCompleteMsg <: AbstractMsg
     notify_oid::Tuple
@@ -475,7 +476,17 @@ type Future <: AbstractRemoteRef
     Future(w, wh, id) = Future(w, wh, id, Nullable{Any}())
     Future(w, wh, id, v) = (r = new(w,wh,id,v); test_existing_ref(r))
 end
-finalize_future(f::Future) = (isnull(f.v) && send_del_client(f))
+
+function finalize_future(f::Future)
+    if f.where > 0
+        isnull(f.v) && send_del_client(f)
+        f.where = 0
+        f.whence = 0
+        f.id = 0
+        f.v = Nullable{Any}()
+    end
+    f
+end
 
 type RemoteChannel{T<:AbstractChannel} <: AbstractRemoteRef
     where::Int
@@ -487,7 +498,7 @@ end
 
 function test_existing_ref(r::Future)
     found = getkey(client_refs, r, false)
-    if !is(found,false)
+    if !is(found,false) && (client_refs[r] == true)
         if isnull(found.v) && !isnull(r.v)
             # we have recd the value from another source, probably a deserialized ref, send a del_client message
             send_del_client(r)
@@ -502,11 +513,22 @@ end
 
 function test_existing_ref(r::RemoteChannel)
     found = getkey(client_refs, r, false)
-    !is(found,false) && return found
+    !is(found,false) && (client_refs[r] == true) && return found
     client_refs[r] = true
-    finalizer(r, send_del_client)
+    finalizer(r, finalize_remote_channel)
     r
 end
+
+function finalize_remote_channel(r::RemoteChannel)
+    if r.where > 0
+        send_del_client(r)
+        r.where = 0
+        r.whence = 0
+        r.id = 0
+    end
+    r
+end
+
 
 let REF_ID::Int = 1
     global next_ref_id
@@ -577,6 +599,14 @@ function isready(rr::RemoteChannel, args...)
     end
 end
 
+function del_client(rr::AbstractRemoteRef)
+    del_client(remoteref_id(rr), myid())
+    if haskey(client_refs, rr)
+        client_refs[rr] = false
+    end
+    nothing
+end
+
 del_client(id, client) = del_client(PGRP, id, client)
 function del_client(pg, id, client)
 # As a workaround to issue https://github.com/JuliaLang/julia/issues/14445
@@ -612,7 +642,7 @@ end
 
 function send_del_client(rr)
     if rr.where == myid()
-        del_client(remoteref_id(rr), myid())
+        del_client(rr)
     elseif rr.where in procs() # process only if a valid worker
         w = worker_from_id(rr.where)
         push!(w.del_msgs, (remoteref_id(rr), myid()))
@@ -661,7 +691,7 @@ end
 
 function deserialize{T<:Future}(s::SerializationState, t::Type{T})
     f = deserialize_rr(s,t)
-    Future(f.where, f.whence, f.id) # ctor adds to ref table
+    Future(f.where, f.whence, f.id, f.v) # ctor adds to client_refs table
 end
 
 function deserialize{T<:RemoteChannel}(s::SerializationState, t::Type{T})
@@ -1045,6 +1075,8 @@ function handle_msg(msg::JoinPGRPMsg, r_stream, w_stream)
 
     for wt in wait_tasks; wait(wt); end
 
+    set_default_worker_pool(msg.worker_pool)
+
     send_msg_now(controller, JoinCompleteMsg(msg.notify_oid, Sys.CPU_CORES, getpid()))
 end
 
@@ -1070,6 +1102,8 @@ function handle_msg(msg::JoinCompleteMsg, r_stream, w_stream)
 
     ntfy_channel = lookup_ref(msg.notify_oid)
     put!(ntfy_channel, w.id)
+
+    put!(default_worker_pool(), w)
 end
 
 function disable_threaded_libs()
@@ -1384,7 +1418,7 @@ function create_worker(manager, wconfig)
     end
 
     all_locs = map(x -> isa(x, Worker) ? (get(x.config.connect_at, ()), x.id, isa(x.manager, LocalManager)) : ((), x.id, true), join_list)
-    send_msg_now(w, JoinPGRPMsg(w.id, all_locs, isa(w.manager, LocalManager), ntfy_oid, PGRP.topology))
+    send_msg_now(w, JoinPGRPMsg(w.id, all_locs, isa(w.manager, LocalManager), ntfy_oid, PGRP.topology, default_worker_pool()))
 
     @schedule manage(w.manager, w.id, w.config, :register)
     wait(rr_ntfy_join)
