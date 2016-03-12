@@ -26,11 +26,24 @@ increment{T<:Integer}(A::AbstractArray{T}) = increment!(copy(A))
 ## sparse matrix multiplication
 
 function (*){TvA,TiA,TvB,TiB}(A::SparseMatrixCSC{TvA,TiA}, B::SparseMatrixCSC{TvB,TiB})
+    (*)(sppromote(A, B)...)
+end
+for f in (:A_mul_Bt, :A_mul_Bc,
+          :At_mul_B, :Ac_mul_B,
+          :At_mul_Bt, :Ac_mul_Bc)
+    @eval begin
+        function ($f){TvA,TiA,TvB,TiB}(A::SparseMatrixCSC{TvA,TiA}, B::SparseMatrixCSC{TvB,TiB})
+            ($f)(sppromote(A, B)...)
+        end
+    end
+end
+
+function sppromote{TvA,TiA,TvB,TiB}(A::SparseMatrixCSC{TvA,TiA}, B::SparseMatrixCSC{TvB,TiB})
     Tv = promote_type(TvA, TvB)
     Ti = promote_type(TiA, TiB)
     A  = convert(SparseMatrixCSC{Tv,Ti}, A)
     B  = convert(SparseMatrixCSC{Tv,Ti}, B)
-    A * B
+    A, B
 end
 
 # In matrix-vector multiplication, the correct orientation of the vector is assumed.
@@ -102,13 +115,31 @@ function (*){TX,TvA,TiA}(X::StridedMatrix{TX}, A::SparseMatrixCSC{TvA,TiA})
     Y
 end
 
-(*)(X::Diagonal, A::SparseMatrixCSC) = scale!(copy(A), X.diag, A)
-(*)(A::SparseMatrixCSC, X::Diagonal) = scale!(copy(A), A, X.diag)
+function (*)(D::Diagonal, A::SparseMatrixCSC)
+    T = Base.promote_op(*, eltype(D), eltype(A))
+    scale!(LinAlg.copy_oftype(A, T), D.diag, A)
+end
+function (*)(A::SparseMatrixCSC, D::Diagonal)
+    T = Base.promote_op(*, eltype(D), eltype(A))
+    scale!(LinAlg.copy_oftype(A, T), A, D.diag)
+end
 
 # Sparse matrix multiplication as described in [Gustavson, 1978]:
 # http://dl.acm.org/citation.cfm?id=355796
 
 (*){Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, B::SparseMatrixCSC{Tv,Ti}) = spmatmul(A,B)
+for (f, opA, opB) in ((:A_mul_Bt, :identity, :transpose),
+                      (:A_mul_Bc, :identity, :ctranspose),
+                      (:At_mul_B, :transpose, :identity),
+                      (:Ac_mul_B, :ctranspose, :identity),
+                      (:At_mul_Bt, :transpose, :transpose),
+                      (:Ac_mul_Bc, :ctranspose, :ctranspose))
+    @eval begin
+        function ($f){Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, B::SparseMatrixCSC{Tv,Ti})
+            spmatmul(($opA)(A), ($opB)(B))
+        end
+    end
+end
 
 function spmatmul{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, B::SparseMatrixCSC{Tv,Ti};
                          sortindices::Symbol = :sortcols)
@@ -545,8 +576,8 @@ function normestinv{T}(A::SparseMatrixCSC{T}, t::Integer = min(2,maximum(size(A)
     end
 
     function _any_abs_eq(v,n::Int)
-        for i in eachindex(v)
-            if abs(v[i])==n
+        for vv in v
+            if abs(vv)==n
                 return true
             end
         end

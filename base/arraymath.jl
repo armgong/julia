@@ -11,27 +11,25 @@ end
 
 for f in (:-, :~, :conj, :sign)
     @eval begin
-        function ($f)(A::StridedArray)
+        function ($f)(A::AbstractArray)
             F = similar(A)
-            for i in eachindex(A)
-                F[i] = ($f)(A[i])
+            for (iF, iA) in zip(eachindex(F), eachindex(A))
+                F[iF] = ($f)(A[iA])
             end
             return F
         end
     end
 end
 
-(-)(A::StridedArray{Bool}) = reshape([ -A[i] for i in eachindex(A) ], size(A))
+(-)(A::AbstractArray{Bool}) = reshape([ -A[i] for i in eachindex(A) ], size(A))
 
-real(A::StridedArray) = reshape([ real(x) for x in A ], size(A))
-imag(A::StridedArray) = reshape([ imag(x) for x in A ], size(A))
-real{T<:Real}(x::StridedArray{T}) = x
-imag{T<:Real}(x::StridedArray{T}) = zero(x)
+real(A::AbstractArray) = reshape([ real(x) for x in A ], size(A))
+imag(A::AbstractArray) = reshape([ imag(x) for x in A ], size(A))
 
-function !(A::StridedArray{Bool})
+function !(A::AbstractArray{Bool})
     F = similar(A)
-    for i in eachindex(A)
-        F[i] = !A[i]
+    for (iF, iA) in zip(eachindex(F), eachindex(A))
+        F[iF] = !A[iA]
     end
     return F
 end
@@ -42,6 +40,7 @@ promote_array_type{Scalar, Arry}(F, ::Type{Scalar}, ::Type{Arry}) = promote_op(F
 promote_array_type{S<:Real, A<:AbstractFloat}(F, ::Type{S}, ::Type{A}) = A
 promote_array_type{S<:Integer, A<:Integer}(F, ::Type{S}, ::Type{A}) = A
 promote_array_type{S<:Integer}(F, ::Type{S}, ::Type{Bool}) = S
+promote_array_type(F, ::Type{Bool}, ::Type{Bool}) = promote_op(F, Bool, Bool)
 
 # Handle operations that return different types
 ./(x::Number, Y::AbstractArray) =
@@ -67,35 +66,29 @@ for (f,F) in ((:+,   AddFun()),
     @eval begin
         function ($f){S,T}(A::Range{S}, B::Range{T})
             F = similar(A, promote_op($F,S,T), promote_shape(size(A),size(B)))
-            i = 1
-            for (a,b) in zip(A,B)
-                @inbounds F[i] = ($f)(a, b)
-                i += 1
+            for (iF, iA, iB) in zip(eachindex(F), eachindex(A), eachindex(B))
+                @inbounds F[iF] = ($f)(A[iA], B[iB])
             end
             return F
         end
         function ($f){S,T}(A::AbstractArray{S}, B::Range{T})
             F = similar(A, promote_op($F,S,T), promote_shape(size(A),size(B)))
-            i = 1
-            for b in B
-                @inbounds F[i] = ($f)(A[i], b)
-                i += 1
+            for (iF, iA, iB) in zip(eachindex(F), eachindex(A), eachindex(B))
+                @inbounds F[iF] = ($f)(A[iA], B[iB])
             end
             return F
         end
         function ($f){S,T}(A::Range{S}, B::AbstractArray{T})
             F = similar(B, promote_op($F,S,T), promote_shape(size(A),size(B)))
-            i = 1
-            for a in A
-                @inbounds F[i] = ($f)(a, B[i])
-                i += 1
+            for (iF, iA, iB) in zip(eachindex(F), eachindex(A), eachindex(B))
+                @inbounds F[iF] = ($f)(A[iA], B[iB])
             end
             return F
         end
         function ($f){S,T}(A::AbstractArray{S}, B::AbstractArray{T})
             F = similar(A, promote_op($F,S,T), promote_shape(size(A),size(B)))
-            for i in eachindex(A,B)
-                @inbounds F[i] = ($f)(A[i], B[i])
+            for (iF, iA, iB) in zip(eachindex(F), eachindex(A), eachindex(B))
+                @inbounds F[iF] = ($f)(A[iA], B[iB])
             end
             return F
         end
@@ -117,15 +110,15 @@ for (f,F) in ((:.+,  DotAddFun()),
     @eval begin
         function ($f){T}(A::Number, B::AbstractArray{T})
             F = similar(B, promote_array_type($F,typeof(A),T))
-            for i in eachindex(B)
-                @inbounds F[i] = ($f)(A, B[i])
+            for (iF, iB) in zip(eachindex(F), eachindex(B))
+                @inbounds F[iF] = ($f)(A, B[iB])
             end
             return F
         end
         function ($f){T}(A::AbstractArray{T}, B::Number)
             F = similar(A, promote_array_type($F,typeof(B),T))
-            for i in eachindex(A)
-                @inbounds F[i] = ($f)(A[i], B)
+            for (iF, iA) in zip(eachindex(F), eachindex(A))
+                @inbounds F[iF] = ($f)(A[iA], B)
             end
             return F
         end
@@ -142,39 +135,9 @@ end
 (-)(A::AbstractArray,x::Number) = A .- x
 (-)(x::Number,A::AbstractArray) = x .- A
 
-# functions that should give an Int result for Bool arrays
-for f in (:.+, :.-)
-    @eval begin
-        function ($f)(A::Bool, B::StridedArray{Bool})
-            F = similar(B, Int, size(B))
-            for i in eachindex(B)
-                @inbounds F[i] = ($f)(A, B[i])
-            end
-            return F
-        end
-        function ($f)(A::StridedArray{Bool}, B::Bool)
-            F = similar(A, Int, size(A))
-            for i in eachindex(A)
-                @inbounds F[i] = ($f)(A[i], B)
-            end
-            return F
-        end
-    end
-end
-for f in (:+, :-)
-    @eval begin
-        function ($f)(A::StridedArray{Bool}, B::StridedArray{Bool})
-            F = similar(A, Int, promote_shape(size(A), size(B)))
-            for i in eachindex(A,B)
-                @inbounds F[i] = ($f)(A[i], B[i])
-            end
-            return F
-        end
-    end
-end
-
 ## data movement ##
 
+# TODO?: replace with slice?
 function slicedim(A::Array, d::Integer, i::Integer)
     if d < 1
         throw(ArgumentError("dimension must be ≥ 1"))
@@ -272,7 +235,7 @@ function flipdim{T}(A::Array{T}, d::Integer)
     return B
 end
 
-function rotl90(A::StridedMatrix)
+function rotl90(A::AbstractMatrix)
     m,n = size(A)
     B = similar(A,(n,m))
     for i=1:m, j=1:n
@@ -280,7 +243,7 @@ function rotl90(A::StridedMatrix)
     end
     return B
 end
-function rotr90(A::StridedMatrix)
+function rotr90(A::AbstractMatrix)
     m,n = size(A)
     B = similar(A,(n,m))
     for i=1:m, j=1:n
@@ -288,7 +251,7 @@ function rotr90(A::StridedMatrix)
     end
     return B
 end
-function rot180(A::StridedMatrix)
+function rot180(A::AbstractMatrix)
     m,n = size(A)
     B = similar(A)
     for i=1:m, j=1:n
@@ -308,7 +271,7 @@ rot180(A::AbstractMatrix, k::Integer) = mod(k, 2) == 1 ? rot180(A) : copy(A)
 
 ## Transpose ##
 const transposebaselength=64
-function transpose!(B::StridedMatrix,A::StridedMatrix)
+function transpose!(B::AbstractMatrix,A::AbstractMatrix)
     m, n = size(A)
     size(B,1) == n && size(B,2) == m || throw(DimensionMismatch("transpose"))
 
@@ -325,15 +288,15 @@ function transpose!(B::StridedMatrix,A::StridedMatrix)
     end
     return B
 end
-function transpose!(B::StridedVector, A::StridedMatrix)
+function transpose!(B::AbstractVector, A::AbstractMatrix)
     length(B) == length(A) && size(A,1) == 1 || throw(DimensionMismatch("transpose"))
     copy!(B, A)
 end
-function transpose!(B::StridedMatrix, A::StridedVector)
+function transpose!(B::AbstractMatrix, A::AbstractVector)
     length(B) == length(A) && size(B,1) == 1 || throw(DimensionMismatch("transpose"))
     copy!(B, A)
 end
-function transposeblock!(B::StridedMatrix,A::StridedMatrix,m::Int,n::Int,offseti::Int,offsetj::Int)
+function transposeblock!(B::AbstractMatrix,A::AbstractMatrix,m::Int,n::Int,offseti::Int,offsetj::Int)
     if m*n<=transposebaselength
         @inbounds begin
             for j = offsetj+(1:n)
@@ -353,7 +316,7 @@ function transposeblock!(B::StridedMatrix,A::StridedMatrix,m::Int,n::Int,offseti
     end
     return B
 end
-function ctranspose!(B::StridedMatrix,A::StridedMatrix)
+function ctranspose!(B::AbstractMatrix,A::AbstractMatrix)
     m, n = size(A)
     size(B,1) == n && size(B,2) == m || throw(DimensionMismatch("transpose"))
 
@@ -370,15 +333,15 @@ function ctranspose!(B::StridedMatrix,A::StridedMatrix)
     end
     return B
 end
-function ctranspose!(B::StridedVector, A::StridedMatrix)
+function ctranspose!(B::AbstractVector, A::AbstractMatrix)
     length(B) == length(A) && size(A,1) == 1 || throw(DimensionMismatch("transpose"))
     ccopy!(B, A)
 end
-function ctranspose!(B::StridedMatrix, A::StridedVector)
+function ctranspose!(B::AbstractMatrix, A::AbstractVector)
     length(B) == length(A) && size(B,1) == 1 || throw(DimensionMismatch("transpose"))
     ccopy!(B, A)
 end
-function ctransposeblock!(B::StridedMatrix,A::StridedMatrix,m::Int,n::Int,offseti::Int,offsetj::Int)
+function ctransposeblock!(B::AbstractMatrix,A::AbstractMatrix,m::Int,n::Int,offseti::Int,offsetj::Int)
     if m*n<=transposebaselength
         @inbounds begin
             for j = offsetj+(1:n)
@@ -404,18 +367,18 @@ function ccopy!(B, A)
     end
 end
 
-function transpose(A::StridedMatrix)
+function transpose(A::AbstractMatrix)
     B = similar(A, size(A, 2), size(A, 1))
     transpose!(B, A)
 end
-function ctranspose(A::StridedMatrix)
+function ctranspose(A::AbstractMatrix)
     B = similar(A, size(A, 2), size(A, 1))
     ctranspose!(B, A)
 end
-ctranspose{T<:Real}(A::StridedVecOrMat{T}) = transpose(A)
+ctranspose{T<:Real}(A::AbstractVecOrMat{T}) = transpose(A)
 
-transpose(x::StridedVector) = [ transpose(x[j]) for i=1, j=1:size(x,1) ]
-ctranspose{T}(x::StridedVector{T}) = T[ ctranspose(x[j]) for i=1, j=1:size(x,1) ]
+transpose(x::AbstractVector) = [ transpose(x[j]) for i=1, j=1:size(x,1) ]
+ctranspose{T}(x::AbstractVector{T}) = T[ ctranspose(x[j]) for i=1, j=1:size(x,1) ]
 
 _cumsum_type{T<:Number}(v::AbstractArray{T}) = typeof(+zero(T))
 _cumsum_type(v) = typeof(v[1]+v[1])
@@ -451,46 +414,4 @@ for (f, f!, fp, op) = ((:cumsum, :cumsum!, :cumsum_pairwise!, :+),
         c = $(op===:+ ? (:(similar(v,_cumsum_type(v)))) : (:(similar(v))))
         return ($f!)(c, v)
     end
-end
-
-for (f, op) = ((:cummin, :min), (:cummax, :max))
-    @eval function ($f)(v::AbstractVector)
-        n = length(v)
-        cur_val = v[1]
-        res = similar(v, n)
-        res[1] = cur_val
-        for i in 2:n
-            cur_val = ($op)(v[i], cur_val)
-            res[i] = cur_val
-        end
-        return res
-    end
-
-    @eval function ($f)(A::StridedArray, axis::Integer)
-        dimsA = size(A)
-        ndimsA = ndims(A)
-        axis_size = dimsA[axis]
-        axis_stride = 1
-        for i = 1:(axis-1)
-            axis_stride *= size(A,i)
-        end
-
-        if axis_size < 1
-            return A
-        end
-
-        B = similar(A)
-
-        for i = 1:length(A)
-            if div(i-1, axis_stride) % axis_size == 0
-               B[i] = A[i]
-            else
-               B[i] = ($op)(A[i], B[i-axis_stride])
-            end
-        end
-
-        return B
-    end
-
-    @eval ($f)(A::AbstractArray) = ($f)(A, 1)
 end

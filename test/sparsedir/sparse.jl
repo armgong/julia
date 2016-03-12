@@ -253,14 +253,30 @@ let
     @test pointer(A.nzval) != pointer(B.nzval)
     @test pointer(A.rowval) != pointer(B.rowval)
     @test pointer(A.colptr) != pointer(B.colptr)
-    # Test size(A) != size(B)
-    B = sprand(3, 3, 0.2)
+    # Test size(A) != size(B), but length(A) == length(B)
+    B = sprand(25, 1, 0.2)
     copy!(A, B)
-    @test A[1:9] == B[:]
+    @test A[:] == B[:]
+    # Test various size(A) / size(B) combinations
+    for mA in [5, 10, 20], nA in [5, 10, 20], mB in [5, 10, 20], nB in [5, 10, 20]
+        A = sprand(mA,nA,0.4)
+        Aorig = copy(A)
+        B = sprand(mB,nB,0.4)
+        if mA*nA >= mB*nB
+            copy!(A,B)
+            @assert(A[1:length(B)] == B[:])
+            @assert(A[length(B)+1:end] == Aorig[length(B)+1:end])
+        else
+            @test_throws BoundsError copy!(A,B)
+        end
+    end
     # Test eltype(A) != eltype(B), size(A) != size(B)
+    A = sprand(5, 5, 0.2)
+    Aorig = copy(A)
     B = sparse(rand(Float32, 3, 3))
     copy!(A, B)
     @test A[1:9] == B[:]
+    @test A[10:end] == Aorig[10:end]
     # Test eltype(A) != eltype(B), size(A) == size(B)
     A = sparse(rand(Float64, 3, 3))
     B = sparse(rand(Float32, 3, 3))
@@ -271,6 +287,11 @@ end
 # conj
 cA = sprandn(5,5,0.2) + im*sprandn(5,5,0.2)
 @test full(conj(cA)) == conj(full(cA))
+
+# transpose of SubArrays
+A = sub(sprandn(10, 10, 0.3), 1:4, 1:4)
+@test  transpose(full(A)) == full(transpose(A))
+@test ctranspose(full(A)) == full(ctranspose(A))
 
 # exp
 A = sprandn(5,5,0.2)
@@ -1186,9 +1207,6 @@ Ari = ceil(Int64,100*Ar)
 @test_throws ArgumentError Base.SparseArrays.normestinv(Ac,0)
 @test_throws ArgumentError Base.SparseArrays.normestinv(Ac,21)
 @test_throws DimensionMismatch Base.SparseArrays.normestinv(sprand(3,5,.9))
-
-@test_throws ErrorException transpose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
-@test_throws ErrorException ctranspose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
 
 # csc_permute
 A = sprand(10,10,0.2)

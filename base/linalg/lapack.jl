@@ -87,9 +87,9 @@ subsetrows(X::AbstractVector, Y::AbstractArray, k) = Y[1:k]
 subsetrows(X::AbstractMatrix, Y::AbstractArray, k) = Y[1:k, :]
 
 function chkfinite(A::StridedMatrix)
-    for i = eachindex(A)
-        if !isfinite(A[i])
-            throw(ArgumentError("matrix contains NaNs"))
+    for a in A
+        if !isfinite(a)
+            throw(ArgumentError("matrix contains Infs or NaNs"))
         end
     end
     return true
@@ -4683,13 +4683,16 @@ factorization.
 sysv!(uplo::Char, A::StridedMatrix, B::StridedVecOrMat)
 
 """
-    sytrf!(uplo, A) -> (A, ipiv)
+    sytrf!(uplo, A) -> (A, ipiv, info)
 
 Computes the Bunch-Kaufman factorization of a symmetric matrix `A`. If
 `uplo = U`, the upper half of `A` is stored. If `uplo = L`, the lower
 half is stored.
 
-Returns `A`, overwritten by the factorization, and a pivot vector `ipiv`.
+Returns `A`, overwritten by the factorization, a pivot vector `ipiv`, and
+the error code `info` which is a non-negative integer. If `info` is positive
+the matrix is singular and the diagonal part of the factorization is exactly
+zero at position `info`.
 """
 sytrf!(uplo::Char, A::StridedMatrix)
 
@@ -4725,13 +4728,16 @@ factorization.
 hesv!(uplo::Char, A::StridedMatrix, B::StridedVecOrMat)
 
 """
-    hetrf!(uplo, A) -> (A, ipiv)
+    hetrf!(uplo, A) -> (A, ipiv, info)
 
 Computes the Bunch-Kaufman factorization of a Hermitian matrix `A`. If
 `uplo = U`, the upper half of `A` is stored. If `uplo = L`, the lower
 half is stored.
 
-Returns `A`, overwritten by the factorization, and a pivot vector.
+Returns `A`, overwritten by the factorization, a pivot vector `ipiv`, and
+the error code `info` which is a non-negative integer. If `info` is positive
+the matrix is singular and the diagonal part of the factorization is exactly
+zero at position `info`.
 """
 hetrf!(uplo::Char, A::StridedMatrix)
 

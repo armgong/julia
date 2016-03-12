@@ -22,14 +22,8 @@ function generic_scale!(C::AbstractArray, X::AbstractArray, s::Number)
     if length(C) != length(X)
         throw(DimensionMismatch("first array has length $(length(C)) which does not match the length of the second, $(length(X))."))
     end
-    if size(C) == size(X)
-        for I in eachindex(C, X)
-            @inbounds C[I] = X[I]*s
-        end
-    else
-        for (IC, IX) in zip(eachindex(C), eachindex(X))
-            @inbounds C[IC] = X[IX]*s
-        end
+    for (IC, IX) in zip(eachindex(C), eachindex(X))
+        @inbounds C[IC] = X[IX]*s
     end
     C
 end
@@ -39,14 +33,8 @@ function generic_scale!(C::AbstractArray, s::Number, X::AbstractArray)
         throw(DimensionMismatch("first array has length $(length(C)) which does not
 match the length of the second, $(length(X))."))
     end
-    if size(C) == size(X)
-        for I in eachindex(C, X)
-            @inbounds C[I] = s*X[I]
-        end
-    else
-        for (IC, IX) in zip(eachindex(C), eachindex(X))
-            @inbounds C[IC] = s*X[IX]
-        end
+    for (IC, IX) in zip(eachindex(C), eachindex(X))
+        @inbounds C[IC] = s*X[IX]
     end
     C
 end
@@ -273,14 +261,8 @@ function vecdot(x::AbstractArray, y::AbstractArray)
         return dot(zero(eltype(x)), zero(eltype(y)))
     end
     s = zero(dot(x[1], y[1]))
-    if size(x) == size(y)
-        for I in eachindex(x, y)
-            @inbounds s += dot(x[I], y[I])
-        end
-    else
-        for (Ix, Iy) in zip(eachindex(x), eachindex(y))
-            @inbounds  s += dot(x[Ix], y[Iy])
-        end
+    for (Ix, Iy) in zip(eachindex(x), eachindex(y))
+        @inbounds  s += dot(x[Ix], y[Iy])
     end
     s
 end
@@ -482,20 +464,19 @@ function axpy!(α, x::AbstractArray, y::AbstractArray)
 end
 
 function axpy!{Ti<:Integer,Tj<:Integer}(α, x::AbstractArray, rx::AbstractArray{Ti}, y::AbstractArray, ry::AbstractArray{Tj})
-    if length(x) != length(y)
-        throw(DimensionMismatch("x has length $(length(x)), but y has length $(length(y))"))
+    if length(rx) != length(ry)
+        throw(DimensionMismatch("rx has length $(length(rx)), but ry has length $(length(ry))"))
     elseif minimum(rx) < 1 || maximum(rx) > length(x)
         throw(BoundsError(x, rx))
     elseif minimum(ry) < 1 || maximum(ry) > length(y)
         throw(BoundsError(y, ry))
-    elseif length(rx) != length(ry)
-        throw(ArgumentError("rx has length $(length(rx)), but ry has length $(length(ry))"))
     end
     for i = 1:length(rx)
         @inbounds y[ry[i]] += x[rx[i]]*α
     end
     y
 end
+
 
 # Elementary reflection similar to LAPACK. The reflector is not Hermitian but ensures that tridiagonalization of Hermitian matrices become real. See lawn72
 @inline function reflector!(x::AbstractVector)

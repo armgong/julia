@@ -446,6 +446,7 @@ JL_DLLEXPORT jl_value_t *jl_select_value(jl_value_t *isfalse, jl_value_t *a, jl_
 JL_DLLEXPORT jl_value_t *jl_arraylen(jl_value_t *a);
 int jl_array_store_unboxed(jl_value_t *el_type);
 int jl_array_isdefined(jl_value_t **args, int nargs);
+JL_DLLEXPORT jl_value_t *(jl_array_data_owner)(jl_array_t *a);
 
 JL_DEFINE_MUTEX_EXT(codegen)
 
@@ -500,6 +501,9 @@ STATIC_INLINE void jl_free_aligned(void *p)
     free(p);
 }
 #endif
+
+#define JL_SMALL_BYTE_ALIGNMENT 16
+#define JL_CACHE_BYTE_ALIGNMENT 64
 
 #ifdef __cplusplus
 }
