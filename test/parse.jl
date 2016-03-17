@@ -170,6 +170,7 @@ macro f(args...) end; @f ""
 @test parse("(x,a;y=1)") == Expr(:tuple, Expr(:parameters, Expr(:kw, :y, 1)), :x, :a)
 @test parse("(x,a;y=1,z=2)") == Expr(:tuple, Expr(:parameters, Expr(:kw,:y,1), Expr(:kw,:z,2)), :x, :a)
 @test parse("(a=1, b=2)") == Expr(:tuple, Expr(:(=), :a, 1), Expr(:(=), :b, 2))
+@test_throws ParseError parse("(1 2)") # issue #15248
 
 # integer parsing
 @test is(parse(Int32,"0",36),Int32(0))
@@ -357,3 +358,10 @@ call2(f,x,y) = f(x,y)
 @test (call0() do; 42 end) == 42
 @test (call1(42) do x; x+1 end) == 43
 @test (call2(42,1) do x,y; x+y+1 end) == 44
+
+# definitions using comparison syntax
+let a⊂b = reduce(&, x ∈ b for x in a) && length(b)>length(a)
+    @test [1,2] ⊂ [1,2,3,4]
+    @test !([1,2] ⊂ [1,3,4])
+    @test !([1,2] ⊂ [1,2])
+end

@@ -48,7 +48,7 @@ const NTAGS = length(TAGS)
 function sertag(v::ANY)
     ptr = pointer_from_objref(v)
     ptags = convert(Ptr{Ptr{Void}}, pointer(TAGS))
-    @inbounds for i = 1:NTAGS
+    @inbounds for i in 1:NTAGS
         ptr == unsafe_load(ptags,i) && return (i+1)%Int32
     end
     return Int32(-1)
@@ -116,16 +116,16 @@ function serialize(s::SerializationState, t::Tuple)
         writetag(s.io, LONGTUPLE_TAG)
         write(s.io, Int32(l))
     end
-    for i = 1:l
-        serialize(s, t[i])
+    for e in t
+        serialize(s, e)
     end
 end
 
 function serialize(s::SerializationState, v::SimpleVector)
     writetag(s.io, SIMPLEVECTOR_TAG)
     write(s.io, Int32(length(v)))
-    for i = 1:length(v)
-        serialize(s, v[i])
+    for e in v
+        serialize(s, e)
     end
 end
 
@@ -195,7 +195,7 @@ function serialize(s::SerializationState, a::Array)
     if isbits(elty)
         serialize_array_data(s.io, a)
     else
-        for i = 1:length(a)
+        for i in eachindex(a)
             if isdefined(a, i)
                 serialize(s, a[i])
             else
@@ -260,7 +260,7 @@ function serialize(s::SerializationState, ex::Expr)
     end
     serialize(s, ex.head)
     serialize(s, ex.typ)
-    for a = ex.args
+    for a in ex.args
         serialize(s, a)
     end
 end
@@ -615,7 +615,7 @@ function deserialize_array(s::SerializationState)
     end
     A = Array(elty, dims)
     deserialize_cycle(s, A)
-    for i = 1:length(A)
+    for i = eachindex(A)
         tag = Int32(read(s.io, UInt8)::UInt8)
         if tag != UNDEFREF_TAG
             A[i] = handle_deserialize(s, tag)
