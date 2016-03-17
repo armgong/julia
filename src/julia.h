@@ -200,9 +200,10 @@ typedef struct _jl_lambda_info_t {
     // hidden fields:
     uint8_t jlcall_api : 1;     // the c-abi for fptr; 0 = jl_fptr_t, 1 = jl_fptr_sparam_t
     uint8_t inCompile : 1;
-    uint8_t needs_sparam_vals_ducttape : 1; // if there are intrinsic calls,
-                                            // probably require the sparams to compile successfully
-                                            // (and so unspecialized will be created for each linfo instead of linfo->def)
+    // if there are intrinsic calls, sparams are probably required to compile successfully,
+    // and so unspecialized will be created for each linfo instead of once in linfo->def.
+    // 0 = no, 1 = yes, 2 = not yet known
+    uint8_t needs_sparam_vals_ducttape : 2;
     jl_fptr_t fptr;             // jlcall entry point
 
     // On the old JIT, handles to all Functions generated for this linfo
@@ -926,8 +927,6 @@ JL_DLLEXPORT jl_value_t *jl_new_struct(jl_datatype_t *type, ...);
 JL_DLLEXPORT jl_value_t *jl_new_structv(jl_datatype_t *type, jl_value_t **args,
                                         uint32_t na);
 JL_DLLEXPORT jl_value_t *jl_new_struct_uninit(jl_datatype_t *type);
-JL_DLLEXPORT jl_function_t *jl_new_closure(jl_fptr_t proc, jl_value_t *env,
-                                           jl_lambda_info_t *li);
 JL_DLLEXPORT jl_lambda_info_t *jl_new_lambda_info(jl_value_t *ast,
                                                   jl_svec_t *tvars,
                                                   jl_svec_t *sparams,

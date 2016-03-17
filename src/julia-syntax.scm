@@ -251,50 +251,71 @@
 ;; construct the (method ...) expression for one primitive method definition,
 ;; assuming optional and keyword args are already handled
 (define (method-def-expr- name sparams argl body isstaged)
-  (receive
-   (names bounds) (sparam-name-bounds sparams '() '())
+  (if
+   (any kwarg? argl)
+   ;; has optional positional args
    (begin
-     (let ((anames (llist-vars argl)))
-       (if (has-dups (filter (lambda (x) (not (eq? x UNUSED))) anames))
-           (error "function argument names not unique"))
-       (if (has-dups names)
-           (error "function static parameter names not unique"))
-       (if (any (lambda (x) (and (not (eq? x UNUSED)) (memq x names))) anames)
-           (error "function argument and static parameter names must be distinct")))
-     (if (and name (not (sym-ref? name)))
-         (error (string "invalid method name \"" (deparse name) "\"")))
-     (let* ((iscall (is-call-name? name))
-            (name  (if iscall #f name))
-            (types (llist-types argl))
-            (body  (method-lambda-expr argl body))
-            ;; HACK: the typevars need to be bound to jlgensyms, since this code
-            ;; might be moved to a different scope by closure-convert.
-            (temps (map (lambda (x) (make-jlgensym)) names))
-            (renames (map cons names temps))
-            (mdef
-             (if (null? sparams)
-                 `(method ,name (call (top svec) (curly Tuple ,@(dots->vararg types)) (call (top svec)))
-                          ,body ,isstaged)
-                 `(method ,name
-                          (block
-                           ,@(map make-assignment temps (symbols->typevars names bounds #t))
-                           (call (top svec) (curly Tuple
-                                                   ,@(dots->vararg
-                                                      (map (lambda (ty)
-                                                             (replace-vars ty renames))
-                                                           types)))
-                                 (call (top svec) ,@temps)))
-                          ,body ,isstaged))))
-       (if (and iscall (not (null? argl)))
-           (let* ((n (arg-name (car argl)))
-                  (n (if (hidden-name? n) "" n))
-                  (t (deparse (arg-type (car argl)))))
-             (syntax-deprecation #f
-                                 (string "call(" n "::" t ", ...)")
-                                 (string "(" n "::" t ")(...)"))))
-       (if (symbol? name)
-           `(block (method ,name) ,mdef ,name)  ;; return the function
-           mdef)))))
+     (let check ((l     argl)
+                 (seen? #f))
+       (if (pair? l)
+           (if (kwarg? (car l))
+               (check (cdr l) #t)
+               (if (and seen? (not (vararg? (car l))))
+                   (error "optional positional arguments must occur at end")
+                   (check (cdr l) #f)))))
+     (receive
+      (kws argl) (separate kwarg? argl)
+      (let ((opt  (map cadr  kws))
+            (dfl  (map caddr kws)))
+        (receive
+         (vararg req) (separate vararg? argl)
+         (optional-positional-defs name sparams req opt dfl body isstaged
+                                   (append req opt vararg))))))
+   ;; no optional positional args
+   (receive
+    (names bounds) (sparam-name-bounds sparams '() '())
+    (begin
+      (let ((anames (llist-vars argl)))
+        (if (has-dups (filter (lambda (x) (not (eq? x UNUSED))) anames))
+            (error "function argument names not unique"))
+        (if (has-dups names)
+            (error "function static parameter names not unique"))
+        (if (any (lambda (x) (and (not (eq? x UNUSED)) (memq x names))) anames)
+            (error "function argument and static parameter names must be distinct")))
+      (if (and name (not (sym-ref? name)))
+          (error (string "invalid method name \"" (deparse name) "\"")))
+      (let* ((iscall (is-call-name? name))
+             (name  (if iscall #f name))
+             (types (llist-types argl))
+             (body  (method-lambda-expr argl body))
+             ;; HACK: the typevars need to be bound to jlgensyms, since this code
+             ;; might be moved to a different scope by closure-convert.
+             (temps (map (lambda (x) (make-jlgensym)) names))
+             (renames (map cons names temps))
+             (mdef
+              (if (null? sparams)
+                  `(method ,name (call (top svec) (curly Tuple ,@(dots->vararg types)) (call (top svec)))
+                           ,body ,isstaged)
+                  `(method ,name
+                           (block
+                            ,@(map make-assignment temps (symbols->typevars names bounds #t))
+                            (call (top svec) (curly Tuple
+                                                    ,@(dots->vararg
+                                                       (map (lambda (ty)
+                                                              (replace-vars ty renames))
+                                                            types)))
+                                  (call (top svec) ,@temps)))
+                           ,body ,isstaged))))
+        (if (and iscall (not (null? argl)))
+            (let* ((n (arg-name (car argl)))
+                   (n (if (hidden-name? n) "" n))
+                   (t (deparse (arg-type (car argl)))))
+              (syntax-deprecation #f
+                                  (string "call(" n "::" t ", ...)")
+                                  (string "(" n "::" t ")(...)"))))
+        (if (symbol? name)
+            `(block (method ,name) ,mdef ,name)  ;; return the function
+            mdef))))))
 
 ;; keyword default values that can be assigned right away. however, this creates
 ;; a quasi-bug (part of issue #9535) where it can be hard to predict when a
@@ -316,6 +337,10 @@
                        (list l) '())))
          ;; positional args without vararg
          (pargl (if (null? vararg) pargl (butlast pargl)))
+         ;; positional args with everything required; for use by the core function
+         (not-optional (map (lambda (a)
+                              (if (kwarg? a) (cadr a) a))
+                            pargl))
          ;; keywords glob
          (restkw (let ((l (last kargl)))
                    (if (vararg? l)
@@ -383,14 +408,14 @@
           `((|::| ,mangled (call (top typeof) ,mangled)) ,@vars ,@restkw
             ;; strip type off function self argument if not needed for a static param.
             ;; then it is ok for cl-convert to move this definition above the original def.
-            ,(if (decl? (car pargl))
+            ,(if (decl? (car not-optional))
                  (if (any (lambda (sp)
-                            (expr-contains-eq (sparam-name sp) (caddr (car pargl))))
+                            (expr-contains-eq (sparam-name sp) (caddr (car not-optional))))
                           positional-sparams)
-                     (car pargl)
-                     (decl-var (car pargl)))
-                 (car pargl))
-            ,@(cdr pargl) ,@vararg)
+                     (car not-optional)
+                     (decl-var (car not-optional)))
+                 (car not-optional))
+            ,@(cdr not-optional) ,@vararg)
           `(block
             ,@(if (null? lno) '()
                   ;; TODO jb/functions get a better `name` for functions specified by type
@@ -404,7 +429,10 @@
            (lambda (s) (let ((name (if (symbol? s) s (cadr s))))
                          (expr-contains-eq name (cons 'list argl))))
            positional-sparams)
-          `((|::| ,UNUSED (call (|.| Core 'kwftype) ,ftype)) (:: ,kw (top Array)) ,@pargl ,@vararg)
+          `((|::|
+             ;; if there are optional positional args, we need to be able to reference the function name
+             ,(if (any kwarg? pargl) (gensy) UNUSED)
+             (call (|.| Core 'kwftype) ,ftype)) (:: ,kw (top Array)) ,@pargl ,@vararg)
           `(block
             (line 0 || ||)
             ;; initialize keyword args to their defaults, or set a flag telling
@@ -476,7 +504,7 @@
         ,(if (or (not (symbol? name)) (is-call-name? name))
              '(null) name)))))
 
-(define (optional-positional-defs name sparams req opt dfl body isstaged overall-argl . kw)
+(define (optional-positional-defs name sparams req opt dfl body isstaged overall-argl)
   ;; prologue includes line number node and eventual meta nodes
   (let ((prologue (if (pair? body)
                       (take-while (lambda (e)
@@ -509,14 +537,14 @@
                            ;; then add only one next argument
                            `(block
                              ,@prologue
-                             (call ,(arg-name (car req)) ,@kw ,@(map arg-name (cdr passed)) ,(car vals)))
+                             (call ,(arg-name (car req)) ,@(map arg-name (cdr passed)) ,(car vals)))
                            ;; otherwise add all
                            `(block
                              ,@prologue
-                             (call ,(arg-name (car req)) ,@kw ,@(map arg-name (cdr passed)) ,@vals)))))
-                 (method-def-expr name sp (append kw passed) body #f)))
+                             (call ,(arg-name (car req)) ,@(map arg-name (cdr passed)) ,@vals)))))
+                 (method-def-expr- name sp passed body #f)))
              (iota (length opt)))
-      ,(method-def-expr name sparams overall-argl body isstaged))))
+      ,(method-def-expr- name sparams overall-argl body isstaged))))
 
 ;; strip empty (parameters ...), normalizing `f(x;)` to `f(x)`.
 (define (remove-empty-parameters argl)
@@ -538,46 +566,20 @@
                                   (deparse (car invalid))
                                   "\" (expected assignment)"))))))))
 
+;; method-def-expr checks for keyword arguments, and if there are any, calls
+;; keywords-method-def-expr to expand the definition into several method
+;; definitions that do not use keyword arguments.
+;; definitions without keyword arguments are passed to method-def-expr-,
+;; which handles optional positional arguments by adding the needed small
+;; boilerplate definitions.
 (define (method-def-expr name sparams argl body isstaged)
   (let ((argl (remove-empty-parameters argl)))
-    (if (any kwarg? argl)
-        ;; has optional positional args
-        (begin
-          (let check ((l     argl)
-                      (seen? #f))
-            (if (pair? l)
-                (if (kwarg? (car l))
-                    (check (cdr l) #t)
-                    (if (and seen? (not (vararg? (car l))))
-                        (error "optional positional arguments must occur at end")
-                        (check (cdr l) #f)))))
-          (receive
-           (kws argl) (separate kwarg? argl)
-           (let ((opt  (map cadr  kws))
-                 (dfl  (map caddr kws)))
-             (if (has-parameters? argl)
-                 ;; both!
-                 ;; separate into keyword version with all positional args,
-                 ;; and a series of optional-positional-defs that delegate keywords
-                 (let ((kw   (car argl))
-                       (argl (cdr argl)))
-                   (check-kw-args (cdr kw))
-                   (receive
-                    (vararg req) (separate vararg? argl)
-                    (optional-positional-defs name sparams req opt dfl body isstaged
-                                              (cons kw (append req opt vararg))
-                                              `(parameters (... ,(gensy))))))
-                 ;; optional positional only
-                 (receive
-                  (vararg req) (separate vararg? argl)
-                  (optional-positional-defs name sparams req opt dfl body isstaged
-                                            (append req opt vararg)))))))
-        (if (has-parameters? argl)
-            ;; keywords only
-            (begin (check-kw-args (cdar argl))
-                   (keywords-method-def-expr name sparams argl body isstaged))
-            ;; neither
-            (method-def-expr- name sparams argl body isstaged)))))
+    (if (has-parameters? argl)
+        ;; has keywords
+        (begin (check-kw-args (cdar argl))
+               (keywords-method-def-expr name sparams argl body isstaged))
+        ;; no keywords
+        (method-def-expr- name sparams argl body isstaged))))
 
 (define (struct-def-expr name params super fields mut)
   (receive
@@ -960,7 +962,9 @@
                                (= ,vname ,(caddar binds))
                                ,blk))))))
                ((and (pair? (cadar binds))
-                     (eq? (caadar binds) 'call))
+                     (or (eq? (caadar binds) 'call)
+                         (and (eq? (caadar binds) 'comparison)
+                              (length= (cadar binds) 4))))
                 ;; f()=c
                 (let* ((asgn (butlast (expand-forms (car binds))))
                        (name (cadr (cadar binds)))
@@ -1526,13 +1530,20 @@
 
    '=
    (lambda (e)
+     (define lhs (cadr e))
      (cond
-      ((and (pair? (cadr e))
-            (eq? (car (cadr e)) 'call))
+      ((and (pair? lhs)
+            (eq? (car lhs) 'call))
        (expand-forms (cons 'function (cdr e))))
+      ((and (pair? lhs)
+            (eq? (car lhs) 'comparison)
+            (length= lhs 4))
+       ;; allow defining functions that use comparison syntax
+       (expand-forms (list* 'function
+                            `(call ,(caddr lhs) ,(cadr lhs) ,(cadddr lhs)) (cddr e))))
       ((assignment? (caddr e))
        ;; chain of assignments - convert a=b=c to `b=c; a=c`
-       (let loop ((lhss (list (cadr e)))
+       (let loop ((lhss (list lhs))
                   (rhs  (caddr e)))
          (if (assignment? rhs)
              (loop (cons (cadr rhs) lhss) (caddr rhs))
@@ -1542,12 +1553,12 @@
                         ,@(map (lambda (l) `(= ,l ,rr))
                                lhss)
                         ,rr))))))
-      ((symbol-like? (cadr e))
+      ((symbol-like? lhs)
        `(= ,(cadr e) ,(expand-forms (caddr e))))
-      ((atom? (cadr e))
-       (error (string "invalid assignment location \"" (deparse (cadr e)) "\"")))
+      ((atom? lhs)
+       (error (string "invalid assignment location \"" (deparse lhs) "\"")))
       (else
-       (case (car (cadr e))
+       (case (car lhs)
          ((|.|)
           ;; a.b =
           (let ((a   (cadr (cadr e)))
@@ -1568,7 +1579,7 @@
                 ,rr))))
          ((tuple)
           ;; multiple assignment
-          (let ((lhss (cdr (cadr e)))
+          (let ((lhss (cdr lhs))
                 (x    (caddr e)))
             (if (and (pair? x) (pair? lhss) (eq? (car x) 'tuple)
                      (length= lhss (length (cdr x))))
@@ -1598,8 +1609,8 @@
           (error "unexpected \";\" in left side of indexed assignment"))
          ((ref)
           ;; (= (ref a . idxs) rhs)
-          (let ((a    (cadr (cadr e)))
-                (idxs (cddr (cadr e)))
+          (let ((a    (cadr lhs))
+                (idxs (cddr lhs))
                 (rhs  (caddr e)))
             (let* ((reuse (and (pair? a)
                                (contains (lambda (x)
@@ -1623,8 +1634,8 @@
                  ,r)))))
          ((|::|)
           ;; (= (|::| x T) rhs)
-          (let ((x (cadr (cadr e)))
-                (T (caddr (cadr e)))
+          (let ((x (cadr lhs))
+                (T (caddr lhs))
                 (rhs (caddr e)))
             (let ((e (remove-argument-side-effects x)))
               (expand-forms
@@ -1635,7 +1646,7 @@
           ;; (= (vcat . args) rhs)
           (error "use \"(a, b) = ...\" to assign multiple values"))
          (else
-          (error (string "invalid assignment location \"" (deparse (cadr e)) "\"")))))))
+          (error (string "invalid assignment location \"" (deparse lhs) "\"")))))))
 
    'abstract
    (lambda (e)
@@ -2261,11 +2272,6 @@
                 (new-env (append vars glob env))
                 (new-iglo (append iglo implicitglobals))
                 (body (resolve-scopes- blok new-env new-iglo lam new-ren #f))
-                (lineno (if (and (length> body 1)
-                                 (pair? (cadr body))
-                                 (eq? 'line (car (cadr body))))
-                            (list (cadr body))
-                            '()))
                 (real-new-vars (append (diff vars need-rename) renamed)))
            (for-each (lambda (v)
                        (if (memq v vars)
@@ -2274,15 +2280,11 @@
            (if lam
                (set-car! (cddr lam)
                          (append real-new-vars (caddr lam))))
-           `(block
-             ,@lineno
-             ,@(map (lambda (v) `(local ,v))
-                    real-new-vars)
-             ,@(if (and (pair? body) (eq? (car body) 'block))
-                   (if (null? lineno)
-                       (cdr body)
-                       (cddr body))
-                   (list body)))))
+           (insert-after-meta
+            (if (and (pair? body) (eq? (car body) 'block))
+                body
+                `(block ,body))
+            (map (lambda (v) `(local ,v)) real-new-vars))))
         ((eq? (car e) 'module)
          (error "module expression not at top level"))
         (else
@@ -2553,22 +2555,29 @@ f(x) = yt(x)
             (cons (last e2) (append tl (butlast (cdr e2))))
             (cons e2 tl)))))
 
+;; return `body` with `stmts` inserted after any meta nodes
+(define (insert-after-meta body stmts)
+  (let ((meta (take-while (lambda (x) (and (pair? x)
+                                           (memq (car x) '(line meta))))
+                          (cdr body))))
+    `(,(car body)
+      ,@meta
+      ,@stmts
+      ,@(list-tail body (+ 1 (length meta))))))
+
 (define (add-box-inits-to-body lam body)
   (let ((args (map arg-name (lam:args lam)))
-        (vis  (car (lam:vinfo lam)))
-        (lnos (take-while (lambda (x) (and (pair? x) (eq? (car x) 'line)))
-                          (cdr body))))
+        (vis  (car (lam:vinfo lam))))
     ;; insert Box allocations for captured/assigned arguments
-    `(,(car body)
-      ,@lnos
-      ,@(apply append
-               (map (lambda (arg)
-                      (let ((vi (assq arg vis)))
-                        (if (and vi (vinfo:asgn vi) (vinfo:capt vi))
-                            `((= ,arg (call (top Box) ,arg)))
-                            '())))
-                    args))
-      ,@(list-tail body (+ 1 (length lnos))))))
+    (insert-after-meta
+     body
+     (apply append
+            (map (lambda (arg)
+                   (let ((vi (assq arg vis)))
+                     (if (and vi (vinfo:asgn vi) (vinfo:capt vi))
+                         `((= ,arg (call (top Box) ,arg)))
+                         '())))
+                 args)))))
 
 ;; clear capture bit for vars assigned once at the top, to avoid allocating
 ;; some unnecessary Boxes.

@@ -444,6 +444,24 @@ for (x,i) in enumerate(d)
     @test x == i
 end
 
+# Once finalized accessing remote references and shared arrays should result in exceptions.
+function finalize_and_test(r)
+    finalize(r)
+    @test_throws ErrorException fetch(r)
+end
+
+for id in [id_me, id_other]
+    finalize_and_test(Future(id))
+    finalize_and_test((r=Future(id); put!(r, 1); r))
+    finalize_and_test(RemoteChannel(id))
+    finalize_and_test((r=RemoteChannel(id); put!(r, 1); r))
+end
+
+d = SharedArray(Int,10)
+finalize(d)
+@test_throws BoundsError d[1]
+
+
 # Test @parallel load balancing - all processors should get either M or M+1
 # iterations out of the loop range for some M.
 workloads = hist(@parallel((a,b)->[a;b], for i=1:7; myid(); end), nprocs())[2]
@@ -818,4 +836,9 @@ function t11062()
 end
 
 @test t11062() == 2
+
+# issue #15406
+v15406 = remotecall_wait(() -> 1, id_other)
+fetch(v15406)
+remotecall_wait(t -> fetch(t), id_other, v15406)
 

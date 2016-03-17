@@ -437,7 +437,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Computes eigenvalues and eigenvectors of ``A``\ . See :func:`eigfact` for details on the ``balance`` keyword argument.
+   Computes eigenvalues and eigenvectors of ``A``\ . See :func:`eigfact` for details on the ``permute`` and ``scale`` keyword arguments. The eigenvectors are returned columnwise.
 
    .. doctest::
 
@@ -2067,7 +2067,7 @@ set of functions in future releases.
 
    Computes the Bunch-Kaufman factorization of a symmetric matrix ``A``\ . If ``uplo = U``\ , the upper half of ``A`` is stored. If ``uplo = L``\ , the lower half is stored.
 
-   Returns ``A``\ , overwritten by the factorization, a pivot vector ``ipiv``\ , and the error code ``info`` which is a non-negative integer. If ``info`` is positive the matrix is singular and the diagonal part of the factorization is exactly zero at position ``info``
+   Returns ``A``\ , overwritten by the factorization, a pivot vector ``ipiv``\ , and the error code ``info`` which is a non-negative integer. If ``info`` is positive the matrix is singular and the diagonal part of the factorization is exactly zero at position ``info``\ .
 
 .. function:: sytri!(uplo, A, ipiv)
 

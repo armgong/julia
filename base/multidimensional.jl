@@ -61,6 +61,11 @@ for op in (:+, :-, :min, :max)
     end
 end
 
+(+){N}(index::CartesianIndex{N}, i::Integer) = CartesianIndex{N}(map(x->x+i, index.I))
+(+){N}(i::Integer, index::CartesianIndex{N}) = index+i
+(-){N}(index::CartesianIndex{N}, i::Integer) = CartesianIndex{N}(map(x->x-i, index.I))
+(-){N}(i::Integer, index::CartesianIndex{N}) = CartesianIndex{N}(map(x->i-x, index.I))
+
 @generated function *{N}(a::Integer, index::CartesianIndex{N})
     I = index
     args = [:(a*index[$d]) for d = 1:N]
@@ -78,7 +83,9 @@ end
     startargs = fill(1, N)
     :(CartesianRange($I($(startargs...)), I))
 end
+CartesianRange(::Tuple{}) = CartesianRange{CartesianIndex{0}}(CartesianIndex{0}(()),CartesianIndex{0}(()))
 CartesianRange{N}(sz::NTuple{N,Int}) = CartesianRange(CartesianIndex(sz))
+CartesianRange{N}(rngs::NTuple{N,Union{Int,UnitRange{Int}}}) = CartesianRange(CartesianIndex(map(r->first(r), rngs)), CartesianIndex(map(r->last(r), rngs)))
 
 ndims(R::CartesianRange) = length(R.start)
 ndims{I<:CartesianIndex}(::Type{CartesianRange{I}}) = length(I)
@@ -225,11 +232,9 @@ function _unsafe_getindex(::LinearIndexing, src::AbstractArray, I::AbstractArray
     size(dest) == (N,) || throw(DimensionMismatch())
     D = eachindex(dest)
     Ds = start(D)
-    s = 0
-    for b in eachindex(I)
-        s+=1
-        @inbounds Ib = I[b]
-        if Ib
+    for (i, s) in zip(eachindex(I), eachindex(src))
+        @inbounds Ii = I[i]
+        if Ii
             d, Ds = next(D, Ds)
             @inbounds dest[d] = src[s]
         end
@@ -304,15 +309,13 @@ end
 function _unsafe_setindex!(::LinearIndexing, A::AbstractArray, x, I::AbstractArray{Bool})
     X = _iterable(x)
     Xs = start(X)
-    i = 0
     c = 0
-    for b in eachindex(I)
-        i+=1
-        @inbounds Ib = I[b]
-        if Ib
+    for (iA, i) in zip(eachindex(A), eachindex(I))
+        @inbounds Ii = I[i]
+        if Ii
             done(X, Xs) && throw_setindex_mismatch(x, c+1)
             (v, Xs) = next(X, Xs)
-            @inbounds A[i] = v
+            @inbounds A[iA] = v
             c += 1
         end
     end
@@ -526,25 +529,9 @@ function fill!{T}(A::AbstractArray{T}, x)
 end
 
 function copy!{T,N}(dest::AbstractArray{T,N}, src::AbstractArray{T,N})
-    samesize = true
-    for d = 1:N
-        if size(dest,d) != size(src,d)
-            samesize = false
-            break
-        end
-    end
-    if samesize && linearindexing(dest) == linearindexing(src)
-        for I in eachindex(dest)
-            @inbounds dest[I] = src[I]
-        end
-    else
-        length(dest) >= length(src) || throw(BoundsError())
-        iterdest = eachindex(dest)
-        sdest = start(iterdest)
-        for Isrc in eachindex(src)
-            Idest, sdest = next(iterdest, sdest)
-            @inbounds dest[Idest] = src[Isrc]
-        end
+    length(dest) >= length(src) || throw(BoundsError())
+    for (Isrc, Idest) in zip(eachindex(src), eachindex(dest))
+        @inbounds dest[Idest] = src[Isrc]
     end
     dest
 end

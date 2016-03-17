@@ -476,7 +476,17 @@ type Future <: AbstractRemoteRef
     Future(w, wh, id) = Future(w, wh, id, Nullable{Any}())
     Future(w, wh, id, v) = (r = new(w,wh,id,v); test_existing_ref(r))
 end
-finalize_future(f::Future) = (isnull(f.v) && send_del_client(f))
+
+function finalize_future(f::Future)
+    if f.where > 0
+        isnull(f.v) && send_del_client(f)
+        f.where = 0
+        f.whence = 0
+        f.id = 0
+        f.v = Nullable{Any}()
+    end
+    f
+end
 
 type RemoteChannel{T<:AbstractChannel} <: AbstractRemoteRef
     where::Int
@@ -505,9 +515,20 @@ function test_existing_ref(r::RemoteChannel)
     found = getkey(client_refs, r, false)
     !is(found,false) && (client_refs[r] == true) && return found
     client_refs[r] = true
-    finalizer(r, send_del_client)
+    finalizer(r, finalize_remote_channel)
     r
 end
+
+function finalize_remote_channel(r::RemoteChannel)
+    if r.where > 0
+        send_del_client(r)
+        r.where = 0
+        r.whence = 0
+        r.id = 0
+    end
+    r
+end
+
 
 let REF_ID::Int = 1
     global next_ref_id
@@ -670,7 +691,7 @@ end
 
 function deserialize{T<:Future}(s::SerializationState, t::Type{T})
     f = deserialize_rr(s,t)
-    Future(f.where, f.whence, f.id) # ctor adds to ref table
+    Future(f.where, f.whence, f.id, f.v) # ctor adds to client_refs table
 end
 
 function deserialize{T<:RemoteChannel}(s::SerializationState, t::Type{T})
