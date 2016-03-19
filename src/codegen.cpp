@@ -37,6 +37,7 @@
 #ifdef LLVM37
 #include <llvm/Analysis/TargetTransformInfo.h>
 #include <llvm/Analysis/TargetLibraryInfo.h>
+#include <llvm/Object/SymbolSize.h>
 #else
 #include <llvm/Target/TargetLibraryInfo.h>
 #endif
@@ -68,6 +69,9 @@
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
 #include <llvm/Transforms/Instrumentation.h>
 #include <llvm/Transforms/Vectorize.h>
+#ifdef LLVM39
+#include <llvm/Transforms/Scalar/GVN.h>
+#endif
 #include <llvm/Support/Host.h>
 #include <llvm/Support/TargetSelect.h>
 #include <llvm/Support/raw_ostream.h>
@@ -96,12 +100,15 @@
 #include <llvm/ExecutionEngine/Interpreter.h>
 #endif
 
+using namespace llvm;
+
 #if defined(_OS_WINDOWS_) && !defined(NOMINMAX)
 #define NOMINMAX
 #endif
 
 #include "julia.h"
 #include "julia_internal.h"
+#include "codegen_internal.h"
 
 #include <setjmp.h>
 
@@ -113,7 +120,6 @@
 #include <set>
 #include <cstdio>
 #include <cassert>
-using namespace llvm;
 
 // LLVM version compatibility macros
 #ifdef LLVM37
@@ -655,6 +661,7 @@ static inline jl_cgval_t mark_julia_slot(Value *v, jl_value_t *typ)
     assert(v->getType() != T_pjlvalue);
     jl_cgval_t tagval(v, NULL, false, typ);
     tagval.ispointer = true;
+    tagval.isimmutable = true;
     return tagval;
 }
 
@@ -776,7 +783,7 @@ static Value *alloc_local(jl_sym_t *s, jl_codectx_t *ctx)
     // CreateAlloca is OK here because alloc_local is only called during prologue setup
     Value *lv = builder.CreateAlloca(vtype, 0, jl_symbol_name(s));
     vi.value = mark_julia_slot(lv, jt);
-    vi.value.isimmutable &= vi.isSA; // slot is not immutable if there are multiple assignments
+    vi.value.isimmutable = false; // slots are not immutable
     assert(vi.value.isboxed == false);
     return lv;
 }
@@ -939,8 +946,17 @@ static Value *getModuleFlag(Module *m, StringRef Key)
 
 static void jl_setup_module(Module *m)
 {
-    if (!getModuleFlag(m,"Dwarf Version"))
-        m->addModuleFlag(llvm::Module::Warning, "Dwarf Version",2);
+    // Some linkers (*cough* OS X) don't understand DWARF v4, so we use v2 in
+    // imaging mode. The structure of v4 is slightly nicer for debugging JIT
+    // code.
+    if (!getModuleFlag(m,"Dwarf Version")) {
+        int dwarf_version = 4;
+#ifdef _OS_DARWIN_
+        if (imaging_mode)
+            dwarf_version = 2;
+#endif
+        m->addModuleFlag(llvm::Module::Warning, "Dwarf Version", dwarf_version);
+    }
 #ifdef LLVM34
     if (!getModuleFlag(m,"Debug Info Version"))
         m->addModuleFlag(llvm::Module::Error, "Debug Info Version",
@@ -1296,9 +1312,12 @@ void jl_extern_c(jl_function_t *f, jl_value_t *rt, jl_value_t *argt, char *name)
         } else {
             // Otherwise we use a global mapping
             assert(!imaging_mode);
-#if defined(USE_MCJIT) || defined(USE_ORCJIT)
+#if defined(USE_ORCJIT)
             jl_ExecutionEngine->addGlobalMapping(llvmf->getName(),
                     (void*)getAddressForOrCompileFunction(llvmf));
+#elif defined(USE_MCJIT)
+            jl_ExecutionEngine->addGlobalMapping(llvmf->getName(),
+                    getAddressForOrCompileFunction(llvmf));
 #else
             jl_ExecutionEngine->addGlobalMapping(llvmf,
                     jl_ExecutionEngine->getPointerToFunction(llvmf));
@@ -1308,18 +1327,6 @@ void jl_extern_c(jl_function_t *f, jl_value_t *rt, jl_value_t *argt, char *name)
 }
 
 // --- native code info, and dump function to IR and ASM ---
-
-extern int jl_get_llvmf_info(uint64_t fptr, uint64_t *symsize, uint64_t *slide,
-#if defined(USE_MCJIT) || defined(USE_ORCJIT)
-    const object::ObjectFile **object
-#else
-    std::vector<JITEvent_EmittedFunctionDetails::LineStart> *lines
-#endif
-    );
-
-extern "C"
-uint64_t jl_getUnwindInfo(uint64_t dwAddr);
-
 // Get pointer to llvm::Function instance, compiling if necessary
 extern "C" JL_DLLEXPORT
 void *jl_get_llvmf(jl_function_t *f, jl_tupletype_t *tt, bool getwrapper, bool getdeclarations)
@@ -1399,14 +1406,6 @@ void *jl_get_llvmf(jl_function_t *f, jl_tupletype_t *tt, bool getwrapper, bool g
         JL_GC_POP();
         return llvmf;
     }
-
-    if (linfo->fptr && !jl_getUnwindInfo((uintptr_t)linfo->fptr)) {
-        // Not in in the current ExecutionEngine
-        // found in the system image: force a recompile
-        linfo->functionObjects.specFunctionObject = NULL;
-        linfo->functionObjects.functionObject = NULL;
-        linfo->fptr = NULL;
-    }
     if (linfo->functionObjects.functionObject == NULL) {
         jl_compile_linfo(linfo, NULL);
     }
@@ -1417,12 +1416,6 @@ void *jl_get_llvmf(jl_function_t *f, jl_tupletype_t *tt, bool getwrapper, bool g
     else {
         llvmf = (Function*)linfo->functionObjects.functionObject;
     }
-#if !defined(USE_ORCJIT) && !defined(USE_MCJIT)
-    if (!getdeclarations) {
-        ValueToValueMapTy VMap;
-        llvmf = CloneFunction(llvmf, VMap, false);
-    }
-#endif
     JL_GC_POP();
     return llvmf;
 }
@@ -1501,20 +1494,76 @@ const jl_value_t *jl_dump_function_ir(void *f, bool strip_ir_metadata, bool dump
     return jl_cstr_to_string(const_cast<char*>(stream.str().c_str()));
 }
 
-// Pre-declaration. Definition in disasm.cpp
-extern "C"
-void jl_dump_asm_internal(uintptr_t Fptr, size_t Fsize, size_t slide,
-#ifdef USE_MCJIT
-                          const object::ObjectFile *objectfile,
-#else
-                          std::vector<JITEvent_EmittedFunctionDetails::LineStart> lineinfo,
-#endif
+// This isn't particularly fast, but it's only used for interactive mode
+static uint64_t compute_obj_symsize(const object::ObjectFile *obj, uint64_t offset)
+{
+    // Scan the object file for the closest symbols above and below offset in the .text section
+    uint64_t lo = 0;
+    uint64_t hi = 0;
+    bool setlo = false;
 #ifdef LLVM37
-                          raw_ostream &rstream
+    for (const object::SectionRef &Section : obj->sections()) {
 #else
-                          formatted_raw_ostream &stream
+    llvm::error_code err;
+    for (object::section_iterator I = obj->begin_sections(), E = obj->end_sections();
+            !err && I != E; I.increment(err)) {
+        object::SectionRef Section = *I;
 #endif
-                          );
+        uint64_t SAddr, SSize;
+#ifdef LLVM38
+        SAddr = Section.getAddress().get();
+        SSize = Section.getSize().get();
+#elif defined(LLVM36)
+        SAddr = Section.getAddress();
+        SSize = Section.getSize();
+#else
+        Section.getAddress(SAddr);
+        Section.getSize(SSize);
+#endif
+        if (offset < SAddr || offset >= SAddr + SSize) continue;
+        assert(hi == 0);
+
+        // test for lower and upper symbol bounds relative to other symbols
+        hi = SAddr + SSize;
+#ifdef LLVM37
+        object::section_iterator ESection = obj->section_end();
+        for (const object::SymbolRef &Sym : obj->symbols()) {
+#else
+        llvm::error_code err;
+        object::section_iterator ESection = obj->end_sections();
+        for (object::symbol_iterator I = obj->begin_symbols(), E = obj->end_symbols();
+                !err && I != E; I.increment(err)) {
+            object::SymbolRef Sym = *I;
+#endif
+            uint64_t Addr;
+            object::section_iterator Sect = ESection;
+#ifdef LLVM38
+            Sect = Sym.getSection().get();
+#else
+            if (Sym.getSection(Sect)) continue;
+#endif
+            if (Sect == ESection) continue;
+            if (Sect != Section) continue;
+#ifdef LLVM37
+            Addr = Sym.getAddress().get();
+#else
+            if (Sym.getAddress(Addr)) continue;
+#endif
+            if (Addr <= offset && Addr >= lo) {
+                // test for lower bound on symbol
+                lo = Addr;
+                setlo = true;
+            }
+            if (Addr > offset && Addr < hi) {
+                // test for upper bound on symbol
+                hi = Addr;
+            }
+        }
+    }
+    if (setlo)
+        return hi - lo;
+    return 0;
+}
 
 extern "C" JL_DLLEXPORT
 const jl_value_t *jl_dump_function_asm(void *f, int raw_mc)
@@ -1530,28 +1579,64 @@ const jl_value_t *jl_dump_function_asm(void *f, int raw_mc)
         jl_error("jl_dump_function_asm: Expected Function*");
 
     // Dump assembly code
-    uint64_t symsize, slide;
+    uint64_t symsize = 0;
+    int64_t slide = 0, section_slide = 0;
 #ifdef USE_MCJIT
     uint64_t fptr = getAddressForOrCompileFunction(llvmf);
-    const object::ObjectFile *object;
+#ifdef USE_ORCJIT
+    // Look in the system image as well
+    if (fptr == 0)
+        fptr = jl_ExecutionEngine->findSymbol(
+            jl_ExecutionEngine->mangle(llvmf->getName()), true).getAddress();
+#endif
+    llvm::DIContext *context = NULL;
+    llvm::DIContext *&objcontext = context;
 #else
     uint64_t fptr = (uintptr_t)jl_ExecutionEngine->getPointerToFunction(llvmf);
-    std::vector<JITEvent_EmittedFunctionDetails::LineStart> object;
+    std::vector<JITEvent_EmittedFunctionDetails::LineStart> context;
+    llvm::DIContext *objcontext = NULL;
 #endif
+    const object::ObjectFile *object = NULL;
     assert(fptr != 0);
-    if (jl_get_llvmf_info(fptr, &symsize, &slide, &object)) {
-        if (raw_mc)
-            return (jl_value_t*)jl_pchar_to_array((char*)fptr, symsize);
+    bool isJIT = true;
+    if (!jl_DI_for_fptr(fptr, &symsize, &slide, &section_slide, &object, &context)) {
+        isJIT = false;
+        if (!jl_dylib_DI_for_fptr(fptr, &object, &objcontext, &slide, &section_slide, false,
+            NULL, NULL, NULL, NULL)) {
+                jl_printf(JL_STDERR, "WARNING: Unable to find function pointer\n");
+                return jl_cstr_to_string("");
+        }
+    }
+    if (symsize == 0 && object != NULL)
+        symsize = compute_obj_symsize(object, fptr + slide + section_slide);
+    if (symsize == 0) {
+        jl_printf(JL_STDERR, "WARNING: Could not determine size of symbol\n");
+        return jl_cstr_to_string("");
+    }
+
+    if (raw_mc) {
 #ifdef LLVM37
-        jl_dump_asm_internal(fptr, symsize, slide, object, stream);
-#else
-        jl_dump_asm_internal(fptr, symsize, slide, object, fstream);
+        jl_cleanup_DI(context);
 #endif
+        return (jl_value_t*)jl_pchar_to_array((char*)fptr, symsize);
     }
-    else {
-        jl_printf(JL_STDERR, "WARNING: Unable to find function pointer\n");
-    }
-#ifndef LLVM37
+
+    jl_dump_asm_internal(fptr, symsize, slide,
+#ifndef USE_MCJIT
+            context,
+#endif
+            objcontext,
+#ifdef LLVM37
+            stream
+#else
+            fstream
+#endif
+            );
+
+#ifdef LLVM37
+    if (isJIT)
+        jl_cleanup_DI(context);
+#else
     fstream.flush();
 #endif
 
@@ -2893,10 +2978,10 @@ static jl_cgval_t emit_call_function_object(jl_lambda_info_t *li, const jl_cgval
             else if (et->isAggregateType()) {
                 assert(at == PointerType::get(et, 0));
                 jl_cgval_t arg = i==0 ? theF : emit_expr(args[i], ctx);
-                if (arg.isimmutable && arg.ispointer) {
+                if (arg.ispointer) {
                     // can lazy load on demand, no copy needed
                     argvals[idx] = data_pointer(arg, ctx, at);
-                    mark_gc_use(arg); // jwn must be after the jlcall
+                    mark_gc_use(arg); // TODO: must be after the jlcall
                 }
                 else {
                     Value *v = emit_unbox(et, arg, jt);
@@ -3136,8 +3221,10 @@ static jl_cgval_t emit_var(jl_sym_t *sym, jl_codectx_t *ctx)
     }
 
     jl_varinfo_t &vi = ctx->vars[sym];
-    if (!vi.isArgument && !vi.isAssigned)
+    if (!vi.isArgument && !vi.isAssigned) {
         undef_var_error_if_null(V_null, sym, ctx);
+        return jl_cgval_t();
+    }
     if (vi.memloc) {
         Value *bp = vi.memloc;
         if (vi.isArgument ||  // arguments are always defined
@@ -3152,7 +3239,7 @@ static jl_cgval_t emit_var(jl_sym_t *sym, jl_codectx_t *ctx)
             return v;
         }
     }
-    else if (vi.value.isboxed || vi.value.constant || !vi.value.ispointer || (vi.isSA && !vi.isVolatile)) {
+    else if (!vi.isVolatile || !vi.isAssigned) {
         return vi.value;
     }
     else {
