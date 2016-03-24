@@ -2083,13 +2083,6 @@ appended to an internal buffer of backtraces.
 :@profile
 
 """
-    extrema(itr)
-
-Compute both the minimum and maximum element in a single pass, and return them as a 2-tuple.
-"""
-extrema
-
-"""
     isdigit(c::Union{Char,AbstractString}) -> Bool
 
 Tests whether a character is a numeric digit (0-9), or whether this is true for all elements
@@ -4448,26 +4441,6 @@ character values to use as digit symbols.
 base
 
 """
-    Timer(callback::Function, delay, repeat=0)
-
-Create a timer to call the given `callback` function. The `callback` is passed one argument,
-the timer object itself. The callback will be invoked after the specified initial `delay`,
-and then repeating with the given `repeat` interval. If `repeat` is `0`, the timer is only
-triggered once. Times are in seconds. A timer is stopped and has its resources freed by
-calling `close` on it.
-"""
-Timer(::Function,delay,repeat=0)
-
-"""
-    Timer(delay, repeat=0)
-
-Create a timer that wakes up tasks waiting for it (by calling `wait` on the timer object) at
-a specified interval.  Times are in seconds.  Waiting tasks are woken with an error when the
-timer is closed (by `close`). Use `isopen` to check whether a timer is still active.
-"""
-Timer(delay, repeat=0)
-
-"""
     BoundsError([a],[i])
 
 An indexing operation into an array, `a`, tried to access an out-of-bounds element, `i`.
@@ -5909,14 +5882,6 @@ equivalent to:
 See `rounding` for available rounding modes.
 """
 setrounding(f::Function, T, mode)
-
-"""
-    sleep(seconds)
-
-Block the current task for a specified number of seconds. The minimum sleep time is 1
-millisecond or input of `0.001`.
-"""
-sleep
 
 """
     Mmap.sync!(array)

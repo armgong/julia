@@ -238,6 +238,10 @@ public:
 #endif
         FuncInfo tmp = {&F, Size, Details.LineStarts, linfo};
         info[(size_t)(Code)] = tmp;
+#ifndef KEEP_BODIES
+        if (!jl_generating_output())
+            const_cast<Function*>(&F)->deleteBody();
+#endif
         uv_rwlock_wrunlock(&threadsafe);
     }
 
@@ -377,13 +381,12 @@ public:
 #endif
             if (Section == EndSection) continue;
             if (!Section->isText()) continue;
+            uint64_t SectionAddr = Section->getAddress();
 #ifdef LLVM38
-            uint64_t SectionAddr = Section->getAddress().get();
             uint64_t SectionLoadAddr = L.getSectionLoadAddress(*Section);
 #else
             StringRef secName;
             Section->getName(secName);
-            uint64_t SectionAddr = Section->getAddress();
             uint64_t SectionLoadAddr = L.getSectionLoadAddress(secName);
 #endif
             Addr -= SectionAddr - SectionLoadAddr;
