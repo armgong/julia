@@ -193,20 +193,51 @@ end
 copy(S::SparseMatrixCSC) =
     SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), copy(S.nzval))
 
-function copy!{TvA, TiA, TvB, TiB}(A::SparseMatrixCSC{TvA,TiA},
-                                   B::SparseMatrixCSC{TvB,TiB})
-    # If the two matrices have the same size then all the
-    # elements in A will be overwritten and we can simply copy the
-    # internal fields of B to A.
-    if size(A) == size(B)
-        copy!(A.colptr, B.colptr)
+function copy!(A::SparseMatrixCSC, B::SparseMatrixCSC)
+    # If the two matrices have the same length then all the
+    # elements in A will be overwritten.
+    if length(A) == length(B)
         resize!(A.nzval, length(B.nzval))
         resize!(A.rowval, length(B.rowval))
-        copy!(A.rowval, B.rowval)
-        copy!(A.nzval, B.nzval)
+        if size(A) == size(B)
+            # Simple case: we can simply copy the internal fields of B to A.
+            copy!(A.colptr, B.colptr)
+            copy!(A.rowval, B.rowval)
+        else
+            # This is like a "reshape B into A".
+            sparse_compute_reshaped_colptr_and_rowval(A.colptr, A.rowval, A.m, A.n, B.colptr, B.rowval, B.m, B.n)
+        end
     else
-        invoke(Base.copy!, Tuple{AbstractMatrix{TvA}, AbstractMatrix{TvB}}, A, B)
+        length(A) >= length(B) || throw(BoundsError())
+        lB = length(B)
+        nnzA = nnz(A)
+        nnzB = nnz(B)
+        # Up to which col, row, and ptr in rowval/nzval will A be overwritten?
+        lastmodcolA = div(lB - 1, A.m) + 1
+        lastmodrowA = mod(lB - 1, A.m) + 1
+        lastmodptrA = A.colptr[lastmodcolA]
+        while lastmodptrA < A.colptr[lastmodcolA+1] && A.rowval[lastmodptrA] <= lastmodrowA
+            lastmodptrA += 1
+        end
+        lastmodptrA -= 1
+        if lastmodptrA >= nnzB
+            # A will have fewer non-zero elements; unmodified elements are kept at the end.
+            deleteat!(A.rowval, nnzB+1:lastmodptrA)
+            deleteat!(A.nzval, nnzB+1:lastmodptrA)
+        else
+            # A will have more non-zero elements; unmodified elements are kept at the end.
+            resize!(A.rowval, nnzB + nnzA - lastmodptrA)
+            resize!(A.nzval, nnzB + nnzA - lastmodptrA)
+            copy!(A.rowval, nnzB+1, A.rowval, lastmodptrA+1, nnzA-lastmodptrA)
+            copy!(A.nzval, nnzB+1, A.nzval, lastmodptrA+1, nnzA-lastmodptrA)
+        end
+        # Adjust colptr accordingly.
+        @inbounds for i in 2:length(A.colptr)
+            A.colptr[i] += nnzB - lastmodptrA
+        end
+        sparse_compute_reshaped_colptr_and_rowval(A.colptr, A.rowval, A.m, lastmodcolA-1, B.colptr, B.rowval, B.m, B.n)
     end
+    copy!(A.nzval, B.nzval)
     return A
 end
 
@@ -2923,21 +2954,56 @@ function is_hermsym(A::SparseMatrixCSC, check::Func)
     rowval = A.rowval
     nzval = A.nzval
     tracker = copy(A.colptr)
-    @inbounds for col = 1:A.n
+    for col = 1:A.n
+        # `tracker` is updated such that, for symmetric matrices,
+        # the loop below starts from an element at or below the
+        # diagonal element of column `col`"
         for p = tracker[col]:colptr[col+1]-1
             val = nzval[p]
-            if val == 0; continue; end # In case of explicit zeros
             row = rowval[p]
-            if row < col; return false; end
-            if row == col # Diagonal element
+
+            # Ignore stored zeros
+            if val == 0;
+                continue
+            end
+
+            # If the matrix was symmetric we should have updated
+            # the tracker to start at the diagonal or below. Here
+            # we are above the diagonal so the matrix can't be symmetric.
+            if row < col
+                return false
+            end
+
+            # Diagonal element
+            if row == col
                 if val != check(val)
                     return false
                 end
             else
-                row2 = rowval[tracker[row]]
-                if row2 > col; return false; end
-                if row2 == col # A[i,j] and A[j,i] exists
-                    if val != check(nzval[tracker[row]])
+                offset = tracker[row]
+                row2 = rowval[offset]
+
+                # row2 can be less than col if the tracker didn't
+                # get updated due to stored zeros in previous elements.
+                # We therefore "catch up" here while making sure that
+                # the elements are actually zero.
+                while row2 < col
+                    if nzval[offset] != 0
+                        return false
+                    end
+                    offset += 1
+                    row2 = rowval[offset]
+                    tracker[row] += 1
+                end
+
+                # Non zero A[i,j] exists but A[j,i] does not exist
+                if row2 > col
+                    return false
+                end
+
+                # A[i,j] and A[j,i] exists
+                if row2 == col
+                    if val != check(nzval[offset])
                         return false
                     end
                     tracker[row] += 1
@@ -3053,7 +3119,7 @@ spdiagm(B::AbstractVector, d::Number=0) = spdiagm((B,), (d,))
 function expandptr{T<:Integer}(V::Vector{T})
     if V[1] != 1 throw(ArgumentError("first index must be one")) end
     res = similar(V, (Int64(V[end]-1),))
-    for i in 1:(length(V)-1), j in V[i]:(V[i+1] - 1) res[j] = i end
+    for i in 1:(length(V)-1), j in V[i]:(V[i+1] - 1); res[j] = i end
     res
 end
 

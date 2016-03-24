@@ -437,7 +437,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Computes eigenvalues and eigenvectors of ``A``\ . See :func:`eigfact` for details on the ``balance`` keyword argument.
+   Computes eigenvalues and eigenvectors of ``A``\ . See :func:`eigfact` for details on the ``permute`` and ``scale`` keyword arguments. The eigenvectors are returned columnwise.
 
    .. doctest::
 
@@ -2061,13 +2061,13 @@ set of functions in future releases.
 
    Finds the solution to ``A * X = B`` for symmetric matrix ``A``\ . If ``uplo = U``\ , the upper half of ``A`` is stored. If ``uplo = L``\ , the lower half is stored. ``B`` is overwritten by the solution ``X``\ . ``A`` is overwritten by its Bunch-Kaufman factorization. ``ipiv`` contains pivoting information about the factorization.
 
-.. function:: sytrf!(uplo, A) -> (A, ipiv)
+.. function:: sytrf!(uplo, A) -> (A, ipiv, info)
 
    .. Docstring generated from Julia source
 
    Computes the Bunch-Kaufman factorization of a symmetric matrix ``A``\ . If ``uplo = U``\ , the upper half of ``A`` is stored. If ``uplo = L``\ , the lower half is stored.
 
-   Returns ``A``\ , overwritten by the factorization, and a pivot vector ``ipiv``\ .
+   Returns ``A``\ , overwritten by the factorization, a pivot vector ``ipiv``\ , and the error code ``info`` which is a non-negative integer. If ``info`` is positive the matrix is singular and the diagonal part of the factorization is exactly zero at position ``info``\ .
 
 .. function:: sytri!(uplo, A, ipiv)
 
@@ -2087,13 +2087,13 @@ set of functions in future releases.
 
    Finds the solution to ``A * X = B`` for Hermitian matrix ``A``\ . If ``uplo = U``\ , the upper half of ``A`` is stored. If ``uplo = L``\ , the lower half is stored. ``B`` is overwritten by the solution ``X``\ . ``A`` is overwritten by its Bunch-Kaufman factorization. ``ipiv`` contains pivoting information about the factorization.
 
-.. function:: hetrf!(uplo, A) -> (A, ipiv)
+.. function:: hetrf!(uplo, A) -> (A, ipiv, info)
 
    .. Docstring generated from Julia source
 
    Computes the Bunch-Kaufman factorization of a Hermitian matrix ``A``\ . If ``uplo = U``\ , the upper half of ``A`` is stored. If ``uplo = L``\ , the lower half is stored.
 
-   Returns ``A``\ , overwritten by the factorization, and a pivot vector.
+   Returns ``A``\ , overwritten by the factorization, a pivot vector ``ipiv``\ , and the error code ``info`` which is a non-negative integer. If ``info`` is positive the matrix is singular and the diagonal part of the factorization is exactly zero at position ``info``\ .
 
 .. function:: hetri!(uplo, A, ipiv)
 

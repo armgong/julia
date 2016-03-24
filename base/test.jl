@@ -151,6 +151,11 @@ Returns a `Pass` `Result` if it does, a `Fail` `Result` if it is
 """
 macro test(ex)
     orig_ex = Expr(:quote,ex)
+    # Normalize comparison operator calls to :comparison expressions
+    if isa(ex, Expr) && ex.head == :call && length(ex.args)==3 &&
+        Base.operator_precedence(ex.args[1]) == Base.operator_precedence(:(==))
+        ex = Expr(:comparison, ex.args[2], ex.args[1], ex.args[3])
+    end
     # If the test is a comparison
     if isa(ex, Expr) && ex.head == :comparison
         # Generate a temporary for every term in the expression
@@ -160,8 +165,8 @@ macro test(ex)
         # comparison indivudally
         comp_block = Expr(:block)
         comp_block.args = [:(
-                            $(terms[i]) = $(esc(ex.args[i]))
-                            ) for i in 1:n]
+                            $(t) = $(esc(x))
+                            ) for (t,x) in zip(terms, ex.args)]
         # The block should then evaluate whether the comparison
         # evaluates to true by splicing in the new terms into the
         # original comparsion. The block returns
@@ -651,7 +656,7 @@ function parse_testset_args(args)
     desc = nothing
     testsettype = nothing
     options = :(Dict{Symbol, Any}())
-    for arg in args[1:end]
+    for arg in args
         # a standalone symbol is assumed to be the test set we should use
         if isa(arg, Symbol)
             testsettype = esc(arg)
@@ -735,8 +740,7 @@ function test_approx_eq(va, vb, Eps, astr, bstr)
               "\n  ", bstr, " (length $(length(vb))) = ", vb)
     end
     diff = real(zero(eltype(va)))
-    for i = 1:length(va)
-        xa = va[i]; xb = vb[i]
+    for (xa, xb) = zip(va, vb)
         if isfinite(xa) && isfinite(xb)
             diff = max(diff, abs(xa-xb))
         elseif !isequal(xa,xb)

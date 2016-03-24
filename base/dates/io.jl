@@ -69,6 +69,7 @@ setindex!(collection::SlotRule, value::Type, key::Char) = collection.rules[Int(k
 keys(c::SlotRule) = map(Char, filter(el -> isdefined(c.rules, el), eachindex(c.rules)))
 
 SLOT_RULE['y'] = Year
+SLOT_RULE['Y'] = Year
 SLOT_RULE['m'] = Month
 SLOT_RULE['u'] = Month
 SLOT_RULE['U'] = Month
@@ -82,14 +83,7 @@ SLOT_RULE['s'] = Millisecond
 
 duplicates(slots) = any(map(x->count(y->x.parser==y.parser,slots),slots) .> 1)
 
-"""
-    Dates.DateFormat(format::AbstractString) -> DateFormat
-
-Construct a date formatting object that can be passed repeatedly for parsing similarly
-formatted date strings. `format` is a format string in the form described above (e.g.
-`"yyyy-mm-dd"`).
-"""
-function DateFormat(f::AbstractString,locale::AbstractString="english")
+function DateFormat(f::AbstractString, locale::AbstractString="english")
     slots = Slot[]
     prefix = ""
     params = ()
@@ -169,8 +163,15 @@ function parse(x::AbstractString,df::DateFormat)
     return vcat(sort!(periods,rev=true,lt=periodisless), extra)
 end
 
-slotformat(slot::Slot{Year},dt,locale) = lpad(string(value(slot.parser(dt))),slot.width,"0")[(end-slot.width+1):end]
 slotformat(slot,dt,locale) = lpad(string(value(slot.parser(dt))),slot.width,"0")
+function slotformat(slot::Slot{Year},dt,locale)
+    s = lpad(string(value(slot.parser(dt))),slot.width,"0")
+    if slot.letter == 'y'
+        return s[(end-slot.width+1):end]  # Truncate the year
+    else # == 'Y'
+        return s
+    end
+end
 function slotformat(slot::Slot{Month},dt,locale)
     if slot.letter == 'm'
         return lpad(month(dt),slot.width,"0")

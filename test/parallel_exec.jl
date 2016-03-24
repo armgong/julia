@@ -11,6 +11,67 @@ elseif Base.JLOptions().code_coverage == 2
 end
 addprocs(3; exeflags=`$cov_flag $inline_flag --check-bounds=yes --depwarn=error`)
 
+# Test remote()
+
+let
+    pool = Base.default_worker_pool()
+
+    count = 0
+    count_condition = Condition()
+
+    function remote_wait(c)
+        @async begin
+            count += 1
+            remote(take!)(c)
+            count -= 1
+            notify(count_condition)
+        end
+        yield()
+    end
+
+    testchannels = [RemoteChannel() for i in 1:nworkers()]
+    testcount = 0
+    @test isready(pool) == true
+    for c in testchannels
+        @test count == testcount
+        remote_wait(c)
+        testcount += 1
+    end
+    @test count == testcount
+    @test isready(pool) == false
+
+    for c in testchannels
+        @test count == testcount
+        put!(c, "foo")
+        testcount -= 1
+        wait(count_condition)
+        @test count == testcount
+        @test isready(pool) == true
+    end
+
+    @test count == 0
+
+    for c in testchannels
+        @test count == testcount
+        remote_wait(c)
+        testcount += 1
+    end
+    @test count == testcount
+    @test isready(pool) == false
+
+    for c in reverse(testchannels)
+        @test count == testcount
+        put!(c, "foo")
+        testcount -= 1
+        wait(count_condition)
+        @test count == testcount
+        @test isready(pool) == true
+    end
+
+    @test count == 0
+end
+
+
 id_me = myid()
 id_other = filter(x -> x != id_me, procs())[rand(1:(nprocs()-1))]
 
@@ -382,6 +443,24 @@ end
 for (x,i) in enumerate(d)
     @test x == i
 end
+
+# Once finalized accessing remote references and shared arrays should result in exceptions.
+function finalize_and_test(r)
+    finalize(r)
+    @test_throws ErrorException fetch(r)
+end
+
+for id in [id_me, id_other]
+    finalize_and_test(Future(id))
+    finalize_and_test((r=Future(id); put!(r, 1); r))
+    finalize_and_test(RemoteChannel(id))
+    finalize_and_test((r=RemoteChannel(id); put!(r, 1); r))
+end
+
+d = SharedArray(Int,10)
+finalize(d)
+@test_throws BoundsError d[1]
+
 
 # Test @parallel load balancing - all processors should get either M or M+1
 # iterations out of the loop range for some M.
@@ -757,4 +836,9 @@ function t11062()
 end
 
 @test t11062() == 2
+
+# issue #15406
+v15406 = remotecall_wait(() -> 1, id_other)
+fetch(v15406)
+remotecall_wait(t -> fetch(t), id_other, v15406)
 

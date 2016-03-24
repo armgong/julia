@@ -1,11 +1,8 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-import Core.Intrinsics.ccall
-
 baremodule Base
 
-using Core: Intrinsics, arrayref, arrayset, arraysize, _expr,
-            _apply, typeassert, apply_type, svec
+using Core.TopModule, Core.Intrinsics
 ccall(:jl_set_istopmod, Void, (Bool,), true)
 
 include = Core.include
@@ -19,7 +16,7 @@ if false
     # simple print definitions for debugging. enable these if something
     # goes wrong during bootstrap before printing code is available.
     show(x::ANY) = ccall(:jl_static_show, Void, (Ptr{Void}, Any),
-                         Intrinsics.pointerref(Intrinsics.cglobal(:jl_uv_stdout,Ptr{Void}),1), x)
+                         pointerref(cglobal(:jl_uv_stdout,Ptr{Void}),1), x)
     print(x::ANY) = show(x)
     println(x::ANY) = ccall(:jl_, Void, (Any,), x)
     print(a::ANY...) = for x=a; print(x); end
@@ -100,6 +97,12 @@ include("intset.jl")
 include("dict.jl")
 include("set.jl")
 include("iterator.jl")
+
+# StridedArrays
+typealias StridedArray{T,N,A<:DenseArray,I<:Tuple{Vararg{Union{RangeIndex, NoSlice, AbstractCartesianIndex}}}} Union{DenseArray{T,N}, SubArray{T,N,A,I}}
+typealias StridedVector{T,A<:DenseArray,I<:Tuple{Vararg{Union{RangeIndex, NoSlice, AbstractCartesianIndex}}}}  Union{DenseArray{T,1}, SubArray{T,1,A,I}}
+typealias StridedMatrix{T,A<:DenseArray,I<:Tuple{Vararg{Union{RangeIndex, NoSlice, AbstractCartesianIndex}}}}  Union{DenseArray{T,2}, SubArray{T,2,A,I}}
+typealias StridedVecOrMat{T} Union{StridedVector{T}, StridedMatrix{T}}
 
 # For OS specific stuff
 include(UTF8String(vcat(length(Core.ARGS)>=2?Core.ARGS[2].data:"".data, "build_h.jl".data))) # include($BUILDROOT/base/build_h.jl)
@@ -224,7 +227,9 @@ include("serialize.jl")
 importall .Serializer
 include("channels.jl")
 include("multi.jl")
+include("workerpool.jl")
 include("managers.jl")
+include("mapiterator.jl")
 
 # code loading
 include("loading.jl")

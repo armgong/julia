@@ -347,6 +347,29 @@ end
 @test_repr "-(1,2,3)"
 @test_repr "*(1,2,3)"
 
+
+# issue #15309
+l1, l2, l2n = Expr(:line,42), Expr(:line,42,:myfile), LineNumberNode(:myfile,42)
+@test string(l2n) == " # myfile, line 42:"
+@test string(l2)  == string(l2n)
+@test string(l1)  == replace(string(l2n),"myfile, ","",1)
+ex = Expr(:block, l1, :x, l2, :y, l2n, :z)
+@test replace(string(ex)," ","") == replace("""
+begin  # line 42:
+    x # myfile, line 42:
+    y # myfile, line 42:
+    z
+end""", " ", "")
+# Test the printing of whatever form of line number representation
+# that is used in the arguments to a macro looks the same as for
+# regular quoting
+macro strquote(ex)
+    QuoteNode(string(ex))
+end
+str_ex2a, str_ex2b = @strquote(begin x end), string(quote x end)
+@test str_ex2a == str_ex2b
+
+
 # test structured zero matrix printing for select structured types
 A = reshape(1:16,4,4)
 @test replstr(Diagonal(A)) == "4x4 Diagonal{$Int}:\n 1  ⋅   ⋅   ⋅\n ⋅  6   ⋅   ⋅\n ⋅  ⋅  11   ⋅\n ⋅  ⋅   ⋅  16"
@@ -356,3 +379,9 @@ A = reshape(1:16,4,4)
 @test replstr(Tridiagonal(diag(A,-1),diag(A),diag(A,+1))) == "4x4 Tridiagonal{$Int}:\n 1  5   ⋅   ⋅\n 2  6  10   ⋅\n ⋅  7  11  15\n ⋅  ⋅  12  16"
 @test replstr(UpperTriangular(A)) == "4x4 UpperTriangular{$Int,Array{$Int,2}}:\n 1  5   9  13\n ⋅  6  10  14\n ⋅  ⋅  11  15\n ⋅  ⋅   ⋅  16"
 @test replstr(LowerTriangular(A)) == "4x4 LowerTriangular{$Int,Array{$Int,2}}:\n 1  ⋅   ⋅   ⋅\n 2  6   ⋅   ⋅\n 3  7  11   ⋅\n 4  8  12  16"
+
+# Issue #15525, printing of vcat
+@test sprint(show, :([a;])) == ":([a;])"
+@test sprint(show, :([a;b])) == ":([a;b])"
+@test_repr "[a;]"
+@test_repr "[a;b]"

@@ -253,14 +253,30 @@ let
     @test pointer(A.nzval) != pointer(B.nzval)
     @test pointer(A.rowval) != pointer(B.rowval)
     @test pointer(A.colptr) != pointer(B.colptr)
-    # Test size(A) != size(B)
-    B = sprand(3, 3, 0.2)
+    # Test size(A) != size(B), but length(A) == length(B)
+    B = sprand(25, 1, 0.2)
     copy!(A, B)
-    @test A[1:9] == B[:]
+    @test A[:] == B[:]
+    # Test various size(A) / size(B) combinations
+    for mA in [5, 10, 20], nA in [5, 10, 20], mB in [5, 10, 20], nB in [5, 10, 20]
+        A = sprand(mA,nA,0.4)
+        Aorig = copy(A)
+        B = sprand(mB,nB,0.4)
+        if mA*nA >= mB*nB
+            copy!(A,B)
+            @assert(A[1:length(B)] == B[:])
+            @assert(A[length(B)+1:end] == Aorig[length(B)+1:end])
+        else
+            @test_throws BoundsError copy!(A,B)
+        end
+    end
     # Test eltype(A) != eltype(B), size(A) != size(B)
+    A = sprand(5, 5, 0.2)
+    Aorig = copy(A)
     B = sparse(rand(Float32, 3, 3))
     copy!(A, B)
     @test A[1:9] == B[:]
+    @test A[10:end] == Aorig[10:end]
     # Test eltype(A) != eltype(B), size(A) == size(B)
     A = sparse(rand(Float64, 3, 3))
     B = sparse(rand(Float32, 3, 3))
@@ -271,6 +287,11 @@ end
 # conj
 cA = sprandn(5,5,0.2) + im*sprandn(5,5,0.2)
 @test full(conj(cA)) == conj(full(cA))
+
+# transpose of SubArrays
+A = sub(sprandn(10, 10, 0.3), 1:4, 1:4)
+@test  transpose(full(A)) == full(transpose(A))
+@test ctranspose(full(A)) == full(ctranspose(A))
 
 # exp
 A = sprandn(5,5,0.2)
@@ -1051,43 +1072,55 @@ A = sparse([1.0])
 @test_throws ArgumentError norm(sprand(5,5,0.2),3)
 @test_throws ArgumentError norm(sprand(5,5,0.2),2)
 
-# test ishermitian and issymmetric real matrices
-A = speye(5,5)
-@test ishermitian(A) == true
-@test issymmetric(A) == true
-A[1,3] = 1.0
-@test ishermitian(A) == false
-@test issymmetric(A) == false
-A[3,1] = 1.0
-@test ishermitian(A) == true
-@test issymmetric(A) == true
+# test ishermitian and issymmetric
+let
+    # real matrices
+    A = speye(5,5)
+    @test ishermitian(A) == true
+    @test issymmetric(A) == true
+    A[1,3] = 1.0
+    @test ishermitian(A) == false
+    @test issymmetric(A) == false
+    A[3,1] = 1.0
+    @test ishermitian(A) == true
+    @test issymmetric(A) == true
 
-# test ishermitian and issymmetric complex matrices
-A = speye(5,5) + im*speye(5,5)
-@test ishermitian(A) == false
-@test issymmetric(A) == true
-A[1,4] = 1.0 + im
-@test ishermitian(A) == false
-@test issymmetric(A) == false
+    # complex matrices
+    A = speye(5,5) + im*speye(5,5)
+    @test ishermitian(A) == false
+    @test issymmetric(A) == true
+    A[1,4] = 1.0 + im
+    @test ishermitian(A) == false
+    @test issymmetric(A) == false
 
-A = speye(Complex128, 5,5)
-A[3,2] = 1.0 + im
-@test ishermitian(A) == false
-@test issymmetric(A) == false
-A[2,3] = 1.0 - im
-@test ishermitian(A) == true
-@test issymmetric(A) == false
+    A = speye(Complex128, 5,5)
+    A[3,2] = 1.0 + im
+    @test ishermitian(A) == false
+    @test issymmetric(A) == false
+    A[2,3] = 1.0 - im
+    @test ishermitian(A) == true
+    @test issymmetric(A) == false
 
-A = sparse(zeros(5,5))
-@test ishermitian(A) == true
-@test issymmetric(A) == true
+    A = sparse(zeros(5,5))
+    @test ishermitian(A) == true
+    @test issymmetric(A) == true
 
-# Test with explicit zeros
-A = speye(Complex128, 5,5)
-A[3,1] = 2
-A.nzval[2] = 0.0
-@test ishermitian(A) == true
-@test issymmetric(A) == true
+    # explicit zeros
+    A = speye(Complex128, 5,5)
+    A[3,1] = 2
+    A.nzval[2] = 0.0
+    @test ishermitian(A) == true
+    @test issymmetric(A) == true
+
+    m = n = 5
+    colptr = [1, 5, 9, 13, 13, 17]
+    rowval = [1, 2, 3, 5, 1, 2, 3, 5, 1, 2, 3, 5, 1, 2, 3, 5]
+    nzval = [0.0, 0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0, 1.0, 1.0]
+    A = SparseMatrixCSC(m, n, colptr, rowval, nzval)
+    @test issymmetric(A) == true
+    A.nzval[end - 3]  = 2.0
+    @test issymmetric(A) == false
+end
 
 # equality ==
 A1 = speye(10)
@@ -1186,9 +1219,6 @@ Ari = ceil(Int64,100*Ar)
 @test_throws ArgumentError Base.SparseArrays.normestinv(Ac,0)
 @test_throws ArgumentError Base.SparseArrays.normestinv(Ac,21)
 @test_throws DimensionMismatch Base.SparseArrays.normestinv(sprand(3,5,.9))
-
-@test_throws ErrorException transpose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
-@test_throws ErrorException ctranspose(sub(sprandn(10, 10, 0.3), 1:4, 1:4))
 
 # csc_permute
 A = sprand(10,10,0.2)
