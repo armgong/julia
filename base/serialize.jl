@@ -19,7 +19,7 @@ const TAGS = Any[
     #LongSymbol, LongTuple, LongExpr,
     Symbol, Tuple, Expr,  # dummy entries, intentionally shadowed by earlier ones
     LineNumberNode, SymbolNode, LabelNode, GotoNode,
-    QuoteNode, TopNode, TypeVar, Box, LambdaInfo,
+    QuoteNode, TopNode, TypeVar, Core.Box, LambdaInfo,
     Module, #=UndefRefTag=#Symbol, Task, ASCIIString, UTF8String,
     UTF16String, UTF32String, Float16,
     SimpleVector, #=BackrefTag=#Symbol, :reserved11, :reserved12,
@@ -116,16 +116,16 @@ function serialize(s::SerializationState, t::Tuple)
         writetag(s.io, LONGTUPLE_TAG)
         write(s.io, Int32(l))
     end
-    for e in t
-        serialize(s, e)
+    for x in t
+        serialize(s, x)
     end
 end
 
 function serialize(s::SerializationState, v::SimpleVector)
     writetag(s.io, SIMPLEVECTOR_TAG)
     write(s.io, Int32(length(v)))
-    for e in v
-        serialize(s, e)
+    for x in v
+        serialize(s, x)
     end
 end
 

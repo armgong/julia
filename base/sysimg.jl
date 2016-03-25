@@ -1,11 +1,8 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-import Core.Intrinsics.ccall
-
 baremodule Base
 
-using Core: Intrinsics, arrayref, arrayset, arraysize, _expr,
-            _apply, typeassert, apply_type, svec
+using Core.TopModule, Core.Intrinsics
 ccall(:jl_set_istopmod, Void, (Bool,), true)
 
 include = Core.include
@@ -19,7 +16,7 @@ if false
     # simple print definitions for debugging. enable these if something
     # goes wrong during bootstrap before printing code is available.
     show(x::ANY) = ccall(:jl_static_show, Void, (Ptr{Void}, Any),
-                         Intrinsics.pointerref(Intrinsics.cglobal(:jl_uv_stdout,Ptr{Void}),1), x)
+                         pointerref(cglobal(:jl_uv_stdout,Ptr{Void}),1), x)
     print(x::ANY) = show(x)
     println(x::ANY) = ccall(:jl_, Void, (Any,), x)
     print(a::ANY...) = for x=a; print(x); end
@@ -84,6 +81,8 @@ importall .Rounding
 include("float.jl")
 include("complex.jl")
 include("rational.jl")
+include("multinverses.jl")
+using .MultiplicativeInverses
 include("abstractarraymath.jl")
 include("arraymath.jl")
 
@@ -126,6 +125,7 @@ include("unicode.jl")
 include("parse.jl")
 include("shell.jl")
 include("regex.jl")
+include("show.jl")
 include("base64.jl")
 importall .Base64
 
@@ -140,10 +140,13 @@ include("intfuncs.jl")
 # nullable types
 include("nullable.jl")
 
-# I/O
+# Scheduling
+include("libuv.jl")
+include("event.jl")
 include("task.jl")
 include("lock.jl")
-include("show.jl")
+
+# I/O
 include("stream.jl")
 include("socket.jl")
 include("filesystem.jl")
@@ -325,16 +328,16 @@ include("docs/Docs.jl")
 using .Docs
 using .Markdown
 
+# threads
+include("threads.jl")
+include("threadcall.jl")
+
 # deprecated functions
 include("deprecated.jl")
 
 # Some basic documentation
 include("docs/helpdb.jl")
 include("docs/basedocs.jl")
-
-# threads
-include("threads.jl")
-include("threadcall.jl")
 
 function __init__()
     # Base library init

@@ -1,8 +1,8 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-using Base.Intrinsics: llvmcall
+using Core.Intrinsics: llvmcall
 
-import Base: setindex!, getindex
+import Base: setindex!, getindex, unsafe_convert
 
 export
     Atomic,

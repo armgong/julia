@@ -151,8 +151,8 @@ function show(io::IO, x::DataType)
     if (!isempty(x.parameters) || x.name === Tuple.name) && x !== Tuple
         print(io, '{')
         n = length(x.parameters)
-        for i = 1:n
-            show_type_parameter(io, x.parameters[i])
+        for (i, p) in enumerate(x.parameters)
+            show_type_parameter(io, p)
             i < n && print(io, ',')
         end
         print(io, '}')
@@ -408,7 +408,7 @@ function show_expr_type(io::IO, ty, emph)
     elseif is(ty, IntrinsicFunction)
         print(io, "::I")
     else
-        if emph && !isleaftype(ty)
+        if emph && (!isleaftype(ty) || ty == Box)
             emphasize(io, "::$ty")
         else
             print(io, "::$ty")
@@ -572,7 +572,7 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     # list (i.e. "(1,2,3)" or "[1,2,3]")
     elseif haskey(expr_parens, head)               # :tuple/:vcat/:cell1d
         op, cl = expr_parens[head]
-        if head === :vcat && !isempty(args) && is_expr(args[1], :row)
+        if head === :vcat
             sep = ";"
         elseif head === :hcat || head === :row
             sep = " "
@@ -581,7 +581,9 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         end
         head !== :row && print(io, op)
         show_list(io, args, sep, indent)
-        if is(head, :tuple) && nargs == 1; print(io, ','); end
+        if (head === :tuple || head === :vcat) && nargs == 1
+            print(io, sep)
+        end
         head !== :row && print(io, cl)
 
     # function call

@@ -315,9 +315,22 @@ end
 #test methodshow.jl functions
 @test Base.inbase(Base)
 @test Base.inbase(LinAlg)
+@test !Base.inbase(Core)
 
-@test contains(sprint(io -> writemime(io,"text/plain",methods(Base.inbase))),"inbase(m::Module)")
-@test contains(sprint(io -> writemime(io,"text/html",methods(Base.inbase))),"inbase(m::<b>Module</b>)")
+let repr = sprint(io -> writemime(io,"text/plain", methods(Base.inbase)))
+    @test contains(repr, "inbase(m::Module)")
+end
+let repr = sprint(io -> writemime(io,"text/html", methods(Base.inbase)))
+    @test contains(repr, "inbase(m::<b>Module</b>)")
+end
+
+f5971(x, y...; z=1, w...) = nothing
+let repr = sprint(io -> writemime(io,"text/plain", methods(f5971)))
+    @test contains(repr, "f5971(x, y...; z)")
+end
+let repr = sprint(io -> writemime(io,"text/html", methods(f5971)))
+    @test contains(repr, "f5971(x, y...; <i>z</i>)")
+end
 
 if isempty(Base.GIT_VERSION_INFO.commit)
     @test contains(Base.url(methods(eigs).defs),"https://github.com/JuliaLang/julia/tree/v$VERSION/base/linalg/arnoldi.jl#L")
@@ -379,3 +392,9 @@ A = reshape(1:16,4,4)
 @test replstr(Tridiagonal(diag(A,-1),diag(A),diag(A,+1))) == "4x4 Tridiagonal{$Int}:\n 1  5   ⋅   ⋅\n 2  6  10   ⋅\n ⋅  7  11  15\n ⋅  ⋅  12  16"
 @test replstr(UpperTriangular(A)) == "4x4 UpperTriangular{$Int,Array{$Int,2}}:\n 1  5   9  13\n ⋅  6  10  14\n ⋅  ⋅  11  15\n ⋅  ⋅   ⋅  16"
 @test replstr(LowerTriangular(A)) == "4x4 LowerTriangular{$Int,Array{$Int,2}}:\n 1  ⋅   ⋅   ⋅\n 2  6   ⋅   ⋅\n 3  7  11   ⋅\n 4  8  12  16"
+
+# Issue #15525, printing of vcat
+@test sprint(show, :([a;])) == ":([a;])"
+@test sprint(show, :([a;b])) == ":([a;b])"
+@test_repr "[a;]"
+@test_repr "[a;b]"

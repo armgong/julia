@@ -22,9 +22,9 @@ let
                        ("5.≥x", "5.>=x"),
                        ("5.≤x", "5.<=x")]
         ex1 = parse(ex1); ex2 = parse(ex2)
-        @test ex1.head === :comparison && (ex1.head === ex2.head)
-        @test ex1.args[1] === 5 && ex2.args[1] === 5
-        @test is(eval(Main, ex1.args[2]), eval(Main, ex2.args[2]))
+        @test ex1.head === :call && (ex1.head === ex2.head)
+        @test ex1.args[2] === 5 && ex2.args[2] === 5
+        @test is(eval(Main, ex1.args[1]), eval(Main, ex2.args[1]))
         @test ex1.args[3] === :x && (ex1.args[3] === ex2.args[3])
     end
 end
@@ -291,7 +291,7 @@ for T in (UInt8,UInt16,UInt32,UInt64)
     @test_throws OverflowError parse(T,string(big(typemax(T))+1))
 end
 
-@test parse("1 == 2|>3") == Expr(:comparison, 1, :(==), Expr(:call, :(|>), 2, 3))
+@test parse("1 == 2|>3") == Expr(:call, :(==), 1, Expr(:call, :(|>), 2, 3))
 
 # issue #12501 and pr #12502
 parse("""
@@ -365,3 +365,34 @@ let a⊂b = reduce(&, x ∈ b for x in a) && length(b)>length(a)
     @test !([1,2] ⊂ [1,3,4])
     @test !([1,2] ⊂ [1,2])
 end
+
+# issue #9503
+@test parse("x<:y") == Expr(:(<:), :x, :y)
+@test parse("x>:y") == Expr(:(>:), :x, :y)
+@test parse("x<:y<:z").head === :comparison
+@test parse("x>:y<:z").head === :comparison
+
+# issue #11169
+uncalled(x) = @test false
+fret() = uncalled(return true)
+@test fret()
+
+# issue #9617
+let p = 15
+    @test 2p+1 == 31  # not a hex float literal
+end
+
+# issue #15597
+function test_parseerror(str, msg)
+    try
+        parse(str)
+        @test false
+    catch e
+        @test isa(e,ParseError) && e.msg == msg
+    end
+end
+test_parseerror("0x", "invalid numeric constant \"0x\"")
+test_parseerror("0b", "invalid numeric constant \"0b\"")
+test_parseerror("0o", "invalid numeric constant \"0o\"")
+test_parseerror("0x0.1", "hex float literal must contain \"p\" or \"P\"")
+test_parseerror("0x1.0p", "invalid numeric constant \"0x1.0\"")
