@@ -81,6 +81,8 @@ importall .Rounding
 include("float.jl")
 include("complex.jl")
 include("rational.jl")
+include("multinverses.jl")
+using .MultiplicativeInverses
 include("abstractarraymath.jl")
 include("arraymath.jl")
 
@@ -123,6 +125,7 @@ include("unicode.jl")
 include("parse.jl")
 include("shell.jl")
 include("regex.jl")
+include("show.jl")
 include("base64.jl")
 importall .Base64
 
@@ -137,10 +140,13 @@ include("intfuncs.jl")
 # nullable types
 include("nullable.jl")
 
-# I/O
+# Scheduling
+include("libuv.jl")
+include("event.jl")
 include("task.jl")
 include("lock.jl")
-include("show.jl")
+
+# I/O
 include("stream.jl")
 include("socket.jl")
 include("filesystem.jl")
@@ -322,16 +328,16 @@ include("docs/Docs.jl")
 using .Docs
 using .Markdown
 
+# threads
+include("threads.jl")
+include("threadcall.jl")
+
 # deprecated functions
 include("deprecated.jl")
 
 # Some basic documentation
 include("docs/helpdb.jl")
 include("docs/basedocs.jl")
-
-# threads
-include("threads.jl")
-include("threadcall.jl")
 
 function __init__()
     # Base library init

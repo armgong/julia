@@ -1464,7 +1464,7 @@ let A = zeros(Int, 2, 2), B = zeros(Float64, 2, 2)
 end
 
 # issue #14482
-@inferred Base.map_to!(Int8, 1, 1, Int8[0], Int[0])
+@inferred map(Int8, Int[0])
 
 # make sure @inbounds isn't used too much
 type OOB_Functor{T}; a::T; end
@@ -1472,3 +1472,15 @@ type OOB_Functor{T}; a::T; end
 let f = OOB_Functor([1,2])
     @test_throws BoundsError map(f, [1,2,3,4,5])
 end
+
+
+# issue 15654
+@test cumprod([5], 2) == [5]
+@test cumprod([1 2; 3 4], 3) == [1 2; 3 4]
+@test cumprod([1 2; 3 4], 1) == [1 2; 3 8]
+@test cumprod([1 2; 3 4], 2) == [1 2; 3 12]
+
+@test cumsum([5], 2) == [5]
+@test cumsum([1 2; 3 4], 1) == [1 2; 4 6]
+@test cumsum([1 2; 3 4], 2) == [1 3; 3 7]
+@test cumsum([1 2; 3 4], 3) == [1 2; 3 4]

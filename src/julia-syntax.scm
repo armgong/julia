@@ -3046,15 +3046,19 @@ f(x) = yt(x)
                (if m
                    (emit `(label ,m))
                    (put! label-map (cadr e) (make&mark-label)))
-               (if tail (emit-return '(null)))))
+               (if tail
+                   (emit-return '(null))
+                   (if value (error "misplaced label")))))
             ((symbolicgoto)
              (let* ((m (get label-map (cadr e) #f))
                     (m (or m (let ((l (make-label)))
                                (put! label-map (cadr e) l)
                                l))))
+               (emit `(null))  ;; save space for `leave` that might be needed
                (emit `(goto ,m))
                (set! handler-goto-fixups
-                     (cons (list code handler-level (cadr e)) handler-goto-fixups))))
+                     (cons (list code handler-level (cadr e)) handler-goto-fixups))
+               '(null)))
 
             ((type_goto)
              (let ((m (get label-map (cadr e) #f)))
