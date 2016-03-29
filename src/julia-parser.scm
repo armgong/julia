@@ -227,6 +227,9 @@
              (error (string "overflow in numeric constant \"" s "\""))
              ans))))
 
+(define (numchk n s)
+  (or n (error (string "invalid numeric constant \"" s "\""))))
+
 (define (read-number port leadingdot neg)
   (let ((str  (open-output-string))
         (pred char-numeric?)
@@ -317,11 +320,11 @@
                    s)
                r is-float32-literal)))
       ;; n is #f for integers > typemax(UInt64)
-      (cond (is-hex-float-literal (double n))
+      (cond (is-hex-float-literal (numchk n s) (double n))
             ((eq? pred char-hex?) (fix-uint-neg neg (sized-uint-literal n s 4)))
             ((eq? pred char-oct?) (fix-uint-neg neg (sized-uint-oct-literal n s)))
             ((eq? pred char-bin?) (fix-uint-neg neg (sized-uint-literal n s 1)))
-            (is-float32-literal   (float n))
+            (is-float32-literal   (numchk n s) (float n))
             (n (if (and (integer? n) (> n 9223372036854775807))
                    `(macrocall @int128_str ,s)
                    n))
@@ -338,10 +341,10 @@
 (define (sized-uint-literal n s b)
   (let* ((i (if (eqv? (string.char s 0) #\-) 3 2))
          (l (* (- (length s) i) b)))
-    (cond ((<= l 8)   (uint8  n))
-          ((<= l 16)  (uint16 n))
-          ((<= l 32)  (uint32 n))
-          ((<= l 64)  (uint64 n))
+    (cond ((<= l 8)   (numchk n s) (uint8  n))
+          ((<= l 16)  (numchk n s) (uint16 n))
+          ((<= l 32)  (numchk n s) (uint32 n))
+          ((<= l 64)  (numchk n s) (uint64 n))
           ((<= l 128) `(macrocall @uint128_str ,s))
           (else       (error "Hex or binary literal too large for UInt128")))))
 
@@ -353,9 +356,10 @@
                 ((< n 65536)      (uint16 n))
                 ((< n 4294967296) (uint32 n))
                 (else             (uint64 n)))
-          (if (oct-within-uint128? s)
-              `(macrocall @uint128_str ,s)
-              (error "Octal literal too large for UInt128")))))
+          (begin (if (equal? s "0o") (numchk n s))
+                 (if (oct-within-uint128? s)
+                     `(macrocall @uint128_str ,s)
+                     (error "Octal literal too large for UInt128"))))))
 
 (define (strip-leading-0s s)
   (define (loop i)
@@ -780,12 +784,21 @@
   (let loop ((ex (parse-pipes s))
              (first #t))
     (let ((t (peek-token s)))
-      (if (not (is-prec-comparison? t))
-          ex
-          (begin (take-token s)
-                 (if first
-                     (loop (list 'comparison ex t (parse-pipes s)) #f)
-                     (loop (append ex (list t (parse-pipes s))) #f)))))))
+      (cond ((is-prec-comparison? t)
+             (begin (take-token s)
+                    (if first
+                        (loop (list 'comparison ex t (parse-pipes s)) #f)
+                        (loop (append ex (list t (parse-pipes s))) #f))))
+            (first ex)
+            ((length= ex 4)
+             ;; only a single comparison; special chained syntax not required
+             (let ((op   (caddr ex))
+                   (arg1 (cadr ex))
+                   (arg2 (cadddr ex)))
+               (if (or (eq? op '|<:|) (eq? op '|>:|))
+                   `(,op ,arg1 ,arg2)
+                   `(call ,op ,arg1 ,arg2))))
+            (else ex)))))
 
 (define closing-token?
   (let ((closer? (Set '(else elseif catch finally #\, #\) #\] #\} #\;))))
@@ -904,13 +917,6 @@
            `(-> ,ex (block ,lno ,(parse-eq* s)))))
         (else
          ex)))))
-
-;; convert (comparison a <: b) to (<: a b)
-(define (subtype-syntax e)
-  (if (and (pair? e) (eq? (car e) 'comparison)
-           (length= e 4) (eq? (caddr e) '|<:|))
-      `(<: ,(cadr e) ,(cadddr e))
-      e))
 
 (define (parse-unary-prefix s)
   (let ((op (peek-token s)))
@@ -1031,8 +1037,7 @@
                                      (string (deparse ex) " " (deparse t))
                                      (string (deparse ex) (deparse t))))
              (take-token s)
-             (loop (list* 'curly ex
-                          (map subtype-syntax (parse-arglist s #\} )))))
+             (loop (list* 'curly ex (parse-arglist s #\} ))))
             ((#\")
              (if (and (symbol? ex) (not (operator? ex))
                       (not (ts:space? s)))
@@ -1066,7 +1071,7 @@
                           " expected \"end\", got \"" t "\""))))))
 
 (define (parse-subtype-spec s)
-  (subtype-syntax (parse-comparison s)))
+  (parse-comparison s))
 
 ;; parse expressions or blocks introduced by syntactic reserved words
 (define (parse-resword s word)
@@ -1399,14 +1404,20 @@
 
 ;; as above, but allows both "i=r" and "i in r"
 (define (parse-iteration-spec s)
-  (let ((r (parse-eq* s)))
-    (cond ((and (pair? r) (eq? (car r) '=))  r)
-          ((eq? r ':)  r)
-          ((and (length= r 4) (eq? (car r) 'comparison)
-                (or (eq? (caddr r) 'in) (eq? (caddr r) '∈)))
-           `(= ,(cadr r) ,(cadddr r)))
-          (else
-           (error "invalid iteration specification")))))
+  (let* ((lhs (parse-pipes s))
+         (t   (peek-token s)))
+    (cond ((memq t '(= in ∈))
+           (take-token s)
+           (let* ((rhs (parse-pipes s))
+                  (t   (peek-token s)))
+             #;(if (not (or (closing-token? t) (newline? t)))
+                 ;; should be: (error "invalid iteration specification")
+                 (syntax-deprecation s (string "for " (deparse `(= ,lhs ,rhs)) " " t)
+                                     (string "for " (deparse `(= ,lhs ,rhs)) "; " t)))
+             `(= ,lhs ,rhs)))
+          ((and (eq? lhs ':) (closing-token? t))
+           ':)
+          (else (error "invalid iteration specification")))))
 
 (define (parse-comma-separated-iters s)
   (let loop ((ranges '()))
