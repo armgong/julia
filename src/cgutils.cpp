@@ -10,9 +10,8 @@ static Instruction *tbaa_decorate(MDNode *md, Instruction *load_or_store)
     return load_or_store;
 }
 
-static GlobalVariable *prepare_global(GlobalVariable *G)
+static GlobalVariable *prepare_global(GlobalVariable *G, Module *M)
 {
-    Module *M = jl_builderModule;
     GlobalValue *local = M->getNamedValue(G->getName());
     if (!local) {
         local = global_proto(G, M);
@@ -62,11 +61,7 @@ static Value *stringConstPtr(const std::string &txt)
                                     ssno.str());
             gv->setUnnamedAddr(true);
             pooledval->second = gv;
-#if defined(USE_MCJIT) || defined(USE_ORCJIT)
-            jl_ExecutionEngine->addGlobalMapping(gv->getName(), (uintptr_t)pooledtxt.data());
-#else
-            jl_ExecutionEngine->addGlobalMapping(gv, (void*)pooledtxt.data());
-#endif
+            jl_ExecutionEngine->addGlobalMapping(gv, (void*)(uintptr_t)pooledtxt.data());
         }
 
         GlobalVariable *v = prepare_global(pooledval->second);
@@ -798,7 +793,7 @@ static jl_cgval_t typed_load(Value *ptr, Value *idx_0based, jl_value_t *jltype,
 static void typed_store(Value *ptr, Value *idx_0based, const jl_cgval_t &rhs,
                         jl_value_t *jltype, jl_codectx_t *ctx, MDNode *tbaa,
                         Value *parent,  // for the write barrier, NULL if no barrier needed
-                        size_t alignment = 0)
+                        size_t alignment = 0, bool root_box = true) // if the value to store needs a box, should we root it ?
 {
     Type *elty = julia_type_to_llvm(jltype);
     assert(elty != NULL);
@@ -812,7 +807,7 @@ static void typed_store(Value *ptr, Value *idx_0based, const jl_cgval_t &rhs,
         r = emit_unbox(elty, rhs, jltype);
     }
     else {
-        r = boxed(rhs, ctx);
+        r = boxed(rhs, ctx, root_box);
         if (parent != NULL) emit_write_barrier(ctx, parent, r);
     }
     Value *data;
