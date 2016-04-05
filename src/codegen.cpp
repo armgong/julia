@@ -262,6 +262,7 @@ static Type *T_pppint8;
 static Type *T_void;
 
 // type-based alias analysis nodes.  Indentation of comments indicates hierarchy.
+static MDNode *tbaa_gcframe;        // GC frame
 static MDNode *tbaa_user;           // User data that is mutable
 static MDNode *tbaa_immut;          // User data inside a heap-allocated immutable
 static MDNode *tbaa_value;          // Julia value
@@ -337,6 +338,8 @@ static GlobalVariable *jltls_states_var;
 // Imaging mode only
 static GlobalVariable *jltls_states_func_ptr = NULL;
 static size_t jltls_states_func_idx = 0;
+static GlobalVariable *jl_gc_signal_page_ptr = NULL;
+static size_t jl_gc_signal_page_idx = 0;
 #endif
 
 // important functions
@@ -567,6 +570,9 @@ typedef struct {
     std::vector<bool> inbounds;
 
     CallInst *ptlsStates;
+#ifdef JULIA_ENABLE_THREADING
+    Value *signalPage;
+#endif
 
     llvm::DIBuilder *dbuilder;
     bool debug_enabled;
@@ -598,7 +604,8 @@ static jl_cgval_t emit_checked_var(Value *bp, jl_sym_t *name, jl_codectx_t *ctx,
 static Value *emit_condition(jl_value_t *cond, const std::string &msg, jl_codectx_t *ctx);
 static void allocate_gc_frame(BasicBlock *b0, jl_codectx_t *ctx);
 static void jl_finalize_module(std::unique_ptr<Module> m);
-static GlobalVariable *prepare_global(GlobalVariable *G);
+static GlobalVariable *prepare_global(GlobalVariable *G, Module *M = jl_builderModule);
+
 
 // --- convenience functions for tagging llvm values with julia types ---
 
@@ -939,15 +946,6 @@ static void jl_finalize_module(std::unique_ptr<Module> uniquem)
     Module *m = uniquem.release(); // unique_ptr won't be able track what we do with this (the invariant is recovered by jl_finalize_function)
     finalize_gc_frame(m);
 #if !defined(USE_ORCJIT)
-#ifdef LLVM33
-#ifdef JL_DEBUG_BUILD
-    if (verifyModule(*m, PrintMessageAction)) {
-        m->dump();
-        gc_debug_critical_error();
-        abort();
-    }
-#endif
-#endif
     PM->run(*m);
 #endif
 #ifdef USE_MCJIT
@@ -1135,17 +1133,17 @@ void jl_extern_c(jl_function_t *f, jl_value_t *rt, jl_value_t *argt, char *name)
     Function *llvmf = jl_cfunction_object(f, rt, (jl_tupletype_t*)argt);
     if (llvmf) {
         // force eager emission of the function (llvm 3.3 gets confused otherwise and tries to do recursive compilation)
-        uint64_t Addr = getAddressForFunction(llvmf); (void)Addr;
-        // emit the function pointer and set up an alias in the execution engine
+        uint64_t Addr = getAddressForFunction(llvmf);
+
 #if defined(USE_ORCJIT) || defined(USE_MCJIT)
-        jl_ExecutionEngine->addGlobalMapping(name, Addr);
         if (imaging_mode)
              // in the old JIT, the shadow_module aliases the engine_module,
-             // otherwise, adding it as a global mapping is needed unconditionally
+             // otherwise, just point the alias to the declaration
 #endif
-        {
             llvmf = cast<Function>(shadow_output->getNamedValue(llvmf->getName()));
-            // in imaging_mode, also need to add the alias to the shadow_module
+
+        // make the alias to the shadow_module
+        GlobalAlias *GA =
 #if defined(LLVM38)
             GlobalAlias::create(llvmf->getType()->getElementType(), llvmf->getType()->getAddressSpace(),
                                 GlobalValue::ExternalLinkage, name, llvmf, shadow_output);
@@ -1155,7 +1153,13 @@ void jl_extern_c(jl_function_t *f, jl_value_t *rt, jl_value_t *argt, char *name)
 #else
             new GlobalAlias(llvmf->getType(), GlobalValue::ExternalLinkage, name, llvmf, shadow_output);
 #endif
-        }
+
+#if defined(USE_ORCJIT) || defined(USE_MCJIT)
+        // make the alias name is valid for the current session
+        jl_ExecutionEngine->addGlobalMapping(GA, (void*)(uintptr_t)Addr);
+#else
+        (void)GA; (void)Addr;
+#endif
     }
 }
 
@@ -1385,8 +1389,7 @@ const jl_value_t *jl_dump_function_asm(void *f, int raw_mc)
 #ifdef USE_MCJIT
     // Look in the system image as well
     if (fptr == 0)
-        fptr = (uintptr_t)jl_ExecutionEngine->getPointerToGlobalIfAvailable(
-            jl_ExecutionEngine->getMangledName(llvmf));
+        fptr = (uintptr_t)jl_ExecutionEngine->getPointerToGlobalIfAvailable(llvmf);
     llvm::DIContext *context = NULL;
     llvm::DIContext *&objcontext = context;
 #else
@@ -1693,6 +1696,11 @@ jl_value_t *jl_static_eval(jl_value_t *ex, void *ctx_, jl_module_t *mod,
                     return result;
                 }
             }
+        }
+        else if (e->head == static_parameter_sym) {
+            size_t idx = jl_unbox_long(jl_exprarg(e,0));
+            if (linfo && idx <= jl_svec_len(linfo->sparam_vals))
+                return jl_svecref(linfo->sparam_vals, idx-1);
         }
         return NULL;
     }
@@ -2427,7 +2435,7 @@ static bool emit_builtin_call(jl_cgval_t *ret, jl_value_t *f, jl_value_t **args,
                         emit_expr(args[2], ctx);
                     }
                     else {
-                        jl_cgval_t v = (ety == (jl_value_t*)jl_any_type ? emit_expr(args[2], ctx) : emit_expr(args[2], ctx));
+                        jl_cgval_t v = emit_expr(args[2], ctx);
                         PHINode *data_owner = NULL; // owner object against which the write barrier must check
                         if (isboxed) { // if not boxed we don't need a write barrier
                             assert(ary.isboxed);
@@ -2469,7 +2477,8 @@ static bool emit_builtin_call(jl_cgval_t *ret, jl_value_t *f, jl_value_t **args,
                             data_owner->addIncoming(own_ptr, ownedBB);
                         }
                         typed_store(emit_arrayptr(ary,args[1],ctx), idx, v,
-                                    ety, ctx, tbaa_user, data_owner);
+                                    ety, ctx, tbaa_user, data_owner, 0,
+                                    false); // don't need to root the box if we had to make one since it's being stored in the array immediatly
                     }
                     *ret = ary;
                     JL_GC_POP();
@@ -2967,11 +2976,10 @@ static jl_cgval_t emit_local(int sl, jl_codectx_t *ctx)
     }
     if (vi.memloc) {
         Value *bp = vi.memloc;
-        if (vi.isArgument ||  // arguments are always defined
-            (!vi.isAssigned && !vi.usedUndef)) {
-            // if no undef usage was found by inference, and it's either not assigned or not in env: it must be always defined
+        if (vi.isArgument || !vi.usedUndef) { // arguments are always defined
             Instruction *v = builder.CreateLoad(bp, vi.isVolatile);
-            return mark_julia_type(v, true, vi.value.typ, ctx);
+            return mark_julia_type(v, true, vi.value.typ, ctx,
+                                   vi.isAssigned); // means it's an argument so don't need an additional root
         }
         else {
             jl_cgval_t v = emit_checked_var(bp, sym, ctx, vi.isVolatile);
@@ -3490,9 +3498,16 @@ static void allocate_gc_frame(BasicBlock *b0, jl_codectx_t *ctx)
 {
     // allocate a placeholder gc instruction
     ctx->ptlsStates = builder.CreateCall(prepare_call(jltls_states_func));
+#ifdef JULIA_ENABLE_THREADING
+    if (imaging_mode) {
+        ctx->signalPage =
+            tbaa_decorate(tbaa_const, builder.CreateLoad(prepare_global(jl_gc_signal_page_ptr)));
+    }
+#endif
 }
 
-void jl_codegen_finalize_temp_arg(CallInst *ptlsStates, Type *T_pjlvalue);
+void jl_codegen_finalize_temp_arg(CallInst *ptlsStates, Type *T_pjlvalue,
+                                  MDNode *tbaa_gcframe);
 static void finalize_gc_frame(Function *F)
 {
     Module *M = F->getParent();
@@ -3514,37 +3529,17 @@ static void finalize_gc_frame(Function *F)
     if (!ptlsStates)
         return;
 
-    jl_codegen_finalize_temp_arg(ptlsStates, T_pjlvalue);
-
-    GlobalVariable *oldGV = NULL;
-#ifdef JULIA_ENABLE_THREADING
-    if (imaging_mode)
-        oldGV = jltls_states_func_ptr;
-#else
-    oldGV = jltls_states_var;
-#endif
-
-    GlobalVariable *GV = NULL;
-    if (oldGV) {
-        GV = M->getGlobalVariable(oldGV->getName(), true /* AllowLocal */);
-        if (GV == NULL) {
-            GV = new GlobalVariable(*M, oldGV->getType()->getElementType(),
-                                    oldGV->isConstant(),
-                                    GlobalValue::ExternalLinkage, NULL,
-                                    oldGV->getName());
-            GV->copyAttributesFrom(oldGV);
-        }
-    }
+    jl_codegen_finalize_temp_arg(ptlsStates, T_pjlvalue, tbaa_gcframe);
 
 #ifdef JULIA_ENABLE_THREADING
-    if (GV) {
+    if (imaging_mode) {
+        GlobalVariable *GV = prepare_global(jltls_states_func_ptr, M);
         Value *getter = tbaa_decorate(tbaa_const,
                                       new LoadInst(GV, "", ptlsStates));
         ptlsStates->setCalledFunction(getter);
     }
-    ptlsStates->setAttributes(jltls_states_func->getAttributes());
 #else
-    ptlsStates->replaceAllUsesWith(GV);
+    ptlsStates->replaceAllUsesWith(prepare_global(jltls_states_var, M));
     ptlsStates->eraseFromParent();
 #endif
 }
@@ -4900,6 +4895,7 @@ extern "C" void jl_fptr_to_llvm(jl_fptr_t fptr, jl_lambda_info_t *lam, int specs
 static void init_julia_llvm_env(Module *m)
 {
     MDNode *tbaa_root = mbuilder->createTBAARoot("jtbaa");
+    tbaa_gcframe = tbaa_make_child("jtbaa_gcframe",tbaa_root);
     tbaa_user = tbaa_make_child("jtbaa_user",tbaa_root);
     tbaa_value = tbaa_make_child("jtbaa_value",tbaa_root);
     tbaa_immut = tbaa_make_child("jtbaa_immut",tbaa_root);
@@ -5119,29 +5115,15 @@ static void init_julia_llvm_env(Module *m)
     add_named_global(jltls_states_func, jl_get_ptls_states_getter());
     if (imaging_mode) {
         PointerType *pfunctype = jltls_states_func->getFunctionType()->getPointerTo();
-        // This is **NOT** a external variable or a normal global variable
-        // This is a special internal global slot with a special index
-        // in the global variable table.
         jltls_states_func_ptr =
-            new GlobalVariable(*m, pfunctype,
-                               false, GlobalVariable::InternalLinkage,
-                               ConstantPointerNull::get(pfunctype),
-                               "jl_get_ptls_states.ptr");
-        addComdat(jltls_states_func_ptr);
-        // make the pointer valid for this session
-#if defined(USE_MCJIT) || defined(USE_ORCJIT)
-        auto p = new uintptr_t(0);
-        jl_ExecutionEngine->addGlobalMapping(jltls_states_func_ptr->getName(),
-                                             (uintptr_t)p);
-#else
-        uintptr_t *p = (uintptr_t*)jl_ExecutionEngine->getPointerToGlobal(jltls_states_func_ptr);
-#endif
-        *p = (uintptr_t)jl_get_ptls_states_getter();
-        jl_sysimg_gvars.push_back(ConstantExpr::getBitCast(jltls_states_func_ptr,
-                                                           T_psize));
-        jltls_states_func_idx = jl_sysimg_gvars.size();
+            jl_emit_sysimg_slot(m, pfunctype, "jl_get_ptls_states.ptr",
+                                (uintptr_t)jl_get_ptls_states_getter(),
+                                jltls_states_func_idx);
+        jl_gc_signal_page_ptr =
+            jl_emit_sysimg_slot(m, T_pint8, "jl_gc_signal_page.ptr",
+                                (uintptr_t)jl_gc_signal_page,
+                                jl_gc_signal_page_idx);
     }
-
 #endif
 
     std::vector<Type*> args1(0);
