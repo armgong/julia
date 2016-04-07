@@ -19,8 +19,14 @@ isless(x::AbstractFloat, y::AbstractFloat) = (!isnan(x) & isnan(y)) | (signbit(x
 isless(x::Real,          y::AbstractFloat) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
 isless(x::AbstractFloat, y::Real         ) = (!isnan(x) & isnan(y)) | (signbit(x) & !signbit(y)) | (x < y)
 
-=={T}(::Type{T}, ::Type{T}) = true  # encourage more specialization on types (see #11425)
-==(T::Type, S::Type)        = typeseq(T, S)
+function ==(T::Type, S::Type)
+    @_pure_meta
+    typeseq(T, S)
+end
+function !=(T::Type, S::Type)
+    @_pure_meta
+    !(T == S)
+end
 
 ## comparison fallbacks ##
 
@@ -473,7 +479,7 @@ end
 macro vectorize_1arg(S,f)
     S = esc(S); f = esc(f); T = esc(:T)
     quote
-        ($f){$T<:$S}(x::AbstractArray{$T,1}) = [ ($f)(x[i]) for i=1:length(x) ]
+        ($f){$T<:$S}(x::AbstractArray{$T,1}) = [ ($f)(elem) for elem in x ]
         ($f){$T<:$S}(x::AbstractArray{$T,2}) =
             [ ($f)(x[i,j]) for i=1:size(x,1), j=1:size(x,2) ]
         ($f){$T<:$S}(x::AbstractArray{$T}) =
@@ -504,17 +510,17 @@ end
 
 function ifelse(c::AbstractArray{Bool}, x::AbstractArray, y::AbstractArray)
     shp = promote_shape(size(c), promote_shape(size(x), size(y)))
-    reshape([ifelse(c[i], x[i], y[i]) for i = 1 : length(c)], shp)
+    reshape([ifelse(c_elem, x_elem, y_elem) for (c_elem, x_elem, y_elem) in zip(c, x, y)], shp)
 end
 
 function ifelse(c::AbstractArray{Bool}, x::AbstractArray, y)
     shp = promote_shape(size(c), size(c))
-    reshape([ifelse(c[i], x[i], y) for i = 1 : length(c)], shp)
+    reshape([ifelse(c_elem, x_elem, y) for (c_elem, x_elem) in zip(c, x)], shp)
 end
 
 function ifelse(c::AbstractArray{Bool}, x, y::AbstractArray)
     shp = promote_shape(size(c), size(y))
-    reshape([ifelse(c[i], x, y[i]) for i = 1 : length(c)], shp)
+    reshape([ifelse(c_elem, x, y_elem) for (c_elem, y_elem) in zip(c, y)], shp)
 end
 
 # Pair
