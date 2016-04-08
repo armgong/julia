@@ -866,8 +866,11 @@ let
    a = C_NULL
    b = C_NULL + 1
    c = C_NULL - 1
+   d = 1 + C_NULL
+   @test eltype(a) == Void
 
    @test a != b != c
+   @test b == d
    @test UInt(a) == 0
    @test UInt(b) == 1
    @test UInt(c) == typemax(UInt)
@@ -908,7 +911,7 @@ let
     @test aa == a
     aa = pointer_to_array(pointer(a), UInt16(length(a)))
     @test aa == a
-    @test_throws ErrorException pointer_to_array(pointer(a), -3)
+    @test_throws InexactError pointer_to_array(pointer(a), -3)
 end
 
 immutable FooBar

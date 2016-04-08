@@ -25,6 +25,10 @@
 @test e^2.4 == exp(2.4)
 @test e^(2//3) == exp(2//3)
 
+@test Float16(3.) < pi
+@test pi < Float16(4.)
+@test contains(sprint(show,π),"3.14159")
+
 begin
     x = [0.0, 1.0, 2.0, 3.0, 4.0]
     clamp!(x, 1, 3)
@@ -777,3 +781,6 @@ end
 let A = [1 2; 3 4]; B = [5 6; 7 8]; C = [9 10; 11 12]
     @test muladd(A,B,C) == A*B + C
 end
+
+@test Base.Math.f32(complex(1.0,1.0)) == complex(Float32(1.),Float32(1.))
+@test Base.Math.f16(complex(1.0,1.0)) == complex(Float16(1.),Float16(1.))
