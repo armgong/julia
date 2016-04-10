@@ -16,9 +16,6 @@ print(x::ANY) = show(x)
 println(x::ANY) = ccall(:jl_, Void, (Any,), x) # includes a newline
 print(a::ANY...) = for x=a; print(x); end
 
-# Doc macro shim.
-macro doc(str, def) Expr(:escape, def) end
-
 ## Load essential files and libraries
 include("essentials.jl")
 include("generator.jl")
@@ -42,7 +39,10 @@ include("operators.jl")
 include("pointer.jl")
 const checked_add = +
 const checked_sub = -
-(::Type{T}){T}(arg) = convert(T, arg)::T
+if !isdefined(Main, :Base)
+    # conditional to allow redefining Core.Inference after base exists
+    (::Type{T}){T}(arg) = convert(T, arg)::T
+end
 
 # core array operations
 include("abstractarray.jl")
@@ -63,6 +63,9 @@ include("reduce.jl")
 include("intset.jl")
 include("dict.jl")
 include("iterator.jl")
+
+# core docsystem
+include("docs/core.jl")
 
 # compiler
 include("inference.jl")

@@ -249,3 +249,32 @@ end
     end
 end
 @test functionloc(f15447)[2] > 0
+
+# test jl_get_llvm_fptr. We test functions both in and definitely not in the system image
+definitely_not_in_sysimg() = nothing
+for (f,t) in ((definitely_not_in_sysimg,Tuple{}),
+        (Base.throw_boundserror,Tuple{UnitRange{Int64},Int64}))
+    t = Base.tt_cons(Core.Typeof(f), Base.to_tuple_type(t))
+    llvmf = ccall(:jl_get_llvmf, Ptr{Void}, (Any, Any, Bool, Bool), f, t, false, true)
+    @test llvmf != C_NULL
+    @test ccall(:jl_get_llvm_fptr, Ptr{Void}, (Ptr{Void},), llvmf) != C_NULL
+end
+
+module MacroTest
+export @macrotest
+macro macrotest(x::Int, y::Symbol) end
+macro macrotest(x::Int, y::Int)
+    nothing #This is here because of #15280
+end
+end
+
+let
+    using MacroTest
+    a = 1
+    m = getfield(current_module(), Symbol("@macrotest"))
+    @test which(m, Tuple{Int,Symbol})==@which @macrotest 1 a
+    @test which(m, Tuple{Int,Int})==@which @macrotest 1 1
+
+    @test methods(m,Tuple{Int, Int})[1]==@which MacroTest.@macrotest 1 1
+    @test functionloc(@which @macrotest 1 1) == @functionloc @macrotest 1 1
+end

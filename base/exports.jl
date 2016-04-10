@@ -1239,7 +1239,7 @@ export
     display,
     displayable,
     TextDisplay,
-    istext,
+    istextmime,
     MIME,
     @MIME,
     @MIME_str,
@@ -1387,6 +1387,7 @@ export
     # reflection
     @which,
     @edit,
+    @functionloc,
     @less,
     @code_typed,
     @code_warntype,
