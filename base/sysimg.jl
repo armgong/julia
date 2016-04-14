@@ -172,6 +172,8 @@ include("float16.jl")
 include("cartesian.jl")
 using .Cartesian
 include("multidimensional.jl")
+include("permuteddimsarray.jl")
+using .PermutedDimsArrays
 
 include("primes.jl")
 
@@ -236,8 +238,9 @@ importall .Serializer
 include("channels.jl")
 include("multi.jl")
 include("workerpool.jl")
+include("pmap.jl")
 include("managers.jl")
-include("mapiterator.jl")
+include("asyncmap.jl")
 
 # code loading
 include("loading.jl")

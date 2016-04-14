@@ -40,6 +40,8 @@ Language changes
   * Simple 2-argument comparisons like `A < B` are parsed as calls intead of using the
     `:comparison` expression type.
 
+  * The `if` keyword cannot be followed immediately by a line break ([#15763]).
+
 Command-line option changes
 ---------------------------
 
@@ -55,6 +57,12 @@ Breaking changes
   * The information that used to be in the `ast` field of the `LambdaStaticData` type
     is now divided among the fields `code`, `slotnames`, `slottypes`, `slotflags`,
     `gensymtypes`, `rettype`, `nargs`, and `isva` in the `LambdaInfo` type ([#15609]).
+
+  * `pmap` keyword arguments `err_retry=true` and `err_stop=false` are deprecated.
+    `pmap` no longer retries or returns `Exception` objects in the result collection.
+    `pmap(retry(f), c)` or `pmap(@catch(f), c)` can be used instead.
+    ([#15409](https://github.com/JuliaLang/julia/pull/15409#discussion_r57494701)).
+
 
 Library improvements
 --------------------
@@ -184,3 +192,4 @@ Deprecated or removed
 [#15258]: https://github.com/JuliaLang/julia/issues/15258
 [#15550]: https://github.com/JuliaLang/julia/issues/15550
 [#15609]: https://github.com/JuliaLang/julia/issues/15609
+[#15763]: https://github.com/JuliaLang/julia/issues/15763
