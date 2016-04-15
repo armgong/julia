@@ -80,11 +80,32 @@ show(iob, expand(:(x->x^2)))
 str = takebuf_string(iob)
 @test isempty(search(str, tag))
 
-# issue #13568
+module ImportIntrinsics15819
+# Make sure changing the lookup path of an intrinsic doesn't break
+# the heuristic for type instability warning.
+# This can be any intrinsic that needs boxing
+import Core.Intrinsics: sqrt_llvm, box, unbox
+# Use import
+sqrt15819(x::Float64) = box(Float64, sqrt_llvm(unbox(Float64, x)))
+# Use fully qualified name
+sqrt15819(x::Float32) = box(Float32, Core.Intrinsics.sqrt_llvm(unbox(Float32, x)))
+end
+foo11122(x) = @fastmath x - 1.0
+
+# issue #11122, #13568 and #15819
 @test !warntype_hastag(+, Tuple{Int,Int}, tag)
 @test !warntype_hastag(-, Tuple{Int,Int}, tag)
 @test !warntype_hastag(*, Tuple{Int,Int}, tag)
 @test !warntype_hastag(/, Tuple{Int,Int}, tag)
+@test !warntype_hastag(foo11122, Tuple{Float32}, tag)
+@test !warntype_hastag(foo11122, Tuple{Float64}, tag)
+@test !warntype_hastag(foo11122, Tuple{Int}, tag)
+@test !warntype_hastag(sqrt, Tuple{Int}, tag)
+@test !warntype_hastag(sqrt, Tuple{Float64}, tag)
+@test !warntype_hastag(^, Tuple{Float64,Int32}, tag)
+@test !warntype_hastag(^, Tuple{Float32,Int32}, tag)
+@test !warntype_hastag(ImportIntrinsics15819.sqrt15819, Tuple{Float64}, tag)
+@test !warntype_hastag(ImportIntrinsics15819.sqrt15819, Tuple{Float32}, tag)
 
 end
 
@@ -278,3 +299,78 @@ let
     @test methods(m,Tuple{Int, Int})[1]==@which MacroTest.@macrotest 1 1
     @test functionloc(@which @macrotest 1 1) == @functionloc @macrotest 1 1
 end
+
+# issue #15714
+# show variable names for slots and suppress spurious type warnings
+function f15714(array_var15714)
+    for index_var15714 in eachindex(array_var15714)
+        array_var15714[index_var15714] += 0
+    end
+end
+
+function g15714(array_var15714)
+    for index_var15714 in eachindex(array_var15714)
+        array_var15714[index_var15714] += 0
+    end
+    for index_var15714 in eachindex(array_var15714)
+        array_var15714[index_var15714] += 0
+    end
+end
+
+used_dup_var_tested15714 = false
+used_unique_var_tested15714 = false
+function test_typed_ast_printing(f::ANY, types::ANY, must_used_vars)
+    li = code_typed(f, types)[1]
+    dupnames = Set()
+    slotnames = Set()
+    for name in li.slotnames
+        if name in slotnames
+            push!(dupnames, name)
+        else
+            push!(slotnames, name)
+        end
+    end
+    # Make sure must_used_vars are in slotnames
+    for name in must_used_vars
+        @test name in slotnames
+    end
+    for str in (sprint(io->code_warntype(io, f, types)),
+                sprint(io->show(io, li)))
+        for var in must_used_vars
+            @test contains(str, string(var))
+        end
+        @test !contains(str, "Any")
+        @test !contains(str, "ANY")
+        # Check that we are not printing the bare slot numbers
+        for i in 1:length(li.slotnames)
+            name = li.slotnames[i]
+            if name in dupnames
+                @test contains(str, "_$i")
+                if name in must_used_vars
+                    global used_dup_var_tested15714 = true
+                end
+            else
+                @test !contains(str, "_$i")
+                if name in must_used_vars
+                    global used_unique_var_tested15714 = true
+                end
+            end
+        end
+    end
+    # Make sure printing an AST outside LambdaInfo still works.
+    str = sprint(io->show(io, Base.uncompressed_ast(li)))
+    # Check that we are printing the slot numbers when we don't have the context
+    # Use the variable names that we know should be present in the optimized AST
+    for i in 2:length(li.slotnames)
+        name = li.slotnames[i]
+        if name in must_used_vars
+            @test contains(str, "_$i")
+        end
+    end
+end
+test_typed_ast_printing(f15714, Tuple{Vector{Float32}},
+                        [:array_var15714, :index_var15714])
+test_typed_ast_printing(g15714, Tuple{Vector{Float32}},
+                        [:array_var15714, :index_var15714])
+@test used_dup_var_tested15714
+@test used_unique_var_tested15714
