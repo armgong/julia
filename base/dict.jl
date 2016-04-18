@@ -77,12 +77,10 @@ function showdict{K,V}(io::IO, t::Associative{K,V}; compact = false)
             print(io, '(')
             first = true
             n = 0
-            for (k, v) in t
+            for pair in t
                 first || print(io, ',')
                 first = false
-                show(recur_io, k)
-                print(io, "=>")
-                show(recur_io, v)
+                show(recur_io, pair)
                 n+=1
                 limit && n >= 10 && (print(io, "…"); break)
             end
@@ -915,13 +913,13 @@ length(t::WeakKeyDict) = length(t.ht)
 # For these Associative types, it is safe to implement filter!
 # by deleting keys during iteration.
 function filter!(f, d::Union{ObjectIdDict,Dict,WeakKeyDict})
-     for (k,v) in d
+    for (k,v) in d
         if !f(k,v)
             delete!(d,k)
         end
-     end
-     return d
- end
+    end
+    return d
+end
 
 immutable ImmutableDict{K, V} <: Associative{K,V}
     parent::ImmutableDict{K, V}

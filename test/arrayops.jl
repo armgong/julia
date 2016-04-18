@@ -367,6 +367,14 @@ p = permutedims(s, [2,1])
 @test p[1,1]==a[2,2] && p[1,2]==a[3,2]
 @test p[2,1]==a[2,3] && p[2,2]==a[3,3]
 
+# of a non-strided subarray
+a = reshape(1:60, 3, 4, 5)
+s = sub(a,:,[1,2,4],[1,5])
+c = convert(Array, s)
+for p in ([1,2,3], [1,3,2], [2,1,3], [2,3,1], [3,1,2], [3,2,1])
+    @test permutedims(s, p) == permutedims(c, p)
+end
+
 ## ipermutedims ##
 
 tensors = Any[rand(1,2,3,4),rand(2,2,2,2),rand(5,6,5,6),rand(1,1,1,1)]
@@ -601,7 +609,6 @@ let
     @test isequal(c[1,:], cv2)
     @test isequal(c[3,:], cv)
     @test isequal(c[:,4], [2.0,2.0,2.0,2.0]*1000)
-
 end
 
 @test (1:5)[[true,false,true,false,true]] == [1,3,5]
@@ -1484,3 +1491,20 @@ end
 @test cumsum([1 2; 3 4], 1) == [1 2; 4 6]
 @test cumsum([1 2; 3 4], 2) == [1 3; 3 7]
 @test cumsum([1 2; 3 4], 3) == [1 2; 3 4]
+
+module TestNLoops15895
+
+using Base.Cartesian
+using Base.Test
+
+# issue 15894
+function f15894(d)
+    s = zero(eltype(d))
+    @nloops 1 i d begin
+        s += @nref 1 d i
+    end
+    s
+end
+@test f15894(ones(Int, 100)) == 100
+
+end

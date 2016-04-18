@@ -201,7 +201,14 @@ c,r,res = test_complete(s)
 s = "max("
 c, r, res = test_complete(s)
 @test !res
-@test c[1] == string(start(methods(max)))
+@test let found = false
+    Base.visit(methods(max)) do m
+        if !found
+            found = (c[1] == string(m))
+        end
+    end
+    found
+end
 @test r == 1:3
 @test s[r] == "max"
 
@@ -296,6 +303,12 @@ c, r, res = test_complete(s)
 @test !res
 @test length(c) == 1
 @test c[1] == string(methods(CompletionFoo.test4, Tuple{ASCIIString, ASCIIString})[1])
+
+# Test that string escaption is handled correct
+s = """CompletionFoo.test4("\\"","""
+c, r, res = test_complete(s)
+@test !res
+@test length(c) == 2
 
 ########## Test where the current inference logic fails ########
 # Fails due to inferrence fails to determine a concrete type for arg 1

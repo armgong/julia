@@ -34,7 +34,6 @@ function test_code_reflections(tester, freflect)
     test_code_reflection(freflect, muladd, Tuple{Float64, Float64, Float64}, tester)
 end
 
-println(STDERR, "The following 'Returned code...' warnings indicate normal behavior:")
 test_code_reflections(test_ast_reflection, code_lowered)
 test_code_reflections(test_ast_reflection, code_typed)
 test_code_reflections(test_bin_reflection, code_llvm)
@@ -80,11 +79,32 @@ show(iob, expand(:(x->x^2)))
 str = takebuf_string(iob)
 @test isempty(search(str, tag))
 
-# issue #13568
+module ImportIntrinsics15819
+# Make sure changing the lookup path of an intrinsic doesn't break
+# the heuristic for type instability warning.
+# This can be any intrinsic that needs boxing
+import Core.Intrinsics: sqrt_llvm, box, unbox
+# Use import
+sqrt15819(x::Float64) = box(Float64, sqrt_llvm(unbox(Float64, x)))
+# Use fully qualified name
+sqrt15819(x::Float32) = box(Float32, Core.Intrinsics.sqrt_llvm(unbox(Float32, x)))
+end
+foo11122(x) = @fastmath x - 1.0
+
+# issue #11122, #13568 and #15819
 @test !warntype_hastag(+, Tuple{Int,Int}, tag)
 @test !warntype_hastag(-, Tuple{Int,Int}, tag)
 @test !warntype_hastag(*, Tuple{Int,Int}, tag)
 @test !warntype_hastag(/, Tuple{Int,Int}, tag)
+@test !warntype_hastag(foo11122, Tuple{Float32}, tag)
+@test !warntype_hastag(foo11122, Tuple{Float64}, tag)
+@test !warntype_hastag(foo11122, Tuple{Int}, tag)
+@test !warntype_hastag(sqrt, Tuple{Int}, tag)
+@test !warntype_hastag(sqrt, Tuple{Float64}, tag)
+@test !warntype_hastag(^, Tuple{Float64,Int32}, tag)
+@test !warntype_hastag(^, Tuple{Float32,Int32}, tag)
+@test !warntype_hastag(ImportIntrinsics15819.sqrt15819, Tuple{Float64}, tag)
+@test !warntype_hastag(ImportIntrinsics15819.sqrt15819, Tuple{Float32}, tag)
 
 end
 
@@ -193,7 +213,7 @@ const a_value = 1
 end
 
 # issue #13264
-@test isa((@which vcat(1...)), Method)
+@test isa((@which vcat(1...)), TypeMapEntry)
 
 # issue #13464
 let t13464 = "hey there sailor"
@@ -255,7 +275,7 @@ definitely_not_in_sysimg() = nothing
 for (f,t) in ((definitely_not_in_sysimg,Tuple{}),
         (Base.throw_boundserror,Tuple{UnitRange{Int64},Int64}))
     t = Base.tt_cons(Core.Typeof(f), Base.to_tuple_type(t))
-    llvmf = ccall(:jl_get_llvmf, Ptr{Void}, (Any, Any, Bool, Bool), f, t, false, true)
+    llvmf = ccall(:jl_get_llvmf, Ptr{Void}, (Any, Bool, Bool), t, false, true)
     @test llvmf != C_NULL
     @test ccall(:jl_get_llvm_fptr, Ptr{Void}, (Ptr{Void},), llvmf) != C_NULL
 end
@@ -278,3 +298,104 @@ let
     @test methods(m,Tuple{Int, Int})[1]==@which MacroTest.@macrotest 1 1
     @test functionloc(@which @macrotest 1 1) == @functionloc @macrotest 1 1
 end
+
+# issue #15714
+# show variable names for slots and suppress spurious type warnings
+function f15714(array_var15714)
+    for index_var15714 in eachindex(array_var15714)
+        array_var15714[index_var15714] += 0
+    end
+end
+
+function g15714(array_var15714)
+    for index_var15714 in eachindex(array_var15714)
+        array_var15714[index_var15714] += 0
+    end
+    for index_var15714 in eachindex(array_var15714)
+        array_var15714[index_var15714] += 0
+    end
+end
+
+used_dup_var_tested15714 = false
+used_unique_var_tested15714 = false
+function test_typed_ast_printing(f::ANY, types::ANY, must_used_vars)
+    li = code_typed(f, types)[1]
+    dupnames = Set()
+    slotnames = Set()
+    for name in li.slotnames
+        if name in slotnames
+            push!(dupnames, name)
+        else
+            push!(slotnames, name)
+        end
+    end
+    # Make sure must_used_vars are in slotnames
+    for name in must_used_vars
+        @test name in slotnames
+    end
+    for str in (sprint(io->code_warntype(io, f, types)),
+                sprint(io->show(io, li)))
+        for var in must_used_vars
+            @test contains(str, string(var))
+        end
+        @test !contains(str, "Any")
+        @test !contains(str, "ANY")
+        # Check that we are not printing the bare slot numbers
+        for i in 1:length(li.slotnames)
+            name = li.slotnames[i]
+            if name in dupnames
+                @test contains(str, "_$i")
+                if name in must_used_vars
+                    global used_dup_var_tested15714 = true
+                end
+            else
+                @test !contains(str, "_$i")
+                if name in must_used_vars
+                    global used_unique_var_tested15714 = true
+                end
+            end
+        end
+    end
+    # Make sure printing an AST outside LambdaInfo still works.
+    str = sprint(io->show(io, Base.uncompressed_ast(li)))
+    # Check that we are printing the slot numbers when we don't have the context
+    # Use the variable names that we know should be present in the optimized AST
+    for i in 2:length(li.slotnames)
+        name = li.slotnames[i]
+        if name in must_used_vars
+            @test contains(str, "_$i")
+        end
+    end
+end
+test_typed_ast_printing(f15714, Tuple{Vector{Float32}},
+                        [:array_var15714, :index_var15714])
+test_typed_ast_printing(g15714, Tuple{Vector{Float32}},
+                        [:array_var15714, :index_var15714])
+@test used_dup_var_tested15714
+@test used_unique_var_tested15714
+
+# Linfo Tracing test
+tracefoo(x, y) = x+y
+didtrace = false
+tracer(x::Ptr{Void}) = (@test isa(unsafe_pointer_to_objref(x), LambdaInfo); global didtrace = true; nothing)
+ccall(:jl_register_tracer, Void, (Ptr{Void},), cfunction(tracer, Void, (Ptr{Void},)))
+meth = which(tracefoo,Tuple{Any,Any}).func
+ccall(:jl_trace_method, Void, (Any,), meth)
+@test tracefoo(1, 2) == 3
+ccall(:jl_untrace_method, Void, (Any,), meth)
+@test didtrace
+didtrace = false
+@test tracefoo(1.0, 2.0) == 3.0
+@test !didtrace
+ccall(:jl_register_tracer, Void, (Ptr{Void},), C_NULL)
+
+# Method Tracing test
+methtracer(x::Ptr{Void}) = (@test isa(unsafe_pointer_to_objref(x), Method); global didtrace = true; nothing)
+ccall(:jl_register_newmeth_tracer, Void, (Ptr{Void},), cfunction(methtracer, Void, (Ptr{Void},)))
+tracefoo2(x, y) = x*y
+@test didtrace
+didtrace = false
+tracefoo(x::Int64, y::Int64) = x*y
+@test didtrace
+didtrace = false
+ccall(:jl_register_newmeth_tracer, Void, (Ptr{Void},), C_NULL)

@@ -64,7 +64,7 @@ function edit(path::AbstractString, line::Integer=0)
     nothing
 end
 
-function edit(m::Method)
+function edit(m::TypeMapEntry)
     tv, decls, file, line = arg_decl_parts(m)
     edit(string(file), line)
 end
@@ -227,8 +227,9 @@ function code_warntype(io::IO, f, t::ANY)
     emph_io = IOContext(io, :TYPEEMPHASIZE => true)
     for li in code_typed(f, t)
         println(emph_io, "Variables:")
-        for i = 1:length(li.slotnames)
-            print(emph_io, "  ", li.slotnames[i])
+        slotnames = lambdainfo_slotnames(li)
+        for i = 1:length(slotnames)
+            print(emph_io, "  ", slotnames[i])
             if isa(li.slottypes,Array)
                 show_expr_type(emph_io, li.slottypes[i], true)
             end
@@ -237,7 +238,10 @@ function code_warntype(io::IO, f, t::ANY)
         print(emph_io, "\nBody:\n  ")
         body = Expr(:body); body.args = uncompressed_ast(li)
         body.typ = li.rettype
-        show_unquoted(emph_io, body, 2)
+        # Fix slot names and types in function body
+        show_unquoted(IOContext(IOContext(emph_io, :LAMBDAINFO => li),
+                                          :LAMBDA_SLOTNAMES => slotnames),
+                      body, 2)
         print(emph_io, '\n')
     end
     nothing
@@ -384,10 +388,9 @@ function type_close_enough(x::ANY, t::ANY)
 end
 
 # `methodswith` -- shows a list of methods using the type given
-function methodswith(t::Type, f::Function, showparents::Bool=false, meths = Method[])
+function methodswith(t::Type, f::Function, showparents::Bool=false, meths = TypeMapEntry[])
     mt = typeof(f).name.mt
-    d = mt.defs
-    while d !== nothing
+    visit(mt) do d
         if any(x -> (type_close_enough(x, t) ||
                      (showparents ? (t <: x && (!isa(x,TypeVar) || x.ub != Any)) :
                       (isa(x,TypeVar) && x.ub != Any && t == x.ub)) &&
@@ -395,13 +398,12 @@ function methodswith(t::Type, f::Function, showparents::Bool=false, meths = Meth
                d.sig.parameters)
             push!(meths, d)
         end
-        d = d.next
     end
     return meths
 end
 
 function methodswith(t::Type, m::Module, showparents::Bool=false)
-    meths = Method[]
+    meths = TypeMapEntry[]
     for nm in names(m)
         if isdefined(m, nm)
             f = getfield(m, nm)
@@ -414,7 +416,7 @@ function methodswith(t::Type, m::Module, showparents::Bool=false)
 end
 
 function methodswith(t::Type, showparents::Bool=false)
-    meths = Method[]
+    meths = TypeMapEntry[]
     mainmod = current_module()
     # find modules in Main
     for nm in names(mainmod)
@@ -675,17 +677,15 @@ function summarysize(obj::MethodTable, seen, excl)
     size::Int = Core.sizeof(obj)
     size += summarysize(obj.defs, seen, excl)::Int
     size += summarysize(obj.cache, seen, excl)::Int
-    size += summarysize(obj.cache_arg1, seen, excl)::Int
-    size += summarysize(obj.cache_targ, seen, excl)::Int
     if isdefined(obj, :kwsorter)
         size += summarysize(obj.kwsorter, seen, excl)::Int
     end
     return size
 end
 
-function summarysize(m::Method, seen, excl)
+function summarysize(m::TypeMapEntry, seen, excl)
     size::Int = 0
-    while true
+    while true # specialized to prevent stack overflow while following this linked list
         haskey(seen, m) ? (return size) : (seen[m] = true)
         size += Core.sizeof(m)
         if isdefined(m, :func)
@@ -693,9 +693,8 @@ function summarysize(m::Method, seen, excl)
         end
         size += summarysize(m.sig, seen, excl)::Int
         size += summarysize(m.tvars, seen, excl)::Int
-        size += summarysize(m.invokes, seen, excl)::Int
         m.next === nothing && break
-        m = m.next::Method
+        m = m.next::TypeMapEntry
     end
     return size
 end

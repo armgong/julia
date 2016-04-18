@@ -1215,7 +1215,7 @@
               ,.(map (lambda (x) `(,what ,x)) vars)
               ,.(reverse assigns)))
         (let ((x (car b)))
-          (cond ((assignment-like? x)
+          (cond ((or (assignment-like? x) (function-def? x))
                  (loop (cdr b)
                        (cons (assigned-name (cadr x)) vars)
                        (cons `(,(car x) ,(decl-var (cadr x)) ,(caddr x))
@@ -2717,7 +2717,7 @@ f(x) = yt(x)
              (if (not local?) ;; not a local function; will not be closure converted to a new type
                  (cond (short e)
                        ((null? cvs)
-                        `(toplevel-butlast
+                        `(block
                           ,@sp-inits
                           (method ,name ,(cl-convert sig fname lam namemap toplevel interp)
                                   (lambda ,(cadr lam2)
@@ -2739,7 +2739,7 @@ f(x) = yt(x)
                                                              (car vi)))
                                                 (list ,@(cadr vi)) ,(caddr vi) (list ,@(cadddr vi)))
                                           ,@(cdddr newlam))))
-                          `(toplevel-butlast
+                          `(block
                             ,@top-stmts
                             ,@sp-inits
                             (method ,name ,(cl-convert sig fname lam namemap toplevel interp)
@@ -3126,6 +3126,7 @@ f(x) = yt(x)
                  (emit e)
                  #f))
             ((global) ; remove global declarations
+             (if value (error "misplaced \"global\" declaration"))
              (let ((vname (cadr e)))
                (if (var-info-for vname vi)
                    ;; issue #7264
@@ -3149,6 +3150,8 @@ f(x) = yt(x)
             ((import importall using export line meta boundscheck simdloop)
              (emit e)
              (if tail (emit-return '(null)) '(null)))
+            ((...)
+             (error "\"...\" expression outside call"))
             (else
              (error (string "unhandled expr " e))))))
     (compile e '() #t #t)
