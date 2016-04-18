@@ -64,7 +64,6 @@
 #    sparams::Tuple
 #    tfunc
 #    name::Symbol
-#    specializations
 #    inferred
 #    file::Symbol
 #    line::Int
@@ -125,7 +124,7 @@ export
     Tuple, Type, TypeConstructor, TypeName, TypeVar, Union, Void,
     SimpleVector, AbstractArray, DenseArray,
     # special objects
-    Function, LambdaInfo, Method, MethodTable,
+    Function, LambdaInfo, Method, MethodTable, TypeMapEntry, TypeMapLevel,
     Module, Symbol, Task, Array, WeakRef,
     # numeric types
     Number, Real, Integer, Bool, Ref, Ptr,
@@ -295,7 +294,7 @@ Task(f::ANY) = ccall(:jl_new_task, Ref{Task}, (Any, Int), f, 0)
 # so the methods and ccall's in Core aren't permitted to use convert
 convert(::Type{Any}, x::ANY) = x
 convert{T}(::Type{T}, x::T) = x
-cconvert(T::Type, x) = convert(T, x)
+cconvert{T}(::Type{T}, x) = convert(T, x)
 unsafe_convert{T}(::Type{T}, x::T) = x
 
 # primitive array constructors

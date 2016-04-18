@@ -70,24 +70,9 @@ function _sparsevector!{Tv,Ti<:Integer}(I::Vector{Ti}, V::Vector{Tv}, len::Integ
         permute!(I, p)
         permute!(V, p)
         m = length(I)
-
-        # advances to the first non-zero element
-        r = 1     # index of last processed entry
-        while r <= m
-            if V[r] == 0
-                r += 1
-            else
-                break
-            end
-        end
-        r > m && return SparseVector(len, Ti[], Tv[])
-
-        # move r-th to l-th
+        r = 1
         l = 1       # length of processed part
         i = I[r]    # row-index of current element
-        if r > 1
-            I[l] = i; V[l] = V[r]
-        end
 
         # main loop
         while r < m
@@ -97,17 +82,12 @@ function _sparsevector!{Tv,Ti<:Integer}(I::Vector{Ti}, V::Vector{Tv}, len::Integ
                 V[l] = combine(V[l], V[r])
             else  # advance l, and move r-th to l-th
                 pv = V[l]
-                if pv != 0
-                    l += 1
-                end
+                l += 1
                 i = i2
                 if l < r
                     I[l] = i; V[l] = V[r]
                 end
             end
-        end
-        if V[l] == 0
-            l -= 1
         end
         if l < m
             resize!(I, l)
@@ -188,11 +168,9 @@ function sparsevec{Tv,Ti<:Integer}(dict::Associative{Ti,Tv})
         if k > len
             len = k
         end
-        if v != 0
-            cnt += 1
-            @inbounds nzind[cnt] = k
-            @inbounds nzval[cnt] = v
-        end
+        cnt += 1
+        @inbounds nzind[cnt] = k
+        @inbounds nzval[cnt] = v
     end
     resize!(nzind, cnt)
     resize!(nzval, cnt)
@@ -208,11 +186,9 @@ function sparsevec{Tv,Ti<:Integer}(dict::Associative{Ti,Tv}, len::Integer)
     maxk = convert(Ti, len)
     for (k, v) in dict
         1 <= k <= maxk || throw(ArgumentError("an index (key) is out of bound."))
-        if v != 0
-            cnt += 1
-            @inbounds nzind[cnt] = k
-            @inbounds nzval[cnt] = v
-        end
+        cnt += 1
+        @inbounds nzind[cnt] = k
+        @inbounds nzval[cnt] = v
     end
     resize!(nzind, cnt)
     resize!(nzval, cnt)
@@ -1678,3 +1654,43 @@ function sort{Tv,Ti}(x::SparseVector{Tv,Ti}; kws...)
     newnzvals = allvals[deleteat!(sinds[1:k],z)]
     SparseVector(n,newnzind,newnzvals)
 end
+
+function fkeep!(x::SparseVector, f, other, trim::Bool = true)
+    n = x.n
+    nzind = x.nzind
+    nzval = x.nzval
+
+    x_writepos = 1
+    @inbounds for xk in 1:nnz(x)
+        xi = nzind[xk]
+        xv = nzval[xk]
+        # If this element should be kept, rewrite in new position
+        if f(xi, xv, other)
+            if x_writepos != xk
+                nzind[x_writepos] = xi
+                nzval[x_writepos] = xv
+            end
+            x_writepos += 1
+        end
+    end
+
+    # Trim x's storage if necessary and desired
+    if trim
+        x_nnz = x_writepos - 1
+        if length(nzind) != x_nnz
+            resize!(nzval, x_nnz)
+            resize!(nzind, x_nnz)
+        end
+    end
+
+    x
+end
+
+immutable DroptolFuncVec <: Base.Func{3} end
+(::DroptolFuncVec){Tv,Ti}(i::Ti, x::Tv, tol::Real) = abs(x) > tol
+droptol!(x::SparseVector, tol, trim::Bool = true) = fkeep!(x, DroptolFuncVec(), tol, trim)
+
+immutable DropzerosFuncVec <: Base.Func{3} end
+(::DropzerosFuncVec){Tv,Ti}(i::Ti, x::Tv, other) = x != 0
+dropzeros!(x::SparseVector, trim::Bool = true) = fkeep!(x, DropzerosFuncVec(), nothing, trim)
+dropzeros(x::SparseVector, trim::Bool = true) = dropzeros!(copy(x), trim)

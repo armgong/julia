@@ -401,3 +401,37 @@ test_parseerror("0x1.0p", "invalid numeric constant \"0x1.0\"")
 @test expand(Base.parse_input_line("""
               try = "No"
            """)) == Expr(:error, "unexpected \"=\"")
+
+# issue #15763
+# TODO enable post-0.5
+#test_parseerror("if\nfalse\nend", "missing condition in \"if\" at none:1")
+test_parseerror("if false\nelseif\nend", "missing condition in \"elseif\" at none:2")
+
+# issue #15828
+@test expand(parse("x...")) == Expr(:error, "\"...\" expression outside call")
+
+# issue #15830
+@test expand(parse("foo(y = (global x)) = y")) == Expr(:error, "misplaced \"global\" declaration")
+
+# issue #15844
+function f15844(x)
+    x
+end
+
+g15844 = let
+    local function f15844(x::Int32)
+        2x
+    end
+end
+
+function add_method_to_glob_fn!()
+    global function f15844(x::Int64)
+        3x
+    end
+end
+
+add_method_to_glob_fn!()
+@test g15844 !== f15844
+@test g15844(Int32(1)) == 2
+@test f15844(Int32(1)) == 1
+@test f15844(Int64(1)) == 3

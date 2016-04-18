@@ -22,6 +22,7 @@ function next(g::Generator, s)
     g.f(v), s2
 end
 
+
 ## iterator traits
 
 abstract IteratorSize

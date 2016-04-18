@@ -240,10 +240,16 @@ static Value *literal_pointer_val(jl_value_t *p)
         // DataTypes are prefixed with a +
         return julia_gv("+", addr->name->name, addr->name->module, p);
     }
+    if (jl_is_method(p)) {
+        jl_method_t *m = (jl_method_t*)p;
+        // functions are prefixed with a -
+        return julia_gv("-", m->name, m->module, p);
+    }
     if (jl_is_lambda_info(p)) {
         jl_lambda_info_t *linfo = (jl_lambda_info_t*)p;
-        // Type-inferred functions are prefixed with a -
-        return julia_gv("-", linfo->name, linfo->module, p);
+        // Type-inferred functions are also prefixed with a -
+        if (linfo->def)
+            return julia_gv("-", linfo->def->name, linfo->def->module, p);
     }
     if (jl_is_symbol(p)) {
         jl_sym_t *addr = (jl_sym_t*)p;
@@ -911,8 +917,6 @@ type_of_constant:
 
 // --- accessing the representations of built-in data types ---
 
-static void jl_add_linfo_root(jl_lambda_info_t *li, jl_value_t *val);
-
 static Value *data_pointer(const jl_cgval_t &x, jl_codectx_t *ctx, Type *astype = T_ppjlvalue)
 {
     Value *data = x.constant ? boxed(x, ctx) : x.V;
@@ -971,11 +975,7 @@ static bool emit_getfield_unknownidx(jl_cgval_t *ret, const jl_cgval_t &strct, V
             return true;
         }
         assert(!jl_field_isptr(stt, 0));
-        jl_value_t *jt = jl_field_type(stt,0);
-        if (!stt->uid) {
-            // add root for types not cached
-            jl_add_linfo_root(ctx->linfo, (jl_value_t*)stt);
-        }
+        jl_value_t *jt = jl_field_type(stt, 0);
         Value *idx0 = emit_bounds_check(strct, (jl_value_t*)stt, idx, ConstantInt::get(T_size, nfields), ctx);
         if (strct.isghost) {
             *ret = ghostValue(jt);
@@ -1070,7 +1070,6 @@ static bool arraytype_constshape(jl_value_t *ty)
 
 static Value *emit_arraysize(const jl_cgval_t &tinfo, Value *dim, jl_codectx_t *ctx)
 {
-    assert(tinfo.isboxed);
     Value *t = boxed(tinfo, ctx);
     int o = offsetof(jl_array_t, nrows)/sizeof(void*) - 1;
     MDNode *tbaa = arraytype_constshape(tinfo.typ) ? tbaa_const : tbaa_arraysize;
@@ -1098,7 +1097,6 @@ static Value *emit_arraysize(const jl_cgval_t &tinfo, int dim, jl_codectx_t *ctx
 
 static Value *emit_arraylen_prim(const jl_cgval_t &tinfo, jl_codectx_t *ctx)
 {
-    assert(tinfo.isboxed);
     Value *t = boxed(tinfo, ctx);
     jl_value_t *ty = tinfo.typ;
 #ifdef STORE_ARRAY_LEN
@@ -1112,7 +1110,7 @@ static Value *emit_arraylen_prim(const jl_cgval_t &tinfo, jl_codectx_t *ctx)
     MDNode *tbaa = arraytype_constshape(ty) ? tbaa_const : tbaa_arraylen;
     return tbaa_decorate(tbaa, builder.CreateLoad(addr, false));
 #else
-    jl_value_t *p1 = jl_tparam1(ty);
+    jl_value_t *p1 = jl_tparam1(ty); // FIXME: check that ty is an array type
     if (jl_is_long(p1)) {
         size_t nd = jl_unbox_long(p1);
         Value *l = ConstantInt::get(T_size, 1);
@@ -1133,7 +1131,6 @@ static Value *emit_arraylen_prim(const jl_cgval_t &tinfo, jl_codectx_t *ctx)
 
 static Value *emit_arraylen(const jl_cgval_t &tinfo, jl_value_t *ex, jl_codectx_t *ctx)
 {
-    assert(tinfo.isboxed);
     jl_arrayvar_t *av = arrayvar_for(ex, ctx);
     if (av!=NULL)
         return builder.CreateLoad(av->len);
@@ -1142,7 +1139,6 @@ static Value *emit_arraylen(const jl_cgval_t &tinfo, jl_value_t *ex, jl_codectx_
 
 static Value *emit_arrayptr(const jl_cgval_t &tinfo, jl_codectx_t *ctx)
 {
-    assert(tinfo.isboxed);
     Value *t = boxed(tinfo, ctx);
     Value *addr = builder.CreateStructGEP(
 #ifdef LLVM37
@@ -1157,7 +1153,6 @@ static Value *emit_arrayptr(const jl_cgval_t &tinfo, jl_codectx_t *ctx)
 
 static Value *emit_arrayptr(const jl_cgval_t &tinfo, jl_value_t *ex, jl_codectx_t *ctx)
 {
-    assert(tinfo.isboxed);
     jl_arrayvar_t *av = arrayvar_for(ex, ctx);
     if (av!=NULL)
         return builder.CreateLoad(av->dataptr);
@@ -1174,7 +1169,6 @@ static Value *emit_arraysize(const jl_cgval_t &tinfo, jl_value_t *ex, int dim, j
 
 static Value *emit_arrayflags(const jl_cgval_t &tinfo, jl_codectx_t *ctx)
 {
-    assert(tinfo.isboxed);
     Value *t = boxed(tinfo, ctx);
 #ifdef STORE_ARRAY_LEN
     int arrayflag_field = 2;
@@ -1192,7 +1186,6 @@ static Value *emit_arrayflags(const jl_cgval_t &tinfo, jl_codectx_t *ctx)
 
 static void assign_arrayvar(jl_arrayvar_t &av, const jl_cgval_t &ainfo, jl_codectx_t *ctx)
 {
-    assert(ainfo.isboxed);
     tbaa_decorate(tbaa_arrayptr,builder.CreateStore(builder.CreateBitCast(emit_arrayptr(ainfo, ctx),
                                                     av.dataptr->getType()->getContainedType(0)),
                                                     av.dataptr));
@@ -1204,7 +1197,6 @@ static void assign_arrayvar(jl_arrayvar_t &av, const jl_cgval_t &ainfo, jl_codec
 static Value *emit_array_nd_index(const jl_cgval_t &ainfo, jl_value_t *ex, size_t nd, jl_value_t **args,
                                   size_t nidxs, jl_codectx_t *ctx)
 {
-    assert(ainfo.isboxed);
     Value *a = boxed(ainfo, ctx);
     Value *i = ConstantInt::get(T_size, 0);
     Value *stride = ConstantInt::get(T_size, 1);
@@ -1357,6 +1349,8 @@ static Value *call_with_unsigned(Function *ufunc, Value *v)
     return Call;
 }
 
+static void jl_add_linfo_root(jl_lambda_info_t *li, jl_value_t *val);
+
 // this is used to wrap values for generic contexts, where a
 // dynamically-typed value is required (e.g. argument to unknown function).
 // if it's already a pointer it's left alone.
@@ -1381,12 +1375,13 @@ static Value *boxed(const jl_cgval_t &vinfo, jl_codectx_t *ctx, bool gcrooted)
     if (t == T_int1)
         return julia_bool(v);
 
-    Constant *c = NULL;
-    if ((c = dyn_cast<Constant>(v)) != NULL) {
-        jl_value_t *s = static_constant_instance(c, jt);
-        if (s) {
-            jl_add_linfo_root(ctx->linfo, s);
-            return literal_pointer_val(s);
+    if (ctx->linfo->def) { // don't bother codegen pre-boxing for toplevel
+        if (Constant *c = dyn_cast<Constant>(v)) {
+            jl_value_t *s = static_constant_instance(c, jt);
+            if (s) {
+                jl_add_linfo_root(ctx->linfo, s);
+                return literal_pointer_val(s);
+            }
         }
     }
 

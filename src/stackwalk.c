@@ -40,13 +40,14 @@ size_t jl_unw_stepn(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp, size_t ma
 #endif
         while (1) {
            if (n >= maxsize) {
-               n += 1; // return maxsize + 1 if ran out of space
+               n = maxsize; // return maxsize + 1 if ran out of space
                break;
            }
            if (!jl_unw_step(cursor, &ip[n], sp ? &sp[n] : &nullsp))
                break;
            n++;
         }
+        n++;
 #if !defined(_OS_WINDOWS_)
     }
     else {
@@ -417,7 +418,7 @@ JL_DLLEXPORT void jlbacktrace(void)
 {
     size_t n = jl_bt_size; // jl_bt_size > 40 ? 40 : jl_bt_size;
     for (size_t i=0; i < n; i++)
-        jl_gdblookup(jl_bt_data[i]);
+        jl_gdblookup(jl_bt_data[i] - 1);
 }
 
 #ifdef __cplusplus

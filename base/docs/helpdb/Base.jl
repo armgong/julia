@@ -242,21 +242,6 @@ If `types` is specified, returns an array of methods whose types match.
 methods
 
 """
-    pmap(f, lsts...; err_retry=true, err_stop=false, pids=workers())
-
-Transform collections `lsts` by applying `f` to each element in parallel. (Note that
-`f` must be made available to all worker processes; see [Code Availability and Loading Packages](:ref:`Code Availability and Loading Packages <man-parallel-computing-code-availability>`)
-for details.) If `nprocs() > 1`, the calling process will be dedicated to assigning tasks.
-All other available processes will be used as parallel workers, or on the processes
-specified by `pids`.
-
-If `err_retry` is `true`, it retries a failed application of `f` on a different worker. If
-`err_stop` is `true`, it takes precedence over the value of `err_retry` and `pmap` stops
-execution on the first error.
-"""
-pmap
-
-"""
     workers()
 
 Returns a list of all worker process identifiers.
@@ -1123,13 +1108,6 @@ Test whether any values in `A` along the singleton dimensions of `r` are `true`,
 results to `r`.
 """
 any!
-
-"""
-    falses(dims)
-
-Create a `BitArray` with all values set to `false`.
-"""
-falses
 
 """
     filter!(function, collection)
@@ -6055,7 +6033,7 @@ histrange
 """
     eta(x)
 
-Dirichlet eta function ``\\eta(s) = \\sum^\\infty_{n=1}(-)^{n-1}/n^{s}``.
+Dirichlet eta function ``\\eta(s) = \\sum^\\infty_{n=1}(-1)^{n-1}/n^{s}``.
 """
 eta
 
@@ -6935,7 +6913,7 @@ less(f::AbstractString, ?)
 Show the definition of a function using the default pager, optionally specifying a tuple of
 types to indicate which method to see.
 """
-less(m::Method, ?)
+less(m::TypeMapEntry, ?)
 
 """
     sqrtm(A)
@@ -7826,13 +7804,6 @@ x == fld(x,y)*y + mod(x,y)
 mod
 
 """
-    trues(dims)
-
-Create a `BitArray` with all values set to `true`.
-"""
-trues
-
-"""
     qr(A [,pivot=Val{false}][;thin=true]) -> Q, R, [p]
 
 Compute the (pivoted) QR factorization of `A` such that either `A = Q*R` or `A[:,p] = Q*R`.
@@ -8683,6 +8654,7 @@ readavailable
     remotecall(func, id, args...)
 
 Call a function asynchronously on the given arguments on the specified process. Returns a `Future`.
+If using keyword arguments for `func`, `remotecall` can be called with `remotecall(()->func(args...; kw...), id)`.
 """
 remotecall
 
