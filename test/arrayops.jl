@@ -87,6 +87,52 @@ a = reshape(b, (2, 2, 2, 2, 2))
 @test a[2,1,2,2,1] == b[14]
 @test a[2,2,2,2,2] == b[end]
 
+# reshaping linearslow arrays
+a = collect(reshape(1:5, 1, 5))
+s = sub(a, :, [2,3,5])
+r = reshape(s, length(s))
+@test length(r) == 3
+@test r[1] == 2
+@test r[3,1] == 5
+@test r[Base.ReshapedIndex(CartesianIndex((1,2)))] == 3
+@test parent(reshape(r, (1,3))) === r.parent === s
+@test parentindexes(r) == (1:1, 1:3)
+@test reshape(r, (3,)) === r
+r[2] = -1
+@test a[3] == -1
+a = zeros(0, 5)  # an empty linearslow array
+s = sub(a, :, [2,3,5])
+@test length(reshape(s, length(s))) == 0
+
+@test reshape(1:5, (5,)) === 1:5
+@test reshape(1:5, 5) === 1:5
+
+# setindex! on a reshaped range
+a = reshape(1:20, 5, 4)
+for idx in ((3,), (2,2), (Base.ReshapedIndex(1),))
+    try
+        a[idx...] = 7
+        error("wrong error")
+    catch err
+        @test err.msg == "indexed assignment fails for a reshaped range; consider calling collect"
+    end
+end
+
+# operations with LinearFast ReshapedArray
+b = collect(1:12)
+a = Base.ReshapedArray(b, (4,3), ())
+@test a[3,2] == 7
+@test a[6] == 6
+a[3,2] = -2
+a[6] = -3
+a[Base.ReshapedIndex(5)] = -4
+@test b[5] == -4
+@test b[6] == -3
+@test b[7] == -2
+b = reinterpret(Int, a, (3,4))
+b[1] = -1
+@test vec(b) == vec(a)
+
 a = rand(1, 1, 8, 8, 1)
 @test @inferred(squeeze(a, 1)) == @inferred(squeeze(a, (1,))) == reshape(a, (1, 8, 8, 1))
 @test @inferred(squeeze(a, (1, 5))) == squeeze(a, (5, 1)) == reshape(a, (1, 8, 8))
@@ -239,15 +285,13 @@ for i = 1:length(X) @test X[i] === Y[i] end
 
 _array_equiv(a,b) = eltype(a) == eltype(b) && a == b
 @test _array_equiv(UInt8[1:3;4], [0x1,0x2,0x3,0x4])
-if !Base._oldstyle_array_vcat_
-    @test_throws MethodError UInt8[1:3]
-    @test_throws MethodError UInt8[1:3,]
-    @test_throws MethodError UInt8[1:3,4:6]
-    a = Array(UnitRange{Int},1); a[1] = 1:3
-    @test _array_equiv([1:3,], a)
-    a = Array(UnitRange{Int},2); a[1] = 1:3; a[2] = 4:6
-    @test _array_equiv([1:3,4:6], a)
-end
+@test_throws MethodError UInt8[1:3]
+@test_throws MethodError UInt8[1:3,]
+@test_throws MethodError UInt8[1:3,4:6]
+a = Array(UnitRange{Int},1); a[1] = 1:3
+@test _array_equiv([1:3,], a)
+a = Array(UnitRange{Int},2); a[1] = 1:3; a[2] = 4:6
+@test _array_equiv([1:3,4:6], a)
 
 # typed hvcat
 let X = Float64[1 2 3; 4 5 6]
@@ -609,7 +653,6 @@ let
     @test isequal(c[1,:], cv2)
     @test isequal(c[3,:], cv)
     @test isequal(c[:,4], [2.0,2.0,2.0,2.0]*1000)
-
 end
 
 @test (1:5)[[true,false,true,false,true]] == [1,3,5]
@@ -1093,7 +1136,7 @@ a = ones(5,0)
 b = sub(a, :, :)
 @test mdsum(b) == 0
 
-a = reshape(1:60, 3, 4, 5)
+a = copy(reshape(1:60, 3, 4, 5))
 @test a[CartesianIndex{3}(2,3,4)] == 44
 a[CartesianIndex{3}(2,3,3)] = -1
 @test a[CartesianIndex{3}(2,3,3)] == -1
@@ -1492,3 +1535,20 @@ end
 @test cumsum([1 2; 3 4], 1) == [1 2; 4 6]
 @test cumsum([1 2; 3 4], 2) == [1 3; 3 7]
 @test cumsum([1 2; 3 4], 3) == [1 2; 3 4]
+
+module TestNLoops15895
+
+using Base.Cartesian
+using Base.Test
+
+# issue 15894
+function f15894(d)
+    s = zero(eltype(d))
+    @nloops 1 i d begin
+        s += @nref 1 d i
+    end
+    s
+end
+@test f15894(ones(Int, 100)) == 100
+
+end

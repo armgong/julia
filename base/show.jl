@@ -229,11 +229,16 @@ function lambdainfo_slotnames(l::LambdaInfo)
 end
 
 function show(io::IO, l::LambdaInfo)
-    println(io, "LambdaInfo for ", l.name)
+    if isdefined(l, :def)
+        println(io, "LambdaInfo for ", l.def.name)
+    else
+        println(io, "Toplevel LambdaInfo thunk")
+    end
     # Fix slot names and types in function body
     lambda_io = IOContext(IOContext(io, :LAMBDAINFO => l),
                           :LAMBDA_SLOTNAMES => lambdainfo_slotnames(l))
-    body = Expr(:body); body.args = uncompressed_ast(l)
+    body = Expr(:body)
+    body.args = uncompressed_ast(l)
     body.typ = l.rettype
     show(lambda_io, body)
 end
@@ -1147,11 +1152,9 @@ Parameter `sep::Integer` is number of spaces to put between elements.
 Alignment is reported as a vector of (left,right) tuples, one for each
 column going across the screen.
 """
-function alignment(
-    io::IO, X::AbstractVecOrMat,
-    rows::AbstractVector, cols::AbstractVector,
-    cols_if_complete::Integer, cols_otherwise::Integer, sep::Integer
-)
+function alignment(io::IO, X::AbstractVecOrMat,
+        rows::AbstractVector, cols::AbstractVector,
+        cols_if_complete::Integer, cols_otherwise::Integer, sep::Integer)
     a = Tuple{Int, Int}[]
     for j in cols # need to go down each column one at a time
         l = r = 0
@@ -1197,8 +1200,8 @@ is specified as string sep.
 `print_matrix_row` will also respect compact output for elements.
 """
 function print_matrix_row(io::IO,
-    X::AbstractVecOrMat, A::Vector,
-    i::Integer, cols::AbstractVector, sep::AbstractString)
+        X::AbstractVecOrMat, A::Vector,
+        i::Integer, cols::AbstractVector, sep::AbstractString)
     for k = 1:length(A)
         j = cols[k]
         if isassigned(X,Int(i),Int(j)) # isassigned accepts only `Int` indices
@@ -1222,9 +1225,8 @@ end
 of a bunch of rows for long matrices. Not only is the string vdots shown
 but it also repeated every M elements if desired.
 """
-function print_matrix_vdots(io::IO,
-    vdots::AbstractString, A::Vector, sep::AbstractString, M::Integer, m::Integer
-)
+function print_matrix_vdots(io::IO, vdots::AbstractString,
+        A::Vector, sep::AbstractString, M::Integer, m::Integer)
     for k = 1:length(A)
         w = A[k][1] + A[k][2]
         if k % M == m
@@ -1355,7 +1357,7 @@ summary(x) = string(typeof(x)) # e.g. Int64
 # sizes such as 0-dimensional, 4-dimensional, 2x3
 dims2string(d) = isempty(d) ? "0-dimensional" :
                  length(d) == 1 ? "$(d[1])-element" :
-                 join(map(string,d), 'x')
+                 join(map(string,d), '×')
 
 # anything array-like gets summarized e.g. 10-element Array{Int64,1}
 summary(a::AbstractArray) =
@@ -1493,7 +1495,8 @@ end
 function array_eltype_show_how(X)
     e = eltype(X)
     leaf = isleaftype(e)
-    plain = e<:Number || e<:AbstractString
+    plain = e<:Number || e<:AbstractString ||
+            (e<:Nullable && (eltype(e)<:Number || eltype(e)<:AbstractString))
     if isa(e,DataType) && e === e.name.primary
         str = string(e.name)
     else

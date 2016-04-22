@@ -67,7 +67,7 @@ function SharedArray(T::Type, dims::NTuple; init=false, pids=Int[])
             shmmem_create_pid = myid()
             s = shm_mmap_array(T, dims, shm_seg_name, JL_O_CREAT | JL_O_RDWR)
         else
-            # The shared array is created on a remote machine....
+            # The shared array is created on a remote machine
             shmmem_create_pid = pids[1]
             remotecall_fetch(pids[1]) do
                 shm_mmap_array(T, dims, shm_seg_name, JL_O_CREAT | JL_O_RDWR)
@@ -236,7 +236,11 @@ length(S::SharedArray) = prod(S.dims)
 size(S::SharedArray) = S.dims
 linearindexing{S<:SharedArray}(::Type{S}) = LinearFast()
 
-function reshape{T,N}(a::SharedArray{T}, dims::NTuple{N,Int})
+reshape(a::SharedVector, dims::Tuple{Int}) = reshape_sa(a, dims)
+reshape(a::SharedArray,  dims::Tuple{Int}) = reshape_sa(a, dims)
+reshape{N}(a::SharedArray, dims::NTuple{N,Int}) = reshape_sa(a, dims)
+
+function reshape_sa{T,N}(a::SharedArray{T}, dims::NTuple{N,Int})
     (length(a) != prod(dims)) && throw(DimensionMismatch("dimensions must be consistent with array size"))
     refs = Array(Future, length(a.pids))
     for (i, p) in enumerate(a.pids)
@@ -493,7 +497,7 @@ function print_shmem_limits(slen)
             "\nIf not, increase system limits and try again."
         )
     catch e
-        nothing # Ignore any errors in this...
+        nothing # Ignore any errors in this
     end
 end
 

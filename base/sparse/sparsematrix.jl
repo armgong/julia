@@ -172,14 +172,12 @@ function reinterpret{T,Tv,Ti,N}(::Type{T}, a::SparseMatrixCSC{Tv,Ti}, dims::NTup
     return SparseMatrixCSC(mS, nS, colptr, rowval, nzval)
 end
 
-function reshape{Tv,Ti}(a::SparseMatrixCSC{Tv,Ti}, dims::NTuple{2,Int})
-    if prod(dims) != length(a)
-        throw(DimensionMismatch("new dimensions $(dims) must be consistent with array size $(length(a))"))
-    end
-    mS,nS = dims
+function copy{T,P<:SparseMatrixCSC}(ra::ReshapedArray{T,2,P})
+    mS,nS = size(ra)
+    a = parent(ra)
     mA,nA = size(a)
     numnz = nnz(a)
-    colptr = Array(Ti, nS+1)
+    colptr = similar(a.colptr, nS+1)
     rowval = similar(a.rowval)
     nzval = copy(a.nzval)
 
@@ -873,7 +871,6 @@ function findnz{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti})
 end
 
 
-
 import Base.Random.GLOBAL_RNG
 function sprand_IJ(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat)
     ((m < 0) || (n < 0)) && throw(ArgumentError("invalid Array dimensions"))
@@ -1084,7 +1081,6 @@ for op in (:ceil, :floor, :trunc, :round)
         ($op){T,Tv,Ti}(::Type{T},A::SparseMatrixCSC{Tv,Ti}) = @_unary_op_nz2z_z2z($op,A,T,Ti)
     end # quote
 end # macro
-
 
 
 # Operations that map nonzeros to nonzeros, and zeros to zeros
@@ -2957,7 +2953,7 @@ function is_hermsym(A::SparseMatrixCSC, check::Func)
             row = rowval[p]
 
             # Ignore stored zeros
-            if val == 0;
+            if val == 0
                 continue
             end
 
@@ -3241,7 +3237,7 @@ function sortSparseMatrixCSC!{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}; sortindices::Sym
         sortperm!(pointer_to_array(pointer(index), numrows),
                   pointer_to_array(pointer(row), numrows))
 
-        jj = 1;
+        jj = 1
         @simd for j = col_start:col_end
             @inbounds rowval[j] = row[index[jj]]
             @inbounds nzval[j] = val[index[jj]]

@@ -178,21 +178,29 @@ end
 # issue #11840
 f11840(::Type) = "Type"
 f11840(::DataType) = "DataType"
+f11840{T<:Tuple}(::Type{T}) = "Tuple"
 @test f11840(Type) == "DataType"
 @test f11840(AbstractVector) == "Type"
+@test f11840(Tuple) == "Tuple"
 
 g11840(::DataType) = 1
 g11840(::Type) = 2
+g11840{T<:Tuple}(sig::Type{T}) = 3
 @test g11840(Vector.body) == 1
 @test g11840(Vector) == 2
 @test g11840(Vector.body) == 1
+@test g11840(Tuple) == 3
 
 h11840(::DataType) = '1'
 h11840(::Type) = '2'
 h11840(::TypeConstructor) = '3'
+h11840{T<:Tuple}(::Type{T}) = '4'
 @test h11840(Vector) == '3'
 @test h11840(Vector.body) == '1'
 @test h11840(Vector) == '3'
+@test h11840(Union{Vector, Matrix}) == '2'
+@test h11840(Union{Vector.body, Matrix.body}) == '2'
+@test h11840(Tuple) == '4'
 
 # join
 @test typejoin(Int8,Int16) === Signed
@@ -1671,9 +1679,9 @@ macro m6031(x); x; end
 @test (@m6031 [2,4,6])[2] == 4
 
 # issue #6050
-@test Core.Inference.getfield_tfunc([nothing, QuoteNode(:vals)],
+@test Core.Inference.getfield_tfunc(
           Dict{Int64,Tuple{UnitRange{Int64},UnitRange{Int64}}},
-          :vals) == (Array{Tuple{UnitRange{Int64},UnitRange{Int64}},1},true)
+          Core.Inference.Const(:vals)) == (Array{Tuple{UnitRange{Int64},UnitRange{Int64}},1},true)
 
 # issue #6068
 x6068 = 1
@@ -3757,3 +3765,14 @@ function f15809()
 end
 f15809()
 @test g15809(2) === Int
+
+module Macro_Yielding_Global_Assignment
+macro m()
+    quote
+        global x
+        x = 2
+    end
+end
+@m
+end
+@test Macro_Yielding_Global_Assignment.x == 2

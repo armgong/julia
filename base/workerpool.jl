@@ -4,7 +4,7 @@ type WorkerPool
     channel::RemoteChannel{Channel{Int}}
     count::Int
 
-    # Create a shared queue of available workers...
+    # Create a shared queue of available workers
     WorkerPool() = new(RemoteChannel(()->Channel{Int}(typemax(Int))), 0)
 end
 
@@ -17,7 +17,7 @@ Create a WorkerPool from a vector of worker ids.
 function WorkerPool(workers::Vector{Int})
     pool = WorkerPool()
 
-    # Add workers to the pool...
+    # Add workers to the pool
     for w in workers
         put!(pool, w)
     end
@@ -33,21 +33,38 @@ length(pool::WorkerPool) = pool.count
 
 isready(pool::WorkerPool) = isready(pool.channel)
 
-
-"""
-    remotecall_fetch(f, pool::WorkerPool, args...)
-
-Call `f(args...)` on one of the workers in `pool`.
-"""
-function remotecall_fetch(f, pool::WorkerPool, args...)
+function remotecall_pool(rc_f, f, pool::WorkerPool, args...; kwargs...)
     worker = take!(pool.channel)
     try
-        remotecall_fetch(f, worker, args...)
+        rc_f(f, worker, args...; kwargs...)
     finally
         put!(pool.channel, worker)
     end
 end
 
+
+"""
+    remotecall(f, pool::WorkerPool, args...; kwargs...)
+
+Call `f(args...; kwargs...)` on one of the workers in `pool`. Returns a `Future`.
+"""
+remotecall(f, pool::WorkerPool, args...; kwargs...) = remotecall_pool(remotecall, f, pool, args...; kwargs...)
+
+
+"""
+    remotecall_wait(f, pool::WorkerPool, args...; kwargs...)
+
+Call `f(args...; kwargs...)` on one of the workers in `pool`. Waits for completion, returns a `Future`.
+"""
+remotecall_wait(f, pool::WorkerPool, args...; kwargs...) = remotecall_pool(remotecall_wait, f, pool, args...; kwargs...)
+
+
+"""
+    remotecall_fetch(f, pool::WorkerPool, args...; kwargs...)
+
+Call `f(args...; kwargs...)` on one of the workers in `pool`. Waits for completion and returns the result.
+"""
+remotecall_fetch(f, pool::WorkerPool, args...; kwargs...) = remotecall_pool(remotecall_fetch, f, pool, args...; kwargs...)
 
 """
     default_worker_pool()
@@ -73,5 +90,5 @@ end
 Returns a lambda that executes function `f` on an available worker
 using `remotecall_fetch`.
 """
-remote(f) = (args...)->remotecall_fetch(f, default_worker_pool(), args...)
-remote(p::WorkerPool, f) = (args...)->remotecall_fetch(f, p, args...)
+remote(f) = (args...; kwargs...)->remotecall_fetch(f, default_worker_pool(), args...; kwargs...)
+remote(p::WorkerPool, f) = (args...; kwargs...)->remotecall_fetch(f, p, args...; kwargs...)

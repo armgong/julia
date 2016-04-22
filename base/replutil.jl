@@ -3,6 +3,7 @@
 # fallback text/plain representation of any type:
 writemime(io::IO, ::MIME"text/plain", x) = showcompact(io, x)
 writemime(io::IO, ::MIME"text/plain", x::Number) = show(io, x)
+writemime(io::IO, ::MIME"text/plain", x::Associative) = showdict(io, x)
 
 function writemime(io::IO, ::MIME"text/plain", f::Function)
     ft = typeof(f)
@@ -35,7 +36,7 @@ end
 
 # writemime for ranges
 function writemime(io::IO, ::MIME"text/plain", r::Range)
-  show(io, r)
+    show(io, r)
 end
 
 function writemime(io::IO, ::MIME"text/plain", v::AbstractVector)
@@ -281,7 +282,7 @@ function show_method_candidates(io::IO, ex::MethodError)
     end
 
     for (func,arg_types_param) in funcs
-        for method in func.name.mt
+        visit(func.name.mt) do method
             buf = IOBuffer()
             s1 = method.sig.parameters[1]
             sig = method.sig.parameters[2:end]
@@ -345,7 +346,7 @@ function show_method_candidates(io::IO, ex::MethodError)
                     print(buf, "::$sigstr")
                 end
             end
-            special && right_matches==0 && continue
+            special && right_matches==0 && return # continue the do-block
 
             if length(t_i) > length(sig) && !isempty(sig) && Base.isvarargtype(sig[end])
                 # It ensures that methods like f(a::AbstractString...) gets the correct

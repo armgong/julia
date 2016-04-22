@@ -105,6 +105,13 @@ static void ti_initthread(int16_t tid)
     ptls->pgcstack = NULL;
     ptls->gc_state = 0; // GC unsafe
     ptls->current_module = NULL;
+    void *bt_data = malloc(sizeof(uintptr_t) * (JL_MAX_BT_SIZE + 1));
+    if (bt_data == NULL) {
+        jl_printf(JL_STDERR, "could not allocate backtrace buffer\n");
+        gc_debug_critical_error();
+        abort();
+    }
+    ptls->bt_data = (uintptr_t*)bt_data;
 #ifdef JULIA_ENABLE_THREADING
     jl_all_heaps[tid] = jl_mk_thread_heap();
 #else
@@ -145,8 +152,8 @@ static jl_value_t *ti_run_fun(jl_svec_t *args)
 
 
 // lock for code generation
-JL_DEFINE_MUTEX(codegen)
-JL_DEFINE_MUTEX(typecache)
+jl_mutex_t codegen_lock;
+jl_mutex_t typecache_lock;
 
 #ifdef JULIA_ENABLE_THREADING
 
