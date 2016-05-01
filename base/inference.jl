@@ -6,6 +6,12 @@ const MAX_TYPE_DEPTH = 7
 const MAX_TUPLETYPE_LEN  = 8
 const MAX_TUPLE_DEPTH = 4
 
+# slot property bit flags
+const Slot_Assigned     = 2
+const Slot_AssignedOnce = 16
+const Slot_UsedUndef    = 32
+const Slot_Called       = 64
+
 #### inference state types ####
 
 immutable NotFound end
@@ -96,7 +102,7 @@ type InferenceState
                     end
                     s[1][la] = VarState(Tuple,false)
                 else
-                    s[1][la] = VarState(limit_tuple_depth(tupletype_tail(atypes,la)),false)
+                    s[1][la] = VarState(tuple_tfunc(limit_tuple_depth(tupletype_tail(atypes,la))),false)
                 end
                 la -= 1
             end
@@ -1915,28 +1921,14 @@ function finish(me::InferenceState)
     nothing
 end
 
-function record_var_type(s::Slot, t::ANY, decls)
-    t = widenconst(t)
-    otherTy = decls[s.id]
-    # keep track of whether a variable is always the same type
-    if !is(otherTy,NF)
-        if !typeseq(otherTy, t)
-            decls[s.id] = Any
-        end
-    else
-        decls[s.id] = t
-    end
-end
-
-function eval_annotate(e::ANY, vtypes::ANY, sv::InferenceState, decls, undefs)
+function eval_annotate(e::ANY, vtypes::ANY, sv::InferenceState, undefs)
     if isa(e, Slot)
         t = abstract_eval(e, vtypes, sv)
         s = vtypes[e.id]
         if s.undef
             undefs[e.id] = true
         end
-        record_var_type(e, t, decls)
-        return t === e.typ ? e : Slot(e.id, t)
+        return t === sv.linfo.slottypes[e.id] ? e : TypedSlot(e.id, t)
     end
 
     if !isa(e,Expr)
@@ -1947,58 +1939,85 @@ function eval_annotate(e::ANY, vtypes::ANY, sv::InferenceState, decls, undefs)
     head = e.head
     if is(head,:static_typeof) || is(head,:line) || is(head,:const)
         return e
-    #elseif is(head,:gotoifnot) || is(head,:return)
-    #    e.typ = Any
     elseif is(head,:(=))
-    #    e.typ = Any
-        s = e.args[1]
-        # assignment LHS not subject to all-same-type variable checking,
-        # but the type of the RHS counts as one of its types.
-        e.args[2] = eval_annotate(e.args[2], vtypes, sv, decls, undefs)
-        if isa(s,Slot)
-            # TODO: if this def does not reach any uses, maybe don't do this
-            rhstype = exprtype(e.args[2], sv)
-            if !is(rhstype,Bottom)
-                record_var_type(s, rhstype, decls)
-            end
-        end
+        e.args[2] = eval_annotate(e.args[2], vtypes, sv, undefs)
         return e
     end
     i0 = is(head,:method) ? 2 : 1
     for i=i0:length(e.args)
         subex = e.args[i]
         if !(isa(subex,Number) || isa(subex,AbstractString))
-            e.args[i] = eval_annotate(subex, vtypes, sv, decls, undefs)
+            e.args[i] = eval_annotate(subex, vtypes, sv, undefs)
         end
     end
     return e
 end
 
+function expr_cannot_delete(ex::Expr)
+    # This alone should be enough for any sane use of
+    # `Expr(:inbounds)` and `Expr(:boundscheck)`. However, it is still possible
+    # to have these embeded in other expressions (e.g. `return @inbounds ...`)
+    # so we check recursively if there's a matching expression
+    (ex.head === :inbounds || ex.head === :boundscheck) && return true
+    for arg in ex.args
+        isa(arg, Expr) && expr_cannot_delete(arg::Expr) && return true
+    end
+    return false
+end
+
 # annotate types of all symbols in AST
 function type_annotate!(linfo::LambdaInfo, states::Array{Any,1}, sv::ANY, rettype::ANY, nargs)
     nslots = length(states[1])
-    decls = Any[ NF for i = 1:nslots ]
-    undefs = fill(false, nslots)
-    # initialize decls with argument types
-    for i = 1:nargs
-        decls[i] = widenconst(states[1][i].typ)
+    for i = 1:nslots
+        linfo.slottypes[i] = Bottom
     end
+    undefs = fill(false, nslots)
     body = linfo.code::Array{Any,1}
-    for i=1:length(body)
+    nexpr = length(body)
+    for i=1:nexpr
+        # identify variables always used as the same type
+        st_i = states[i]
+        if st_i !== ()
+            for j = 1:nslots
+                vt = widenconst(st_i[j].typ)
+                if vt !== Bottom
+                    otherTy = linfo.slottypes[j]
+                    if otherTy === Bottom
+                        linfo.slottypes[j] = vt
+                    elseif otherTy !== Any && !typeseq(otherTy, vt)
+                        linfo.slottypes[j] = Any
+                    end
+                end
+            end
+        end
+    end
+    i = 1
+    optimize = sv.optimize::Bool
+    while i <= nexpr
         st_i = states[i]
         if st_i !== ()
             # st_i === ()  =>  unreached statement  (see issue #7836)
-            body[i] = eval_annotate(body[i], st_i, sv, decls, undefs)
+            body[i] = eval_annotate(body[i], st_i, sv, undefs)
+        elseif optimize
+            expr = body[i]
+            if isa(expr, Expr) && expr_cannot_delete(expr::Expr)
+                i += 1
+                continue
+            end
+            # This can create `Expr(:gotoifnot)` with dangling label, which we
+            # clean up in `reindex_labels!`
+            deleteat!(body, i)
+            deleteat!(states, i)
+            nexpr -= 1
+            continue
         end
+        i += 1
     end
 
-    # add declarations for variables that are always the same type
+    # mark used-undef variables
     for i = 1:nslots
-        if decls[i] !== NF
-            linfo.slottypes[i] = decls[i]
-        end
         if undefs[i]
-            linfo.slotflags[i] |= 32
+            linfo.slotflags[i] |= Slot_UsedUndef
         end
     end
     nothing
@@ -2006,7 +2025,7 @@ end
 
 # widen all Const elements in type annotations
 _widen_all_consts(x::ANY) = x
-_widen_all_consts(x::Slot) = Slot(x.id, widenconst(x.typ))
+_widen_all_consts(x::TypedSlot) = TypedSlot(x.id, widenconst(x.typ))
 function _widen_all_consts(x::Expr)
     x.typ = widenconst(x.typ)
     for i = 1:length(x.args)
@@ -2031,7 +2050,11 @@ function substitute!(e::ANY, na, argexprs, spvals, offset)
         if 1 <= e.id <= na
             return argexprs[e.id]
         end
-        return Slot(e.id+offset, e.typ)
+        if isa(e, SlotNumber)
+            return SlotNumber(e.id+offset)
+        else
+            return TypedSlot(e.id+offset, e.typ)
+        end
     end
     if isa(e,NewvarNode)
         return NewvarNode(substitute!(e.slot, na, argexprs, spvals, offset))
@@ -2072,7 +2095,9 @@ end
 function exprtype(x::ANY, sv::InferenceState)
     if isa(x,Expr)
         return (x::Expr).typ
-    elseif isa(x,Slot)
+    elseif isa(x,SlotNumber)
+        return sv.linfo.slottypes[x.id]
+    elseif isa(x,TypedSlot)
         return (x::Slot).typ
     elseif isa(x,GenSym)
         return abstract_eval_gensym(x::GenSym, sv)
@@ -2402,7 +2427,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
             # argument tuple is not used as a whole, so convert function body
             # to one accepting the exact number of arguments we have.
             newnames = unique_names(ast,valen)
-            replace_getfield!(ast, body, vaname, newnames, sv, 1)
+            replace_getfield!(ast, body, vaname, newnames, sv)
             na = na-1+valen
 
             # if the argument name is also used as a local variable,
@@ -2496,7 +2521,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
 
         islocal = false # if the argument name is also used as a local variable,
                         # we need to keep it as a variable name
-        if linfo.slotflags[i]&18 != 0
+        if linfo.slotflags[i] & (Slot_Assigned | Slot_AssignedOnce) != 0
             islocal = true
             aeitype = tmerge(aeitype, linfo.slottypes[i])
         end
@@ -2656,7 +2681,12 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
         push!(stmts, retstmt)
         expr = retval
     else
-        expr = lastexpr.args[1]
+        # Dead code elimination can leave a non-return statement at the end
+        if lastexpr === nothing
+            expr = nothing
+        else
+            expr = lastexpr.args[1]
+        end
     end
 
     if length(stmts) == 1
@@ -2754,7 +2784,6 @@ const corenumtype = Union{Int32,Int64,Float32,Float64}
 
 function inlining_pass!(linfo::LambdaInfo, sv::InferenceState)
     eargs = linfo.code
-    stmts = []
     i = 1
     while i <= length(eargs)
         ei = eargs[i]
@@ -2943,12 +2972,14 @@ function inlining_pass(e::Expr, sv, linfo)
     return (e,stmts)
 end
 
+const compiler_temp_sym = symbol("#temp#")
+
 function add_slot!(linfo::LambdaInfo, typ, is_sa)
     id = length(linfo.slotnames)+1
-    push!(linfo.slotnames, :__temp__)
+    push!(linfo.slotnames, compiler_temp_sym)
     push!(linfo.slottypes, typ)
-    push!(linfo.slotflags, 2+16*is_sa)
-    Slot(id, typ)
+    push!(linfo.slotflags, Slot_Assigned + is_sa * Slot_AssignedOnce)
+    SlotNumber(id)
 end
 
 function is_known_call(e::Expr, func, sv)
@@ -2967,7 +2998,7 @@ function is_known_call_p(e::Expr, pred, sv)
     return isa(f,Const) && pred(f.val)
 end
 
-is_var_assigned(linfo, v) = isa(v,Slot) && linfo.slotflags[v.id]&2 != 0
+is_var_assigned(linfo, v) = isa(v,Slot) && linfo.slotflags[v.id]&Slot_Assigned != 0
 
 function delete_var!(linfo, id, T)
     filter!(x->!(isa(x,Expr) && (x.head === :(=) || x.head === :const) &&
@@ -2996,7 +3027,7 @@ function _slot_replace!(e, id, rhs, T)
 end
 
 occurs_undef(var::Int, expr, flags) =
-    flags[var]&32 != 0 && occurs_more(expr, e->(isa(e,Slot) && e.id==var), 0)>0
+    flags[var]&Slot_UsedUndef != 0 && occurs_more(expr, e->(isa(e,Slot) && e.id==var), 0)>0
 
 # remove all single-assigned vars v in "v = x" where x is an argument
 # and not assigned.
@@ -3007,7 +3038,7 @@ function remove_redundant_temp_vars(linfo, sa, T)
     gensym_types = linfo.gensymtypes
     bexpr = Expr(:block); bexpr.args = linfo.code
     for (v,init) in sa
-        if (isa(init, Slot) && !is_var_assigned(linfo, init))
+        if (isa(init, Slot) && !is_var_assigned(linfo, init::Slot))
             # this transformation is not valid for vars used before def.
             # we need to preserve the point of assignment to know where to
             # throw errors (issue #4645).
@@ -3017,7 +3048,8 @@ function remove_redundant_temp_vars(linfo, sa, T)
                 # (from inlining improved type inference information)
                 # and this transformation would worsen the type information
                 # everywhere later in the function
-                if init.typ ⊑ (T===GenSym ? gensym_types[v+1] : linfo.slottypes[v])
+                ityp = isa(init,TypedSlot) ? init.typ : linfo.slottypes[init.id]
+                if ityp ⊑ (T===GenSym ? gensym_types[v+1] : linfo.slottypes[v])
                     delete_var!(linfo, v, T)
                     slot_replace!(linfo, v, init, T)
                 end
@@ -3060,8 +3092,9 @@ symequal(x::GenSym, y::GenSym) = is(x.id,y.id)
 symequal(x::Slot  , y::Slot)   = is(x.id,y.id)
 symequal(x::ANY   , y::ANY)    = is(x,y)
 
-function occurs_outside_getfield(e::ANY, sym::ANY, sv::InferenceState, field_count, field_names)
-    if e===sym || (isa(e,Slot) && isa(sym,Slot) && e.id == sym.id)
+function occurs_outside_getfield(linfo::LambdaInfo, e::ANY, sym::ANY,
+                                 sv::InferenceState, field_count, field_names)
+    if e===sym || (isa(e,Slot) && isa(sym,Slot) && (e::Slot).id == (sym::Slot).id)
         return true
     end
     if isa(e,Expr)
@@ -3077,10 +3110,20 @@ function occurs_outside_getfield(e::ANY, sym::ANY, sv::InferenceState, field_cou
             return true
         end
         if is(e.head,:(=))
-            return occurs_outside_getfield(e.args[2], sym, sv, field_count, field_names)
+            return occurs_outside_getfield(linfo, e.args[2], sym, sv,
+                                           field_count, field_names)
         else
+            if (e.head === :block && isa(sym, Slot) &&
+                linfo.slotflags[(sym::Slot).id] & Slot_UsedUndef == 0)
+                ignore_void = true
+            else
+                ignore_void = false
+            end
             for a in e.args
-                if occurs_outside_getfield(a, sym, sv, field_count, field_names)
+                if ignore_void && isa(a, Slot) && (a::Slot).id == (sym::Slot).id
+                    continue
+                end
+                if occurs_outside_getfield(linfo, a, sym, sv, field_count, field_names)
                     return true
                 end
             end
@@ -3117,7 +3160,7 @@ function _getfield_elim_pass!(e::Expr, sv)
         e1 = e.args[2]
         j = e.args[3]
         if isa(e1,Expr)
-            alloc = is_immutable_allocation(e1, sv)
+            alloc = is_allocation(e1, sv)
             if !is(alloc, false)
                 flen, fnames = alloc
                 if isa(j,QuoteNode)
@@ -3152,16 +3195,16 @@ end
 
 _getfield_elim_pass!(e::ANY, sv) = e
 
-# check if e is a successful allocation of an immutable struct
+# check if e is a successful allocation of an struct
 # if it is, returns (n,f) such that it is always valid to call
 # getfield(..., 1 <= x <= n) or getfield(..., x in f) on the result
-function is_immutable_allocation(e :: ANY, sv::InferenceState)
+function is_allocation(e :: ANY, sv::InferenceState)
     isa(e, Expr) || return false
     if is_known_call(e, tuple, sv)
         return (length(e.args)-1,())
     elseif e.head === :new
         typ = widenconst(exprtype(e, sv))
-        if isleaftype(typ) && !typ.mutable
+        if isleaftype(typ)
             @assert(isa(typ,DataType))
             nf = length(e.args)-1
             names = fieldnames(typ)
@@ -3178,7 +3221,7 @@ function is_immutable_allocation(e :: ANY, sv::InferenceState)
     false
 end
 
-# eliminate allocation of unnecessary immutables
+# eliminate allocation of unnecessary objects
 # that are only used as arguments to safe getfield calls
 function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
     body = linfo.code
@@ -3189,49 +3232,98 @@ function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
     i = 1
     while i < length(body)
         e = body[i]
-        if !(isa(e,Expr) && is(e.head,:(=)) && (isa(e.args[1], GenSym) ||
-                                                (isa(e.args[1],Slot) && haskey(vs, e.args[1].id))))
+        if !isa(e, Expr)
             i += 1
             continue
         end
-        var = e.args[1]
-        rhs = e.args[2]
-        alloc = is_immutable_allocation(rhs, sv)
-        if !is(alloc,false)
+        e = e::Expr
+        if e.head === :(=) && (isa(e.args[1], GenSym) ||
+                               (isa(e.args[1],Slot) && haskey(vs, e.args[1].id)))
+            var = e.args[1]
+            rhs = e.args[2]
+        else
+            var = nothing
+            rhs = e
+        end
+        alloc = is_allocation(rhs, sv)
+        if alloc !== false
             nv, field_names = alloc
             tup = rhs.args
-            if occurs_outside_getfield(bexpr, var, sv, nv, field_names)
+            # This makes sure the value doesn't escape so we can elide
+            # allocation of mutable types too
+            if (var !== nothing &&
+                occurs_outside_getfield(linfo, bexpr, var, sv, nv, field_names))
                 i += 1
                 continue
             end
 
             deleteat!(body, i)  # remove tuple allocation
             # convert tuple allocation to a series of local var assignments
-            vals = cell(nv)
             n_ins = 0
-            for j=1:nv
-                tupelt = tup[j+1]
-                if isa(tupelt,Number) || isa(tupelt,AbstractString) || isa(tupelt,QuoteNode)
-                    vals[j] = tupelt
-                else
-                    elty = exprtype(tupelt,sv)
-                    tmpv = newvar!(sv, elty)
-                    tmp = Expr(:(=), tmpv, tupelt)
-                    insert!(body, i+n_ins, tmp)
-                    vals[j] = tmpv
-                    n_ins += 1
+            if var === nothing
+                for j=1:nv
+                    tupelt = tup[j+1]
+                    if !(isa(tupelt,Number) || isa(tupelt,AbstractString) ||
+                         isa(tupelt,QuoteNode) || isa(tupelt, GenSym))
+                        insert!(body, i+n_ins, tupelt)
+                        n_ins += 1
+                    end
+                end
+            else
+                vals = cell(nv)
+                for j=1:nv
+                    tupelt = tup[j+1]
+                    if (isa(tupelt,Number) || isa(tupelt,AbstractString) ||
+                        isa(tupelt,QuoteNode) || isa(tupelt, GenSym))
+                        vals[j] = tupelt
+                    else
+                        elty = exprtype(tupelt,sv)
+                        tmpv = newvar!(sv, elty)
+                        tmp = Expr(:(=), tmpv, tupelt)
+                        insert!(body, i+n_ins, tmp)
+                        vals[j] = tmpv
+                        n_ins += 1
+                    end
+                end
+                replace_getfield!(linfo, bexpr, var, vals, field_names, sv)
+                if isa(var, Slot) && linfo.slotflags[(var::Slot).id] & Slot_UsedUndef == 0
+                    # occurs_outside_getfield might have allowed
+                    # void use of the slot, we need to delete them too
+                    i -= delete_void_use!(body, var::Slot, i)
                 end
             end
-            i += n_ins
-            replace_getfield!(linfo, bexpr, var, vals, field_names, sv, i)
+            # Do not increment counter and do the optimization recursively
+            # on the allocation of fields too.
+            # This line can probably be added back for linear IR
+            # i += n_ins
         else
             i += 1
         end
     end
 end
 
-function replace_getfield!(linfo::LambdaInfo, e::Expr, tupname, vals, field_names, sv, i0)
-    for i = i0:length(e.args)
+# Return the number of expressions deleted before `i0`
+function delete_void_use!(body, var::Slot, i0)
+    narg = length(body)
+    i = 1
+    ndel = 0
+    while i <= narg
+        a = body[i]
+        if isa(a, Slot) && (a::Slot).id == var.id
+            deleteat!(body, i)
+            if i + ndel < i0
+                ndel += 1
+            end
+            narg -= 1
+        else
+            i += 1
+        end
+    end
+    ndel
+end
+
+function replace_getfield!(linfo::LambdaInfo, e::Expr, tupname, vals, field_names, sv)
+    for i = 1:length(e.args)
         a = e.args[i]
         if isa(a,Expr) && is_known_call(a, getfield, sv) &&
             symequal(a.args[2],tupname)
@@ -3247,8 +3339,11 @@ function replace_getfield!(linfo::LambdaInfo, e::Expr, tupname, vals, field_name
             # the tuple element expression that's replacing it.
             if isa(val,Slot)
                 val = val::Slot
-                if a.typ ⊑ val.typ && !(val.typ ⊑ a.typ)
-                    val.typ = a.typ
+                valtyp = isa(val,TypedSlot) ? val.typ : linfo.slottypes[val.id]
+                if a.typ ⊑ valtyp && !(valtyp ⊑ a.typ)
+                    if isa(val,TypedSlot)
+                        val = TypedSlot(val.id, a.typ)
+                    end
                     linfo.slottypes[val.id] = widenconst(a.typ)
                 end
             elseif isa(val,GenSym)
@@ -3260,7 +3355,7 @@ function replace_getfield!(linfo::LambdaInfo, e::Expr, tupname, vals, field_name
             end
             e.args[i] = val
         elseif isa(a, Expr)
-            replace_getfield!(linfo, a::Expr, tupname, vals, field_names, sv, 1)
+            replace_getfield!(linfo, a::Expr, tupname, vals, field_names, sv)
         end
     end
 end
@@ -3278,13 +3373,29 @@ function reindex_labels!(linfo::LambdaInfo, sv::InferenceState)
     end
     for i = 1:length(body)
         el = body[i]
+        # For goto and enter, the statement and the target has to be
+        # both reachable or both not. For gotoifnot, the dead code
+        # elimination in type_annotate! can delete the target
+        # of a reachable (but never taken) node. In which case we can
+        # just replace the node with the branch condition.
         if isa(el,GotoNode)
-            body[i] = GotoNode(mapping[el.label])
+            labelnum = mapping[el.label]
+            @assert labelnum !== 0
+            body[i] = GotoNode(labelnum)
         elseif isa(el,Expr)
+            el = el::Expr
             if el.head === :gotoifnot
-                el.args[2] = mapping[el.args[2]]
+                labelnum = mapping[el.args[2]]
+                if labelnum !== 0
+                    el.args[2] = mapping[el.args[2]]
+                else
+                    # Might have side effects
+                    body[i] = el.args[1]
+                end
             elseif el.head === :enter
-                el.args[1] = mapping[el.args[1]]
+                labelnum = mapping[el.args[1]]
+                @assert labelnum !== 0
+                el.args[1] = labelnum
             end
         end
     end

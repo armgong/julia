@@ -214,6 +214,19 @@ struct strrefcomp {
 };
 #endif
 
+extern "C" tracer_cb jl_linfo_tracer;
+static std::vector<jl_lambda_info_t*> triggered_linfos;
+void jl_callback_triggered_linfos(void)
+{
+    if (triggered_linfos.empty())
+        return;
+    if (jl_linfo_tracer) {
+        std::vector<jl_lambda_info_t*> to_process(std::move(triggered_linfos));
+        for (jl_lambda_info_t *linfo : to_process)
+            jl_call_tracer(jl_linfo_tracer, (jl_value_t*)linfo);
+    }
+}
+
 class JuliaJITEventListener: public JITEventListener
 {
 #ifndef USE_MCJIT
@@ -234,11 +247,14 @@ public:
         int8_t gc_state = jl_gc_safe_enter();
         uv_rwlock_wrlock(&threadsafe);
         jl_gc_safe_leave(gc_state);
-        StringMap<jl_lambda_info_t*>::iterator linfo_it = linfo_in_flight.find(F.getName());
+        StringRef sName = F.getName();
+        StringMap<jl_lambda_info_t*>::iterator linfo_it = linfo_in_flight.find(sName);
         jl_lambda_info_t *linfo = NULL;
         if (linfo_it != linfo_in_flight.end()) {
             linfo = linfo_it->second;
             linfo_in_flight.erase(linfo_it);
+            if (((Function*)linfo->functionObjectsDecls.functionObject)->getName().equals(sName))
+                linfo->fptr = (jl_fptr_t)(uintptr_t)Code;
         }
 #if defined(_OS_WINDOWS_)
         create_PRUNTIME_FUNCTION((uint8_t*)Code, Size, F.getName(), (uint8_t*)Code, Size, NULL);
@@ -434,7 +450,11 @@ public:
             jl_lambda_info_t *linfo = NULL;
             if (linfo_it != linfo_in_flight.end()) {
                 linfo = linfo_it->second;
+                if (linfo->compile_traced)
+                    triggered_linfos.push_back(linfo);
                 linfo_in_flight.erase(linfo_it);
+                if (((Function*)linfo->functionObjectsDecls.functionObject)->getName().equals(sName))
+                    linfo->fptr = (jl_fptr_t)(uintptr_t)Addr;
             }
             if (linfo)
                 linfomap[Addr] = std::make_pair(Size, linfo);
@@ -507,6 +527,8 @@ public:
             if (linfo_it != linfo_in_flight.end()) {
                 linfo = linfo_it->second;
                 linfo_in_flight.erase(linfo_it);
+                if (((Function*)linfo->functionObjectsDecls.functionObject)->getName().equals(sName))
+                    linfo->fptr = (jl_fptr_t)(uintptr_t)Addr;
             }
             if (linfo)
                 linfomap[Addr] = std::make_pair(Size, linfo);

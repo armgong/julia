@@ -96,11 +96,8 @@ function reinterpret{T,S,N}(::Type{T}, a::Array{S}, dims::NTuple{N,Int})
     ccall(:jl_reshape_array, Array{T,N}, (Any, Any, Any), Array{T,N}, a, dims)
 end
 
-reshape(a::Vector, dims::Tuple{Int}) = reshape_a(a, dims)
-reshape{N}(a::Array, dims::NTuple{N,Int}) = reshape_a(a, dims)
-
 # reshaping to same # of dimensions
-function reshape_a{T,N}(a::Array{T,N}, dims::NTuple{N,Int})
+function reshape{T,N}(a::Array{T,N}, dims::NTuple{N,Int})
     if prod(dims) != length(a)
         throw(DimensionMismatch("new dimensions $(dims) must be consistent with array size $(length(a))"))
     end
@@ -111,7 +108,7 @@ function reshape_a{T,N}(a::Array{T,N}, dims::NTuple{N,Int})
 end
 
 # reshaping to different # of dimensions
-function reshape_a{T,N}(a::Array{T}, dims::NTuple{N,Int})
+function reshape{T,N}(a::Array{T}, dims::NTuple{N,Int})
     if prod(dims) != length(a)
         throw(DimensionMismatch("new dimensions $(dims) must be consistent with array size $(length(a))"))
     end
@@ -138,6 +135,7 @@ function getindex(T::Type, vals...)
     end
     return a
 end
+getindex(T::Type) = Array{T}(0)
 
 function getindex(::Type{Any}, vals::ANY...)
     a = Array(Any,length(vals))
@@ -146,6 +144,7 @@ function getindex(::Type{Any}, vals::ANY...)
     end
     return a
 end
+getindex(::Type{Any}) = Array{Any}(0)
 
 function fill!(a::Union{Array{UInt8}, Array{Int8}}, x::Integer)
     ccall(:memset, Ptr{Void}, (Ptr{Void}, Cint, Csize_t), a, x, length(a))

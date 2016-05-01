@@ -723,8 +723,6 @@ export
     full,
 
 # bitarrays
-    bitpack,
-    bitunpack,
     falses,
     flipbits!,
     rol,
@@ -746,6 +744,7 @@ export
 # collections
     all!,
     all,
+    allunique,
     any!,
     any,
     collect,
@@ -901,7 +900,6 @@ export
     utf32,
     warn,
     wstring,
-    xdump,
 
 # random numbers
     AbstractRNG,
@@ -1461,7 +1459,6 @@ export
     speye,
     spones,
     sprand,
-    sprandbool,
     sprandn,
     spzeros,
     symperm,

@@ -463,11 +463,7 @@ function copy!(dest::BitArray, src::Array)
     return unsafe_copy!(dest, 1, src, 1, length(src))
 end
 
-reshape(B::BitVector, dims::Tuple{Int}) = reshape_ba(B, dims)
-reshape(B::BitArray,  dims::Tuple{Int}) = reshape_ba(B, dims)
-reshape{N}(B::BitArray, dims::NTuple{N,Int}) = reshape_ba(B, dims)
-
-function reshape_ba{N}(B::BitArray, dims::NTuple{N,Int})
+function reshape{N}(B::BitArray, dims::NTuple{N,Int})
     prod(dims) == length(B) ||
         throw(DimensionMismatch("new dimensions $(dims) must be consistent with array size $(length(B))"))
     dims == size(B) && return B
@@ -531,10 +527,6 @@ convert{T,N}(::Type{AbstractArray{T,N}}, B::BitArray{N}) = convert(Array{T,N}, B
 
 reinterpret{N}(::Type{Bool}, B::BitArray, dims::NTuple{N,Int}) = reinterpret(B, dims)
 reinterpret{N}(B::BitArray, dims::NTuple{N,Int}) = reshape(B, dims)
-
-# shorthand forms BitArray <-> Array
-bitunpack{N}(B::BitArray{N}) = convert(Array{Bool,N}, B)
-bitpack{T,N}(A::AbstractArray{T,N}) = convert(BitArray{N}, A)
 
 ## Indexing: getindex ##
 
@@ -665,8 +657,8 @@ function append!(B::BitVector, items::BitVector)
     return B
 end
 
-append!(B::BitVector, items::AbstractVector{Bool}) = append!(B, bitpack(items))
-append!(A::Vector{Bool}, items::BitVector) = append!(A, bitunpack(items))
+append!(B::BitVector, items::AbstractVector{Bool}) = append!(B, BitArray(items))
+append!(A::Vector{Bool}, items::BitVector) = append!(A, Array(items))
 
 function prepend!(B::BitVector, items::BitVector)
     n0 = length(B)
@@ -687,8 +679,8 @@ function prepend!(B::BitVector, items::BitVector)
     return B
 end
 
-prepend!(B::BitVector, items::AbstractVector{Bool}) = prepend!(B, bitpack(items))
-prepend!(A::Vector{Bool}, items::BitVector) = prepend!(A, bitunpack(items))
+prepend!(B::BitVector, items::AbstractVector{Bool}) = prepend!(B, BitArray(items))
+prepend!(A::Vector{Bool}, items::BitVector) = prepend!(A, Array(items))
 
 function sizehint!(B::BitVector, sz::Integer)
     ccall(:jl_array_sizehint, Void, (Any, UInt), B.chunks, num_bit_chunks(sz))
@@ -1049,9 +1041,9 @@ for f in (:+, :-)
 end
 for (f) in (:.+, :.-)
     for (arg1, arg2, T, fargs) in ((:(B::BitArray), :(x::Bool)    , Int                                   , :(b, x)),
-                                   (:(B::BitArray), :(x::Number)  , :(promote_array_type($f, typeof(x), Bool)), :(b, x)),
+                                   (:(B::BitArray), :(x::Number)  , :(promote_array_type($f, BitArray, typeof(x))), :(b, x)),
                                    (:(x::Bool)    , :(B::BitArray), Int                                   , :(x, b)),
-                                   (:(x::Number)  , :(B::BitArray), :(promote_array_type($f, typeof(x), Bool)), :(x, b)))
+                                   (:(x::Number)  , :(B::BitArray), :(promote_array_type($f, typeof(x), BitArray)), :(x, b)))
         @eval function ($f)($arg1, $arg2)
             r = Array($T, size(B))
             bi = start(B)
@@ -1068,19 +1060,19 @@ end
 
 for f in (:/, :\)
     @eval begin
-        ($f)(A::BitArray, B::BitArray) = ($f)(bitunpack(A), bitunpack(B))
+        ($f)(A::BitArray, B::BitArray) = ($f)(Array(A), Array(B))
     end
 end
-(/)(B::BitArray, x::Number) = (/)(bitunpack(B), x)
-(/)(x::Number, B::BitArray) = (/)(x, bitunpack(B))
+(/)(B::BitArray, x::Number) = (/)(Array(B), x)
+(/)(x::Number, B::BitArray) = (/)(x, Array(B))
 
 function div(A::BitArray, B::BitArray)
     shp = promote_shape(size(A), size(B))
     all(B) || throw(DivideError())
     return reshape(copy(A), shp)
 end
-div(A::BitArray, B::Array{Bool}) = div(A, bitpack(B))
-div(A::Array{Bool}, B::BitArray) = div(bitpack(A), B)
+div(A::BitArray, B::Array{Bool}) = div(A, BitArray(B))
+div(A::Array{Bool}, B::BitArray) = div(BitArray(A), B)
 function div(B::BitArray, x::Bool)
     return x ? copy(B) : throw(DivideError())
 end
@@ -1090,7 +1082,7 @@ function div(x::Bool, B::BitArray)
 end
 function div(x::Number, B::BitArray)
     all(B) || throw(DivideError())
-    pt = promote_array_type(div, typeof(x), Bool)
+    pt = promote_array_type(div, typeof(x), BitArray)
     y = div(x, true)
     reshape(pt[ y for i = 1:length(B) ], size(B))
 end
@@ -1100,8 +1092,8 @@ function mod(A::BitArray, B::BitArray)
     all(B) || throw(DivideError())
     return falses(shp)
 end
-mod(A::BitArray, B::Array{Bool}) = mod(A, bitpack(B))
-mod(A::Array{Bool}, B::BitArray) = mod(bitpack(A), B)
+mod(A::BitArray, B::Array{Bool}) = mod(A, BitArray(B))
+mod(A::Array{Bool}, B::BitArray) = mod(BitArray(A), B)
 function mod(B::BitArray, x::Bool)
     return x ? falses(size(B)) : throw(DivideError())
 end
@@ -1111,7 +1103,7 @@ function mod(x::Bool, B::BitArray)
 end
 function mod(x::Number, B::BitArray)
     all(B) || throw(DivideError())
-    pt = promote_array_type(mod, typeof(x), Bool)
+    pt = promote_array_type(mod, typeof(x), BitArray)
     y = mod(x, true)
     reshape(pt[ y for i = 1:length(B) ], size(B))
 end
@@ -1119,7 +1111,7 @@ end
 for f in (:div, :mod)
     @eval begin
         function ($f)(B::BitArray, x::Number)
-            F = Array(promote_array_type($f, typeof(x), Bool), size(B))
+            F = Array(promote_array_type($f, BitArray, typeof(x)), size(B))
             for i = 1:length(F)
                 F[i] = ($f)(B[i], x)
             end
@@ -1157,10 +1149,10 @@ for f in (:&, :|, :$)
             Fc[end] &= _msk_end(F)
             return F
         end
-        ($f)(A::DenseArray{Bool}, B::BitArray) = ($f)(bitpack(A), B)
-        ($f)(B::BitArray, A::DenseArray{Bool}) = ($f)(B, bitpack(A))
-        ($f)(x::Number, B::BitArray) = ($f)(x, bitunpack(B))
-        ($f)(B::BitArray, x::Number) = ($f)(bitunpack(B), x)
+        ($f)(A::DenseArray{Bool}, B::BitArray) = ($f)(BitArray(A), B)
+        ($f)(B::BitArray, A::DenseArray{Bool}) = ($f)(B, BitArray(A))
+        ($f)(x::Number, B::BitArray) = ($f)(x, Array(B))
+        ($f)(B::BitArray, x::Number) = ($f)(Array(B), x)
     end
 end
 
@@ -1233,8 +1225,8 @@ end
 
 (.*)(x::Bool, B::BitArray) = x & B
 (.*)(B::BitArray, x::Bool) = B & x
-(.*)(x::Number, B::BitArray) = x .* bitunpack(B)
-(.*)(B::BitArray, x::Number) = bitunpack(B) .* x
+(.*)(x::Number, B::BitArray) = x .* Array(B)
+(.*)(B::BitArray, x::Number) = Array(B) .* x
 
 ## promotion to complex ##
 

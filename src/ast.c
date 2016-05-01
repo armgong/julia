@@ -443,13 +443,8 @@ static jl_value_t *scm_to_julia_(fl_context_t *fl_ctx, value_t e, int eo)
             hd = car_(e);
             if (hd == jl_ast_ctx(fl_ctx)->jlgensym_sym)
                 return jl_box_gensym(numval(car_(cdr_(e))));
-            else if (hd == jl_ast_ctx(fl_ctx)->slot_sym) {
-                jl_value_t *slotnum = jl_box_long(numval(car_(cdr_(e))));
-                JL_GC_PUSH1(&slotnum);
-                jl_value_t *res = jl_new_struct(jl_slot_type, slotnum, jl_any_type);
-                JL_GC_POP();
-                return res;
-            }
+            else if (hd == jl_ast_ctx(fl_ctx)->slot_sym)
+                return jl_box_slotnumber(numval(car_(cdr_(e))));
             else if (hd == jl_ast_ctx(fl_ctx)->null_sym && llength(e) == 1)
                 return jl_nothing;
         }
@@ -677,7 +672,7 @@ static value_t julia_to_scm_(fl_context_t *fl_ctx, jl_value_t *v)
     // GC Note: jl_fieldref(v, 0) allocate for LabelNode, GotoNode
     //          but we don't need a GC root here because julia_to_list2
     //          shouldn't allocate in this case.
-    if (jl_typeis(v, jl_slot_type))
+    if (jl_is_slot(v))
         return julia_to_list2(fl_ctx, (jl_value_t*)slot_sym, jl_fieldref(v,0));
     if (jl_typeis(v, jl_labelnode_type))
         return julia_to_list2(fl_ctx, (jl_value_t*)label_sym, jl_fieldref(v,0));
@@ -745,6 +740,8 @@ JL_DLLEXPORT jl_value_t *jl_parse_string(const char *str, size_t len,
 jl_value_t *jl_parse_eval_all(const char *fname, size_t len,
                               const char *content, size_t contentlen)
 {
+    if (in_pure_callback)
+        jl_error("cannot use include inside a generated function");
     jl_ast_context_t *ctx = jl_ast_ctx_enter();
     fl_context_t *fl_ctx = &ctx->fl;
     value_t f, ast;

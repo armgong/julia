@@ -368,9 +368,6 @@ end
 @deprecate flipud(A::AbstractArray) flipdim(A, 1)
 @deprecate fliplr(A::AbstractArray) flipdim(A, 2)
 
-@deprecate sub2ind{T<:Integer}(dims::Array{T}, sub::Array{T}) sub2ind(tuple(dims...), sub...)
-@deprecate ind2sub!{T<:Integer}(sub::Array{T}, dims::Array{T}, ind::T) ind2sub!(sub, tuple(dims...), ind)
-
 @deprecate strftime     Libc.strftime
 @deprecate strptime     Libc.strptime
 @deprecate flush_cstdio Libc.flush_cstdio
@@ -985,7 +982,6 @@ export call
 # 1933
 @deprecate_binding SingleAsyncWork AsyncCondition
 
-
 # #12872
 @deprecate istext istextmime
 
@@ -1070,6 +1066,21 @@ end
 @deprecate specialized_bitwise_unary(f::Function) f
 @deprecate specialized_bitwise_binary(f::Function) f
 
+@deprecate bitunpack(B::BitArray) Array(B)
+@deprecate bitpack(A::AbstractArray) BitArray(A)
+
+# #4163
+@deprecate xdump dump
+
+@deprecate copy(x::AbstractString)  identity(x)
+@deprecate copy(x::Tuple)  identity(x)
+
+@deprecate sprandbool(m::Integer, n::Integer, density::AbstractFloat) sprand(Bool, m, n, density)
+@deprecate sprandbool(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat) sprand(r, Bool, m, n, density)
+@deprecate sprandbool(n::Integer, density::AbstractFloat) sprand(Bool, n, density)
+@deprecate sprandbool(r::AbstractRNG, n::Integer, density::AbstractFloat) sprand(r, Bool, n, density)
+@deprecate sprand{T}(n::Integer, density::AbstractFloat, ::Type{T}) sprand(T, n, density)
+@deprecate sprand{T}(r::AbstractRNG, n::Integer, density::AbstractFloat, ::Type{T}) sprand(r, T, n, density)
 
 # During the 0.5 development cycle, do not add any deprecations below this line
 # To be deprecated in 0.6

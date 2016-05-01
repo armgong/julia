@@ -16,6 +16,13 @@
 extern "C" {
 #endif
 
+// execution of certain certain unpure
+// statements is prohibited from certain
+// callbacks (such as generated functions)
+extern int in_pure_callback;
+typedef void (*tracer_cb)(jl_value_t *tracee);
+void jl_call_tracer(tracer_cb callback, jl_value_t *tracee);
+
 extern size_t jl_page_size;
 #define jl_stack_lo (jl_get_ptls_states()->stack_lo)
 #define jl_stack_hi (jl_get_ptls_states()->stack_hi)
@@ -191,6 +198,8 @@ jl_function_t *jl_module_call_func(jl_module_t *m);
 int jl_is_submodule(jl_module_t *child, jl_module_t *parent);
 
 jl_value_t *jl_toplevel_eval_flex(jl_value_t *e, int fast);
+jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex,
+                                     int delay_warn);
 
 jl_lambda_info_t *jl_wrap_expr(jl_value_t *expr);
 jl_value_t *jl_eval_global_var(jl_module_t *m, jl_sym_t *e);
@@ -225,6 +234,7 @@ void jl_compute_field_offsets(jl_datatype_t *st);
 jl_array_t *jl_new_array_for_deserialization(jl_value_t *atype, uint32_t ndims, size_t *dims,
                                              int isunboxed, int elsz);
 extern jl_array_t *jl_module_init_order;
+extern union jl_typemap_t jl_cfunction_list;
 
 #ifdef JL_USE_INTEL_JITEVENTS
 extern char jl_using_intel_jitevents;
@@ -575,6 +585,7 @@ int sigs_eq(jl_value_t *a, jl_value_t *b, int useenv);
 
 jl_value_t *jl_lookup_match(jl_value_t *a, jl_value_t *b, jl_svec_t **penv, jl_svec_t *tvars);
 
+unsigned jl_special_vector_alignment(size_t nfields, jl_value_t *field_type);
 
 #ifdef __cplusplus
 }

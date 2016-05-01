@@ -1692,7 +1692,7 @@ split
 """
     dump(x)
 
-Show all user-visible structure of a value.
+Show every part of the representation of a value.
 """
 dump
 
@@ -2657,7 +2657,7 @@ Example for a sparse 2-d array:
 
 ```jldoctest
 julia> A = sparse([1, 1, 2], [1, 3, 1], [1, 2, -5])
-2x3 sparse matrix with 3 Int64 entries:
+2×3 sparse matrix with 3 Int64 nonzero entries:
         [1, 1]  =  1
         [2, 1]  =  -5
         [1, 3]  =  2
@@ -3012,23 +3012,23 @@ julia> a, b, c, d, e, f = 1, 2, 3, 4, 5, 6
 (1,2,3,4,5,6)
 
 julia> [a b c; d e f]
-2x3 Array{Int64,2}:
+2×3 Array{Int64,2}:
  1  2  3
  4  5  6
 
 julia> hvcat((3,3), a,b,c,d,e,f)
-2x3 Array{Int64,2}:
+2×3 Array{Int64,2}:
  1  2  3
  4  5  6
 
 julia> [a b;c d; e f]
-3x2 Array{Int64,2}:
+3×2 Array{Int64,2}:
  1  2
  3  4
  5  6
 
 julia> hvcat((2,2,2), a,b,c,d,e,f)
-3x2 Array{Int64,2}:
+3×2 Array{Int64,2}:
  1  2
  3  4
  5  6
@@ -4375,13 +4375,6 @@ Pick a random element or array of random elements from the set of values specifi
 rand
 
 """
-    bitpack(A::AbstractArray{T,N}) -> BitArray
-
-Converts a numeric array to a packed boolean array.
-"""
-bitpack
-
-"""
     base(base, n, [pad])
 
 Convert an integer to a string in the given base, optionally specifying a number of digits
@@ -5339,7 +5332,7 @@ overwriting the existing value of `Y`. Note that `Y` must not be aliased with ei
 julia> A=[1.0 2.0; 3.0 4.0]; B=[1.0 1.0; 1.0 1.0]; Y = similar(B); A_mul_B!(Y, A, B);
 
 julia> Y
-2x2 Array{Float64,2}:
+2×2 Array{Float64,2}:
  3.0  3.0
  7.0  7.0
 ```
@@ -6295,7 +6288,7 @@ For example, `similar(1:10, 1, 4)` returns an uninitialized `Array{Int,2}` since
 neither mutable nor support 2 dimensions:
 
     julia> similar(1:10, 1, 4)
-    1x4 Array{Int64,2}:
+    1×4 Array{Int64,2}:
      4419743872  4374413872  4419743888  0
 
 Conversely, `similar(trues(10,10), 2)` returns an uninitialized `BitVector` with two
@@ -6310,7 +6303,7 @@ Since `BitArray`s can only store elements of type `Bool`, however, if you reques
 different element type it will create a regular `Array` instead:
 
     julia> similar(falses(10), Float64, 2, 4)
-    2x4 Array{Float64,2}:
+    2×4 Array{Float64,2}:
      2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
      2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
 """
@@ -8185,13 +8178,6 @@ all elements of the string.
 ispunct
 
 """
-    bitunpack(B::BitArray{N}) -> Array{Bool,N}
-
-Converts a packed boolean array to an array of booleans.
-"""
-bitunpack
-
-"""
     size(A, [dim...])
 
 Returns a tuple containing the dimensions of `A`. Optionally you can specify the
@@ -8882,13 +8868,6 @@ true
 applicable
 
 """
-    xdump(x)
-
-Show all structure of a value, including all fields of objects.
-"""
-xdump
-
-"""
     Base.process_messages(instrm::AsyncStream, outstrm::AsyncStream)
 
 Called by cluster managers using custom transports. It should be called when the custom
@@ -9385,7 +9364,7 @@ isxdigit
 """
     fill(x, dims)
 
-Create an array filled with the value `x`. For example, `fill(1.0, (10,10))` returns a 10x10
+Create an array filled with the value `x`. For example, `fill(1.0, (10,10))` returns a 10×10
 array of floats, with each element initialized to `1.0`.
 
 If `x` is an object reference, all elements will refer to the same object. `fill(Foo(),
@@ -9974,7 +9953,7 @@ on the `permute` and `scale` keyword arguments. The eigenvectors are returned co
 ```jldoctest
 julia> eig([1.0 0.0 0.0; 0.0 3.0 0.0; 0.0 0.0 18.0])
 ([1.0,3.0,18.0],
-3x3 Array{Float64,2}:
+3×3 Array{Float64,2}:
  1.0  0.0  0.0
  0.0  1.0  0.0
  0.0  0.0  1.0)
