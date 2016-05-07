@@ -251,7 +251,7 @@ int jl_has_intrinsics(jl_lambda_info_t *li, jl_value_t *v, jl_module_t *m)
         if (sv && jl_typeis(sv, jl_intrinsic_type))
             return 1;
     }
-    if (0 && e->head == assign_sym && jl_is_gensym(e0)) { // code branch needed for *very-linear-mode*, but not desirable otherwise
+    if (0 && e->head == assign_sym && jl_is_ssavalue(e0)) { // code branch needed for *very-linear-mode*, but not desirable otherwise
         jl_value_t *e1 = jl_exprarg(e, 1);
         jl_value_t *sv = jl_static_eval(e1, NULL, m, li, li != NULL, 0);
         if (sv && jl_typeis(sv, jl_intrinsic_type))
@@ -573,7 +573,7 @@ JL_DLLEXPORT jl_value_t *jl_load(const char *fname, size_t len)
     return jl_parse_eval_all(fpath, len, NULL, 0);
 }
 
-// load from filename given as a ByteString object
+// load from filename given as a String object
 JL_DLLEXPORT jl_value_t *jl_load_(jl_value_t *str)
 {
     return jl_load(jl_string_data(str), jl_string_len(str));
@@ -721,6 +721,7 @@ static jl_lambda_info_t *expr_to_lambda(jl_expr_t *f)
     return li;
 }
 
+extern tracer_cb jl_newmeth_tracer;
 JL_DLLEXPORT void jl_method_def(jl_svec_t *argdata, jl_lambda_info_t *f, jl_value_t *isstaged)
 {
     // argdata is svec({types...}, svec(typevars...))
@@ -754,8 +755,7 @@ JL_DLLEXPORT void jl_method_def(jl_svec_t *argdata, jl_lambda_info_t *f, jl_valu
     if (jl_subtype(ftype, (jl_value_t*)jl_builtin_type, 0))
         jl_error("cannot add methods to a builtin function");
 
-    jl_tupletype_t *sig = isstaged == jl_true ? jl_anytuple_type : argtypes;
-    m = jl_new_method(f, name, sig, isstaged == jl_true);
+    m = jl_new_method(f, name, argtypes, tvars, isstaged == jl_true);
     f = m->lambda_template; // because jl_new_method makes a copy
     jl_check_static_parameter_conflicts(m, tvars);
 
@@ -785,7 +785,9 @@ JL_DLLEXPORT void jl_method_def(jl_svec_t *argdata, jl_lambda_info_t *f, jl_valu
         }
     }
 
-    jl_method_table_insert(mt, argtypes, NULL, m, tvars);
+    jl_method_table_insert(mt, m, NULL);
+    if (jl_newmeth_tracer)
+        jl_call_tracer(jl_newmeth_tracer, (jl_value_t*)m);
 
     if (jl_boot_file_loaded && f->code && jl_typeis(f->code, jl_array_any_type)) {
         f->code = jl_compress_ast(f, f->code);

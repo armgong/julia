@@ -138,7 +138,7 @@ end
         systemerror(:SetClipboardData, pdata!=p)
         ccall((:CloseClipboard, "user32"), stdcall, Void, ())
     end
-    clipboard(x) = clipboard(sprint(io->print(io,x))::ByteString)
+    clipboard(x) = clipboard(sprint(io->print(io,x))::String)
 
     function clipboard()
         systemerror(:OpenClipboard, 0==ccall((:OpenClipboard, "user32"), stdcall, Cint, (Ptr{Void},), C_NULL))
@@ -150,8 +150,8 @@ end
         # find NUL terminator (0x0000 16-bit code unit)
         len = 0
         while unsafe_load(plock, len+1) != 0; len += 1; end
-        # get Vector{UInt16}, transcode data to UTF-8, make a ByteString of it
-        s = bytestring(utf16to8(pointer_to_array(plock, len)))
+        # get Vector{UInt16}, transcode data to UTF-8, make a String of it
+        s = String(utf16to8(pointer_to_array(plock, len)))
         systemerror(:GlobalUnlock, 0==ccall((:GlobalUnlock, "kernel32"), stdcall, Cint, (Ptr{UInt16},), plock))
         return s
     end
@@ -383,9 +383,8 @@ function type_close_enough(x::ANY, t::ANY)
 end
 
 # `methodswith` -- shows a list of methods using the type given
-function methodswith(t::Type, f::Function, showparents::Bool=false, meths = TypeMapEntry[])
-    mt = typeof(f).name.mt
-    visit(mt) do d
+function methodswith(t::Type, f::Function, showparents::Bool=false, meths = Method[])
+    for d in methods(f)
         if any(x -> (type_close_enough(x, t) ||
                      (showparents ? (t <: x && (!isa(x,TypeVar) || x.ub != Any)) :
                       (isa(x,TypeVar) && x.ub != Any && t == x.ub)) &&
@@ -398,7 +397,7 @@ function methodswith(t::Type, f::Function, showparents::Bool=false, meths = Type
 end
 
 function methodswith(t::Type, m::Module, showparents::Bool=false)
-    meths = TypeMapEntry[]
+    meths = Method[]
     for nm in names(m)
         if isdefined(m, nm)
             f = getfield(m, nm)
@@ -411,7 +410,7 @@ function methodswith(t::Type, m::Module, showparents::Bool=false)
 end
 
 function methodswith(t::Type, showparents::Bool=false)
-    meths = TypeMapEntry[]
+    meths = Method[]
     mainmod = current_module()
     # find modules in Main
     for nm in names(mainmod)

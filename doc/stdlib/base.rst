@@ -128,7 +128,7 @@ Getting Around
 
    When searching for files, ``require`` first looks for package code under ``Pkg.dir()``\ , then tries paths in the global array ``LOAD_PATH``\ .
 
-.. function:: Base.compilecache(module::ByteString)
+.. function:: Base.compilecache(module::String)
 
    .. Docstring generated from Julia source
 
@@ -1144,7 +1144,7 @@ Errors
 
    .. Docstring generated from Julia source
 
-   A method with the required type signature does not exist in the given generic function.
+   A method with the required type signature does not exist in the given generic function. Alternatively, there is no unique most-specific method.
 
 .. function:: NullException()
 

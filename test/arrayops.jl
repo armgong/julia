@@ -87,8 +87,23 @@ a = reshape(b, (2, 2, 2, 2, 2))
 @test a[2,1,2,2,1] == b[14]
 @test a[2,2,2,2,2] == b[end]
 
-# reshaping linearslow arrays
 a = collect(reshape(1:5, 1, 5))
+# reshaping linearfast SubArrays
+s = sub(a, :, 2:4)
+r = reshape(s, (length(s),))
+@test length(r) == 3
+@test r[1] == 2
+@test r[3,1] == 4
+@test r[Base.ReshapedIndex(CartesianIndex((1,2)))] == 3
+@test parent(reshape(r, (1,3))) === r.parent === s
+@test parentindexes(r) == (1:1, 1:3)
+@test reshape(r, (3,)) === r
+@test convert(Array{Int,1}, r) == [2,3,4]
+@test_throws MethodError convert(Array{Int,2}, r)
+@test convert(Array{Int}, r) == [2,3,4]
+@test Base.unsafe_convert(Ptr{Int}, r) == Base.unsafe_convert(Ptr{Int}, s)
+
+# reshaping linearslow SubArrays
 s = sub(a, :, [2,3,5])
 r = reshape(s, length(s))
 @test length(r) == 3
@@ -98,6 +113,10 @@ r = reshape(s, length(s))
 @test parent(reshape(r, (1,3))) === r.parent === s
 @test parentindexes(r) == (1:1, 1:3)
 @test reshape(r, (3,)) === r
+@test convert(Array{Int,1}, r) == [2,3,5]
+@test_throws MethodError convert(Array{Int,2}, r)
+@test convert(Array{Int}, r) == [2,3,5]
+@test_throws ErrorException Base.unsafe_convert(Ptr{Int}, r)
 r[2] = -1
 @test a[3] == -1
 a = zeros(0, 5)  # an empty linearslow array
@@ -342,6 +361,14 @@ a = [0,1,2,3,0,1,2,3]
 @test findprev(a,1,8) == 6
 @test findprev(isodd, [2,4,5,3,9,2,0], 7) == 5
 @test findprev(isodd, [2,4,5,3,9,2,0], 2) == 0
+
+# find with general iterables
+s = "julia"
+@test find(s) == [1,2,3,4,5]
+@test find(c -> c == 'l', s) == [3]
+g = graphemes("日本語")
+@test find(g) == [1,2,3]
+@test find(isascii, g) == Int[]
 
 ## findn ##
 
@@ -1025,6 +1052,11 @@ function i7197()
     ind2sub(size(S), 5)
 end
 @test i7197() == (2,2)
+A = reshape(collect(1:9), (3,3))
+@test ind2sub(size(A), 6) == (3,2)
+@test sub2ind(size(A), 3, 2) == 6
+@test ind2sub(A, 6) == (3,2)
+@test sub2ind(A, 3, 2) == 6
 
 # PR #9256
 function pr9256()
@@ -1178,6 +1210,11 @@ I2 = CartesianIndex((-1,5,2))
 
 @test length(I1) == 3
 
+@test isless(CartesianIndex((1,1)), CartesianIndex((2,1)))
+@test isless(CartesianIndex((1,1)), CartesianIndex((1,2)))
+@test isless(CartesianIndex((2,1)), CartesianIndex((1,2)))
+@test !isless(CartesianIndex((1,2)), CartesianIndex((2,1)))
+
 a = spzeros(2,3)
 @test CartesianRange(size(a)) == eachindex(a)
 a[CartesianIndex{2}(2,3)] = 5
@@ -1264,21 +1301,21 @@ let x = fill(0.9, 1000)
 end
 
 #binary ops on bool arrays
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test A + true == [2,2,2,2,2]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test A + false == [1,1,1,1,1]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test true + A == [2,2,2,2,2]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test false + A == [1,1,1,1,1]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test A - true == [0,0,0,0,0]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test A - false == [1,1,1,1,1]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test true - A == [0,0,0,0,0]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test false - A == [-1,-1,-1,-1,-1]
 
 # simple transposes
@@ -1338,9 +1375,9 @@ module RetTypeDecl
     (.*){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,2}(x.val*y.val)
     zero{T,pow}(x::MeterUnits{T,pow}) = MeterUnits{T,pow}(zero(T))
 
-    Base.promote_op{R,S}(::Base.AddFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),1}
-    Base.promote_op{R,S}(::Base.MulFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
-    Base.promote_op{R,S}(::Base.DotMulFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
+    Base.promote_op{R,S}(::typeof(+), ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),1}
+    Base.promote_op{R,S}(::typeof(*), ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
+    Base.promote_op{R,S}(::typeof(.*), ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
 
     @test @inferred(m+[m,m]) == [m+m,m+m]
     @test @inferred([m,m]+m) == [m+m,m+m]

@@ -194,25 +194,25 @@ JL_CALLABLE(jl_f_throw)
 
 JL_DLLEXPORT void jl_enter_handler(jl_handler_t *eh)
 {
-    JL_SIGATOMIC_BEGIN();
+    // Must have no safepoint
     eh->prev = jl_current_task->eh;
     eh->gcstack = jl_pgcstack;
 #ifdef JULIA_ENABLE_THREADING
     eh->gc_state = jl_gc_state();
     eh->locks_len = jl_current_task->locks.len;
 #endif
+    eh->defer_signal = jl_get_ptls_states()->defer_signal;
     jl_current_task->eh = eh;
-    // TODO: this should really go after setjmp(). see comment in
-    // ctx_switch in task.c.
-    JL_SIGATOMIC_END();
 }
 
 JL_DLLEXPORT void jl_pop_handler(int n)
 {
-    while (n > 0) {
-        jl_eh_restore_state(jl_current_task->eh);
-        n--;
-    }
+    if (__unlikely(n <= 0))
+        return;
+    jl_handler_t *eh = jl_current_task->eh;
+    while (--n > 0)
+        eh = eh->prev;
+    jl_eh_restore_state(eh);
 }
 
 // primitives -----------------------------------------------------------------
@@ -514,7 +514,7 @@ JL_DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex)
     return jl_toplevel_eval_in_warn(m, ex, 0);
 }
 
-JL_DLLEXPORT jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex, int delay_warn)
+jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex, int delay_warn)
 {
     static int jl_warn_on_eval = 0;
     int last_delay_warn = jl_warn_on_eval;
@@ -539,6 +539,8 @@ JL_DLLEXPORT jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex
             jl_printf(JL_STDERR, "\n  ** incremental compilation may be broken for these modules **\n\n");
         }
     }
+    if (in_pure_callback && !delay_warn)
+        jl_error("eval cannot be used in a generated function");
     JL_TRY {
         jl_warn_on_eval = delay_warn && (jl_warn_on_eval || m != last_m); // compute whether a warning was suppressed
         jl_current_task->current_module = jl_current_module = m;
@@ -946,7 +948,8 @@ static void jl_check_type_tuple(jl_value_t *t, jl_sym_t *name, const char *ctx)
 JL_CALLABLE(jl_f_applicable)
 {
     JL_NARGSV(applicable, 1);
-    return jl_method_lookup(jl_gf_mtable(args[0]), args, nargs, 1) != NULL ?
+    jl_typemap_entry_t *entry;
+    return jl_method_lookup(jl_gf_mtable(args[0]), args, nargs, 1, &entry) != NULL ?
         jl_true : jl_false;
 }
 
@@ -1126,7 +1129,6 @@ void jl_init_primitives(void)
     add_builtin("TypeName", (jl_value_t*)jl_typename_type);
     add_builtin("TypeConstructor", (jl_value_t*)jl_typector_type);
     add_builtin("Tuple", (jl_value_t*)jl_anytuple_type);
-    add_builtin("NTuple", (jl_value_t*)jl_ntuple_type);
     add_builtin("Vararg", (jl_value_t*)jl_vararg_type);
     add_builtin("Type", (jl_value_t*)jl_type_type);
     add_builtin("DataType", (jl_value_t*)jl_datatype_type);
@@ -1139,8 +1141,10 @@ void jl_init_primitives(void)
     add_builtin("TypeMapEntry", (jl_value_t*)jl_typemap_entry_type);
     add_builtin("TypeMapLevel", (jl_value_t*)jl_typemap_level_type);
     add_builtin("Symbol", (jl_value_t*)jl_sym_type);
-    add_builtin("GenSym", (jl_value_t*)jl_gensym_type);
-    add_builtin("Slot", (jl_value_t*)jl_slot_type);
+    add_builtin("SSAValue", (jl_value_t*)jl_ssavalue_type);
+    add_builtin("Slot", (jl_value_t*)jl_abstractslot_type);
+    add_builtin("SlotNumber", (jl_value_t*)jl_slotnumber_type);
+    add_builtin("TypedSlot", (jl_value_t*)jl_typedslot_type);
     add_builtin("IntrinsicFunction", (jl_value_t*)jl_intrinsic_type);
     add_builtin("Function", (jl_value_t*)jl_function_type);
     add_builtin("Builtin", (jl_value_t*)jl_builtin_type);
@@ -1188,23 +1192,22 @@ static size_t jl_show_svec(JL_STREAM *out, jl_svec_t *t, char *head, char *opn, 
     return n;
 }
 
-#define MAX_DEPTH 25
+struct recur_list {
+    struct recur_list *prev;
+    jl_value_t *v;
+};
 
-static size_t jl_static_show_x(JL_STREAM *out, jl_value_t *v, int depth);
+static size_t jl_static_show_x(JL_STREAM *out, jl_value_t *v, struct recur_list *depth);
 
 // `v` might be pointing to a field inlined in a structure therefore
 // `jl_typeof(v)` may not be the same with `vt` and only `vt` should be
 // used to determine the type of the value.
 // This is necessary to make sure that this function doesn't allocate any
 // memory through the Julia GC
-static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
-                                jl_datatype_t *vt, int depth)
+static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v, jl_datatype_t *vt,
+                                struct recur_list *depth)
 {
-    if (depth > MAX_DEPTH) { // cheap way of bailing out of cycles
-        return jl_printf(out, "•");
-    }
     size_t n = 0;
-    depth++;
     if ((uintptr_t)vt < 4096U) {
         n += jl_printf(out, "<?#%p::%p>", v, vt);
     }
@@ -1300,7 +1303,7 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
 #endif
     }
     else if (vt == jl_float32_type) {
-        n += jl_printf(out, "%g", *(float*)v);
+        n += jl_printf(out, "%gf", *(float*)v);
     }
     else if (vt == jl_float64_type) {
         n += jl_printf(out, "%g", *(double*)v);
@@ -1311,7 +1314,7 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
     else if ((jl_value_t*)vt == jl_typeof(jl_nothing)) {
         n += jl_printf(out, "nothing");
     }
-    else if (vt == jl_ascii_string_type || vt == jl_utf8_string_type) {
+    else if (vt == jl_string_type) {
         n += jl_printf(out, "\"%s\"", jl_iostr_data(v));
     }
     else if (vt == jl_uniontype_type) {
@@ -1340,9 +1343,9 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
     else if (vt == jl_sym_type) {
         n += jl_printf(out, ":%s", jl_symbol_name((jl_sym_t*)v));
     }
-    else if (vt == jl_gensym_type) {
-        n += jl_printf(out, "GenSym(%" PRIuPTR ")",
-                       (uintptr_t)((jl_gensym_t*)v)->id);
+    else if (vt == jl_ssavalue_type) {
+        n += jl_printf(out, "SSAValue(%" PRIuPTR ")",
+                       (uintptr_t)((jl_ssavalue_t*)v)->id);
     }
     else if (vt == jl_globalref_type) {
         n += jl_static_show_x(out, (jl_value_t*)jl_globalref_mod(v), depth);
@@ -1405,6 +1408,24 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
         size_t j, tlen = jl_array_len(v);
         jl_array_t *av = (jl_array_t*)v;
         jl_datatype_t *el_type = (jl_datatype_t*)jl_tparam0(vt);
+        int nlsep = 0;
+        if (av->flags.ptrarray) {
+            // print arrays with newlines, unless the elements are probably small
+            for (j = 0; j < tlen; j++) {
+                jl_value_t *p = jl_cellref(av, j);
+                if (p != NULL && (uintptr_t)p >= 4096U) {
+                    jl_value_t *p_ty = jl_typeof(p);
+                    if ((uintptr_t)p_ty >= 4096U) {
+                        if (!jl_isbits(p_ty)) {
+                            nlsep = 1;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        if (nlsep && tlen > 1)
+            n += jl_printf(out, "\n  ");
         for (j = 0; j < tlen; j++) {
             if (av->flags.ptrarray) {
                 n += jl_static_show_x(out, jl_cellref(v, j), depth);
@@ -1413,10 +1434,9 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
                 char *ptr = ((char*)av->data) + j * av->elsize;
                 n += jl_static_show_x_(out, (jl_value_t*)ptr, el_type, depth);
             }
-            if (j != tlen-1)
-                n += jl_printf(out, ", ");
+            if (j != tlen - 1)
+                n += jl_printf(out, nlsep ? ",\n  " : ", ");
         }
-        if (j < tlen) n += jl_printf(out, " ...");
         n += jl_printf(out, "]");
     }
     else if (vt == jl_loaderror_type) {
@@ -1479,17 +1499,25 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v,
     return n;
 }
 
-static size_t jl_static_show_x(JL_STREAM *out, jl_value_t *v, int depth)
+static size_t jl_static_show_x(JL_STREAM *out, jl_value_t *v, struct recur_list *depth)
 {
     // mimic jl_show, but never calling a julia method and
-    // (hopefully) never allocate through julia gc
+    // never allocate through julia gc
     if (v == NULL) {
         return jl_printf(out, "#<null>");
     }
     else if ((uintptr_t)v < 4096U) {
         return jl_printf(out, "#<%d>", (int)(uintptr_t)v);
     }
-    return jl_static_show_x_(out, v, (jl_datatype_t*)jl_typeof(v), depth);
+    unsigned int dist = 1;
+    struct recur_list this_item = {depth, v}, *p = depth;
+    while (p) {
+        if (p->v == v)
+            return jl_printf(out, "<circular reference @-%u>", dist);
+        dist++;
+        p = p->prev;
+    }
+    return jl_static_show_x_(out, v, (jl_datatype_t*)jl_typeof(v), &this_item);
 }
 
 JL_DLLEXPORT size_t jl_static_show(JL_STREAM *out, jl_value_t *v)
@@ -1540,7 +1568,7 @@ JL_DLLEXPORT void jl_(void *jl_value)
     jl_jmp_buf buf;
     jl_safe_restore = &buf;
     if (!jl_setjmp(buf, 0)) {
-        (void)jl_static_show((JL_STREAM*)STDERR_FILENO, (jl_value_t*)jl_value);
+        jl_static_show((JL_STREAM*)STDERR_FILENO, (jl_value_t*)jl_value);
         jl_printf((JL_STREAM*)STDERR_FILENO,"\n");
     }
     else {
@@ -1551,7 +1579,7 @@ JL_DLLEXPORT void jl_(void *jl_value)
 
 JL_DLLEXPORT void jl_breakpoint(jl_value_t *v)
 {
-    // put a breakpoint in you debugger here
+    // put a breakpoint in your debugger here
 }
 
 #ifdef __cplusplus

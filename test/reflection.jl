@@ -190,7 +190,7 @@ let
     @test Base.function_name(foo7648)==:foo7648
     @test Base.function_module(foo7648, (Any,))==TestMod7648
     @test basename(functionloc(foo7648, (Any,))[1]) == "reflection.jl"
-    @test methods(TestMod7648.TestModSub9475.foo7648).defs==@which foo7648(5)
+    @test first(methods(TestMod7648.TestModSub9475.foo7648)) == @which foo7648(5)
     @test TestMod7648==@which foo7648
     @test TestMod7648.TestModSub9475==@which a9475
 end
@@ -213,7 +213,7 @@ const a_value = 1
 end
 
 # issue #13264
-@test isa((@which vcat(1...)), TypeMapEntry)
+@test isa((@which vcat(1...)), Method)
 
 # issue #13464
 let t13464 = "hey there sailor"
@@ -225,11 +225,15 @@ let t13464 = "hey there sailor"
     end
 end
 
+# PR 13825
 let ex = :(a + b)
     @test string(ex) == "a + b"
     ex.typ = Integer
     @test string(ex) == "(a + b)::Integer"
 end
+foo13825{T,N}(::Array{T,N}, ::Array, ::Vector) = nothing
+@test startswith(string(first(methods(foo13825))),
+                 "foo13825{T,N}(::Array{T,N}, ::Array, ::Array{T<:Any,1})")
 
 type TLayout
     x::Int8
@@ -295,7 +299,7 @@ let
     @test which(m, Tuple{Int,Symbol})==@which @macrotest 1 a
     @test which(m, Tuple{Int,Int})==@which @macrotest 1 1
 
-    @test methods(m,Tuple{Int, Int})[1]==@which MacroTest.@macrotest 1 1
+    @test first(methods(m,Tuple{Int, Int}))==@which MacroTest.@macrotest 1 1
     @test functionloc(@which @macrotest 1 1) == @functionloc @macrotest 1 1
 end
 
@@ -383,8 +387,8 @@ test_typed_ast_printing(g15714, Tuple{Vector{Float32}},
 tracefoo(x, y) = x+y
 didtrace = false
 tracer(x::Ptr{Void}) = (@test isa(unsafe_pointer_to_objref(x), LambdaInfo); global didtrace = true; nothing)
-ccall(:jl_register_tracer, Void, (Ptr{Void},), cfunction(tracer, Void, (Ptr{Void},)))
-meth = which(tracefoo,Tuple{Any,Any}).func
+ccall(:jl_register_method_tracer, Void, (Ptr{Void},), cfunction(tracer, Void, (Ptr{Void},)))
+meth = which(tracefoo,Tuple{Any,Any})
 ccall(:jl_trace_method, Void, (Any,), meth)
 @test tracefoo(1, 2) == 3
 ccall(:jl_untrace_method, Void, (Any,), meth)
@@ -392,7 +396,7 @@ ccall(:jl_untrace_method, Void, (Any,), meth)
 didtrace = false
 @test tracefoo(1.0, 2.0) == 3.0
 @test !didtrace
-ccall(:jl_register_tracer, Void, (Ptr{Void},), C_NULL)
+ccall(:jl_register_method_tracer, Void, (Ptr{Void},), C_NULL)
 
 # Method Tracing test
 methtracer(x::Ptr{Void}) = (@test isa(unsafe_pointer_to_objref(x), Method); global didtrace = true; nothing)

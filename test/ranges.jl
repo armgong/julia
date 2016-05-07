@@ -45,6 +45,9 @@ r = 5:-1:1
 @test isempty((1:4)[5:4])
 @test_throws BoundsError (1:10)[8:-1:-2]
 
+r = typemax(Int)-5:typemax(Int)-1
+@test_throws BoundsError r[7]
+
 @test findin([5.2, 3.3], 3:20) == findin([5.2, 3.3], collect(3:20))
 
 let
@@ -115,6 +118,9 @@ end
 
 @test sort(UnitRange(1,2)) == UnitRange(1,2)
 @test sort!(UnitRange(1,2)) == UnitRange(1,2)
+@test sort(1:10, rev=true) == collect(10:-1:1)
+@test sort(-3:3, by=abs) == [0,-1,1,-2,2,-3,3]
+@test select(1:10, 4) == 4
 
 @test 0 in UInt(0):100:typemax(UInt)
 @test last(UInt(0):100:typemax(UInt)) in UInt(0):100:typemax(UInt)

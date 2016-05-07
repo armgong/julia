@@ -281,9 +281,9 @@ static Value *julia_to_native(Type *to, bool toboxed, jl_value_t *jlto, const jl
         // emit maybe copy
         *needStackRestore = true;
         Value *jvt = emit_typeof_boxed(jvinfo, ctx);
-        BasicBlock *mutableBB = BasicBlock::Create(getGlobalContext(),"is-mutable",ctx->f);
-        BasicBlock *immutableBB = BasicBlock::Create(getGlobalContext(),"is-immutable",ctx->f);
-        BasicBlock *afterBB = BasicBlock::Create(getGlobalContext(),"after",ctx->f);
+        BasicBlock *mutableBB = BasicBlock::Create(jl_LLVMContext,"is-mutable",ctx->f);
+        BasicBlock *immutableBB = BasicBlock::Create(jl_LLVMContext,"is-immutable",ctx->f);
+        BasicBlock *afterBB = BasicBlock::Create(jl_LLVMContext,"after",ctx->f);
         Value *ismutable = builder.CreateTrunc(
                 tbaa_decorate(tbaa_datatype, builder.CreateLoad(
                         builder.CreateGEP(builder.CreatePointerCast(jvt, T_pint8),
@@ -366,7 +366,7 @@ static native_sym_arg_t interpret_symbol_arg(jl_value_t *arg, jl_codectx_t *ctx,
         }
         if (jl_is_symbol(ptr))
             f_name = jl_symbol_name((jl_sym_t*)ptr);
-        else if (jl_is_byte_string(ptr))
+        else if (jl_is_string(ptr))
             f_name = jl_string_data(ptr);
         if (f_name != NULL) {
             // just symbol, default to JuliaDLHandle
@@ -383,13 +383,13 @@ static native_sym_arg_t interpret_symbol_arg(jl_value_t *arg, jl_codectx_t *ctx,
             jl_value_t *t1 = jl_fieldref(ptr,1);
             if (jl_is_symbol(t0))
                 f_name = jl_symbol_name((jl_sym_t*)t0);
-            else if (jl_is_byte_string(t0))
+            else if (jl_is_string(t0))
                 f_name = jl_string_data(t0);
             else
                 JL_TYPECHKS(fname, symbol, t0);
             if (jl_is_symbol(t1))
                 f_lib = jl_symbol_name((jl_sym_t*)t1);
-            else if (jl_is_byte_string(t1))
+            else if (jl_is_string(t1))
                 f_lib = jl_string_data(t1);
             else
                 JL_TYPECHKS(fname, symbol, t1);
@@ -414,7 +414,7 @@ static jl_value_t* try_eval(jl_value_t *ex, jl_codectx_t *ctx, const char *failu
 {
     jl_value_t *constant = NULL;
     constant = static_eval(ex, ctx, true, true);
-    if (constant || jl_is_gensym(ex))
+    if (constant || jl_is_ssavalue(ex))
         return constant;
     JL_TRY {
         constant = jl_interpret_toplevel_expr_in(ctx->module, ex, ctx->linfo);
@@ -653,10 +653,10 @@ static jl_cgval_t emit_llvmcall(jl_value_t **args, size_t nargs, jl_codectx_t *c
             jl_error("Tuple as first argument to llvmcall must have exactly two children");
         decl = jl_fieldref(ir,0);
         ir = jl_fieldref(ir,1);
-        if (!jl_is_byte_string(decl))
+        if (!jl_is_string(decl))
             jl_error("Declarations passed to llvmcall must be a string");
     }
-    bool isString = jl_is_byte_string(ir);
+    bool isString = jl_is_string(ir);
     bool isPtr = jl_is_cpointer(ir);
     if (!isString && !isPtr) {
         jl_error("IR passed to llvmcall must be a string or pointer to an LLVM Function");
@@ -774,8 +774,6 @@ static jl_cgval_t emit_llvmcall(jl_value_t **args, size_t nargs, jl_codectx_t *c
             jl_error(stream.str().c_str());
         }
         f = m->getFunction(ir_name);
-
-        f->removeFromParent();
     }
     else {
         assert(isPtr);
@@ -1245,20 +1243,54 @@ static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
         assert(!isVa);
         assert(nargt == 0);
         JL_GC_POP();
-#ifdef JULIA_ENABLE_THREADING
-        builder.CreateFence(SequentiallyConsistent, SingleThread);
-        Value *addr;
-        if (imaging_mode) {
-            assert(ctx->signalPage);
-            addr = ctx->signalPage;
-        }
-        else {
-            addr = builder.CreateIntToPtr(
-                ConstantInt::get(T_size, (uintptr_t)jl_gc_signal_page), T_pint8);
-        }
-        builder.CreateLoad(addr, true);
-        builder.CreateFence(SequentiallyConsistent, SingleThread);
-#endif
+        emit_signal_fence();
+        builder.CreateLoad(ctx->signalPage, true);
+        emit_signal_fence();
+        return ghostValue(jl_void_type);
+    }
+    if (fptr == &jl_sigatomic_begin ||
+        ((!f_lib || (intptr_t)f_lib == 2) && f_name &&
+         strcmp(f_name, "jl_sigatomic_begin") == 0)) {
+        assert(lrt == T_void);
+        assert(!isVa);
+        assert(nargt == 0);
+        JL_GC_POP();
+        Value *pdefer_sig = emit_defer_signal(ctx);
+        Value *defer_sig = builder.CreateLoad(pdefer_sig);
+        defer_sig = builder.CreateAdd(defer_sig,
+                                      ConstantInt::get(T_sigatomic, 1));
+        builder.CreateStore(defer_sig, pdefer_sig);
+        emit_signal_fence();
+        return ghostValue(jl_void_type);
+    }
+    if (fptr == &jl_sigatomic_end ||
+        ((!f_lib || (intptr_t)f_lib == 2) && f_name &&
+         strcmp(f_name, "jl_sigatomic_end") == 0)) {
+        assert(lrt == T_void);
+        assert(!isVa);
+        assert(nargt == 0);
+        JL_GC_POP();
+        Value *pdefer_sig = emit_defer_signal(ctx);
+        Value *defer_sig = builder.CreateLoad(pdefer_sig);
+        emit_signal_fence();
+        error_unless(builder.CreateICmpNE(defer_sig,
+                                          ConstantInt::get(T_sigatomic, 0)),
+                     "sigatomic_end called in non-sigatomic region", ctx);
+        defer_sig = builder.CreateSub(defer_sig,
+                                      ConstantInt::get(T_sigatomic, 1));
+        builder.CreateStore(defer_sig, pdefer_sig);
+        BasicBlock *checkBB = BasicBlock::Create(jl_LLVMContext, "check",
+                                                 ctx->f);
+        BasicBlock *contBB = BasicBlock::Create(jl_LLVMContext, "cont");
+        builder.CreateCondBr(
+            builder.CreateICmpEQ(defer_sig, ConstantInt::get(T_sigatomic, 0)),
+            checkBB, contBB);
+        builder.SetInsertPoint(checkBB);
+        builder.CreateLoad(builder.CreateConstGEP1_32(ctx->signalPage, -1),
+                           true);
+        builder.CreateBr(contBB);
+        ctx->f->getBasicBlockList().push_back(contBB);
+        builder.SetInsertPoint(contBB);
         return ghostValue(jl_void_type);
     }
     if (fptr == (void(*)(void))&jl_is_leaf_type ||

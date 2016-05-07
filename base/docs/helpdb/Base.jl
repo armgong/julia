@@ -1692,7 +1692,7 @@ split
 """
     dump(x)
 
-Show all user-visible structure of a value.
+Show every part of the representation of a value.
 """
 dump
 
@@ -1858,23 +1858,23 @@ value for that key will be the value it has in the last collection listed.
 
 ```jldoctest
 julia> a = Dict("foo" => 0.0, "bar" => 42.0)
-Dict{ASCIIString,Float64} with 2 entries:
+Dict{String,Float64} with 2 entries:
   "bar" => 42.0
   "foo" => 0.0
 
 julia> b = Dict(utf8("baz") => 17, utf8("bar") => 4711)
-Dict{UTF8String,Int64} with 2 entries:
+Dict{String,Int64} with 2 entries:
   "bar" => 4711
   "baz" => 17
 
 julia> merge(a, b)
-Dict{UTF8String,Float64} with 3 entries:
+Dict{String,Float64} with 3 entries:
   "bar" => 4711.0
   "baz" => 17.0
   "foo" => 0.0
 
 julia> merge(b, a)
-Dict{UTF8String,Float64} with 3 entries:
+Dict{String,Float64} with 3 entries:
   "bar" => 42.0
   "baz" => 17.0
   "foo" => 0.0
@@ -2657,7 +2657,7 @@ Example for a sparse 2-d array:
 
 ```jldoctest
 julia> A = sparse([1, 1, 2], [1, 3, 1], [1, 2, -5])
-2x3 sparse matrix with 3 Int64 entries:
+2×3 sparse matrix with 3 Int64 nonzero entries:
         [1, 1]  =  1
         [2, 1]  =  -5
         [1, 3]  =  2
@@ -3012,23 +3012,23 @@ julia> a, b, c, d, e, f = 1, 2, 3, 4, 5, 6
 (1,2,3,4,5,6)
 
 julia> [a b c; d e f]
-2x3 Array{Int64,2}:
+2×3 Array{Int64,2}:
  1  2  3
  4  5  6
 
 julia> hvcat((3,3), a,b,c,d,e,f)
-2x3 Array{Int64,2}:
+2×3 Array{Int64,2}:
  1  2  3
  4  5  6
 
 julia> [a b;c d; e f]
-3x2 Array{Int64,2}:
+3×2 Array{Int64,2}:
  1  2
  3  4
  5  6
 
 julia> hvcat((2,2,2), a,b,c,d,e,f)
-3x2 Array{Int64,2}:
+3×2 Array{Int64,2}:
  1  2
  3  4
  5  6
@@ -3487,7 +3487,7 @@ digits
     bytes2hex(bin_arr::Array{UInt8, 1})
 
 Convert an array of bytes to its hexadecimal representation. All characters are in
-lower-case. Returns an `ASCIIString`.
+lower-case. Returns a `String`.
 """
 bytes2hex
 
@@ -3647,7 +3647,7 @@ multiple of four, this is equivalent to a `copy`.
 rotr90(A, k)
 
 """
-    readdir([dir]) -> Vector{ByteString}
+    readdir([dir]) -> Vector{String}
 
 Returns the files and directories in the directory `dir` (or the current working directory if not given).
 """
@@ -3728,7 +3728,7 @@ second variant.
 popdisplay
 
 """
-    readdlm(source, delim::Char, T::Type, eol::Char; header=false, skipstart=0, skipblanks=true, use_mmap, ignore_invalid_chars=false, quotes=true, dims, comments=true, comment_char='#')
+    readdlm(source, delim::Char, T::Type, eol::Char; header=false, skipstart=0, skipblanks=true, use_mmap, quotes=true, dims, comments=true, comment_char='#')
 
 Read a matrix from the source where each line (separated by `eol`) gives one row, with
 elements separated by the given delimiter. The source can be a text file, stream or byte
@@ -3737,7 +3737,7 @@ mapped segment as source.
 
 If `T` is a numeric type, the result is an array of that type, with any non-numeric elements
 as `NaN` for floating-point types, or zero. Other useful values of `T` include
-`ASCIIString`, `AbstractString`, and `Any`.
+`String`, `AbstractString`, and `Any`.
 
 If `header` is `true`, the first row of data will be read as header and the tuple
 `(data_cells, header_cells)` is returned instead of only `data_cells`.
@@ -4375,13 +4375,6 @@ Pick a random element or array of random elements from the set of values specifi
 rand
 
 """
-    bitpack(A::AbstractArray{T,N}) -> BitArray
-
-Converts a numeric array to a packed boolean array.
-"""
-bitpack
-
-"""
     base(base, n, [pad])
 
 Convert an integer to a string in the given base, optionally specifying a number of digits
@@ -4575,7 +4568,7 @@ Determines whether a path is absolute (begins at the root directory).
 isabspath
 
 """
-    hex2bytes(s::ASCIIString)
+    hex2bytes(s::AbstractString)
 
 Convert an arbitrarily long hexadecimal string to its binary representation. Returns an
 `Array{UInt8,1}`, i.e. an array of bytes.
@@ -4620,16 +4613,6 @@ Bitwise not.
 Bessel function of the third kind of order `nu`, ``H^{(1)}_\\nu(x)``.
 """
 hankelh1
-
-"""
-    hessfact(A)
-
-Compute the Hessenberg decomposition of `A` and return a `Hessenberg` object. If `F` is the
-factorization object, the unitary matrix can be accessed with `F[:Q]` and the Hessenberg
-matrix with `F[:H]`. When `Q` is extracted, the resulting type is the `HessenbergQ` object,
-and may be converted to a regular matrix with [`full`](:func:`full`).
-"""
-hessfact
 
 """
     gcdx(x,y)
@@ -5290,7 +5273,7 @@ Compute sine of `x`, where `x` is in radians.
 sin
 
 """
-    Base.compilecache(module::ByteString)
+    Base.compilecache(module::String)
 
 Creates a precompiled cache file for module (see help for `require`) and all of its
 dependencies. This can be used to reduce package load times. Cache files are stored in
@@ -5339,7 +5322,7 @@ overwriting the existing value of `Y`. Note that `Y` must not be aliased with ei
 julia> A=[1.0 2.0; 3.0 4.0]; B=[1.0 1.0; 1.0 1.0]; Y = similar(B); A_mul_B!(Y, A, B);
 
 julia> Y
-2x2 Array{Float64,2}:
+2×2 Array{Float64,2}:
  3.0  3.0
  7.0  7.0
 ```
@@ -6113,7 +6096,7 @@ are taken from 2-tuples `(key,value)` generated by the argument.
 
 ```jldoctest
 julia> Dict([("A", 1), ("B", 2)])
-Dict{ASCIIString,Int64} with 2 entries:
+Dict{String,Int64} with 2 entries:
   "B" => 2
   "A" => 1
 ```
@@ -6122,7 +6105,7 @@ Alternatively, a sequence of pair arguments may be passed.
 
 ```jldoctest
 julia> Dict("A"=>1, "B"=>2)
-Dict{ASCIIString,Int64} with 2 entries:
+Dict{String,Int64} with 2 entries:
   "B" => 2
   "A" => 1
 ```
@@ -6295,7 +6278,7 @@ For example, `similar(1:10, 1, 4)` returns an uninitialized `Array{Int,2}` since
 neither mutable nor support 2 dimensions:
 
     julia> similar(1:10, 1, 4)
-    1x4 Array{Int64,2}:
+    1×4 Array{Int64,2}:
      4419743872  4374413872  4419743888  0
 
 Conversely, `similar(trues(10,10), 2)` returns an uninitialized `BitVector` with two
@@ -6310,7 +6293,7 @@ Since `BitArray`s can only store elements of type `Bool`, however, if you reques
 different element type it will create a regular `Array` instead:
 
     julia> similar(falses(10), Float64, 2, 4)
-    2x4 Array{Float64,2}:
+    2×4 Array{Float64,2}:
      2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
      2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
 """
@@ -6793,7 +6776,7 @@ to define a new `writemime` method for `T`, via: `writemime(stream, ::MIME"mime"
 where `mime` is a MIME-type string and the function body calls `write` (or similar) to write
 that representation of `x` to `stream`. (Note that the `MIME""` notation only supports
 literal strings; to construct `MIME` types in a more flexible manner use
-`MIME{symbol("")}`.)
+`MIME{Symbol("")}`.)
 
 For example, if you define a `MyImage` type and know how to write it to a PNG file, you
 could define a function `writemime(stream, ::MIME"image/png", x::MyImage) = ...` to allow
@@ -6923,7 +6906,7 @@ less(f::AbstractString, ?)
 Show the definition of a function using the default pager, optionally specifying a tuple of
 types to indicate which method to see.
 """
-less(m::TypeMapEntry, ?)
+less(func, ?)
 
 """
     sqrtm(A)
@@ -7312,7 +7295,7 @@ digits!
 """
     MethodError(f, args)
 
-A method with the required type signature does not exist in the given generic function.
+A method with the required type signature does not exist in the given generic function. Alternatively, there is no unique most-specific method.
 """
 MethodError
 
@@ -8185,13 +8168,6 @@ all elements of the string.
 ispunct
 
 """
-    bitunpack(B::BitArray{N}) -> Array{Bool,N}
-
-Converts a packed boolean array to an array of booleans.
-"""
-bitunpack
-
-"""
     size(A, [dim...])
 
 Returns a tuple containing the dimensions of `A`. Optionally you can specify the
@@ -8882,13 +8858,6 @@ true
 applicable
 
 """
-    xdump(x)
-
-Show all structure of a value, including all fields of objects.
-"""
-xdump
-
-"""
     Base.process_messages(instrm::AsyncStream, outstrm::AsyncStream)
 
 Called by cluster managers using custom transports. It should be called when the custom
@@ -9385,7 +9354,7 @@ isxdigit
 """
     fill(x, dims)
 
-Create an array filled with the value `x`. For example, `fill(1.0, (10,10))` returns a 10x10
+Create an array filled with the value `x`. For example, `fill(1.0, (10,10))` returns a 10×10
 array of floats, with each element initialized to `1.0`.
 
 If `x` is an object reference, all elements will refer to the same object. `fill(Foo(),
@@ -9576,11 +9545,11 @@ Create an array of all zeros with the same element type and shape as `A`.
 zeros(A)
 
 """
-    symbol(x...) -> Symbol
+    Symbol(x...) -> Symbol
 
 Create a `Symbol` by concatenating the string representations of the arguments together.
 """
-symbol
+Symbol
 
 """
     zeta(s)
@@ -9974,7 +9943,7 @@ on the `permute` and `scale` keyword arguments. The eigenvectors are returned co
 ```jldoctest
 julia> eig([1.0 0.0 0.0; 0.0 3.0 0.0; 0.0 0.0 18.0])
 ([1.0,3.0,18.0],
-3x3 Array{Float64,2}:
+3×3 Array{Float64,2}:
  1.0  0.0  0.0
  0.0  1.0  0.0
  0.0  0.0  1.0)

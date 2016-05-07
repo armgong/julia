@@ -54,7 +54,7 @@ const RODFT01 = 8
 const RODFT10 = 9
 const RODFT11 = 10
 
-let k2s = Dict{Int,ASCIIString}(R2HC => "R2HC", HC2R => "HC2R", DHT => "DHT", REDFT00 => "REDFT00", REDFT01 => "REDFT01", REDFT10 => "REDFT10", REDFT11 => "REDFT11", RODFT00 => "RODFT00", RODFT01 => "RODFT01", RODFT10 => "RODFT10", RODFT11 => "RODFT11")
+let k2s = Dict(R2HC => "R2HC", HC2R => "HC2R", DHT => "DHT", REDFT00 => "REDFT00", REDFT01 => "REDFT01", REDFT10 => "REDFT10", REDFT11 => "REDFT11", RODFT00 => "RODFT00", RODFT01 => "RODFT01", RODFT10 => "RODFT10", RODFT11 => "RODFT11")
     global kind2string
     kind2string(k::Integer) = k2s[Int(k)]
 end
@@ -267,7 +267,7 @@ function showfftdims(io, sz::Dims, istride::Dims, T)
     elseif length(sz) == 1
         print(io, sz[1], "-element")
     else
-        print(io, join(sz, "x"))
+        print(io, join(sz, "×"))
     end
     if istride == colmajorstrides(sz)
         print(io, " array of ", T)
@@ -310,7 +310,7 @@ function show{T,K,inplace}(io::IO, p::r2rFFTWPlan{T,K,inplace})
             print(io, "^", length(K))
         end
     else
-        print(io, join(map(kind2string, K), "x"))
+        print(io, join(map(kind2string, K), "×"))
     end
     print(io, " plan for ")
     showfftdims(io, p.sz, p.istride, T)
@@ -575,8 +575,8 @@ fftwfloat{T<:Real}(X::AbstractArray{T}) = copy!(Array(Float64, size(X)), X)
 fftwfloat{T<:Complex}(X::AbstractArray{T}) = fftwcomplex(X)
 
 for (f,direction) in ((:fft,FORWARD), (:bfft,BACKWARD))
-    plan_f = symbol("plan_",f)
-    plan_f! = symbol("plan_",f,"!")
+    plan_f = Symbol("plan_",f)
+    plan_f! = Symbol("plan_",f,"!")
     idirection = -direction
     @eval begin
         function $plan_f{T<:fftwComplex,N}(X::StridedArray{T,N}, region;
@@ -734,7 +734,7 @@ plan_brfft
 # FFTW r2r transforms (low-level interface)
 
 for f in (:r2r, :r2r!)
-    pf = symbol("plan_", f)
+    pf = Symbol("plan_", f)
     @eval begin
         $f{T<:fftwNumber}(x::AbstractArray{T}, kinds) = $pf(x, kinds) * x
         $f{T<:fftwNumber}(x::AbstractArray{T}, kinds, region) = $pf(x, kinds, region) * x

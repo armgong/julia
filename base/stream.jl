@@ -343,7 +343,7 @@ function displaysize(io::TTY)
     @windows_only if ispty(io)
         # io is actually a libuv pipe but a cygwin/msys2 pty
         try
-            h, w = map(x -> parse(Int, x), split(readstring(open(Base.Cmd(ByteString["stty", "size"]), "r", io)[1])))
+            h, w = map(x -> parse(Int, x), split(readstring(open(Base.Cmd(String["stty", "size"]), "r", io)[1])))
             h > 0 || (h = default_size[1])
             w > 0 || (w = default_size[2])
             return h, w
@@ -955,8 +955,8 @@ _fd(x::IOStream) = RawFD(fd(x))
     ccall(:jl_uv_handle,Ptr{Void},(Ptr{Void},),x.handle))
 
 for (x,writable,unix_fd,c_symbol) in ((:STDIN,false,0,:jl_uv_stdin),(:STDOUT,true,1,:jl_uv_stdout),(:STDERR,true,2,:jl_uv_stderr))
-    f = symbol("redirect_"*lowercase(string(x)))
-    _f = symbol("_",f)
+    f = Symbol("redirect_",lowercase(string(x)))
+    _f = Symbol("_",f)
     @eval begin
         function ($_f)(stream)
             global $x

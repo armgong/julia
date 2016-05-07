@@ -179,6 +179,7 @@ private_libdir_rel := $(shell $(JULIAHOME)/contrib/relative_path.sh $(bindir) $(
 datarootdir_rel := $(shell $(JULIAHOME)/contrib/relative_path.sh $(bindir) $(datarootdir))
 docdir_rel := $(shell $(JULIAHOME)/contrib/relative_path.sh $(bindir) $(docdir))
 sysconfdir_rel := $(shell $(JULIAHOME)/contrib/relative_path.sh $(bindir) $(sysconfdir))
+includedir_rel := $(shell $(JULIAHOME)/contrib/relative_path.sh $(bindir) $(includedir))
 
 INSTALL_F := $(JULIAHOME)/contrib/install.sh 644
 INSTALL_M := $(JULIAHOME)/contrib/install.sh 755
@@ -854,22 +855,21 @@ ifeq ($(OS), WINNT)
 ifneq ($(USEMSVC), 1)
 HAVE_SSP := 1
 OSLIBS += -Wl,--export-all-symbols -Wl,--version-script=$(JULIAHOME)/src/julia.expmap \
-	$(NO_WHOLE_ARCHIVE) -lpsapi -lkernel32 -lws2_32 -liphlpapi -lwinmm -ldbghelp
+	$(NO_WHOLE_ARCHIVE) -lpsapi -lkernel32 -lws2_32 -liphlpapi -lwinmm -ldbghelp -luserenv
+JLDFLAGS := -Wl,--stack,8388608
 ifeq ($(ARCH),i686)
-JLDFLAGS := -Wl,--stack,8388608 -Wl,--large-address-aware
-else #x64
-JLDFLAGS := -Wl,--stack,16777216
+JLDFLAGS += -Wl,--large-address-aware
 endif
 else #USEMSVC
-OSLIBS += kernel32.lib ws2_32.lib psapi.lib advapi32.lib iphlpapi.lib shell32.lib winmm.lib
-JLDFLAGS := -stack:16777216
+OSLIBS += kernel32.lib ws2_32.lib psapi.lib advapi32.lib iphlpapi.lib shell32.lib winmm.lib userenv.lib
+JLDFLAGS := -stack:8388608
 endif
 JCPPFLAGS += -D_WIN32_WINNT=0x0502
 UNTRUSTED_SYSTEM_LIBM := 1
 endif
 
 # Threads
-ifeq ($(JULIA_THREADS), 1)
+ifneq ($(JULIA_THREADS), 0)
 JCPPFLAGS += -DJULIA_ENABLE_THREADING
 endif
 

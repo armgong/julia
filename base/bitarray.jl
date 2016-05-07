@@ -463,11 +463,7 @@ function copy!(dest::BitArray, src::Array)
     return unsafe_copy!(dest, 1, src, 1, length(src))
 end
 
-reshape(B::BitVector, dims::Tuple{Int}) = reshape_ba(B, dims)
-reshape(B::BitArray,  dims::Tuple{Int}) = reshape_ba(B, dims)
-reshape{N}(B::BitArray, dims::NTuple{N,Int}) = reshape_ba(B, dims)
-
-function reshape_ba{N}(B::BitArray, dims::NTuple{N,Int})
+function reshape{N}(B::BitArray, dims::NTuple{N,Int})
     prod(dims) == length(B) ||
         throw(DimensionMismatch("new dimensions $(dims) must be consistent with array size $(length(B))"))
     dims == size(B) && return B
@@ -531,10 +527,6 @@ convert{T,N}(::Type{AbstractArray{T,N}}, B::BitArray{N}) = convert(Array{T,N}, B
 
 reinterpret{N}(::Type{Bool}, B::BitArray, dims::NTuple{N,Int}) = reinterpret(B, dims)
 reinterpret{N}(B::BitArray, dims::NTuple{N,Int}) = reshape(B, dims)
-
-# shorthand forms BitArray <-> Array
-bitunpack{N}(B::BitArray{N}) = convert(Array{Bool,N}, B)
-bitpack{T,N}(A::AbstractArray{T,N}) = convert(BitArray{N}, A)
 
 ## Indexing: getindex ##
 
@@ -665,8 +657,8 @@ function append!(B::BitVector, items::BitVector)
     return B
 end
 
-append!(B::BitVector, items::AbstractVector{Bool}) = append!(B, bitpack(items))
-append!(A::Vector{Bool}, items::BitVector) = append!(A, bitunpack(items))
+append!(B::BitVector, items::AbstractVector{Bool}) = append!(B, BitArray(items))
+append!(A::Vector{Bool}, items::BitVector) = append!(A, Array(items))
 
 function prepend!(B::BitVector, items::BitVector)
     n0 = length(B)
@@ -687,8 +679,8 @@ function prepend!(B::BitVector, items::BitVector)
     return B
 end
 
-prepend!(B::BitVector, items::AbstractVector{Bool}) = prepend!(B, bitpack(items))
-prepend!(A::Vector{Bool}, items::BitVector) = prepend!(A, bitunpack(items))
+prepend!(B::BitVector, items::AbstractVector{Bool}) = prepend!(B, BitArray(items))
+prepend!(A::Vector{Bool}, items::BitVector) = prepend!(A, Array(items))
 
 function sizehint!(B::BitVector, sz::Integer)
     ccall(:jl_array_sizehint, Void, (Any, UInt), B.chunks, num_bit_chunks(sz))
@@ -1047,12 +1039,11 @@ for f in (:+, :-)
         return r
     end
 end
-for (f,F) in ((:.+, DotAddFun()),
-              (:.-, DotSubFun()))
+for (f) in (:.+, :.-)
     for (arg1, arg2, T, fargs) in ((:(B::BitArray), :(x::Bool)    , Int                                   , :(b, x)),
-                                   (:(B::BitArray), :(x::Number)  , :(promote_array_type($F, typeof(x), Bool)), :(b, x)),
+                                   (:(B::BitArray), :(x::Number)  , :(promote_array_type($f, BitArray, typeof(x))), :(b, x)),
                                    (:(x::Bool)    , :(B::BitArray), Int                                   , :(x, b)),
-                                   (:(x::Number)  , :(B::BitArray), :(promote_array_type($F, typeof(x), Bool)), :(x, b)))
+                                   (:(x::Number)  , :(B::BitArray), :(promote_array_type($f, typeof(x), BitArray)), :(x, b)))
         @eval function ($f)($arg1, $arg2)
             r = Array($T, size(B))
             bi = start(B)
@@ -1069,19 +1060,19 @@ end
 
 for f in (:/, :\)
     @eval begin
-        ($f)(A::BitArray, B::BitArray) = ($f)(bitunpack(A), bitunpack(B))
+        ($f)(A::BitArray, B::BitArray) = ($f)(Array(A), Array(B))
     end
 end
-(/)(B::BitArray, x::Number) = (/)(bitunpack(B), x)
-(/)(x::Number, B::BitArray) = (/)(x, bitunpack(B))
+(/)(B::BitArray, x::Number) = (/)(Array(B), x)
+(/)(x::Number, B::BitArray) = (/)(x, Array(B))
 
 function div(A::BitArray, B::BitArray)
     shp = promote_shape(size(A), size(B))
     all(B) || throw(DivideError())
     return reshape(copy(A), shp)
 end
-div(A::BitArray, B::Array{Bool}) = div(A, bitpack(B))
-div(A::Array{Bool}, B::BitArray) = div(bitpack(A), B)
+div(A::BitArray, B::Array{Bool}) = div(A, BitArray(B))
+div(A::Array{Bool}, B::BitArray) = div(BitArray(A), B)
 function div(B::BitArray, x::Bool)
     return x ? copy(B) : throw(DivideError())
 end
@@ -1091,7 +1082,7 @@ function div(x::Bool, B::BitArray)
 end
 function div(x::Number, B::BitArray)
     all(B) || throw(DivideError())
-    pt = promote_array_type(IDivFun(), typeof(x), Bool)
+    pt = promote_array_type(div, typeof(x), BitArray)
     y = div(x, true)
     reshape(pt[ y for i = 1:length(B) ], size(B))
 end
@@ -1101,8 +1092,8 @@ function mod(A::BitArray, B::BitArray)
     all(B) || throw(DivideError())
     return falses(shp)
 end
-mod(A::BitArray, B::Array{Bool}) = mod(A, bitpack(B))
-mod(A::Array{Bool}, B::BitArray) = mod(bitpack(A), B)
+mod(A::BitArray, B::Array{Bool}) = mod(A, BitArray(B))
+mod(A::Array{Bool}, B::BitArray) = mod(BitArray(A), B)
 function mod(B::BitArray, x::Bool)
     return x ? falses(size(B)) : throw(DivideError())
 end
@@ -1112,16 +1103,15 @@ function mod(x::Bool, B::BitArray)
 end
 function mod(x::Number, B::BitArray)
     all(B) || throw(DivideError())
-    pt = promote_array_type(ModFun(), typeof(x), Bool)
+    pt = promote_array_type(mod, typeof(x), BitArray)
     y = mod(x, true)
     reshape(pt[ y for i = 1:length(B) ], size(B))
 end
 
-for (f,F) in ((:div, IDivFun()),
-              (:mod, ModFun()))
+for f in (:div, :mod)
     @eval begin
         function ($f)(B::BitArray, x::Number)
-            F = Array(promote_array_type($F, typeof(x), Bool), size(B))
+            F = Array(promote_array_type($f, BitArray, typeof(x)), size(B))
             for i = 1:length(F)
                 F[i] = ($f)(B[i], x)
             end
@@ -1159,10 +1149,10 @@ for f in (:&, :|, :$)
             Fc[end] &= _msk_end(F)
             return F
         end
-        ($f)(A::DenseArray{Bool}, B::BitArray) = ($f)(bitpack(A), B)
-        ($f)(B::BitArray, A::DenseArray{Bool}) = ($f)(B, bitpack(A))
-        ($f)(x::Number, B::BitArray) = ($f)(x, bitunpack(B))
-        ($f)(B::BitArray, x::Number) = ($f)(bitunpack(B), x)
+        ($f)(A::DenseArray{Bool}, B::BitArray) = ($f)(BitArray(A), B)
+        ($f)(B::BitArray, A::DenseArray{Bool}) = ($f)(B, BitArray(A))
+        ($f)(x::Number, B::BitArray) = ($f)(x, Array(B))
+        ($f)(B::BitArray, x::Number) = ($f)(Array(B), x)
     end
 end
 
@@ -1235,8 +1225,8 @@ end
 
 (.*)(x::Bool, B::BitArray) = x & B
 (.*)(B::BitArray, x::Bool) = B & x
-(.*)(x::Number, B::BitArray) = x .* bitunpack(B)
-(.*)(B::BitArray, x::Number) = bitunpack(B) .* x
+(.*)(x::Number, B::BitArray) = x .* Array(B)
+(.*)(B::BitArray, x::Number) = Array(B) .* x
 
 ## promotion to complex ##
 
@@ -1676,7 +1666,7 @@ end
 
 ## Reductions ##
 
-sum(A::BitArray, region) = reducedim(AddFun(), A, region)
+sum(A::BitArray, region) = reducedim(+, A, region)
 sum(B::BitArray) = countnz(B)
 
 function all(B::BitArray)
@@ -1711,19 +1701,32 @@ maximum(B::BitArray) = isempty(B) ? throw(ArgumentError("argument must be non-em
 # arrays since there can be a 64x speedup by working at the level of Int64
 # instead of looping bit-by-bit.
 
-map(f::Function, A::BitArray) = map(specialized_bitwise_unary(f), A)
-map(f::Function, A::BitArray, B::BitArray) = map(specialized_bitwise_binary(f), A, B)
-map(f::BitFunctorUnary, A::BitArray) = map!(f, similar(A), A)
-map(f::BitFunctorBinary, A::BitArray, B::BitArray) = map!(f, similar(A), A, B)
+map(f::Function, A::BitArray) = map!(f, similar(A), A)
+map(f::Function, A::BitArray, B::BitArray) = map!(f, similar(A), A, B)
 
 map!(f, A::BitArray) = map!(f, A, A)
-map!(f::Function, dest::BitArray, A::BitArray) = map!(specialized_bitwise_unary(f), dest, A)
-map!(f::Function, dest::BitArray, A::BitArray, B::BitArray) = map!(specialized_bitwise_binary(f), dest, A, B)
+map!(f::typeof(!), dest::BitArray, A::BitArray) = map!(~, dest, A)
+map!(f::typeof(zero), dest::BitArray, A::BitArray) = fill!(dest, false)
+map!(f::typeof(one), dest::BitArray, A::BitArray) = fill!(dest, true)
+
+immutable BitChunkFunctor{F<:Function}
+    f::F
+end
+(f::BitChunkFunctor)(x, y) = f.f(x,y)
+
+map!(f::Union{typeof(*), typeof(min)}, dest::BitArray, A::BitArray, B::BitArray) = map!(&, dest, A, B)
+map!(f::typeof(max), dest::BitArray, A::BitArray, B::BitArray) = map!(|, dest, A, B)
+map!(f::typeof(!=), dest::BitArray, A::BitArray, B::BitArray) = map!($, dest, A, B)
+map!(f::Union{typeof(>=), typeof(^)}, dest::BitArray, A::BitArray, B::BitArray) = map!(BitChunkFunctor((p, q) -> p | ~q), dest, A, B)
+map!(f::typeof(<=), dest::BitArray, A::BitArray, B::BitArray) = map!(BitChunkFunctor((p, q) -> ~p | q), dest, A, B)
+map!(f::typeof(==), dest::BitArray, A::BitArray, B::BitArray) = map!(BitChunkFunctor((p, q) -> ~(p $ q)), dest, A, B)
+map!(f::typeof(<), dest::BitArray, A::BitArray, B::BitArray) = map!(BitChunkFunctor((p, q) -> ~p & q), dest, A, B)
+map!(f::typeof(>), dest::BitArray, A::BitArray, B::BitArray) = map!(BitChunkFunctor((p, q) -> p & ~q), dest, A, B)
 
 # If we were able to specialize the function to a known bitwise operation,
 # map across the chunks. Otherwise, fall-back to the AbstractArray method that
 # iterates bit-by-bit.
-function map!(f::BitFunctorUnary, dest::BitArray, A::BitArray)
+function map!(f::Union{typeof(identity), typeof(~)}, dest::BitArray, A::BitArray)
     size(A) == size(dest) || throw(DimensionMismatch("sizes of dest and A must match"))
     isempty(A) && return dest
     for i=1:length(A.chunks)-1
@@ -1732,7 +1735,7 @@ function map!(f::BitFunctorUnary, dest::BitArray, A::BitArray)
     dest.chunks[end] = f(A.chunks[end]) & _msk_end(A)
     dest
 end
-function map!(f::BitFunctorBinary, dest::BitArray, A::BitArray, B::BitArray)
+function map!(f::Union{BitChunkFunctor, typeof(&), typeof(|), typeof($)}, dest::BitArray, A::BitArray, B::BitArray)
     size(A) == size(B) == size(dest) || throw(DimensionMismatch("sizes of dest, A, and B must all match"))
     isempty(A) && return dest
     for i=1:length(A.chunks)-1

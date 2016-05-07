@@ -129,11 +129,11 @@ function showerror(io::IO, ex::DomainError, bt; backtrace=true)
         if !code.from_c
             if code.func in (:log, :log2, :log10, :sqrt) # TODO add :besselj, :besseli, :bessely, :besselk
                 print(io,"\n$(code.func) will only return a complex result if called with a complex argument. Try $(string(code.func))(complex(x)).")
-            elseif (code.func == :^ && code.file == symbol("intfuncs.jl")) || code.func == :power_by_squaring #3024
+            elseif (code.func == :^ && code.file == Symbol("intfuncs.jl")) || code.func == :power_by_squaring #3024
                 print(io, "\nCannot raise an integer x to a negative power -n. \nMake x a float by adding a zero decimal (e.g. 2.0^-n instead of 2^-n), or write 1/x^n, float(x)^-n, or (x//1)^-n.")
             elseif code.func == :^ &&
-                    (code.file == symbol("promotion.jl") || code.file == symbol("math.jl") ||
-                    code.file == symbol(joinpath(".","promotion.jl")) || code.file == symbol(joinpath(".","math.jl")))
+                    (code.file == Symbol("promotion.jl") || code.file == Symbol("math.jl") ||
+                    code.file == Symbol(joinpath(".","promotion.jl")) || code.file == Symbol(joinpath(".","math.jl")))
                 print(io, "\nExponentiation yielding a complex result requires a complex argument.\nReplace x^y with (x+0im)^y, Complex(x)^y, or similar.")
             end
             break
@@ -166,9 +166,13 @@ function showerror(io::IO, ex::MethodError)
     # a tuple of the arguments otherwise.
     is_arg_types = isa(ex.args, DataType)
     arg_types = is_arg_types ? ex.args : typesof(ex.args...)
+    f = ex.f
+    meth = methods_including_ambiguous(f, arg_types)
+    if length(meth) > 1
+        return showerror_ambiguous(io, meth, f, arg_types)
+    end
     arg_types_param::SimpleVector = arg_types.parameters
     print(io, "MethodError: ")
-    f = ex.f
     ft = typeof(f)
     name = ft.name.mt.name
     f_is_function = false
@@ -247,6 +251,20 @@ end
 striptype{T}(::Type{T}) = T
 striptype(::Any) = nothing
 
+function showerror_ambiguous(io::IO, meth, f, args)
+    print(io, "MethodError: ", f, "(")
+    p = args.parameters
+    for (i,a) in enumerate(p)
+        print(io, "::", a)
+        i == length(p) ? print(io, ")") : print(io, ", ")
+    end
+    print(io, " is ambiguous. Candidates:")
+    for m in meth
+        print(io, "\n  ", m)
+    end
+    nothing
+end
+
 #Show an error by directly calling jl_printf.
 #Useful in Base submodule __init__ functions where STDERR isn't defined yet.
 function showerror_nostdio(err, msg::AbstractString)
@@ -272,22 +290,25 @@ function show_method_candidates(io::IO, ex::MethodError)
     lines = []
     # These functions are special cased to only show if first argument is matched.
     special = f in [convert, getindex, setindex!]
-    funcs = Any[(Core.Typeof(f),arg_types_param)]
+    funcs = Any[(f, arg_types_param)]
 
     # An incorrect call method produces a MethodError for convert.
     # It also happens that users type convert when they mean call. So
     # pool MethodErrors for these two functions.
     if f === convert && !isempty(arg_types_param)
-        push!(funcs, (arg_types_param[1],arg_types_param[2:end]))
+        at1 = arg_types_param[1]
+        if isa(at1,DataType) && (at1::DataType).name === Type.name && isleaftype(at1)
+            push!(funcs, (at1.parameters[1], arg_types_param[2:end]))
+        end
     end
 
     for (func,arg_types_param) in funcs
-        visit(func.name.mt) do method
+        for method in methods(func)
             buf = IOBuffer()
             s1 = method.sig.parameters[1]
             sig = method.sig.parameters[2:end]
             print(buf, "  ")
-            if !(func <: s1)
+            if !isa(func, s1)
                 # function itself doesn't match
                 print(buf, "(")
                 if Base.have_color
@@ -299,8 +320,8 @@ function show_method_candidates(io::IO, ex::MethodError)
                 end
                 print(buf, ")")
             else
-                use_constructor_syntax = func.name === Type.name && !isa(func.parameters[1],TypeVar)
-                print(buf, use_constructor_syntax ? func.parameters[1] : func.name.mt.name)
+                use_constructor_syntax = isa(func, Type)
+                print(buf, use_constructor_syntax ? func : typeof(func).name.mt.name)
             end
             right_matches = 0
             tv = method.tvars

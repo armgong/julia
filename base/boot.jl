@@ -125,21 +125,21 @@ export
     SimpleVector, AbstractArray, DenseArray,
     # special objects
     Function, LambdaInfo, Method, MethodTable, TypeMapEntry, TypeMapLevel,
-    Module, Symbol, Task, Array, WeakRef,
+    Module, Symbol, Task, Array, WeakRef, VecElement,
     # numeric types
     Number, Real, Integer, Bool, Ref, Ptr,
     AbstractFloat, Float16, Float32, Float64,
     Signed, Int, Int8, Int16, Int32, Int64, Int128,
     Unsigned, UInt, UInt8, UInt16, UInt32, UInt64, UInt128,
     # string types
-    Char, ASCIIString, ByteString, DirectIndexString, AbstractString, UTF8String,
+    Char, DirectIndexString, AbstractString, String,
     # errors
     BoundsError, DivideError, DomainError, Exception, InexactError,
     InterruptException, OutOfMemoryError, ReadOnlyMemoryError, OverflowError,
     StackOverflowError, SegmentationFault, UndefRefError, UndefVarError, TypeError,
     # AST representation
     Expr, GotoNode, LabelNode, LineNumberNode, QuoteNode, TopNode,
-    GlobalRef, NewvarNode, GenSym, Slot,
+    GlobalRef, NewvarNode, SSAValue, Slot, SlotNumber, TypedSlot,
     # object model functions
     fieldtype, getfield, setfield!, nfields, throw, tuple, is, ===, isdefined, eval,
     # sizeof    # not exported, to avoid conflicting with Base.sizeof
@@ -218,19 +218,13 @@ end
 
 abstract DirectIndexString <: AbstractString
 
-immutable ASCIIString <: DirectIndexString
+immutable String <: AbstractString
     data::Array{UInt8,1}
-    ASCIIString(d::Array{UInt8,1}) = new(d)
+    # required to make String("foo") work (#15120):
+    String(d::Array{UInt8,1}) = new(d)
 end
 
-immutable UTF8String <: AbstractString
-    data::Array{UInt8,1}
-    UTF8String(d::Array{UInt8,1}) = new(d)
-end
-
-typealias ByteString Union{ASCIIString,UTF8String}
-
-include(fname::ByteString) = ccall(:jl_load_, Any, (Any,), fname)
+include(fname::String) = ccall(:jl_load_, Any, (Any,), fname)
 
 eval(e::ANY) = eval(Main, e)
 eval(m::Module, e::ANY) = ccall(:jl_toplevel_eval_in, Any, (Any, Any), m, e)
@@ -271,19 +265,23 @@ TypeConstructor(p::ANY, t::ANY) =
 
 Void() = nothing
 
+immutable VecElement{T}
+    value::T
+end
+
 Expr(args::ANY...) = _expr(args...)
 
 _new(typ::Symbol, argty::Symbol) = eval(:((::Type{$typ})(n::$argty) = $(Expr(:new, typ, :n))))
 _new(:LabelNode, :Int)
 _new(:GotoNode, :Int)
 _new(:TopNode, :Symbol)
-_new(:NewvarNode, :Slot)
+_new(:NewvarNode, :SlotNumber)
 _new(:QuoteNode, :ANY)
-_new(:GenSym, :Int)
+_new(:SSAValue, :Int)
 eval(:((::Type{LineNumberNode})(f::Symbol, l::Int) = $(Expr(:new, :LineNumberNode, :f, :l))))
 eval(:((::Type{GlobalRef})(m::Module, s::Symbol) = $(Expr(:new, :GlobalRef, :m, :s))))
-eval(:((::Type{Slot})(n::Int) = $(Expr(:new, :Slot, :n, Any))))
-eval(:((::Type{Slot})(n::Int, t::ANY) = $(Expr(:new, :Slot, :n, :t))))
+eval(:((::Type{SlotNumber})(n::Int) = $(Expr(:new, :SlotNumber, :n))))
+eval(:((::Type{TypedSlot})(n::Int, t::ANY) = $(Expr(:new, :TypedSlot, :n, :t))))
 
 Module(name::Symbol=:anonymous, std_imports::Bool=true) = ccall(:jl_f_new_module, Ref{Module}, (Any, Bool), name, std_imports)
 
@@ -296,6 +294,8 @@ convert(::Type{Any}, x::ANY) = x
 convert{T}(::Type{T}, x::T) = x
 cconvert{T}(::Type{T}, x) = convert(T, x)
 unsafe_convert{T}(::Type{T}, x::T) = x
+
+typealias NTuple{N,T} Tuple{Vararg{T,N}}
 
 # primitive array constructors
 (::Type{Array{T,N}}){T,N}(d::NTuple{N,Int}) =

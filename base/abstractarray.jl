@@ -104,7 +104,7 @@ function checkbounds(::Type{Bool}, sz::Integer, r::Range)
     @_propagate_inbounds_meta
     isempty(r) | (checkbounds(Bool, sz, first(r)) & checkbounds(Bool, sz, last(r)))
 end
-checkbounds(::Type{Bool}, sz::Integer, I::AbstractArray{Bool}) = length(I) == sz
+checkbounds{N}(::Type{Bool}, sz::Integer, I::AbstractArray{Bool,N}) = N == 1 && length(I) == sz
 function checkbounds(::Type{Bool}, sz::Integer, I::AbstractArray)
     @_inline_meta
     b = true
@@ -968,16 +968,15 @@ end
     exprs = Expr[:(ind = ind-1)]
     for i = 1:N-1
         push!(exprs,:(ind2 = div(ind,dims[$i])))
-        push!(exprs,Expr(:(=),symbol(:s,i),:(ind-dims[$i]*ind2+1)))
+        push!(exprs,Expr(:(=),Symbol(:s,i),:(ind-dims[$i]*ind2+1)))
         push!(exprs,:(ind=ind2))
     end
-    push!(exprs,Expr(:(=),symbol(:s,N),:(ind+1)))
-    Expr(:block,meta,exprs...,Expr(:tuple,[symbol(:s,i) for i=1:N]...))
+    push!(exprs,Expr(:(=),Symbol(:s,N),:(ind+1)))
+    Expr(:block,meta,exprs...,Expr(:tuple,[Symbol(:s,i) for i=1:N]...))
 end
 
-# TODO in v0.5: either deprecate line 1 or add line 2
 ind2sub(a::AbstractArray, ind::Integer) = ind2sub(size(a), ind)
-# sub2ind(a::AbstractArray, I::Integer...) = sub2ind(size(a), I...)
+sub2ind(a::AbstractArray, I::Integer...) = sub2ind(size(a), I...)
 
 function sub2ind{T<:Integer}(dims::Tuple{Vararg{Integer}}, I::AbstractVector{T}...)
     N = length(dims)

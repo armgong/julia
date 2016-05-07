@@ -511,13 +511,7 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   Show all user-visible structure of a value.
-
-.. function:: xdump(x)
-
-   .. Docstring generated from Julia source
-
-   Show all structure of a value, including all fields of objects.
+   Show every part of the representation of a value.
 
 .. function:: readstring(stream::IO)
               readstring(filename::AbstractString)
@@ -554,13 +548,13 @@ Text I/O
 
    Create an iterable object that will yield each line from an I/O stream or a file. The text is assumed to be encoded in UTF-8.
 
-.. function:: readdlm(source, delim::Char, T::Type, eol::Char; header=false, skipstart=0, skipblanks=true, use_mmap, ignore_invalid_chars=false, quotes=true, dims, comments=true, comment_char='#')
+.. function:: readdlm(source, delim::Char, T::Type, eol::Char; header=false, skipstart=0, skipblanks=true, use_mmap, quotes=true, dims, comments=true, comment_char='#')
 
    .. Docstring generated from Julia source
 
    Read a matrix from the source where each line (separated by ``eol``\ ) gives one row, with elements separated by the given delimiter. The source can be a text file, stream or byte array. Memory mapped files can be used by passing the byte array representation of the mapped segment as source.
 
-   If ``T`` is a numeric type, the result is an array of that type, with any non-numeric elements as ``NaN`` for floating-point types, or zero. Other useful values of ``T`` include ``ASCIIString``\ , ``AbstractString``\ , and ``Any``\ .
+   If ``T`` is a numeric type, the result is an array of that type, with any non-numeric elements as ``NaN`` for floating-point types, or zero. Other useful values of ``T`` include ``String``\ , ``AbstractString``\ , and ``Any``\ .
 
    If ``header`` is ``true``\ , the first row of data will be read as header and the tuple ``(data_cells, header_cells)`` is returned instead of only ``data_cells``\ .
 
@@ -713,7 +707,7 @@ Julia environments (such as the IPython-based IJulia notebook).
 
    .. Docstring generated from Julia source
 
-   The ``display`` functions ultimately call ``writemime`` in order to write an object ``x`` as a given ``mime`` type to a given I/O ``stream`` (usually a memory buffer), if possible. In order to provide a rich multimedia representation of a user-defined type ``T``\ , it is only necessary to define a new ``writemime`` method for ``T``\ , via: ``writemime(stream, ::MIME"mime", x::T) = ...``\ , where ``mime`` is a MIME-type string and the function body calls ``write`` (or similar) to write that representation of ``x`` to ``stream``\ . (Note that the ``MIME""`` notation only supports literal strings; to construct ``MIME`` types in a more flexible manner use ``MIME{symbol("")}``\ .)
+   The ``display`` functions ultimately call ``writemime`` in order to write an object ``x`` as a given ``mime`` type to a given I/O ``stream`` (usually a memory buffer), if possible. In order to provide a rich multimedia representation of a user-defined type ``T``\ , it is only necessary to define a new ``writemime`` method for ``T``\ , via: ``writemime(stream, ::MIME"mime", x::T) = ...``\ , where ``mime`` is a MIME-type string and the function body calls ``write`` (or similar) to write that representation of ``x`` to ``stream``\ . (Note that the ``MIME""`` notation only supports literal strings; to construct ``MIME`` types in a more flexible manner use ``MIME{Symbol("")}``\ .)
 
    For example, if you define a ``MyImage`` type and know how to write it to a PNG file, you could define a function ``writemime(stream, ::MIME"image/png", x::MyImage) = ...`` to allow your images to be displayed on any PNG-capable ``Display`` (such as IJulia). As usual, be sure to ``import Base.writemime`` in order to add new methods to the built-in Julia function ``writemime``\ .
 

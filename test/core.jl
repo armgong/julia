@@ -4,10 +4,17 @@
 
 const Bottom = Union{}
 
-function testintersect(a, b, result, cmp=is)
-    @test cmp(typeintersect(a, b), result)
-    @test cmp(typeintersect(b, a), result)
+macro testintersect(args...)
+    _testintersect(args...)
 end
+
+function _testintersect(a, b, result, cmp=:is)
+    quote
+        @test $(esc(cmp))(typeintersect($(esc(a)), $(esc(b))), $(esc(result)))
+        @test $(esc(cmp))(typeintersect($(esc(b)), $(esc(a))), $(esc(result)))
+    end
+end
+
 isnot(x,y) = !is(x,y)
 
 # basic type relationships
@@ -29,97 +36,122 @@ isnot(x,y) = !is(x,y)
 @test Array{Int8,1} <: Array{Int8,1}
 @test !(Type{Bottom} <: Type{Int32})
 @test !(Vector{Float64} <: Vector{Union{Float64,Float32}})
-testintersect(Vector{Float64}, Vector{Union{Float64,Float32}}, Bottom)
+@testintersect(Vector{Float64}, Vector{Union{Float64,Float32}}, Bottom)
 
 @test !isa(Array,Type{Any})
 @test Type{Complex} <: DataType
 @test isa(Complex,Type{Complex})
 @test !(Type{Ptr{Bottom}} <: Type{Ptr})
 @test !(Type{Rational{Int}} <: Type{Rational})
+@test Tuple{} <: Tuple{Vararg}
+@test Tuple{} <: NTuple{TypeVar(:N,true)}
+@test Type{Tuple{}} <: Type{Tuple{Vararg}}
+@test Type{Tuple{}} <: Type{NTuple{TypeVar(:N,true)}}
 let T = TypeVar(:T,true)
-    testintersect(Array{Bottom},AbstractArray{T}, Bottom, isnot)
-    testintersect(Tuple{Type{Ptr{UInt8}},Ptr{Bottom}},
+    @testintersect(Array{Bottom},AbstractArray{T}, Bottom, isnot)
+    @testintersect(Tuple{Type{Ptr{UInt8}},Ptr{Bottom}},
                   Tuple{Type{Ptr{T}},Ptr{T}}, Bottom)
     @test !(Type{T} <: TypeVar)
 
-    testintersect(Tuple{Range{Int},Tuple{Int,Int}},Tuple{AbstractArray{T},Dims},
+    @testintersect(Tuple{Range{Int},Tuple{Int,Int}},Tuple{AbstractArray{T},Dims},
                   Tuple{Range{Int},Tuple{Int,Int}})
 
-    testintersect(Tuple{T, AbstractArray{T}}, Tuple{Number, Array{Int,1}},
+    @testintersect(Tuple{T, AbstractArray{T}}, Tuple{Number, Array{Int,1}},
                   Tuple{Int, Array{Int,1}})
 
-    testintersect(Tuple{T, AbstractArray{T}}, Tuple{Int, Array{Number,1}},
+    @testintersect(Tuple{T, AbstractArray{T}}, Tuple{Int, Array{Number,1}},
                   Tuple{Int, Array{Number,1}})
 
-    testintersect(Tuple{T, AbstractArray{T}},Tuple{Any, Array{Number,1}},
+    @testintersect(Tuple{T, AbstractArray{T}},Tuple{Any, Array{Number,1}},
                   Tuple{Number, Array{Number,1}}, isequal)
-    testintersect(Tuple{Array{T}, Array{T}}, Tuple{Array, Array{Any}}, Bottom, isnot)
+    @testintersect(Tuple{Array{T}, Array{T}}, Tuple{Array, Array{Any}}, Bottom, isnot)
     f47{T}(x::Vector{Vector{T}}) = 0
     @test_throws MethodError f47(Array(Vector,0))
     @test f47(Array(Vector{Int},0)) == 0
-    testintersect(Tuple{T,T}, Tuple{Union{Float64,Int64},Int64}, Tuple{Int64,Int64})
-    testintersect(Tuple{T,T}, Tuple{Int64,Union{Float64,Int64}}, Tuple{Int64,Int64})
+    @testintersect(Tuple{T,T}, Tuple{Union{Float64,Int64},Int64}, Tuple{Int64,Int64})
+    @testintersect(Tuple{T,T}, Tuple{Int64,Union{Float64,Int64}}, Tuple{Int64,Int64})
 
     TT = TypeVar(:T)
     S = TypeVar(:S,true); N = TypeVar(:N,true); SN = TypeVar(:S,Number,true)
-    testintersect(Type{TypeVar(:T,Array{TT,1})},Type{Array{SN,N}}, Type{Array{SN,1}})
+    @testintersect(Type{TypeVar(:T,Array{TT,1})},Type{Array{SN,N}}, Type{Array{SN,1}})
     # issue #5359
-    testintersect(Tuple{Type{Array{T,1}},Array{T,1}},
+    @testintersect(Tuple{Type{Array{T,1}},Array{T,1}},
                   Tuple{Type{AbstractVector},Vector{Int}}, Bottom)
     # issue #5559
-    testintersect(Tuple{Type{Vector{Complex128}}, AbstractVector},
+    @testintersect(Tuple{Type{Vector{Complex128}}, AbstractVector},
                   Tuple{Type{Array{T,N}}, Array{S,N}}, Tuple{Type{Vector{Complex128}},Vector}, isequal)
-    testintersect(Tuple{Type{Vector{Complex128}}, AbstractArray},
+    @testintersect(Tuple{Type{Vector{Complex128}}, AbstractArray},
                   Tuple{Type{Array{T,N}}, Array{S,N}}, Tuple{Type{Vector{Complex128}},Vector}, isequal)
 
-    testintersect(Type{Array{T}}, Type{AbstractArray{T}}, Bottom)
+    @testintersect(Type{Array{T}}, Type{AbstractArray{T}}, Bottom)
 
-    testintersect(Type{Tuple{Bool,Vararg{Int}}}, Type{Tuple{Vararg{T}}}, Bottom)
-    testintersect(Type{Tuple{Bool,Vararg{Int}}}, Type{Tuple{T,Vararg{T}}}, Bottom)
+    @testintersect(Type{Tuple{Bool,Vararg{Int}}}, Type{Tuple{Vararg{T}}}, Bottom)
+    @testintersect(Type{Tuple{Bool,Vararg{Int}}}, Type{Tuple{T,Vararg{T}}}, Bottom)
+    @testintersect(Tuple{Vararg{T}}, Tuple{Float64,Int}, Bottom)
 
-    testintersect(Tuple{Rational{T},T}, Tuple{Rational{Integer},Int}, Tuple{Rational{Integer},Int})
+    @testintersect(Tuple{Rational{T},T}, Tuple{Rational{Integer},Int}, Tuple{Rational{Integer},Int})
 
     # issue #1631
-    testintersect(Pair{T,Ptr{T}}, Pair{Ptr{S},S}, Bottom)
-    testintersect(Tuple{T,Ptr{T}}, Tuple{Ptr{S},S}, Bottom)
+    @testintersect(Pair{T,Ptr{T}}, Pair{Ptr{S},S}, Bottom)
+    @testintersect(Tuple{T,Ptr{T}}, Tuple{Ptr{S},S}, Bottom)
 end
 let N = TypeVar(:N,true)
-    testintersect(Tuple{NTuple{N,Integer},NTuple{N,Integer}},
+    @testintersect(Tuple{NTuple{N,Integer},NTuple{N,Integer}},
                   Tuple{Tuple{Integer,Integer}, Tuple{Vararg{Integer}}},
                   Tuple{Tuple{Integer,Integer}, Tuple{Integer,Integer}})
-    testintersect(Tuple{NTuple{N,Integer},NTuple{N,Integer}},
+    @testintersect(Tuple{NTuple{N,Integer},NTuple{N,Integer}},
                   Tuple{Tuple{Vararg{Integer}}, Tuple{Integer,Integer}},
                   Tuple{Tuple{Integer,Integer}, Tuple{Integer,Integer}})
     local A = typeintersect(Tuple{NTuple{N,Any},Array{Int,N}},
                             Tuple{Tuple{Int,Vararg{Int}},Array})
     local B = Tuple{Tuple{Int,Vararg{Int}},Array{Int,N}}
     @test A<:B && B<:A
-    testintersect(Tuple{NTuple{N,Any},Array{Int,N}},
+    @testintersect(Tuple{NTuple{N,Any},Array{Int,N}},
                   Tuple{Tuple{Int,Vararg{Int}},Array{Int,2}},
                   Tuple{Tuple{Int,Int}, Array{Int,2}})
 end
-testintersect(Type{Any},Type{Complex}, Bottom)
-testintersect(Type{Any},Type{TypeVar(:T,Real)}, Bottom)
+@testintersect(Type{Any},Type{Complex}, Bottom)
+@testintersect(Type{Any},Type{TypeVar(:T,Real)}, Bottom)
 @test !(Type{Array{Integer}} <: Type{AbstractArray{Integer}})
 @test !(Type{Array{Integer}} <: Type{Array{TypeVar(:T,Integer)}})
-testintersect(Type{Function},Union,Bottom)
-testintersect(Type{Int32}, DataType, Type{Int32})
+@testintersect(Type{Function},Union,Bottom)
+@testintersect(Type{Int32}, DataType, Type{Int32})
 @test !(Type <: TypeVar)
-testintersect(DataType, Type, Bottom, isnot)
-testintersect(Union, Type, Bottom, isnot)
-testintersect(DataType, Type{Int}, Bottom, isnot)
-testintersect(DataType, Type{TypeVar(:T,Int)}, Bottom, isnot)
-testintersect(DataType, Type{TypeVar(:T,Integer)}, Bottom, isnot)
+@testintersect(DataType, Type, Bottom, isnot)
+@testintersect(Union, Type, Bottom, isnot)
+@testintersect(DataType, Type{Int}, Bottom, isnot)
+@testintersect(DataType, Type{TypeVar(:T,Int)}, Bottom, isnot)
+@testintersect(DataType, Type{TypeVar(:T,Integer)}, Bottom, isnot)
 
-testintersect(Tuple{Vararg{Int}}, Tuple{Vararg{Bool}}, Tuple{})
-testintersect(Type{Tuple{Vararg{Int}}}, Type{Tuple{Vararg{Bool}}}, Bottom)
-testintersect(Tuple{Bool,Vararg{Int}}, Tuple{Vararg{Bool}}, Tuple{Bool,})
+@testintersect(Tuple{Vararg{Int}}, Tuple{Vararg{Bool}}, Tuple{})
+@testintersect(Type{Tuple{Vararg{Int}}}, Type{Tuple{Vararg{Bool}}}, Bottom)
+@testintersect(Tuple{Bool,Vararg{Int}}, Tuple{Vararg{Bool}}, Tuple{Bool,})
 
 let T = TypeVar(:T,Union{Float32,Float64})
-    testintersect(AbstractArray, Matrix{T}, Matrix{T})
+    @testintersect(AbstractArray, Matrix{T}, Matrix{T})
 end
 let T = TypeVar(:T,Union{Float32,Float64},true)
-    testintersect(AbstractArray, Matrix{T}, Matrix{T})
+    @testintersect(AbstractArray, Matrix{T}, Matrix{T})
+end
+
+# Vararg{T,N}
+let N = TypeVar(:N,true)
+    @test is(Bottom,typeintersect(Tuple{Array{Int,N},Vararg{Int,N}}, Tuple{Vector{Int},Real,Real,Real}))
+    @test is(Bottom,typeintersect(Tuple{Vector{Int},Real,Real,Real}, Tuple{Array{Int,N},Vararg{Int,N}}))
+    @test Tuple{Int,Vararg{Int,2}} == Tuple{Int,Int,Int}
+    @test Tuple{Int,Vararg{Int,2}} == Tuple{Int,Int,Vararg{Int,1}}
+    @test Tuple{Int,Vararg{Int,2}} == Tuple{Int,Int,Int,Vararg{Int,0}}
+    @test !(Tuple{Int,Vararg{Int,2}} <: Tuple{Int,Int,Int,Vararg{Int,1}})
+    #@test !(Tuple{Int,Vararg{Int,2}} <: Tuple{Int,Vararg{Int,N}})
+    @test Tuple{Int,Vararg{Int,N}} == Tuple{Int,Vararg{Int,N}}
+    #@test !(Tuple{Int,Vararg{Int,2}} <: Tuple{Int,Int,Vararg{Int}})
+    @test typeintersect(Tuple{Array{Int,N},Vararg{Int,N}},Tuple{Array{Int,0}}) == Tuple{Array{Int,0}}
+    @test typeintersect(Tuple{Array{Int,N},Vararg{Int,N}},Tuple{Array{Int,2}}) == Bottom
+
+    @test typeintersect(Tuple{Int,Vararg{Int,N}}, Tuple{Int,Int,Int,Vararg{Float64}}) == Tuple{Int,Int,Int}
+    @test typeintersect(Tuple{Int,Vararg{Int,N}}, Tuple{Int,Vararg{Float64}}) == Tuple{Int}
+    @test typeintersect(Tuple{Array{Int,N},Vararg{Int,N}}, Tuple{Matrix{Int},Int,Int,Vararg{Float64}}) == Tuple{Matrix{Int},Int,Int}
+    @test typeintersect(Tuple{Array{Int,N},Vararg{Int,N}}, Tuple{Matrix{Int},Int,Vararg{Float64}}) == Bottom
 end
 
 @test isa(Int,Type{TypeVar(:T,Number)})
@@ -139,8 +171,7 @@ end
 # issue #6561
 @test issubtype(Array{Tuple}, Array{NTuple})
 @test issubtype(Array{Tuple{Vararg{Any}}}, Array{NTuple})
-@test !issubtype(Array{Tuple{Vararg{Int}}}, Array{NTuple})
-@test !issubtype(Array{Tuple{Int,Int}}, Array{NTuple})
+@test issubtype(Array{Tuple{Vararg}}, Array{NTuple})
 @test !issubtype(Type{Tuple{Void}}, Tuple{Type{Void}})
 
 # this is fancy: know that any type T<:Number must be either a DataType or a Union
@@ -151,7 +182,7 @@ end
 
 # issue #2997
 let T = TypeVar(:T,Union{Float64,Array{Float64,1}},true)
-    testintersect(T,Real,Float64)
+    @testintersect(T,Real,Float64)
 end
 
 # issue #8652
@@ -208,8 +239,8 @@ h11840{T<:Tuple}(::Type{T}) = '4'
 @test typejoin(Array{Float64},BitArray) <: AbstractArray
 @test typejoin(Array{Bool},BitArray) <: AbstractArray{Bool}
 @test typejoin(Tuple{Int,Int8},Tuple{Int8,Float64}) === Tuple{Signed,Real}
-@test Base.typeseq(typejoin(Tuple{ASCIIString,ASCIIString},Tuple{UTF8String,ASCIIString},
-                            Tuple{ASCIIString,UTF8String},Tuple{Int,ASCIIString,Int}),
+@test Base.typeseq(typejoin(Tuple{String,String},Tuple{DirectIndexString,String},
+                            Tuple{String,DirectIndexString},Tuple{Int,String,Int}),
                    Tuple{Any,AbstractString,Vararg{Int}})
 @test Base.typeseq(typejoin(Tuple{Int8,Vararg{Int}},Tuple{Int8,Int8}),
                    Tuple{Int8,Vararg{Signed}})
@@ -230,6 +261,10 @@ let
     c = Bar____{Int64, Int64}
     @test typejoin(typejoin(b,c), a) == typejoin(typejoin(b,a), c) == Foo____{Int64}
 end
+
+# typejoin with Vararg{T,N}
+@test is(typejoin(Tuple{Vararg{Int,2}}, Tuple{Int,Int,Int}), Tuple{Int,Int,Vararg{Int}})
+@test is(typejoin(Tuple{Vararg{Int,2}}, Tuple{Vararg{Int}}), Tuple{Vararg{Int}})
 
 @test promote_type(Bool,Bottom) === Bool
 
@@ -583,10 +618,10 @@ end
 let
     local mytype
     function mytype(vec)
-        convert(Vector{Tuple{ASCIIString, DataType}}, vec)
+        convert(Vector{Tuple{String, DataType}}, vec)
     end
     some_data = Any[("a", Int32), ("b", Int32)]
-    @test isa(mytype(some_data),Vector{Tuple{ASCIIString, DataType}})
+    @test isa(mytype(some_data),Vector{Tuple{String, DataType}})
 end
 
 type MyArray{N} <: AbstractArray{Int, N}
@@ -615,6 +650,21 @@ let
     g{T}(a::_AA{_AA{T}}) = a
     a = _AA(_AA(1))
     @test is(g(a),a)
+end
+
+# Method specificity
+begin
+    local f
+    f{T}(dims::Tuple{}, A::AbstractArray{T,0}) = 1
+    f{T,N}(dims::NTuple{N,Int}, A::AbstractArray{T,N}) = 2
+    f{T,M,N}(dims::NTuple{M,Int}, A::AbstractArray{T,N}) = 3
+    A = zeros(2,2)
+    @test f((1,2,3), A) == 3
+    @test f((1,2), A) == 2
+    @test f((), reshape([1])) == 1
+    f{T,N}(dims::NTuple{N,Int}, A::AbstractArray{T,N}) = 4
+    @test f((1,2), A) == 4
+    @test f((1,2,3), A) == 3
 end
 
 # dispatch using Val{T}. See discussion in #9452 for instances vs types
@@ -1349,7 +1399,7 @@ end
 
 # issue #4518
 f4518(x, y::Union{Int32,Int64}) = 0
-f4518(x::ByteString, y::Union{Int32,Int64}) = 1
+f4518(x::String, y::Union{Int32,Int64}) = 1
 @test f4518("",1) == 1
 
 # issue #4581
@@ -1448,7 +1498,7 @@ abstract IT4805{N, T}
 let
     T = TypeVar(:T,Int,true)
     N = TypeVar(:N,true)
-    testintersect(Type{IT4805{1,T}}, Type{TypeVar(:_,IT4805{N,Int})}, Bottom, isnot)
+    @testintersect(Type{IT4805{1,T}}, Type{TypeVar(:_,IT4805{N,Int})}, Bottom, isnot)
 end
 
 let
@@ -2054,7 +2104,7 @@ abstract AbstractThing{T,N}
 type ConcreteThing{T<:AbstractFloat,N} <: AbstractThing{T,N}
 end
 
-testintersect(AbstractThing{TypeVar(:T,true),2}, ConcreteThing, ConcreteThing{TypeVar(:T,AbstractFloat),2}, isequal)
+@testintersect(AbstractThing{TypeVar(:T,true),2}, ConcreteThing, ConcreteThing{TypeVar(:T,AbstractFloat),2}, isequal)
 
 # issue #8978
 module I8978
@@ -2142,12 +2192,23 @@ end
 @unix_only begin
     ccall(:jl_exit_on_sigint, Void, (Cint,), 0)
     @test_throws InterruptException begin
-        #ccall(:raise, Void, (Cint,), 2) # llvm installs a custom version on Darwin that resolves to pthread_kill(pthread_self(), sig), which isn't what we want
-        Libc.systemsleep(0.1)
         ccall(:kill, Void, (Cint, Cint,), getpid(), 2)
-        Libc.systemsleep(0.2) # wait for SIGINT to arrive
+        for i in 1:10
+            Libc.systemsleep(0.1)
+            ccall(:jl_gc_safepoint, Void, ()) # wait for SIGINT to arrive
+        end
     end
     ccall(:jl_exit_on_sigint, Void, (Cint,), 1)
+end
+let
+    # Exception frame automatically restores sigatomic counter.
+    Base.sigatomic_begin()
+    @test_throws ErrorException begin
+        for i = 1:2
+            Base.sigatomic_end()
+        end
+    end
+    Base.sigatomic_end()
 end
 
 # pull request #9534
@@ -2302,10 +2363,12 @@ let f
         (::typeof(f))(x::newtype10373) = println("$f")
     end
 end
-@test methods(f10373).defs.func.name == :f10373
-@test methods(f10373).defs.next.func.name == :f10373
-@test methods(g10373).defs.func.name == :g10373
-@test methods(g10373).defs.next.func.name == :g10373
+for m in methods(f10373)
+    @test m.name == :f10373
+end
+for m in methods(g10373)
+    @test m.name == :g10373
+end
 
 # issue #7221
 f7221{T<:Number}(::T) = 1
@@ -2877,13 +2940,13 @@ end
 type A11136 end
 type B11136 end
 let T = TypeVar(:T, true), TB = TypeVar(:T, B11136, true)
-    testintersect(Tuple{T, T}, Tuple{A11136, TB}, Bottom)
+    @testintersect(Tuple{T, T}, Tuple{A11136, TB}, Bottom)
 end
 
 # issue #11367
 abstract Foo11367
 let T1 = TypeVar(:T1, true), T2 = TypeVar(:T2, Foo11367, true)
-    testintersect(Tuple{T1, T1}, Tuple{Type{BigInt}, T2}, Bottom)
+    @testintersect(Tuple{T1, T1}, Tuple{Type{BigInt}, T2}, Bottom)
 end
 
 # issue #11355
@@ -3048,7 +3111,7 @@ let
         @test false
     catch err
         @test isa(err, TypeError)
-        @test err.func == :NTuple
+        @test err.func == :apply_type
         @test err.expected == Int
         @test err.got == Int
     end
@@ -3058,7 +3121,7 @@ let
         @test false
     catch err
         @test isa(err, TypeError)
-        @test err.func == :NTuple
+        @test err.func == :apply_type
         @test err.expected == Int
         @test err.got == 0x1
     end
@@ -3194,9 +3257,9 @@ typealias PossiblyInvalidUnion{T} Union{T,Int}
 @test_throws TypeError PossiblyInvalidUnion{1}
 
 # issue #12569
-@test_throws ArgumentError symbol("x"^10_000_000)
+@test_throws ArgumentError Symbol("x"^10_000_000)
 @test_throws ArgumentError gensym("x"^10_000_000)
-@test symbol("x") === symbol("x")
+@test Symbol("x") === Symbol("x")
 @test split(string(gensym("abc")),'#')[3] == "abc"
 
 # meta nodes for optional positional arguments
@@ -3333,8 +3396,8 @@ end
 @noinline function foo13855(x)
     @m13855()
 end
-@test foo13855(Base.AddFun())() == Base.AddFun()
-@test foo13855(Base.MulFun())() == Base.MulFun()
+@test foo13855(+)() == +
+@test foo13855(*)() == *
 
 # issue #8487
 @test [x for x in 1:3] == [x for x ∈ 1:3] == [x for x = 1:3]
@@ -3776,3 +3839,126 @@ end
 @m
 end
 @test Macro_Yielding_Global_Assignment.x == 2
+
+# issue #15718
+@test :(f($NaN)) == :(f($NaN))
+@test isequal(:(f($NaN)), :(f($NaN)))
+
+# PR #16011 Make sure dead code elimination doesn't delete push and pop
+# of metadata
+module TestDeadElim16011
+using Base.Test
+
+function count_expr_push(ex::Expr, head::Symbol, counter)
+    if ex.head === head
+        if ex.args[1] === :pop
+            counter[] -= 1
+        else
+            counter[] += 1
+        end
+        return
+    end
+    for arg in ex.args
+        isa(arg, Expr) && count_expr_push(arg, head, counter)
+    end
+    return false
+end
+
+function metadata_matches(ast::LambdaInfo)
+    inbounds_cnt = Ref(0)
+    boundscheck_cnt = Ref(0)
+    for ex in Base.uncompressed_ast(ast)
+        if isa(ex, Expr)
+            ex = ex::Expr
+            count_expr_push(ex, :inbounds, inbounds_cnt)
+            count_expr_push(ex, :boundscheck, boundscheck_cnt)
+        end
+    end
+    @test inbounds_cnt[] == 0
+    @test boundscheck_cnt[] == 0
+end
+
+function test_metadata_matches(f::ANY, tt::ANY)
+    metadata_matches(code_typed(f, tt)[1])
+end
+
+function f1()
+    @inbounds return 1
+end
+function f2()
+    @boundscheck begin
+        error()
+    end
+end
+# No, don't write code this way...
+@eval function f3()
+    a = $(Expr(:boundscheck, true))
+    return 1
+    b = $(Expr(:boundscheck, :pop))
+end
+@noinline function g(a)
+end
+@eval function f4()
+    g($(Expr(:inbounds, true)))
+    @goto out
+    g($(Expr(:inbounds, :pop)))
+    @label out
+end
+
+test_metadata_matches(f1, Tuple{})
+test_metadata_matches(f2, Tuple{})
+test_metadata_matches(f3, Tuple{})
+test_metadata_matches(f4, Tuple{})
+
+end
+
+# issue #8712
+type Issue8712; end
+@test isa(invoke(Issue8712, ()), Issue8712)
+
+# issue #16089
+f16089(args...) = typeof(args)
+g16089() = f16089(UInt8)
+@test g16089() === Tuple{DataType}
+
+# issue #16023
+function f16023()
+    x
+    x = 1
+end
+@test_throws UndefVarError f16023()
+
+# issue #16096
+module M16096
+macro iter()
+    quote
+        @inline function foo(sub)
+            it = 1
+        end
+    end
+end
+end
+let ex = expand(:(@M16096.iter))
+    @test !(isa(ex,Expr) && ex.head === :error)
+end
+
+# issue #16158
+function f16158(x)
+    bar(x) = length(x)==1 ? x : string(x, bar(x[1:end-1]))
+    bar(x)
+end
+@test f16158("abc") == "abcaba"
+
+# issue #16153
+f16153(x) = 1
+f16153(x::ANY, y...) = 2
+@test f16153("") == 1
+ff16153(x::ANY, y...) = 2
+ff16153(x) = 1
+@test ff16153("") == 1
+g16153(x::ANY, y...) = 1
+g16153(x::ANY, y::ANY) = 2
+@test g16153(1, 1) == 2
+gg16153(x::ANY, y::ANY) = 2
+gg16153(x::ANY, y...) = 1
+@test gg16153(1, 1) == 2

@@ -20,9 +20,9 @@ const text_colors = AnyDict(
 # of colors.
 const possible_formatting_symbols = [:normal, :bold]
 available_text_colors = collect(keys(text_colors))
-available_text_colors =
-    cat(1, intersect(available_text_colors, possible_formatting_symbols),
-        sort(setdiff(  available_text_colors, possible_formatting_symbols)))
+available_text_colors = cat(1,
+    sort(intersect(available_text_colors, possible_formatting_symbols), rev=true),
+    sort(setdiff(  available_text_colors, possible_formatting_symbols)))
 
 const available_text_colors_docstring =
     string(join([string("`:", key,"`")
@@ -44,7 +44,7 @@ default_color_info = :blue
 color_normal = text_colors[:normal]
 
 function repl_color(key, default)
-    c = symbol(get(ENV, key, ""))
+    c = Symbol(get(ENV, key, ""))
     haskey(text_colors, c) ? c : default
 end
 
@@ -153,7 +153,7 @@ function syntax_deprecation_warnings(f::Function, warn::Bool)
     end
 end
 
-function parse_input_line(s::ByteString; filename::ByteString="none")
+function parse_input_line(s::String; filename::String="none")
     # (expr, pos) = parse(s, 1)
     # (ex, pos) = ccall(:jl_parse_string, Any,
     #                   (Ptr{UInt8},Csize_t,Int32,Int32),
@@ -256,7 +256,7 @@ function process_options(opts::JLOptions)
             # program
             repl = false
             # remove filename from ARGS
-            global PROGRAM_FILE = UTF8String(shift!(ARGS))
+            global PROGRAM_FILE = String(shift!(ARGS))
             if !is_interactive
                 ccall(:jl_exit_on_sigint, Void, (Cint,), 1)
             end
@@ -284,7 +284,7 @@ function load_machine_file(path::AbstractString)
     for line in split(readstring(path),'\n'; keep=false)
         s = map!(strip, split(line,'*'; keep=false))
         if length(s) > 1
-            cnt = isnumber(s[1]) ? parse(Int,s[1]) : symbol(s[1])
+            cnt = isnumber(s[1]) ? parse(Int,s[1]) : Symbol(s[1])
             push!(machines,(s[2], cnt))
         else
             push!(machines,line)

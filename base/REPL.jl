@@ -230,11 +230,11 @@ end
 type LineEditREPL <: AbstractREPL
     t::TextTerminal
     hascolor::Bool
-    prompt_color::AbstractString
-    input_color::AbstractString
-    answer_color::AbstractString
-    shell_color::AbstractString
-    help_color::AbstractString
+    prompt_color::String
+    input_color::String
+    answer_color::String
+    shell_color::String
+    help_color::String
     history_file::Bool
     in_shell::Bool
     in_help::Bool
@@ -297,7 +297,7 @@ end
 
 
 type REPLHistoryProvider <: HistoryProvider
-    history::Array{AbstractString,1}
+    history::Array{String,1}
     history_file
     start_idx::Int
     cur_idx::Int
@@ -308,7 +308,7 @@ type REPLHistoryProvider <: HistoryProvider
     modes::Array{Symbol,1}
 end
 REPLHistoryProvider(mode_mapping) =
-    REPLHistoryProvider(AbstractString[], nothing, 0, 0, -1, IOBuffer(),
+    REPLHistoryProvider(String[], nothing, 0, 0, -1, IOBuffer(),
                         nothing, mode_mapping, UInt8[])
 
 const invalid_history_message = """
@@ -345,7 +345,7 @@ function hist_from_file(hp, file)
             m = match(r"^#\s*(\w+)\s*:\s*(.*?)\s*$", line)
             m === nothing && break
             if m.captures[1] == "mode"
-                mode = symbol(m.captures[2])
+                mode = Symbol(m.captures[2])
             end
             line = hist_getline(file)
             countlines += 1
@@ -356,7 +356,7 @@ function hist_from_file(hp, file)
             error(munged_history_message, countlines)
         line[1] != '\t' &&
             error(invalid_history_message, repr(line[1]), " at line ", countlines)
-        lines = UTF8String[]
+        lines = String[]
         while !isempty(line)
             push!(lines, chomp(line[2:end]))
             eof(file) && break
@@ -568,7 +568,7 @@ function history_search(hist::REPLHistoryProvider, query_buffer::IOBuffer, respo
         if match != 0:-1 && h != response_str && haskey(hist.mode_mapping, hist.modes[idx])
             truncate(response_buffer, 0)
             write(response_buffer, h)
-            seek(response_buffer, prevind(response_str, first(match)))
+            seek(response_buffer, prevind(h, first(match)))
             hist.cur_idx = idx
             return true
         end
@@ -731,7 +731,7 @@ function setup_interface(repl::LineEditREPL; hascolor = repl.hascolor, extra_rep
         # and pass into Base.repl_cmd for processing (handles `ls` and `cd`
         # special)
         on_done = respond(repl, julia_prompt) do line
-            Expr(:call, :(Base.repl_cmd), macroexpand(Expr(:macrocall, symbol("@cmd"),line)), outstream(repl))
+            Expr(:call, :(Base.repl_cmd), macroexpand(Expr(:macrocall, Symbol("@cmd"),line)), outstream(repl))
         end)
 
 
@@ -893,9 +893,9 @@ end
 
 type StreamREPL <: AbstractREPL
     stream::IO
-    prompt_color::AbstractString
-    input_color::AbstractString
-    answer_color::AbstractString
+    prompt_color::String
+    input_color::String
+    answer_color::String
     waserror::Bool
     StreamREPL(stream,pc,ic,ac) = new(stream,pc,ic,ac,false)
 end

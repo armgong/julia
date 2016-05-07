@@ -72,12 +72,12 @@ end
 
 macro except_str(expr, err_type)
     return quote
-        let
-            local err
+        let err = nothing
             try
                 $(esc(expr))
             catch err
             end
+            err === nothing && error("expected failure, but no exception thrown")
             @test typeof(err) === $(esc(err_type))
             buff = IOBuffer()
             showerror(buff, err)
@@ -88,12 +88,12 @@ end
 
 macro except_strbt(expr, err_type)
     return quote
-        let
-            local err
+        let err = nothing
             try
                 $(esc(expr))
             catch err
             end
+            err === nothing && error("expected failure, but no exception thrown")
             @test typeof(err) === $(esc(err_type))
             buff = IOBuffer()
             showerror(buff, err, catch_backtrace())
@@ -104,14 +104,15 @@ end
 
 macro except_stackframe(expr, err_type)
     return quote
-       let
+       let err = nothing
            local st
            try
                $(esc(expr))
            catch err
                st = catch_stacktrace()
-               @test typeof(err) === $(esc(err_type))
            end
+           err === nothing && error("expected failure, but no exception thrown")
+           @test typeof(err) === $(esc(err_type))
            sprint(show, st[1])
        end
     end
@@ -182,11 +183,11 @@ let undefvar
     err_str = @except_str 0::7 TypeError
     @test err_str == "TypeError: typeassert: expected Type{T}, got $Int"
     err_str = @except_str "" <: AbstractString TypeError
-    @test err_str == "TypeError: subtype: expected Type{T}, got ASCIIString"
+    @test err_str == "TypeError: subtype: expected Type{T}, got String"
     err_str = @except_str AbstractString <: "" TypeError
-    @test err_str == "TypeError: subtype: expected Type{T}, got ASCIIString"
+    @test err_str == "TypeError: subtype: expected Type{T}, got String"
     err_str = @except_str Type{""} TypeError
-    @test err_str == "TypeError: Type: in parameter, expected Type{T}, got ASCIIString"
+    @test err_str == "TypeError: Type: in parameter, expected Type{T}, got String"
     err_str = @except_str TypeWithIntParam{Any} TypeError
     @test err_str == "TypeError: TypeWithIntParam: in T, expected T<:Integer, got Type{Any}"
 
@@ -226,8 +227,8 @@ let err_str,
     i = reinterpret(EightBitType, 0x54),
     j = reinterpret(EightBitTypeT{Int32}, 0x54)
 
-    err_str = @except_str Symbol() MethodError
-    @test contains(err_str, "MethodError: no method matching Symbol()")
+    err_str = @except_str Bool() MethodError
+    @test contains(err_str, "MethodError: no method matching Bool()")
     err_str = @except_str :a() MethodError
     @test contains(err_str, "MethodError: objects of type Symbol are not callable")
     err_str = @except_str EightBitType() MethodError
@@ -249,7 +250,7 @@ let err_str,
     @test contains(err_str, "MethodError: objects of type Array{Float64,1} are not callable")
 end
 @test stringmime("text/plain", FunctionLike()) == "(::FunctionLike) (generic function with 0 methods)"
-@test ismatch(r"^@doc \(macro with \d+ method[s]?\)$", stringmime("text/plain", Base.(symbol("@doc"))))
+@test ismatch(r"^@doc \(macro with \d+ method[s]?\)$", stringmime("text/plain", Base.(Symbol("@doc"))))
 
 method_defs_lineno = @__LINE__
 Base.Symbol() = throw(ErrorException("1"))
@@ -272,10 +273,10 @@ let err_str,
     @test sprint(show, which(:a, Tuple{})) == "(::Symbol)() at $sp:$(method_defs_lineno + 1)"
     @test sprint(show, which(EightBitType, Tuple{})) == "EightBitType() at $sp:$(method_defs_lineno + 2)"
     @test sprint(show, which(reinterpret(EightBitType, 0x54), Tuple{})) == "(::EightBitType)() at $sp:$(method_defs_lineno + 3)"
-    @test sprint(show, which(EightBitTypeT, Tuple{})) == "(::Type{EightBitTypeT{T<:Any}})() at $sp:$(method_defs_lineno + 4)"
+    @test sprint(show, which(EightBitTypeT, Tuple{})) == "(::Type{EightBitTypeT})() at $sp:$(method_defs_lineno + 4)"
     @test sprint(show, which(EightBitTypeT{Int32}, Tuple{})) == "(::Type{EightBitTypeT{T}}){T}() at $sp:$(method_defs_lineno + 5)"
-    @test sprint(show, which(reinterpret(EightBitTypeT{Int32}, 0x54), Tuple{})) == "(::EightBitTypeT{T<:Any})() at $sp:$(method_defs_lineno + 6)"
-    @test startswith(sprint(show, which(Base.(symbol("@doc")), Tuple{Vararg{Any}})), "@doc(x...) at boot.jl:")
+    @test sprint(show, which(reinterpret(EightBitTypeT{Int32}, 0x54), Tuple{})) == "(::EightBitTypeT)() at $sp:$(method_defs_lineno + 6)"
+    @test startswith(sprint(show, which(Base.(Symbol("@doc")), Tuple{Vararg{Any}})), "@doc(x...) at boot.jl:")
     @test startswith(sprint(show, which(FunctionLike(), Tuple{})), "(::FunctionLike)() at $sp:$(method_defs_lineno + 7)")
     @test stringmime("text/plain", FunctionLike()) == "(::FunctionLike) (generic function with 1 method)"
     @test stringmime("text/plain", Core.arraysize) == "arraysize (built-in function)"

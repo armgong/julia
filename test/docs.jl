@@ -45,10 +45,9 @@ end
 
 # General tests for docstrings.
 
-module DocsTest
-
+const LINE_NUMBER = @__LINE__
 "DocsTest"
-DocsTest
+module DocsTest
 
 "f-1"
 function f(x)
@@ -162,11 +161,13 @@ function multidoc! end
 
 end
 
-@test docstrings_equal(@doc(DocsTest), doc"DocsTest")
-
-# Check that plain docstrings store a module reference.
-# https://github.com/JuliaLang/julia/pull/13017#issuecomment-138618663
-@test meta(DocsTest)[@var(DocsTest)].docs[Union{}].data[:module] == DocsTest
+let md = meta(DocsTest)[@var(DocsTest)]
+    @test docstrings_equal(md.docs[Union{}], doc"DocsTest")
+    # Check that plain docstrings store a module reference.
+    # https://github.com/JuliaLang/julia/pull/13017#issuecomment-138618663
+    @test md.docs[Union{}].data[:module] == DocsTest
+    @test md.docs[Union{}].data[:linenumber] == LINE_NUMBER
+end
 
 let f = @var(DocsTest.f)
     md = meta(DocsTest)[f]
@@ -500,7 +501,7 @@ macro m1_11993()
 end
 
 macro m2_11993()
-    symbol("@m1_11993")
+    Symbol("@m1_11993")
 end
 
 @doc "This should document @m1... since its the result of expansion" @m2_11993
@@ -642,7 +643,7 @@ end
 )
 
 # Issue #13905.
-@test macroexpand(:(@doc "" f() = @x)) == Expr(:error, UndefVarError(symbol("@x")))
+@test macroexpand(:(@doc "" f() = @x)) == Expr(:error, UndefVarError(Symbol("@x")))
 
 # Undocumented DataType Summaries.
 
@@ -655,7 +656,7 @@ type C <: A end
 
 immutable D <: B
     one
-    two::UTF8String
+    two::String
     three::Float64
 end
 
@@ -722,7 +723,7 @@ immutable Undocumented.D <: Undocumented.B
 **Fields:**
 ```
 one   :: Any
-two   :: UTF8String
+two   :: String
 three :: Float64
 ```
 """)
@@ -781,7 +782,7 @@ end
 
 import Base.Docs: @var, Binding, defined
 
-let x = Binding(Base, symbol("@time"))
+let x = Binding(Base, Symbol("@time"))
     @test defined(x) == true
     @test @var(@time) == x
     @test @var(Base.@time) == x

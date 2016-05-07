@@ -178,10 +178,10 @@ for (name, f) in l
 
     for text in [
         old_text,
-        UTF8String(Char['A' + i % 52 for i in 1:(div(Base.SZ_UNBUFFERED_IO,2))]),
-        UTF8String(Char['A' + i % 52 for i in 1:(    Base.SZ_UNBUFFERED_IO -1)]),
-        UTF8String(Char['A' + i % 52 for i in 1:(    Base.SZ_UNBUFFERED_IO   )]),
-        UTF8String(Char['A' + i % 52 for i in 1:(    Base.SZ_UNBUFFERED_IO +1)])
+        String(Char['A' + i % 52 for i in 1:(div(Base.SZ_UNBUFFERED_IO,2))]),
+        String(Char['A' + i % 52 for i in 1:(    Base.SZ_UNBUFFERED_IO -1)]),
+        String(Char['A' + i % 52 for i in 1:(    Base.SZ_UNBUFFERED_IO   )]),
+        String(Char['A' + i % 52 for i in 1:(    Base.SZ_UNBUFFERED_IO +1)])
     ]
         write(filename, text)
 
@@ -296,7 +296,7 @@ for (name, f) in l
     @test readstring("$filename.to") == text
 
     verbose && println("$name write(::IOBuffer, ...)")
-    to = IOBuffer(Vector{UInt8}(copy(text)), false, true)
+    to = IOBuffer(copy(text.data), false, true)
     write(to, io())
     @test takebuf_string(to) == text
 
@@ -360,7 +360,6 @@ test_read_nbyte()
 @test_throws EOFError read(DevNull, UInt8)
 @test close(DevNull) === nothing
 @test flush(DevNull) === nothing
-@test copy(DevNull) === DevNull
 @test eof(DevNull)
 @test print(DevNull, "go to /dev/null") === nothing
 

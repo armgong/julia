@@ -216,6 +216,7 @@ end
 Adds a new docstring `str` to the docsystem for `binding` and signature `sig`.
 """
 function doc!(b::Binding, str::DocStr, sig::ANY = Union{})
+    initmeta()
     m = get!(meta(), b, MultiDoc())
     if haskey(m.docs, sig)
         # We allow for docstrings to be updated, but print a warning since it is possible
@@ -391,7 +392,7 @@ const keywords = Dict{Symbol, DocStr}()
 isdoc(s::AbstractString) = true
 
 isdoc(x) = isexpr(x, :string) ||
-    (isexpr(x, :macrocall) && x.args[1] == symbol("@doc_str")) ||
+    (isexpr(x, :macrocall) && x.args[1] == Symbol("@doc_str")) ||
     (isexpr(x, :call) && x.args[1] == Base.Markdown.doc_str)
 
 function unblock(ex)
@@ -417,7 +418,7 @@ nameof(q::QuoteNode, ismacro) = nameof(q.value, ismacro)
 nameof(s::Symbol, ismacro)    = ismacro ? macroname(s) : s
 nameof(other, ismacro)        = other
 
-macroname(s::Symbol) = symbol('@', s)
+macroname(s::Symbol) = Symbol('@', s)
 macroname(x::Expr)   = Expr(x.head, x.args[1], macroname(x.args[end].value))
 
 isfield(x) = isexpr(x, :.) &&
@@ -483,7 +484,9 @@ end
 
 function moduledoc(meta, def, def′)
     name  = namify(def′)
-    docex = :(@doc $meta $name)
+    docex = Expr(:call, doc!, bindingexpr(name),
+        docexpr(lazy_iterpolate(meta), metadata(name))
+    )
     if def == nothing
         esc(:(eval($name, $(quot(docex)))))
     else
@@ -538,7 +541,7 @@ function __doc__!(meta, def, define)
         # the Base image). We just need to convert each `@__doc__` marker to an `@doc`.
         finddoc(def) do each
             each.head = :macrocall
-            each.args = [symbol("@doc"), meta, each.args[end], define]
+            each.args = [Symbol("@doc"), meta, each.args[end], define]
         end
     else
         # `def` has already been defined during Base image gen so we just need to find and
@@ -592,9 +595,6 @@ function docm(meta, ex, define = true)
     # Don't try to redefine expressions. This is only needed for `Base` img gen since
     # otherwise calling `loaddocs` would redefine all documented functions and types.
     def = define ? x : nothing
-
-    # Initalise the module's docstring storage.
-    initmeta()
 
     # Keywords using the `@kw_str` macro in `base/docs/basedocs.jl`.
     #

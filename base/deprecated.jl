@@ -59,7 +59,7 @@ end
 function depwarn(msg, funcsym)
     opts = JLOptions()
     if opts.depwarn > 0
-        ln = unsafe_load(cglobal(:jl_lineno, Int))
+        ln = Int(unsafe_load(cglobal(:jl_lineno, Cint)))
         fn = bytestring(unsafe_load(cglobal(:jl_filename, Ptr{Cchar})))
         bt = backtrace()
         caller = firstcaller(bt, funcsym)
@@ -147,8 +147,6 @@ end
 @deprecate nan(x::AbstractFloat)  oftype(x,NaN)
 @deprecate inf{T<:AbstractFloat}(::Type{T})  convert(T,Inf)
 @deprecate nan{T<:AbstractFloat}(::Type{T})  convert(T,NaN)
-
-@deprecate_binding String AbstractString
 
 # 13221 - when removing Uint deprecation, remove hack in jl_binding_deprecation_warning
 @deprecate_binding Uint    UInt
@@ -368,9 +366,6 @@ end
 @deprecate flipud(A::AbstractArray) flipdim(A, 1)
 @deprecate fliplr(A::AbstractArray) flipdim(A, 2)
 
-@deprecate sub2ind{T<:Integer}(dims::Array{T}, sub::Array{T}) sub2ind(tuple(dims...), sub...)
-@deprecate ind2sub!{T<:Integer}(sub::Array{T}, dims::Array{T}, ind::T) ind2sub!(sub, tuple(dims...), ind)
-
 @deprecate strftime     Libc.strftime
 @deprecate strptime     Libc.strptime
 @deprecate flush_cstdio Libc.flush_cstdio
@@ -491,13 +486,11 @@ export float32_isvalid, float64_isvalid
 
 # 11241
 @deprecate is_valid_char(ch::Char)          isvalid(ch)
-@deprecate is_valid_ascii(str::ASCIIString) isvalid(str)
-@deprecate is_valid_utf8(str::UTF8String)   isvalid(str)
+@deprecate is_valid_utf8(str::String)   isvalid(str)
 @deprecate is_valid_utf16(str::UTF16String) isvalid(str)
 @deprecate is_valid_utf32(str::UTF32String) isvalid(str)
 @deprecate is_valid_char(ch)   isvalid(Char, ch)
-@deprecate is_valid_ascii(str) isvalid(ASCIIString, str)
-@deprecate is_valid_utf8(str)  isvalid(UTF8String, str)
+@deprecate is_valid_utf8(str)  isvalid(String, str)
 @deprecate is_valid_utf16(str) isvalid(UTF16String, str)
 @deprecate is_valid_utf32(str) isvalid(UTF32String, str)
 
@@ -563,7 +556,7 @@ end
 @deprecate_binding MathConst Irrational
 
 macro math_const(sym, val, def)
-    depwarn("@math_const is deprecated and renamed to @irrational.", symbol("@math_const"))
+    depwarn("@math_const is deprecated and renamed to @irrational.", Symbol("@math_const"))
     :(@irrational $(esc(sym)) $(esc(val)) $(esc(def)))
 end
 export @math_const
@@ -692,7 +685,7 @@ include("require.jl")
         # require("Foo") --- ambiguous. might be file or package
         filename = maybe_require_file(f)
         if filename == f
-            mod = symbol(require_modname(f))
+            mod = Symbol(require_modname(f))
             M = current_module()
             if isdefined(M,mod) && isa(eval(M,mod),Module)
                 return
@@ -912,6 +905,18 @@ function tty_size()
     return displaysize()
 end
 
+# Combinatorics functions that have been moved out of base (#13897)
+# Note: only the two-argument form of factorial has been moved
+for deprecatedfunc in [:combinations, :factorial, :prevprod, :levicivita,
+        :nthperm!, :nthperm, :parity, :partitions, :permutations]
+    @eval begin
+        $deprecatedfunc(args...) = error(string($deprecatedfunc, args,
+            " has been moved to the package Combinatorics.jl.\n",
+            "Run Pkg.add(\"Combinatorics\") to install Combinatorics on Julia v0.5-"))
+        export $deprecatedfunc
+    end
+end
+
 #14335
 @deprecate super(T::DataType) supertype(T)
 
@@ -933,7 +938,7 @@ end
 
 #14474
 macro boundscheck(yesno,blk)
-    depwarn("The meaning of `@boundscheck` has changed. It now indicates that the provided code block performs bounds checking, and may be elided when inbounds.", symbol("@boundscheck"))
+    depwarn("The meaning of `@boundscheck` has changed. It now indicates that the provided code block performs bounds checking, and may be elided when inbounds.", Symbol("@boundscheck"))
     if yesno === true
         :(@inbounds $(esc(blk)))
     end
@@ -985,7 +990,6 @@ export call
 # 1933
 @deprecate_binding SingleAsyncWork AsyncCondition
 
-
 # #12872
 @deprecate istext istextmime
 
@@ -1020,6 +1024,104 @@ function pmap(f, c...; err_retry=nothing, err_stop=nothing, pids=nothing)
     return pmap(p, f, c...)
 end
 
+# 15692
+typealias Func{N} Function
+deprecate(:Func)
+for (Fun, func) in [(:IdFun, :identity),
+                    (:AbsFun, :abs),
+                    (:Abs2Fun, :abs2),
+                    (:ExpFun, :exp),
+                    (:LogFun, :log),
+                    (:ConjFun, :conj),
+                    (:AndFun, :&),
+                    (:OrFun, :|),
+                    (:XorFun, :$),
+                    (:AddFun, :+),
+                    (:DotAddFun, :.+),
+                    (:SubFun, :-),
+                    (:DotSubFun, :.-),
+                    (:MulFun, :*),
+                    (:DotMulFun, :.*),
+                    (:RDivFun, :/),
+                    (:DotRDivFun, :./),
+                    (:LDivFun, :\),
+                    (:IDivFun, :div),
+                    (:DotIDivFun, :.÷),
+                    (:ModFun, :mod),
+                    (:RemFun, :rem),
+                    (:DotRemFun, :.%),
+                    (:PowFun, :^),
+                    (:MaxFun, :scalarmax),
+                    (:MinFun, :scalarmin),
+                    (:LessFun, :<),
+                    (:MoreFun, :>),
+                    (:DotLSFun, :.<<),
+                    (:DotRSFun, :.>>),
+                    (:ElementwiseMaxFun, :max),
+                    (:ElementwiseMinFun, :min),
+                    (:ComplexFun, :complex),
+                    (:DotFun, :dot),
+                    ]
+    @eval begin
+        @deprecate_binding $(Fun) typeof($(func))
+        (::Type{typeof($(func))})() = $(func)
+    end
+end
+@deprecate_binding CentralizedAbs2Fun typeof(centralizedabs2fun(0)).name.primary
+(::Type{typeof(centralizedabs2fun(0)).name.primary})(m::Number) = centralizedabs2fun(m)
+@deprecate specialized_unary(f::Function) f
+@deprecate specialized_binary(f::Function) f
+@deprecate specialized_bitwise_unary(f::Function) f
+@deprecate specialized_bitwise_binary(f::Function) f
+
+@deprecate bitunpack(B::BitArray) Array(B)
+@deprecate bitpack(A::AbstractArray) BitArray(A)
+
+# #4163
+@deprecate xdump dump
+
+@deprecate copy(x::AbstractString)  identity(x)
+@deprecate copy(x::Tuple)  identity(x)
+
+@deprecate sprandbool(m::Integer, n::Integer, density::AbstractFloat) sprand(Bool, m, n, density)
+@deprecate sprandbool(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat) sprand(r, Bool, m, n, density)
+@deprecate sprandbool(n::Integer, density::AbstractFloat) sprand(Bool, n, density)
+@deprecate sprandbool(r::AbstractRNG, n::Integer, density::AbstractFloat) sprand(r, Bool, n, density)
+@deprecate sprand{T}(n::Integer, density::AbstractFloat, ::Type{T}) sprand(T, n, density)
+@deprecate sprand{T}(r::AbstractRNG, n::Integer, density::AbstractFloat, ::Type{T}) sprand(r, T, n, density)
+
+#15995
+@deprecate symbol Symbol
+
+macro ccallable(def)
+    depwarn("@ccallable requires a return type", Symbol("@ccallable"))
+    if isa(def,Expr) && (def.head === :(=) || def.head === :function)
+        sig = def.args[1]
+        if sig.head === :call
+            name = sig.args[1]
+            at = map(sig.args[2:end]) do a
+                if isa(a,Expr) && a.head === :(::)
+                    a.args[2]
+                else
+                    :Any
+                end
+            end
+            return quote
+                $(esc(def))
+                let name = $(esc(name)), tt = $(Expr(:curly, :Tuple, map(esc, at)...))
+                    rt = return_types(name, tt)
+                    length(rt) == 1 || error("function not ccallable")
+                    ccallable(name, rt[1], tt)
+                end
+            end
+        end
+    end
+    error("expected method definition in @ccallable")
+end
+
+@deprecate_binding ASCIIString String
+@deprecate_binding UTF8String String
+@deprecate_binding ByteString String
 
 # During the 0.5 development cycle, do not add any deprecations below this line
 # To be deprecated in 0.6

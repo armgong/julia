@@ -226,6 +226,12 @@ Iterable Collections
 
    Returns an array containing one value from ``itr`` for each unique value produced by ``f`` applied to elements of ``itr``\ .
 
+.. function:: allunique(itr)
+
+   .. Docstring generated from Julia source
+
+   Return ``true`` if all values from ``itr`` are distinct when compared with ``isequal``\ .
+
 .. function:: reduce(op, v0, itr)
 
    .. Docstring generated from Julia source
@@ -712,9 +718,9 @@ Associative Collections
 
 :obj:`WeakKeyDict` is a hash table implementation where the keys are weak references to objects, and thus may be garbage collected even when referenced in a hash table.
 
-:obj:`Dict`\ s can be created by passing pair objects constructed with :func:`=>` to a :obj:`Dict` constructor: ``Dict("A"=>1, "B"=>2)``. This call will attempt to infer type information from the keys and values (i.e. this example creates a ``Dict{ASCIIString, Int64}``).
+:obj:`Dict`\ s can be created by passing pair objects constructed with :func:`=>` to a :obj:`Dict` constructor: ``Dict("A"=>1, "B"=>2)``. This call will attempt to infer type information from the keys and values (i.e. this example creates a ``Dict{String, Int64}``).
 To explicitly specify types use the syntax ``Dict{KeyType,ValueType}(...)``.
-For example, ``Dict{ASCIIString,Int32}("A"=>1, "B"=>2)``.
+For example, ``Dict{String,Int32}("A"=>1, "B"=>2)``.
 
 As with :obj:`Array`\ s, :obj:`Dict`\ s may be created with comprehensions. For example,
 ``[i => f(i) for i = 1:10]``.
@@ -732,7 +738,7 @@ Given a dictionary ``D``, the syntax ``D[x]`` returns the value of key ``x`` (if
    .. doctest::
 
        julia> Dict([("A", 1), ("B", 2)])
-       Dict{ASCIIString,Int64} with 2 entries:
+       Dict{String,Int64} with 2 entries:
          "B" => 2
          "A" => 1
 
@@ -741,7 +747,7 @@ Given a dictionary ``D``, the syntax ``D[x]`` returns the value of key ``x`` (if
    .. doctest::
 
        julia> Dict("A"=>1, "B"=>2)
-       Dict{ASCIIString,Int64} with 2 entries:
+       Dict{String,Int64} with 2 entries:
          "B" => 2
          "A" => 1
 
@@ -832,23 +838,23 @@ Given a dictionary ``D``, the syntax ``D[x]`` returns the value of key ``x`` (if
    .. doctest::
 
        julia> a = Dict("foo" => 0.0, "bar" => 42.0)
-       Dict{ASCIIString,Float64} with 2 entries:
+       Dict{String,Float64} with 2 entries:
          "bar" => 42.0
          "foo" => 0.0
 
        julia> b = Dict(utf8("baz") => 17, utf8("bar") => 4711)
-       Dict{UTF8String,Int64} with 2 entries:
+       Dict{String,Int64} with 2 entries:
          "bar" => 4711
          "baz" => 17
 
        julia> merge(a, b)
-       Dict{UTF8String,Float64} with 3 entries:
+       Dict{String,Float64} with 3 entries:
          "bar" => 4711.0
          "baz" => 17.0
          "foo" => 0.0
 
        julia> merge(b, a)
-       Dict{UTF8String,Float64} with 3 entries:
+       Dict{String,Float64} with 3 entries:
          "bar" => 42.0
          "baz" => 17.0
          "foo" => 0.0
