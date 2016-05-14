@@ -251,8 +251,8 @@ function get_value(sym::Expr, fn)
     end
     fn, true
 end
-get_value(sym::Symbol, fn) = isdefined(fn, sym) ? (fn.(sym), true) : (nothing, false)
-get_value(sym::QuoteNode, fn) = isdefined(fn, sym.value) ? (fn.(sym.value), true) : (nothing, false)
+get_value(sym::Symbol, fn) = isdefined(fn, sym) ? (getfield(fn, sym), true) : (nothing, false)
+get_value(sym::QuoteNode, fn) = isdefined(fn, sym.value) ? (getfield(fn, sym.value), true) : (nothing, false)
 get_value(sym, fn) = sym, true
 
 # Return the value of a getfield call expression
@@ -268,8 +268,8 @@ get_value_getfield(sym, fn) = get_value(sym, fn)
 function get_type_call(expr::Expr)
     f_name = expr.args[1]
     # The if statement should find the f function. How f is found depends on how f is referenced
-    if isa(f_name, TopNode)
-        ft = typeof(Base.(f_name.name))
+    if isa(f_name, GlobalRef) && isconst(f_name.mod,f_name.name) && isdefined(f_name.mod,f_name.name)
+        ft = typeof(eval(f_name))
         found = true
     else
         ft, found = get_type(f_name, Main)
@@ -297,7 +297,9 @@ function get_type(sym::Expr, fn)
     if sym.head === :call
         # getfield call is special cased as the evaluation of getfield provides good type information,
         # is inexpensive and it is also performed in the complete_symbol function.
-        if sym.args[1] === TopNode(:getfield)
+        a1 = sym.args[1]
+        if isa(a1,GlobalRef) && isconst(a1.mod,a1.name) && isdefined(a1.mod,a1.name) &&
+            eval(a1) === Core.getfield
             val, found = get_value_getfield(sym, Main)
             return found ? Base.typesof(val).parameters[1] : Any, found
         end
@@ -458,7 +460,7 @@ function completions(string, pos)
                 end
             end
         end
-        ffunc = (mod,x)->(isdefined(mod, x) && isa(mod.(x), Module))
+        ffunc = (mod,x)->(isdefined(mod, x) && isa(getfield(mod, x), Module))
         comp_keywords = false
     end
     startpos == 0 && (pos = -1)

@@ -928,15 +928,6 @@ JL_CALLABLE(jl_f_apply_type)
     return jl_apply_type_(args[0], &args[1], nargs-1);
 }
 
-JL_DLLEXPORT jl_value_t *jl_new_type_constructor(jl_svec_t *p, jl_value_t *t)
-{
-    jl_value_t *tc = (jl_value_t*)jl_new_type_ctor(p, t);
-    int i;
-    for(i=0; i < jl_svec_len(p); i++)
-        ((jl_tvar_t*)jl_svecref(p,i))->bound = 0;
-    return tc;
-}
-
 // generic function reflection ------------------------------------------------
 
 static void jl_check_type_tuple(jl_value_t *t, jl_sym_t *name, const char *ctx)
@@ -1162,7 +1153,6 @@ void jl_init_primitives(void)
     add_builtin("LabelNode", (jl_value_t*)jl_labelnode_type);
     add_builtin("GotoNode", (jl_value_t*)jl_gotonode_type);
     add_builtin("QuoteNode", (jl_value_t*)jl_quotenode_type);
-    add_builtin("TopNode", (jl_value_t*)jl_topnode_type);
     add_builtin("NewvarNode", (jl_value_t*)jl_newvarnode_type);
     add_builtin("GlobalRef", (jl_value_t*)jl_globalref_type);
 
@@ -1371,11 +1361,6 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v, jl_datatype_t *vt
         n += jl_printf(out, "<newvar ");
         n += jl_static_show_x(out, *(jl_value_t**)v, depth);
         n += jl_printf(out, ">");
-    }
-    else if (vt == jl_topnode_type) {
-        n += jl_printf(out, "top(");
-        n += jl_static_show_x(out, *(jl_value_t**)v, depth);
-        n += jl_printf(out, ")");
     }
     else if (vt == jl_linenumbernode_type) {
         n += jl_printf(out, "# line %" PRIuPTR " %s",

@@ -612,6 +612,18 @@ end
 const MS_ASYNC = 1
 const MS_INVALIDATE = 2
 const MS_SYNC = 4
+
+@doc """
+    MS_ASYNC
+    MS_SYNC
+    MS_INVALIDATE
+
+Enum constants for [`msync`](:func:`msync`). See your platform man page for details.
+(not available on Windows).
+""" ->
+(MS_ASYNC, MS_SYNC, MS_INVALIDATE)
+
+
 @noinline function msync(p::Ptr, len::Integer, flags::Integer=MS_SYNC)
     depwarn("`msync` is deprecated, use `Mmap.sync!(array)` instead", :msync)
     systemerror("msync", ccall(:msync, Cint, (Ptr{Void}, Csize_t, Cint), p, len, flags) != 0)
@@ -1093,6 +1105,26 @@ end
 #15995
 @deprecate symbol Symbol
 
+#15032: Expressions like Base.(:+) now call broadcast.  Since calls
+#       to broadcast(x, ::Symbol) are unheard of, and broadcast(x, ::Integer)
+#       are unlikely, we can treat these as deprecated getfield calls.
+#       (See julia-syntax.scm for the Base.(:+)(...) = ... deprecation.)
+function broadcast(x::Any, i::Union{Integer,Symbol})
+    depwarn("x.(i) is deprecated; use getfield(x, i) instead.", :broadcast)
+    getfield(x, i)
+end
+# clearer to be more explicit in the warning for the Module case
+function broadcast(m::Module, s::Symbol)
+    S = repr(s) # 16295
+    depwarn("$m.($S) is deprecated; use $m.$S or getfield($m, $S) instead.", :broadcast)
+    getfield(m, s)
+end
+# expressions like f.(3) should still call broadcast for f::Function,
+# and in general broadcast should work for scalar arguments, while
+# getfield is certainly not intended for the case of f::Function.
+broadcast(f::Function, i::Integer) = invoke(broadcast, (Function, Number), f, i)
+
+#16167
 macro ccallable(def)
     depwarn("@ccallable requires a return type", Symbol("@ccallable"))
     if isa(def,Expr) && (def.head === :(=) || def.head === :function)
@@ -1122,6 +1154,14 @@ end
 @deprecate_binding ASCIIString String
 @deprecate_binding UTF8String String
 @deprecate_binding ByteString String
+
+@deprecate ==(x::Char, y::Integer) UInt32(x) == y
+@deprecate ==(x::Integer, y::Char) x == UInt32(y)
+@deprecate isless(x::Char, y::Integer) UInt32(x) < y
+@deprecate isless(x::Integer, y::Char) x < UInt32(y)
+# delete these methods along with deprecations:
+isequal(x::Char, y::Integer) = false
+isequal(x::Integer, y::Char) = false
 
 # During the 0.5 development cycle, do not add any deprecations below this line
 # To be deprecated in 0.6

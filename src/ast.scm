@@ -41,7 +41,8 @@
                 ((ref)    (string (deparse (cadr e)) #\[ (deparse-arglist (cddr e)) #\]))
                 ((curly)  (string (deparse (cadr e)) #\{ (deparse-arglist (cddr e)) #\}))
                 ((quote inert)
-                 (if (symbol? (cadr e))
+                 (if (and (symbol? (cadr e))
+                          (not (= (string.char (string (cadr e)) 0) #\=)))
                      (string ":" (deparse (cadr e)))
                      (string ":(" (deparse (cadr e)) ")")))
                 ((vect)   (string #\[ (deparse-arglist (cdr e)) #\]))
@@ -101,7 +102,7 @@
 
 ;; predicates and accessors
 
-(define (quoted? e) (memq (car e) '(quote top line break inert)))
+(define (quoted? e) (memq (car e) '(quote top core globalref line break inert)))
 
 (define (lam:args x) (cadr x))
 (define (lam:vars x) (llist-vars (lam:args x)))

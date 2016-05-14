@@ -17,7 +17,8 @@ for t in (:LowerTriangular, :UnitLowerTriangular, :UpperTriangular,
             return $t{eltype(A), typeof(A)}(A)
         end
 
-        size(A::$t, args...) = size(A.data, args...)
+        size(A::$t, d) = size(A.data, d)
+        size(A::$t) = size(A.data)
 
         convert{T,S}(::Type{$t{T}}, A::$t{T,S}) = A
         convert{Tnew,Told,S}(::Type{$t{Tnew}}, A::$t{Told,S}) = (Anew = convert(AbstractMatrix{Tnew}, A.data); $t(Anew))
@@ -38,6 +39,9 @@ for t in (:LowerTriangular, :UnitLowerTriangular, :UpperTriangular,
         abs(A::$t) = $t(abs(A.data))
     end
 end
+
+LowerTriangular(U::UpperTriangular) = throw(ArgumentError("cannot create a LowerTriangular matrix from an UpperTriangular input"))
+UpperTriangular(U::LowerTriangular) = throw(ArgumentError("cannot create an UpperTriangular matrix from a LowerTriangular input"))
 
 imag(A::UpperTriangular) = UpperTriangular(imag(A.data))
 imag(A::LowerTriangular) = LowerTriangular(imag(A.data))

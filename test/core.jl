@@ -654,7 +654,7 @@ end
 
 # Method specificity
 begin
-    local f
+    local f, A
     f{T}(dims::Tuple{}, A::AbstractArray{T,0}) = 1
     f{T,N}(dims::NTuple{N,Int}, A::AbstractArray{T,N}) = 2
     f{T,M,N}(dims::NTuple{M,Int}, A::AbstractArray{T,N}) = 3
@@ -1773,6 +1773,7 @@ type A6142 <: AbstractMatrix{Float64}; end
 +{TJ}(x::A6142, y::UniformScaling{TJ}) = "UniformScaling method called"
 +(x::A6142, y::AbstractArray) = "AbstractArray method called"
 @test A6142() + I == "UniformScaling method called"
++(x::A6142, y::Range) = "Range method called" #16324 ambiguity
 
 # issue #6175
 function g6175(); print(""); (); end
@@ -2008,12 +2009,13 @@ f7652() = issubtype(fieldtype(t_a7652, :a), Int)
 g7652() = fieldtype(DataType, :types)
 @test g7652() == fieldtype(DataType, :types) == SimpleVector
 @test fieldtype(t_a7652, 1) == Int
-h7652() = a7652.(1) = 2
+h7652() = setfield!(a7652, 1, 2)
 h7652()
 @test a7652.a == 2
-i7652() = a7652.(1) = 3.0
-i7652()
-@test a7652.a == 3
+# commented out due to issue #16195: setfield! does not perform conversions
+#   i7652() = setfield!(a7652, 1, 3.0)
+#   i7652()
+#   @test a7652.a == 3
 
 # issue #7679
 @test map(f->f(), Any[ ()->i for i=1:3 ]) == Any[1,2,3]
@@ -2216,8 +2218,8 @@ end
 @test try; [][]; catch ex; isempty((ex::BoundsError).a::Array{Any,1}) && ex.i == (1,); end
 @test try; [][1,2]; catch ex; isempty((ex::BoundsError).a::Array{Any,1}) && ex.i == (1,2); end
 @test try; [][10]; catch ex; isempty((ex::BoundsError).a::Array{Any,1}) && ex.i == (10,); end
-f9534a() = (a=1+2im; a.(-100))
-f9534a(x) = (a=1+2im; a.(x))
+f9534a() = (a=1+2im; getfield(a, -100))
+f9534a(x) = (a=1+2im; getfield(a, x))
 @test try; f9534a() catch ex; (ex::BoundsError).a === 1+2im && ex.i == -100; end
 @test try; f9534a(3) catch ex; (ex::BoundsError).a === 1+2im && ex.i == 3; end
 f9534b() = (a=(1,2.,""); a[5])
@@ -2232,10 +2234,10 @@ f9534d() = (a=(1,2,4,6,7); a[7])
 f9534d(x) = (a=(1,2,4,6,7); a[x])
 @test try; f9534d() catch ex; (ex::BoundsError).a === (1,2,4,6,7) && ex.i == 7; end
 @test try; f9534d(-1) catch ex; (ex::BoundsError).a === (1,2,4,6,7) && ex.i == -1; end
-f9534e(x) = (a=IOBuffer(); a.(x) = 3)
-@test try; f9534e(-2) catch ex; is((ex::BoundsError).a,Base.IOBuffer) && ex.i == -2; end
-f9534f() = (a=IOBuffer(); a.(-2))
-f9534f(x) = (a=IOBuffer(); a.(x))
+f9534e(x) = (a=IOBuffer(); setfield!(a, x, 3))
+@test try; f9534e(-2) catch ex; isa((ex::BoundsError).a,Base.IOBuffer) && ex.i == -2; end
+f9534f() = (a=IOBuffer(); getfield(a, -2))
+f9534f(x) = (a=IOBuffer(); getfield(a, x))
 @test try; f9534f() catch ex; isa((ex::BoundsError).a,Base.IOBuffer) && ex.i == -2; end
 @test try; f9534f(typemin(Int)+2) catch ex; isa((ex::BoundsError).a,Base.IOBuffer) && ex.i == typemin(Int)+2; end
 x9634 = 3
@@ -3630,6 +3632,10 @@ end
           end,
           Function)
 
+# f.(x) vectorization syntax (#15032)
+@test (x -> 2x).([1,2,3]) == [2,4,6]
+@test ((x,y) -> 2x+y^2).([1,2,3],[3,4,5]) == [1,2,3]*2 + [3,4,5].^2
+
 # let syntax with multiple lhs
 let z = (3,9,42)
     let (a,b,c) = z
@@ -3949,6 +3955,143 @@ function f16158(x)
 end
 @test f16158("abc") == "abcaba"
 
+# LLVM verifier error for noreturn function
+# the `code_llvm(DevNull, ...)` tests are only meaningful on debug build
+# with verifier on (but should still pass on release build).
+module TestSSA16244
+
+using Base.Test
+@noinline k(a) = a
+
+# unreachable branch due to `ccall(:jl_throw)`
+function f1(a)
+    if a
+        b = (k(a) + 1, 3)
+    else
+        throw(DivideError())
+    end
+    b[1]
+end
+code_llvm(DevNull, f1, Tuple{Bool})
+@test f1(true) == 2
+@test_throws DivideError f1(false)
+
+# unreachable branch due to function that does not return
+@noinline g() = error()
+function f2(a)
+    if a
+        b = (k(a) + 1, 3)
+    else
+        # Make sure type inference can infer the type of `g`
+        g()
+    end
+    b[1]
+end
+code_llvm(DevNull, f2, Tuple{Bool})
+@test f2(true) == 2
+@test_throws ErrorException f2(false)
+
+# SA but not SSA
+function f3(a)
+    if a
+        b = (k(a) + 1, 3)
+    end
+    b[1]
+end
+code_llvm(DevNull, f3, Tuple{Bool})
+@test f3(true) == 2
+ex = try
+    f3(false)
+catch _ex
+    _ex
+end
+@test isa(ex, UndefVarError)
+@test ex.var === :b
+
+# unreachable branch due to ccall that does not return
+function f4(a, p)
+    if a
+        b = (k(a) + 1, 3)
+    else
+        ccall(p, Union{}, ())
+    end
+    b[1]
+end
+code_llvm(DevNull, f4, Tuple{Bool,Ptr{Void}})
+@test f4(true, C_NULL) == 2
+@test_throws UndefRefError f4(false, C_NULL)
+
+# SSA due to const prop of condition
+function f5(a)
+    c = true
+    if c
+        b = (k(a) + 1, 3)
+    end
+    b[1]
+end
+code_llvm(DevNull, f5, Tuple{Bool})
+@test f5(true) == 2
+@test f5(false) == 1
+
+# SSA due to const prop of condition
+function f6(a)
+    if 1 === 1
+        b = (k(a) + 1, 3)
+    end
+    b[1]
+end
+code_llvm(DevNull, f6, Tuple{Bool})
+@test f6(true) == 2
+@test f6(false) == 1
+
+# unreachable branch due to typeassert
+function f7(a)
+    if a
+        b = (k(a) + 1, 3)
+    else
+        a = a::Int
+    end
+    b[1]
+end
+code_llvm(DevNull, f7, Tuple{Bool})
+@test f7(true) == 2
+@test_throws TypeError f7(false)
+
+# unreachable branch due to non-Bool used in Bool context
+function f8(a, c)
+    if a
+        b = (k(a) + 1, 3)
+    else
+        c && a
+    end
+    b[1]
+end
+code_llvm(DevNull, f8, Tuple{Bool,Int})
+@test f8(true, 1) == 2
+@test_throws TypeError f8(false, 1)
+
+# unreachable branch due to undef local variable
+function f9(a)
+    if a
+        b = (k(a) + 1, 3)
+    else
+        d
+        d = 1
+    end
+    b[1]
+end
+code_llvm(DevNull, f9, Tuple{Bool})
+@test f9(true) == 2
+ex = try
+    f9(false)
+catch _ex
+    _ex
+end
+@test isa(ex, UndefVarError)
+@test ex.var === :d
+
+end
+
 # issue #16153
 f16153(x) = 1
 f16153(x::ANY, y...) = 2
@@ -3962,3 +4105,25 @@ g16153(x::ANY, y::ANY) = 2
 gg16153(x::ANY, y::ANY) = 2
 gg16153(x::ANY, y...) = 1
 @test gg16153(1, 1) == 2
+
+# don't remove global variable accesses even if we "know" their type
+# see #16090
+f16090() = typeof(undefined_x16090::Tuple{Type{Int}})
+@test_throws UndefVarError f16090()
+undefined_x16090 = (Int,)
+@test_throws TypeError f16090()
+
+# issue #12238
+type A12238{T} end
+type B12238{T,S}
+    a::A12238{B12238{Int,S}}
+end
+@test B12238.types[1] === A12238{B12238{Int}}
+@test A12238{B12238{Int}}.instance === B12238.types[1].instance
+
+# issue #16315
+let a = Any[]
+    @noinline f() = a[end]
+    @test (push!(a,10); f()) - (push!(a,2); f()) == 8
+    @test a == [10, 2]
+end

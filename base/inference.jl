@@ -6,6 +6,14 @@ const MAX_TYPE_DEPTH = 7
 const MAX_TUPLETYPE_LEN  = 8
 const MAX_TUPLE_DEPTH = 4
 
+# alloc_elim_pass! relies on `Slot_AssignedOnce | Slot_UsedUndef` being
+# SSA. This should be true now but can break if we start to track conditional
+# constants. e.g.
+#
+#     cond && (a = 1)
+#     other_code()
+#     cond && use(a)
+
 # slot property bit flags
 const Slot_Assigned     = 2
 const Slot_AssignedOnce = 16
@@ -366,13 +374,7 @@ function type_depth(t::ANY)
         t === Bottom && return 0
         return maximum(type_depth, t.types) + 1
     elseif isa(t, DataType)
-        t = t::DataType
-        P = t.parameters
-        isempty(P) && return 0
-        if t.depth == 0
-            t.depth = maximum(type_depth, P) + 1
-        end
-        return t.depth
+        return (t::DataType).depth
     end
     return 0
 end
@@ -1056,10 +1058,8 @@ function abstract_eval(e::ANY, vtypes::VarTable, sv::InferenceState)
         return abstract_eval_ssavalue(e::SSAValue, sv)
     elseif isa(e,Slot)
         return vtypes[e.id].typ
-    elseif isa(e,TopNode)
-        return abstract_eval_global(_topmod(sv), (e::TopNode).name)
     elseif isa(e,Symbol)
-        return abstract_eval_symbol(e::Symbol, vtypes, sv)
+        return abstract_eval_global(sv.mod, e)
     elseif isa(e,GlobalRef)
         return abstract_eval_global(e.mod, e.name)
     end
@@ -1181,10 +1181,6 @@ function abstract_eval_ssavalue(s::SSAValue, sv::InferenceState)
         return Bottom
     end
     return typ
-end
-
-function abstract_eval_symbol(s::Symbol, vtypes, sv::InferenceState)
-    return abstract_eval_global(sv.mod, s)
 end
 
 
@@ -1600,8 +1596,8 @@ function typeinf_loop(frame)
                         i.inworkq = true
                     end
                 end
-                for i in fplist
-                    finish(i) # this may add incomplete work to active
+                for i in length(fplist):-1:1
+                    finish(fplist[i]) # this may add incomplete work to active
                 end
             end
         end
@@ -1907,6 +1903,12 @@ function finish(me::InferenceState)
 
     # run optimization passes on fulltree
     if me.optimize
+        # This pass is required for the AST to be valid in codegen
+        # if any `SSAValue` is created by type inference. Ref issue #6068
+        # This (and `reindex_labels!`) needs to be run for `!me.optimize`
+        # if we start to create `SSAValue` in type inference when not
+        # optimizing and use unoptimized IR in codegen.
+        gotoifnot_elim_pass!(me.linfo, me)
         if JLOptions().can_inline == 1
             inlining_pass!(me.linfo, me)
             inbounds_meta_elim_pass!(me.linfo.code)
@@ -2146,8 +2148,6 @@ function exprtype(x::ANY, sv::InferenceState)
         return (x::Slot).typ
     elseif isa(x,SSAValue)
         return abstract_eval_ssavalue(x::SSAValue, sv)
-    elseif isa(x,TopNode)
-        return abstract_eval_global(_topmod(sv), (x::TopNode).name)
     elseif isa(x,Symbol)
         return abstract_eval_global(sv.mod, x::Symbol)
     elseif isa(x,QuoteNode)
@@ -2160,7 +2160,7 @@ function exprtype(x::ANY, sv::InferenceState)
 end
 
 # known affect-free calls (also effect-free)
-const _pure_builtins = Any[tuple, svec, fieldtype, apply_type, is, isa, typeof, typeassert]
+const _pure_builtins = Any[tuple, svec, fieldtype, apply_type, is, isa, typeof]
 
 # known effect-free calls (might not be affect-free)
 const _pure_builtins_volatile = Any[getfield, arrayref]
@@ -2194,12 +2194,12 @@ function effect_free(e::ANY, sv, allow_volatile::Bool)
         return allow_volatile
     end
     if isa(e,Number) || isa(e,AbstractString) || isa(e,SSAValue) ||
-        isa(e,TopNode) || isa(e,QuoteNode) || isa(e,Type) || isa(e,Tuple)
+        isa(e,QuoteNode) || isa(e,Type) || isa(e,Tuple)
         return true
     end
     if isa(e,GlobalRef)
-        allow_volatile && return true
-        return isconst(e.mod, e.name)
+        return (isdefined(e.mod, e.name) &&
+                (allow_volatile || isconst(e.mod, e.name)))
     end
     if isa(e,Expr)
         e = e::Expr
@@ -2653,7 +2653,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
     lastexpr = pop!(body.args)
     if isa(lastexpr,LabelNode)
         push!(body.args, lastexpr)
-        push!(body.args, Expr(:call, TopNode(:error), "fatal error in type inference"))
+        push!(body.args, Expr(:call, GlobalRef(_topmod(sv.mod),:error), "fatal error in type inference"))
         lastexpr = nothing
     elseif !(isa(lastexpr,Expr) && lastexpr.head === :return)
         # code sometimes ends with a meta node, e.g. inbounds pop
@@ -2769,12 +2769,11 @@ function ssavalue_increment(body::Expr, incr)
     return body
 end
 
-const top_setfield = TopNode(:setfield)
-const top_getfield = TopNode(:getfield)
-const top_tuple = TopNode(:tuple)
+const top_getfield = GlobalRef(Core, :getfield)
+const top_tuple = GlobalRef(Core, :tuple)
 
 function mk_getfield(texpr, i, T)
-    e = :(($top_getfield)($texpr, $i))
+    e = Expr(:call, top_getfield, texpr, i)
     e.typ = T
     e
 end
@@ -2893,8 +2892,8 @@ function inlining_pass(e::Expr, sv, linfo)
     end
 
     if isdefined(Main, :Base) &&
-        ((isdefined(Main.Base, :^) && is(f, Main.Base.(:^))) ||
-         (isdefined(Main.Base, :.^) && is(f, Main.Base.(:.^))))
+        ((isdefined(Main.Base, :^) && is(f, Main.Base.:^)) ||
+         (isdefined(Main.Base, :.^) && is(f, Main.Base.:.^)))
         if length(e.args) == 3 && isa(e.args[3],Union{Int32,Int64})
             a1 = e.args[2]
             basenumtype = Union{corenumtype, Main.Base.Complex64, Main.Base.Complex128, Main.Base.Rational}
@@ -2902,10 +2901,10 @@ function inlining_pass(e::Expr, sv, linfo)
                                        exprtype(a1,sv) ⊑ basenumtype)
                 if e.args[3]==2
                     e.args = Any[GlobalRef(Main.Base,:*), a1, a1]
-                    f = Main.Base.(:*); ft = abstract_eval_constant(f)
+                    f = Main.Base.:*; ft = abstract_eval_constant(f)
                 elseif e.args[3]==3
                     e.args = Any[GlobalRef(Main.Base,:*), a1, a1, a1]
-                    f = Main.Base.(:*); ft = abstract_eval_constant(f)
+                    f = Main.Base.:*; ft = abstract_eval_constant(f)
                 end
             end
         end
@@ -2979,9 +2978,9 @@ end
 
 const compiler_temp_sym = Symbol("#temp#")
 
-function add_slot!(linfo::LambdaInfo, typ, is_sa)
+function add_slot!(linfo::LambdaInfo, typ, is_sa, name=compiler_temp_sym)
     id = length(linfo.slotnames)+1
-    push!(linfo.slotnames, compiler_temp_sym)
+    push!(linfo.slotnames, name)
     push!(linfo.slottypes, typ)
     push!(linfo.slotflags, Slot_Assigned + is_sa * Slot_AssignedOnce)
     SlotNumber(id)
@@ -3226,6 +3225,34 @@ function is_allocation(e :: ANY, sv::InferenceState)
     false
 end
 
+# Replace branches with constant conditions with unconditional branches
+function gotoifnot_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
+    body = linfo.code
+    i = 1
+    while i < length(body)
+        expr = body[i]
+        i += 1
+        isa(expr, Expr) || continue
+        expr = expr::Expr
+        expr.head === :gotoifnot || continue
+        cond = expr.args[1]
+        condt = exprtype(cond, sv)
+        isa(condt, Const) || continue
+        val = (condt::Const).val
+        # Codegen should emit an unreachable if val is not a Bool so
+        # we don't need to do anything (also, type inference currently
+        # doesn't recognize the error for strictly non-Bool condition)
+        if isa(val, Bool)
+            # in case there's side effects... (like raising `UndefVarError`)
+            body[i - 1] = cond
+            if val === false
+                insert!(body, i, GotoNode(expr.args[2]))
+                i += 1
+            end
+        end
+    end
+end
+
 # eliminate allocation of unnecessary objects
 # that are only used as arguments to safe getfield calls
 function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
@@ -3246,9 +3273,13 @@ function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
                                (isa(e.args[1],Slot) && haskey(vs, e.args[1].id)))
             var = e.args[1]
             rhs = e.args[2]
+            # Need to make sure LLVM can recognize this as LLVM ssa value too
+            is_ssa = (isa(var, SSAValue) ||
+                      linfo.slotflags[(var::Slot).id] & Slot_UsedUndef == 0)
         else
             var = nothing
             rhs = e
+            is_ssa = false # doesn't matter as long as it's a Bool...
         end
         alloc = is_allocation(rhs, sv)
         if alloc !== false
@@ -3283,7 +3314,14 @@ function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
                         vals[j] = tupelt
                     else
                         elty = exprtype(tupelt,sv)
-                        tmpv = newvar!(sv, elty)
+                        if is_ssa
+                            tmpv = newvar!(sv, elty)
+                        else
+                            var = var::Slot
+                            tmpv = add_slot!(linfo, elty, false,
+                                             linfo.slotnames[var.id])
+                            linfo.slotflags[tmpv.id] |= Slot_UsedUndef
+                        end
                         tmp = Expr(:(=), tmpv, tupelt)
                         insert!(body, i+n_ins, tmp)
                         vals[j] = tmpv
@@ -3291,7 +3329,7 @@ function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
                     end
                 end
                 replace_getfield!(linfo, bexpr, var, vals, field_names, sv)
-                if isa(var, Slot) && linfo.slotflags[(var::Slot).id] & Slot_UsedUndef == 0
+                if isa(var, Slot) && is_ssa
                     # occurs_outside_getfield might have allowed
                     # void use of the slot, we need to delete them too
                     i -= delete_void_use!(body, var::Slot, i)
@@ -3414,13 +3452,9 @@ end
 # make sure that typeinf is executed before turning on typeinf_ext
 # this ensures that typeinf_ext doesn't recurse before it can add the item to the workq
 
-precompile(typeof(typeinf_edge).name.mt.defs.sig)
-
 for m in _methods_by_ftype(Tuple{typeof(typeinf_loop), Vararg{Any}}, 10)
     typeinf(m[3], m[1], m[2], true)
 end
 for m in _methods_by_ftype(Tuple{typeof(typeinf_edge), Vararg{Any}}, 10)
     typeinf(m[3], m[1], m[2], true)
 end
-
-ccall(:jl_set_typeinf_func, Void, (Any,), typeinf_ext)

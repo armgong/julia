@@ -85,6 +85,7 @@ typedef struct {
     ((jl_value_t*)(jl_astaggedvalue(v)->type_bits & ~(uintptr_t)15))
 static inline void jl_set_typeof(void *v, void *t)
 {
+    // Do not call this on a value that is already initialized.
     jl_taggedvalue_t *tag = jl_astaggedvalue(v);
     tag->type = (jl_value_t*)t;
 }
@@ -328,7 +329,11 @@ typedef struct _jl_datatype_t {
     uint8_t mutabl;
     uint8_t pointerfree;
     int32_t ninitialized;
+    // memoized properties
     int32_t depth;
+    int8_t hastypevars; // bound
+    int8_t haswildcard; // unbound
+    int8_t isleaftype;
     // hidden fields:
     uint32_t nfields;
     uint32_t alignment : 29;  // strictest alignment over all fields
@@ -408,6 +413,7 @@ typedef struct _jl_typemap_level_t {
     jl_array_t *arg1; // Array{union jl_typemap_t}
     jl_array_t *targ; // Array{union jl_typemap_t}
     jl_typemap_entry_t *linear; // union jl_typemap_t (but no more levels)
+    union jl_typemap_t any; // type at offs is Any
     jl_value_t *key; // [nullable]
 } jl_typemap_level_t;
 
@@ -523,7 +529,6 @@ extern JL_DLLEXPORT jl_datatype_t *jl_labelnode_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_gotonode_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_quotenode_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_newvarnode_type;
-extern JL_DLLEXPORT jl_datatype_t *jl_topnode_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_intrinsic_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_methtable_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_typemap_level_type;
@@ -541,6 +546,7 @@ extern jl_sym_t *dots_sym;    extern jl_sym_t *vararg_sym;
 extern jl_sym_t *quote_sym;   extern jl_sym_t *newvar_sym;
 extern jl_sym_t *top_sym;     extern jl_sym_t *dot_sym;
 extern jl_sym_t *line_sym;    extern jl_sym_t *toplevel_sym;
+extern jl_sym_t *core_sym;    extern jl_sym_t *globalref_sym;
 extern JL_DLLEXPORT jl_sym_t *jl_incomplete_sym;
 extern jl_sym_t *error_sym;   extern jl_sym_t *amp_sym;
 extern jl_sym_t *module_sym;  extern jl_sym_t *colons_sym;
@@ -858,7 +864,6 @@ static inline uint32_t jl_fielddesc_size(int8_t fielddesc_type)
 #define jl_is_gotonode(v)    jl_typeis(v,jl_gotonode_type)
 #define jl_is_quotenode(v)   jl_typeis(v,jl_quotenode_type)
 #define jl_is_newvarnode(v)  jl_typeis(v,jl_newvarnode_type)
-#define jl_is_topnode(v)     jl_typeis(v,jl_topnode_type)
 #define jl_is_linenode(v)    jl_typeis(v,jl_linenumbernode_type)
 #define jl_is_lambda_info(v) jl_typeis(v,jl_lambda_info_type)
 #define jl_is_method(v)      jl_typeis(v,jl_method_type)
@@ -1641,6 +1646,8 @@ JL_DLLEXPORT jl_value_t *jl_stderr_obj(void);
 JL_DLLEXPORT size_t jl_static_show(JL_STREAM *out, jl_value_t *v);
 JL_DLLEXPORT size_t jl_static_show_func_sig(JL_STREAM *s, jl_value_t *type);
 JL_DLLEXPORT void jlbacktrace(void);
+// Mainly for debugging, use `void*` so that no type cast is needed in C++.
+JL_DLLEXPORT void jl_(void *jl_value);
 
 // julia options -----------------------------------------------------------
 // NOTE: This struct needs to be kept in sync with JLOptions type in base/options.jl
@@ -1668,7 +1675,7 @@ typedef struct {
     int8_t depwarn;
     int8_t can_inline;
     int8_t fast_math;
-    int8_t worker;
+    const char *worker;
     int8_t handle_signals;
     int8_t use_precompiled;
     int8_t use_compilecache;

@@ -9,10 +9,13 @@ if Base.JLOptions().code_coverage == 1
 elseif Base.JLOptions().code_coverage == 2
     cov_flag = `--code-coverage=all`
 end
+
+# Test a `remote` invocation when no workers are present
+@test remote(myid)() == 1
+
 addprocs(3; exeflags=`$cov_flag $inline_flag --check-bounds=yes --depwarn=error`)
 
 # Test remote()
-
 let
     pool = Base.default_worker_pool()
 
@@ -767,11 +770,6 @@ if DoFullTest
     end
     sleep(0.5)  # Give some time for the above error to be printed
 
-    # github PR #14456
-    for n = 1:10^6
-        fetch(@spawnat myid() myid())
-    end
-
 @unix_only begin
     function test_n_remove_pids(new_pids)
         for p in new_pids
@@ -909,3 +907,9 @@ for tid in [id_other, id_me, Base.default_worker_pool()]
     test_f_args(13, f_args, tid, 1; kw1=4, kw2=8)
     test_f_args(15, f_args, tid, 1, 2; kw1=4, kw2=8)
 end
+
+# github PR #14456
+for n = 1:10^5
+    fetch(@spawnat myid() myid())
+end
+

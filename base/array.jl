@@ -117,15 +117,15 @@ end
 
 ## Constructors ##
 
-similar(a::Array, T, dims::Dims)      = Array(T, dims)
-similar{T}(a::Array{T,1})             = Array(T, size(a,1))
-similar{T}(a::Array{T,2})             = Array(T, size(a,1), size(a,2))
-similar{T}(a::Array{T,1}, dims::Dims) = Array(T, dims)
-similar{T}(a::Array{T,1}, m::Int)     = Array(T, m)
-similar{T}(a::Array{T,1}, S)          = Array(S, size(a,1))
-similar{T}(a::Array{T,2}, dims::Dims) = Array(T, dims)
-similar{T}(a::Array{T,2}, m::Int)     = Array(T, m)
-similar{T}(a::Array{T,2}, S)          = Array(S, size(a,1), size(a,2))
+similar(a::Array, T::Type, dims::Dims) = Array(T, dims)
+similar{T}(a::Array{T,1})              = Array(T, size(a,1))
+similar{T}(a::Array{T,2})              = Array(T, size(a,1), size(a,2))
+similar{T}(a::Array{T,1}, dims::Dims)  = Array(T, dims)
+similar{T}(a::Array{T,1}, m::Int)      = Array(T, m)
+similar{T}(a::Array{T,1}, S::Type)     = Array(S, size(a,1))
+similar{T}(a::Array{T,2}, dims::Dims)  = Array(T, dims)
+similar{T}(a::Array{T,2}, m::Int)      = Array(T, m)
+similar{T}(a::Array{T,2}, S::Type)     = Array(S, size(a,1), size(a,2))
 
 # T[x...] constructs Array{T,1}
 function getindex(T::Type, vals...)
@@ -308,7 +308,7 @@ done(a::Array,i) = i == length(a)+1
 
 # This is more complicated than it needs to be in order to get Win64 through bootstrap
 getindex(A::Array, i1::Real) = arrayref(A, to_index(i1))
-getindex(A::Array, i1::Real, i2::Real, I::Real...) = arrayref(A, to_index(i1), to_index(i2), to_indexes(I...)...)
+getindex(A::Array, i1::Real, i2::Real, I::Real...) = arrayref(A, to_index(i1), to_index(i2), to_indexes(I...)...) # TODO: REMOVE FOR #14770
 
 # Faster contiguous indexing using copy! for UnitRange and Colon
 function getindex(A::Array, I::UnitRange{Int})
@@ -337,7 +337,7 @@ end
 
 ## Indexing: setindex! ##
 setindex!{T}(A::Array{T}, x, i1::Real) = arrayset(A, convert(T,x)::T, to_index(i1))
-setindex!{T}(A::Array{T}, x, i1::Real, i2::Real, I::Real...) = arrayset(A, convert(T,x)::T, to_index(i1), to_index(i2), to_indexes(I...)...)
+setindex!{T}(A::Array{T}, x, i1::Real, i2::Real, I::Real...) = arrayset(A, convert(T,x)::T, to_index(i1), to_index(i2), to_indexes(I...)...) # TODO: REMOVE FOR #14770
 
 # These are redundant with the abstract fallbacks but needed for bootstrap
 function setindex!(A::Array, x, I::AbstractVector{Int})
@@ -382,6 +382,9 @@ function setindex!{T}(A::Array{T}, X::Array{T}, c::Colon)
     end
     return A
 end
+
+setindex!(A::Array, x::Number, ::Colon) = fill!(A, x)
+setindex!{T, N}(A::Array{T, N}, x::Number, ::Vararg{Colon, N}) = fill!(A, x)
 
 # efficiently grow an array
 

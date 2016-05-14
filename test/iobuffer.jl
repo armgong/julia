@@ -197,7 +197,7 @@ let bstream = BufferStream()
     a = rand(UInt8,10)
     write(bstream,a)
     @test !eof(bstream)
-    flush(bstream)
+    @test flush(bstream) === nothing
     b = read(bstream,UInt8)
     @test a[1] == b
     b = read(bstream,UInt8)
@@ -207,7 +207,7 @@ let bstream = BufferStream()
     @test !eof(bstream)
     read!(bstream,c)
     @test c == a[3:10]
-    close(bstream)
+    @test close(bstream) === nothing
     @test eof(bstream)
     @test nb_available(bstream) == 0
 end

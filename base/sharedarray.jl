@@ -19,7 +19,7 @@ type SharedArray{T,N} <: DenseArray{T,N}
     # the local partition into the array when viewed as a single dimensional array.
     # this can be removed when @parallel or its equivalent supports looping on
     # a subset of workers.
-    loc_subarr_1d::SubArray{T,1,Array{T,N},Tuple{UnitRange{Int}},true}
+    loc_subarr_1d::SubArray{T,1,Array{T,1},Tuple{UnitRange{Int}},true}
 
     SharedArray(d,p,r,sn) = new(d,p,r,sn)
 end
@@ -430,8 +430,8 @@ function shmem_randn(dims; kwargs...)
 end
 shmem_randn(I::Int...; kwargs...) = shmem_randn(I; kwargs...)
 
-similar(S::SharedArray, T, dims::Dims) = similar(S.s, T, dims)
-similar(S::SharedArray, T) = similar(S.s, T, size(S))
+similar(S::SharedArray, T::Type, dims::Dims) = similar(S.s, T, dims)
+similar(S::SharedArray, T::Type) = similar(S.s, T, size(S))
 similar(S::SharedArray, dims::Dims) = similar(S.s, eltype(S), dims)
 similar(S::SharedArray) = similar(S.s, eltype(S), size(S))
 

@@ -7,9 +7,10 @@
 @test length([1, 2, 3]) == 3
 @test countnz([1, 2, 3]) == 3
 
-a = ones(4)
-b = a+a
-@test b[1]==2. && b[2]==2. && b[3]==2. && b[4]==2.
+let a = ones(4), b = a+a, c = a-a
+    @test b[1] === 2. && b[2] === 2. && b[3] === 2. && b[4] === 2.
+    @test c[1] === 0. && c[2] === 0. && c[3] === 0. && c[4] === 0.
+end
 
 @test length((1,)) == 1
 @test length((1,2)) == 2
@@ -364,7 +365,8 @@ a = [0,1,2,3,0,1,2,3]
 
 # find with general iterables
 s = "julia"
-@test find(s) == [1,2,3,4,5]
+# FIXME once 16269 is resolved
+# @test find(s) == [1,2,3,4,5]
 @test find(c -> c == 'l', s) == [3]
 g = graphemes("日本語")
 @test find(g) == [1,2,3]
@@ -1196,6 +1198,11 @@ I2 = CartesianIndex((-1,5,2))
 @test I1 + 1 == CartesianIndex((3,4,1))
 @test I1 - 2 == CartesianIndex((0,1,-2))
 
+@test zero(CartesianIndex{2}) == CartesianIndex((0,0))
+@test zero(CartesianIndex((2,3))) == CartesianIndex((0,0))
+@test one(CartesianIndex{2}) == CartesianIndex((1,1))
+@test one(CartesianIndex((2,3))) == CartesianIndex((1,1))
+
 @test min(CartesianIndex((2,3)), CartesianIndex((5,2))) == CartesianIndex((2,2))
 @test max(CartesianIndex((2,3)), CartesianIndex((5,2))) == CartesianIndex((5,3))
 
@@ -1587,5 +1594,29 @@ function f15894(d)
     s
 end
 @test f15894(ones(Int, 100)) == 100
+end
 
+# sign, conj, ~
+let A = [-10,0,3], B = [-10.0,0.0,3.0], C = [1,im,0]
+    @test sign(A) == [-1,0,1]
+    @test sign(B) == [-1,0,1]
+    @test typeof(sign(A)) == Vector{Int}
+    @test typeof(sign(B)) == Vector{Float64}
+
+    @test conj(A) == A
+    @test conj(B) == A
+    @test conj(C) == [1,-im,0]
+    @test typeof(conj(A)) == Vector{Int}
+    @test typeof(conj(B)) == Vector{Float64}
+    @test typeof(conj(C)) == Vector{Complex{Int}}
+
+    @test ~A == [9,-1,-4]
+    @test typeof(~A) == Vector{Int}
+end
+
+# issue #16247
+let A = zeros(3,3)
+    @test size(A[:,0x1:0x2]) == (3, 2)
+    @test size(A[:,UInt(1):UInt(2)]) == (3,2)
+    @test size(similar(A, UInt(3), 0x3)) == size(similar(A, (UInt(3), 0x3))) == (3,3)
 end
