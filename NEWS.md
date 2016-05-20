@@ -82,6 +82,9 @@ Breaking changes
     is now divided among the fields `code`, `slotnames`, `slottypes`, `slotflags`,
     `gensymtypes`, `rettype`, `nargs`, and `isva` in the `LambdaInfo` type ([#15609]).
 
+  * Juxtaposition of numeric literals ending in `.` (e.g. `1.x`) is no longer
+    allowed ([#15731]).
+
 Library improvements
 --------------------
 
@@ -153,7 +156,9 @@ Library improvements
 
     * `extrema` can now operate over a region ([#15550]).
 
-  * The new `Base.StackTraces` module makes stack traces easier to use programmatically. ([#14469])
+  * The new `Base.StackTraces` module makes stack traces easier to use programmatically ([#14469]).
+
+  * There is now a default no-op `flush(io)` function for all `IO` types ([#16403]).
 
 Deprecated or removed
 ---------------------
@@ -225,3 +230,4 @@ Deprecated or removed
 [#15550]: https://github.com/JuliaLang/julia/issues/15550
 [#15609]: https://github.com/JuliaLang/julia/issues/15609
 [#15763]: https://github.com/JuliaLang/julia/issues/15763
+[#16403]: https://github.com/JuliaLang/julia/issues/16403

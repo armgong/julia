@@ -720,6 +720,18 @@ static void jl_rethrow_with_add(const char *fmt, ...)
     jl_rethrow();
 }
 
+static void CreateTrap(IRBuilder<> &builder)
+{
+    Function *f = builder.GetInsertBlock()->getParent();
+    Function *trap_func = Intrinsic::getDeclaration(
+            f->getParent(),
+            Intrinsic::trap);
+    builder.CreateCall(trap_func);
+    builder.CreateUnreachable();
+    BasicBlock *newBB = BasicBlock::Create(builder.getContext(), "after_noret", f);
+    builder.SetInsertPoint(newBB);
+}
+
 // --- allocating local variables ---
 
 static bool isbits_spec(jl_value_t *jt, bool allow_unsized = true)
@@ -1107,9 +1119,8 @@ void *jl_get_llvmf(jl_tupletype_t *tt, bool getwrapper, bool getdeclarations)
     if (tt != NULL) {
         linfo = jl_get_specialization1(tt);
         if (linfo == NULL) {
-            jl_typemap_entry_t *entry;
             linfo = jl_method_lookup_by_type(
-                ((jl_datatype_t*)jl_tparam0(tt))->name->mt, tt, 0, 0, &entry);
+                ((jl_datatype_t*)jl_tparam0(tt))->name->mt, tt, 0, 0);
             if (linfo == NULL || jl_has_call_ambiguities(tt, linfo->def)) {
                 JL_GC_POP();
                 return NULL;
@@ -1276,14 +1287,18 @@ static uint64_t compute_obj_symsize(const object::ObjectFile *obj, uint64_t offs
             uint64_t Addr;
             object::section_iterator Sect = ESection;
 #ifdef LLVM38
-            Sect = Sym.getSection().get();
+            auto SectOrError = Sym.getSection();
+            assert(SectOrError);
+            Sect = SectOrError.get();
 #else
             if (Sym.getSection(Sect)) continue;
 #endif
             if (Sect == ESection) continue;
             if (Sect != Section) continue;
 #ifdef LLVM37
-            Addr = Sym.getAddress().get();
+            auto AddrOrError = Sym.getAddress();
+            assert(AddrOrError);
+            Addr = AddrOrError.get();
 #else
             if (Sym.getAddress(Addr)) continue;
 #endif
@@ -1405,7 +1420,7 @@ static logdata_t coverageData;
 static void coverageVisitLine(StringRef filename, int line)
 {
     assert(!imaging_mode);
-    if (filename == "" || filename == "none" || filename == "no file" || line < 0)
+    if (filename == "" || filename == "none" || filename == "no file" || filename == "<missing>" || line < 0)
         return;
     visitLine(coverageData[filename], line, ConstantInt::get(T_int64, 1), "lcnt");
 }
@@ -1417,7 +1432,7 @@ static logdata_t mallocData;
 static void mallocVisitLine(StringRef filename, int line)
 {
     assert(!imaging_mode);
-    if (filename == "" || filename == "none" || filename == "no file" || line < 0) {
+    if (filename == "" || filename == "none" || filename == "no file" || filename == "<missing>" || line < 0) {
         jl_gc_sync_total_bytes();
         return;
     }
@@ -3200,19 +3215,11 @@ static jl_cgval_t emit_expr(jl_value_t *expr, jl_codectx_t *ctx)
         // some intrinsics (e.g. typeassert) can return a wider type
         // than what's actually possible
         jl_value_t *expr_t = expr_type((jl_value_t*)ex, ctx);
-        if (res.typ == (jl_value_t*)jl_any_type || expr_t == jl_bottom_type) {
-            res.typ = expr_t;
+        if (res.typ != expr_t && res.isboxed && !jl_is_leaf_type(res.typ)) {
+            res = remark_julia_type(res, expr_t);
         }
-        else if (res.typ != expr_t && expr_t != (jl_value_t*)jl_any_type &&
-                 res.typ != jl_bottom_type) {
-            // The check avoids the expensive type intersect calculation
-            // > 99% of the time...
-            res.typ = jl_type_intersection(res.typ, expr_t);
-        }
-        if (res.typ == jl_bottom_type) {
-            builder.CreateUnreachable();
-            BasicBlock *newBB = BasicBlock::Create(jl_LLVMContext, "after_noret", ctx->f);
-            builder.SetInsertPoint(newBB);
+        if (res.typ == jl_bottom_type || expr_t == jl_bottom_type) {
+            CreateTrap(builder);
         }
         return res;
     }
@@ -4170,32 +4177,23 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
     bool do_malloc_log = jl_options.malloc_log  == JL_LOG_ALL ||
         (jl_options.malloc_log    == JL_LOG_USER && in_user_code);
     jl_value_t *stmt = skip_meta(stmts);
-    StringRef filename = "<no file>";
+    StringRef filename = "<missing>";
     StringRef dbgFuncName = ctx.name;
     int lno = -1;
     // look for initial (line num filename [funcname]) node, [funcname] for kwarg methods.
     if (jl_is_linenode(stmt)) {
         lno = jl_linenode_line(stmt);
-        filename = jl_symbol_name(jl_linenode_file(stmt));
     }
     else if (jl_is_expr(stmt) && ((jl_expr_t*)stmt)->head == line_sym &&
              jl_array_dim0(((jl_expr_t*)stmt)->args) > 0) {
         jl_value_t *a1 = jl_exprarg(stmt,0);
         if (jl_is_long(a1))
             lno = jl_unbox_long(a1);
-        if (jl_array_dim0(((jl_expr_t*)stmt)->args) > 1) {
-            a1 = jl_exprarg(stmt,1);
-            if (jl_is_symbol(a1))
-                filename = jl_symbol_name((jl_sym_t*)a1);
-            if (jl_array_dim0(((jl_expr_t*)stmt)->args) > 2) {
-                a1 = jl_exprarg(stmt,2);
-                if (jl_is_symbol(a1))
-                    dbgFuncName = jl_symbol_name((jl_sym_t*)a1);
-            }
-        }
     }
-    if (filename.empty())
-        filename = "<missing>";
+    if (lno == -1 && lam->def)
+        lno = lam->def->line;
+    if (lam->def && lam->def->file != empty_sym)
+        filename = jl_symbol_name(lam->def->file);
     ctx.file = filename;
     int toplineno = lno;
 
@@ -4204,12 +4202,12 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
 #ifdef LLVM37
     DIFile *topfile = NULL;
     DISubprogram *SP = NULL;
-    DICompileUnit *CU;
+    std::vector<DILocation *> DI_loc_stack;
+    std::vector<DISubprogram *> DI_sp_stack;
 #else
     DIFile topfile;
     DISubprogram SP;
 #endif
-    DebugLoc inlineLoc;
 
     BasicBlock *b0 = BasicBlock::Create(jl_LLVMContext, "top", f);
     builder.SetInsertPoint(b0);
@@ -4232,7 +4230,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
         #ifndef LLVM34
         dbuilder.createCompileUnit(0x01, filename, ".", "julia", true, "", 0);
         #elif defined(LLVM37)
-        CU = dbuilder.createCompileUnit(0x01, filename, ".", "julia", true, "", 0);
+        DICompileUnit *CU = dbuilder.createCompileUnit(0x01, filename, ".", "julia", true, "", 0);
         #else
         DICompileUnit CU = dbuilder.createCompileUnit(0x01, filename, ".", "julia", true, "", 0);
         assert(CU.Verify());
@@ -4291,7 +4289,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
                                     f);             // Function
         #endif
         // set initial line number
-        inlineLoc = DebugLoc::get(lno, 0, (MDNode*)SP, NULL);
+        builder.SetCurrentDebugLocation(DebugLoc::get(lno, 0, (MDNode*)SP, NULL));
         #ifdef LLVM38
         f->setSubprogram(SP);
         #endif
@@ -4299,7 +4297,9 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
         assert(SP.Verify() && SP.describes(f) && SP.getFunction() == f);
         #endif
     }
-    builder.SetCurrentDebugLocation(noDbg);
+    else {
+        builder.SetCurrentDebugLocation(noDbg);
+    }
 
     if (ctx.debug_enabled) {
         const bool AlwaysPreserve = true;
@@ -4459,7 +4459,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
                         assert((Metadata*)varinfo.dinfo->getType() != jl_pvalue_dillvmt);
                         ctx.dbuilder->insertDeclare(lv, varinfo.dinfo, ctx.dbuilder->createExpression(),
 #ifdef LLVM37
-                                inlineLoc,
+                                                    builder.getCurrentDebugLocation(),
 #endif
                                 builder.GetInsertBlock());
                     }
@@ -4487,7 +4487,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
                 }
                 ctx.dbuilder->insertDeclare(av, varinfo.dinfo, expr,
 #ifdef LLVM37
-                                inlineLoc,
+                                            builder.getCurrentDebugLocation(),
 #endif
                                 builder.GetInsertBlock());
             }
@@ -4546,7 +4546,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
                             addr.push_back(llvm::dwarf::DW_OP_deref);
                         ctx.dbuilder->insertDeclare(pargArray, vi.dinfo, ctx.dbuilder->createExpression(addr),
 #ifdef LLVM37
-                                        inlineLoc,
+                                        builder.getCurrentDebugLocation(),
 #endif
                                         builder.GetInsertBlock());
                     }
@@ -4579,7 +4579,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
                         }
                         ctx.dbuilder->insertDeclare(parg, vi.dinfo, ctx.dbuilder->createExpression(addr),
 #ifdef LLVM37
-                                        inlineLoc,
+                                        builder.getCurrentDebugLocation(),
 #endif
                                         builder.GetInsertBlock());
                     }
@@ -4662,84 +4662,68 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
     bool prevlabel = false;
     lno = -1;
     int prevlno = -1;
-    if (ctx.debug_enabled)
-        builder.SetCurrentDebugLocation(inlineLoc);
     for(i=0; i < stmtslen; i++) {
         jl_value_t *stmt = jl_cellref(stmts,i);
         if (jl_is_linenode(stmt) ||
             (jl_is_expr(stmt) && ((jl_expr_t*)stmt)->head == line_sym)) {
 
-            jl_sym_t *file = NULL;
             if (jl_is_linenode(stmt)) {
                 lno = jl_linenode_line(stmt);
-                file = jl_linenode_file(stmt);
             }
             else if (jl_is_expr(stmt)) {
                 lno = jl_unbox_long(jl_exprarg(stmt,0));
-                if (jl_array_dim0(((jl_expr_t*)stmt)->args) > 1) {
-                    jl_value_t *a1 = jl_exprarg(stmt,1);
-                    if (jl_is_symbol(a1)) {
-                        file = (jl_sym_t*)a1;
-                    }
-                }
             }
-            assert(jl_symbol_name(file));
-
-#           ifdef LLVM37
-            DIFile *dfil = NULL;
-#           else
-            MDNode *dfil = NULL;
-#           endif
-
-            // If the string is not empty
-            if (*jl_symbol_name(file) != '\0') {
-#               ifdef LLVM37
-                std::map<jl_sym_t *, DIFile *>::iterator it = filescopes.find(file);
-#               else
-                std::map<jl_sym_t *, MDNode *>::iterator it = filescopes.find(file);
-#               endif
-                if (it != filescopes.end()) {
-                    dfil = it->second;
-                }
-                else {
-#                   ifdef LLVM37
-                    dfil = (DIFile*)dbuilder.createFile(jl_symbol_name(file),
-                                                        ".");
-#                   else
-                    dfil = (MDNode*)dbuilder.createFile(jl_symbol_name(file),
-                                                        ".");
-#                   endif
-                }
-            }
-            DebugLoc loc;
-            if (ctx.debug_enabled) {
-                MDNode *scope;
-                if ((dfil == topfile || dfil == NULL) &&
-                    lno >= toplineno)
-                    {
-                    // for sequentially-defined code,
-                    // set location to line in top file.
-                    // TODO: improve handling of nested inlines
-                    loc = inlineLoc = DebugLoc::get(lno, 1, SP, NULL);
-                }
-                else {
-                    // otherwise, we are compiling inlined code,
-                    // so set the DebugLoc "inlinedAt" parameter
-                    // to the current line, then use source loc.
+            MDNode *inlinedAt = NULL;
 #ifdef LLVM37
-                    scope = (MDNode*)dbuilder.createLexicalBlockFile(SP,dfil);
-                    MDNode *inlineLocMd = inlineLoc.getAsMDNode();
-#else
-                    scope = (MDNode*)dbuilder.createLexicalBlockFile(SP,DIFile(dfil));
-                    MDNode *inlineLocMd = inlineLoc.getAsMDNode(jl_LLVMContext);
-#endif
-                    loc = DebugLoc::get(lno, 1, scope, inlineLocMd);
-                }
-                builder.SetCurrentDebugLocation(loc);
+            if (DI_loc_stack.size() > 0) {
+                inlinedAt = DI_loc_stack.back();
             }
-            if (do_coverage)
-                coverageVisitLine(filename, lno);
+#endif
+            if (ctx.debug_enabled) builder.SetCurrentDebugLocation(DebugLoc::get(lno, 0, (MDNode*)SP, inlinedAt));
         }
+        else if (ctx.debug_enabled && jl_is_expr(stmt) && ((jl_expr_t*)stmt)->head == meta_sym && jl_array_len(((jl_expr_t*)stmt)->args) >= 1) {
+#ifdef LLVM37
+            jl_expr_t *stmt_e = (jl_expr_t*)stmt;
+            jl_value_t *meta_arg = jl_exprarg(stmt_e, 0);
+            if (meta_arg == (jl_value_t*)jl_symbol("push_loc")) {
+                std::string new_filename = "<missing>";
+                assert(jl_array_len(stmt_e->args) > 1);
+                jl_sym_t *filesym = (jl_sym_t*)jl_exprarg(stmt_e, 1);
+                new_filename = jl_symbol_name(filesym);
+                DIFile *new_file = dbuilder.createFile(new_filename, ".");
+                DI_sp_stack.push_back(SP);
+                DI_loc_stack.push_back(builder.getCurrentDebugLocation());
+                std::string inl_name;
+                if (jl_array_len(stmt_e->args) > 2)
+                    inl_name = jl_symbol_name((jl_sym_t*)jl_exprarg(stmt_e, 2));
+                else
+                    inl_name = "macro expansion";
+                SP = dbuilder.createFunction(new_file,
+                                             inl_name + ";",
+                                             inl_name,
+                                             new_file,
+                                             0,
+                                             jl_di_func_sig,
+                                             false,
+                                             true,
+                                             0,
+                                             0,
+                                             true,
+                                             nullptr);
+                builder.SetCurrentDebugLocation(DebugLoc::get(0, 0, (MDNode*)SP, builder.getCurrentDebugLocation()));
+            }
+            else if (meta_arg == (jl_value_t*)jl_symbol("pop_loc")) {
+                SP = DI_sp_stack.back();
+                DI_sp_stack.pop_back(); // because why not make pop a void function
+                builder.SetCurrentDebugLocation(DI_loc_stack.back());
+                DI_loc_stack.pop_back();
+            }
+#endif
+        }
+
+        DebugLoc loc;
+        if (do_coverage)
+            coverageVisitLine(filename, lno);
         if (jl_is_labelnode(stmt)) {
             if (prevlabel) continue;
             prevlabel = true;
@@ -5672,8 +5656,6 @@ static inline SmallVector<std::string,10> getTargetFeatures() {
     return attr;
 }
 
-extern "C" void jl_init_debuginfo(void);
-
 extern "C" void jl_init_codegen(void)
 {
     const char *const argv_tailmerge[] = {"", "-enable-tail-merge=0"}; // NOO TOUCHIE; NO TOUCH! See #922
@@ -5686,12 +5668,9 @@ extern "C" void jl_init_codegen(void)
     cl::ParseEnvironmentOptions("Julia", "JULIA_LLVM_ARGS");
 #endif
 
-#if defined(_CPU_PPC_) || defined(_CPU_PPC64_)
-    imaging_mode = true; // LLVM seems to JIT bad TOC tables for the optimizations we attempt in non-imaging_mode
-#else
     imaging_mode = jl_generating_output();
-#endif
     jl_init_debuginfo();
+    jl_init_runtime_ccall();
 
 #ifndef LLVM34
     // this option disables LLVM's signal handlers
@@ -5788,7 +5767,7 @@ extern "C" void jl_init_codegen(void)
             targetFeatures);
     assert(jl_TargetMachine && "Failed to select target machine -"
                                " Is the LLVM backend for this CPU enabled?");
-#if defined(USE_MCJIT) && !defined(_CPU_ARM_)
+#if defined(USE_MCJIT) && (!defined(_CPU_ARM_) && !defined(_CPU_PPC64_))
     // FastISel seems to be buggy for ARM. Ref #13321
     if (jl_options.opt_level < 3)
         jl_TargetMachine->setFastISel(true);

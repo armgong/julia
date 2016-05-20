@@ -728,6 +728,9 @@ $(eval $(call LLVM_PATCH,llvm-3.8.0_winshlib))
 $(eval $(call LLVM_PATCH,llvm-3.8.0_threads))
 # fix replutil test on unix
 $(eval $(call LLVM_PATCH,llvm-D17165-D18583))
+$(eval $(call LLVM_PATCH,llvm-D17712))
+$(eval $(call LLVM_PATCH,llvm-PR26180))
+$(eval $(call LLVM_PATCH,llvm-PR27046))
 endif # LLVM_VER
 
 ifeq ($(LLVM_VER),3.7.1)
@@ -1819,7 +1822,7 @@ $(SRCDIR)/srccache/libosxunwind-$(OSXUNWIND_VER).tar.gz: | $(SRCDIR)/srccache
 
 $(BUILDDIR)/libosxunwind-$(OSXUNWIND_VER)/Makefile: $(SRCDIR)/srccache/libosxunwind-$(OSXUNWIND_VER).tar.gz
 	$(JLCHECKSUM) $<
-	cd $(BUILDDIR) && $(TAR) xfz $<
+	mkdir -p $(BUILDDIR) && cd $(BUILDDIR) && $(TAR) xfz $<
 	touch -c $@
 
 $(OSXUNWIND_OBJ_SOURCE): $(BUILDDIR)/libosxunwind-$(OSXUNWIND_VER)/Makefile

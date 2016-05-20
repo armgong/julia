@@ -8719,27 +8719,12 @@ alias the input `x` to modify it in-place.
 filt!
 
 """
-    ascii(::Array{UInt8,1})
+    ascii(s::AbstractString)
 
-Create an ASCII string from a byte array.
-"""
-ascii(::Vector{UInt8})
-
-"""
-    ascii(s)
-
-Convert a string to a contiguous ASCII string (all characters must be valid ASCII characters).
+Convert a string to `String` type and check that it contains only ASCII data, otherwise
+throwing an `ArugmentError` indicating the position of the first non-ASCII byte.
 """
 ascii(s)
-
-"""
-    ascii(::Ptr{UInt8}, [length])
-
-Create an ASCII string from the address of a C (0-terminated) string encoded in ASCII. A
-copy is made; the ptr can be safely freed. If `length` is specified, the string does not
-have to be 0-terminated.
-"""
-ascii(::Ptr{UInt8},?)
 
 """
     maxabs(itr)
@@ -9548,7 +9533,7 @@ vecnorm
     isvalid(value) -> Bool
 
 Returns `true` if the given value is valid for its type, which currently can be one of
-`Char`, `ASCIIString`, `UTF8String`, `UTF16String`, or `UTF32String`.
+`Char`, `String`, `UTF16String`, or `UTF32String`.
 """
 isvalid(value)
 
@@ -9556,8 +9541,8 @@ isvalid(value)
     isvalid(T, value) -> Bool
 
 Returns `true` if the given value is valid for that type. Types currently can be `Char`,
-`ASCIIString`, `UTF8String`, `UTF16String`, or `UTF32String` Values for `Char` can be of
-type `Char` or `UInt32` Values for `ASCIIString` and `UTF8String` can be of that type, or
+`String`, `UTF16String`, or `UTF32String` Values for `Char` can be of
+type `Char` or `UInt32` Values for `String` can be of that type, or
 `Vector{UInt8}` Values for `UTF16String` can be `UTF16String` or `Vector{UInt16}` Values for
 `UTF32String` can be `UTF32String`, `Vector{Char}` or `Vector{UInt32}`
 """
@@ -9720,22 +9705,6 @@ modified by the current file creation mask.
 """
 mkdir
 
-"""
-    bytestring(::Ptr{UInt8}, [length])
-
-Create a string from the address of a C (0-terminated) string encoded in ASCII or UTF-8. A
-copy is made; the ptr can be safely freed. If `length` is specified, the string does not
-have to be 0-terminated.
-"""
-bytestring(::Ptr{UInt8},?)
-
-"""
-    bytestring(s)
-
-Convert a string to a contiguous byte array representation appropriate for passing it to C
-functions. The string will be encoded as either ASCII or UTF-8.
-"""
-bytestring(s)
 
 """
     midpoints(e)

@@ -60,7 +60,7 @@ function depwarn(msg, funcsym)
     opts = JLOptions()
     if opts.depwarn > 0
         ln = Int(unsafe_load(cglobal(:jl_lineno, Cint)))
-        fn = bytestring(unsafe_load(cglobal(:jl_filename, Ptr{Cchar})))
+        fn = String(unsafe_load(cglobal(:jl_filename, Ptr{Cchar})))
         bt = backtrace()
         caller = firstcaller(bt, funcsym)
         if opts.depwarn == 1 # raise a warning
@@ -76,15 +76,18 @@ function firstcaller(bt::Array{Ptr{Void},1}, funcsym::Symbol)
     # Identify the calling line
     i = 1
     while i <= length(bt)
-        lkup = StackTraces.lookup(bt[i])
+        lkups = StackTraces.lookup(bt[i])
         i += 1
-        if lkup === StackTraces.UNKNOWN
-            continue
-        end
-        if lkup.func == funcsym
-            break
+        for lkup in lkups
+            if lkup === StackTraces.UNKNOWN
+                continue
+            end
+            if lkup.func == funcsym
+                @goto found
+            end
         end
     end
+    @label found
     if i <= length(bt)
         return bt[i]
     end
@@ -1011,18 +1014,13 @@ export call
 # and added to pmap.jl
 # pmap(f, c...) = pmap(default_worker_pool(), f, c...)
 
-function pmap(f, c...; err_retry=nothing, err_stop=nothing, pids=nothing)
+function pmap(f, c...; err_retry=nothing, err_stop=nothing, pids=nothing, kwargs...)
+    kwargs = Dict{Symbol, Any}(kwargs)
+
     if err_retry != nothing
         depwarn("err_retry is deprecated, use pmap(retry(f), c...).", :pmap)
         if err_retry == true
             f = retry(f)
-        end
-    end
-
-    if err_stop != nothing
-        depwarn("err_stop is deprecated, use pmap(@catch(f), c...).", :pmap)
-        if err_stop == false
-            f = @catch(f)
         end
     end
 
@@ -1033,7 +1031,14 @@ function pmap(f, c...; err_retry=nothing, err_stop=nothing, pids=nothing)
         p = WorkerPool(pids)
     end
 
-    return pmap(p, f, c...)
+    if err_stop != nothing
+        depwarn("err_stop is deprecated, use pmap(f, c...; on_error = error_handling_func).", :pmap)
+        if err_stop == false
+            kwargs[:on_error] = e->e
+        end
+    end
+
+    pmap(p, f, c...; kwargs...)
 end
 
 # 15692
@@ -1154,6 +1159,17 @@ end
 @deprecate_binding ASCIIString String
 @deprecate_binding UTF8String String
 @deprecate_binding ByteString String
+
+@deprecate ascii(p::Ptr{UInt8}, len::Integer) ascii(String(p, len))
+@deprecate ascii(p::Ptr{UInt8}) ascii(String(p))
+@deprecate ascii(x) ascii(string(x))
+
+@deprecate bytestring(s::Cstring) String(s)
+@deprecate bytestring(v::Vector{UInt8}) String(v)
+@deprecate bytestring(io::Base.AbstractIOBuffer) String(io)
+@deprecate bytestring(p::Union{Ptr{Int8},Ptr{UInt8}}) String(p)
+@deprecate bytestring(p::Union{Ptr{Int8},Ptr{UInt8}}, len::Integer) String(p,len)
+@deprecate bytestring(s::AbstractString...) string(s...)
 
 @deprecate ==(x::Char, y::Integer) UInt32(x) == y
 @deprecate ==(x::Integer, y::Char) x == UInt32(y)

@@ -25,6 +25,7 @@ showerror(io::IO, ce::CapturedException) = showerror(io, ce.ex, ce.processed_bt,
 type CompositeException <: Exception
     exceptions::Vector{Any}
     CompositeException() = new(Any[])
+    CompositeException(exceptions) = new(exceptions)
 end
 length(c::CompositeException) = length(c.exceptions)
 push!(c::CompositeException, ex) = push!(c.exceptions, ex)
@@ -145,6 +146,7 @@ function task_done_hook(t::Task)
                 # run a new task to print the error for us
                 @schedule with_output_color(:red, STDERR) do io
                     print(io, "ERROR (unhandled task failure): ")
+                    println("BT ", typeof(bt), length(bt))
                     showerror(io, result, bt)
                     println(io)
                 end

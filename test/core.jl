@@ -437,6 +437,13 @@ Yc(f) = (h->f(x->h(h)(x)))(h->f(x->h(h)(x)))
 yfib = Yc(fib->(n->(n < 2 ? n : fib(n-1) + fib(n-2))))
 @test yfib(20) == 6765
 
+function capt_before_def()
+    f() = y
+    y = 2
+    f
+end
+@test capt_before_def()() == 2
+
 # variable scope, globals
 glob_x = 23
 function glotest()
@@ -4127,3 +4134,26 @@ let a = Any[]
     @test (push!(a,10); f()) - (push!(a,2); f()) == 8
     @test a == [10, 2]
 end
+
+# issue #12096
+let a = Val{Val{TypeVar(:_, Int, true)}},
+    b = Val{Val{TypeVar(:_, Int)}}
+
+    @test !isdefined(a, :instance)
+    @test  isdefined(b, :instance)
+    @test isleaftype(b)
+end
+
+# A return type widened to Type{Union{T,Void}} should not confuse
+# codegen
+@noinline MaybeFunc(T) = Union{T, Void}
+fMaybeFunc() = MaybeFunc(Int64)
+@test fMaybeFunc() == Union{Int64, Void}
+
+# issue #16431
+function f16431(x)
+    z::Int = x * 2
+    g(y) = begin z = z + y; y + x end
+    z * g(x)
+end
+@test @inferred(f16431(1)) == 4

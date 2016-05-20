@@ -169,7 +169,6 @@ tstr = tstStringType("12");
 
 gstr = GenericString("12");
 @test typeof(string(gstr))==GenericString
-@test bytestring()==""
 
 @test convert(Array{UInt8}, gstr) ==[49;50]
 @test convert(Array{Char,1}, gstr) ==['1';'2']
@@ -216,17 +215,13 @@ end
 # issue #11142
 s = "abcdefghij"
 sp = pointer(s)
-@test ascii(sp) == s
-@test ascii(sp,5) == "abcde"
-@test typeof(ascii(sp)) == String
+@test utf8(sp) == s
+@test utf8(sp,5) == "abcde"
 @test typeof(utf8(sp)) == String
 s = "abcde\uff\u2000\U1f596"
 sp = pointer(s)
 @test utf8(sp) == s
 @test utf8(sp,5) == "abcde"
-@test_throws ArgumentError ascii(sp)
-@test ascii(sp, 5) == "abcde"
-@test_throws ArgumentError ascii(sp, 6)
 @test typeof(utf8(sp)) == String
 
 @test get(tryparse(BigInt, "1234567890")) == BigInt(1234567890)
@@ -245,8 +240,8 @@ for T in [BigInt, Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Int1
     @test isnull(tryparse(T, "1\0"))
 end
 let s = normalize_string("tést",:NFKC)
-    @test bytestring(Base.unsafe_convert(Cstring, s)) == s
-    @test bytestring(convert(Cstring, Symbol(s))) == s
+    @test String(Base.unsafe_convert(Cstring, s)) == s
+    @test String(convert(Cstring, Symbol(s))) == s
     @test wstring(Base.unsafe_convert(Cwstring, wstring(s))) == s
 end
 let s = "ba\0d"
@@ -256,7 +251,7 @@ end
 
 cstrdup(s) = @windows? ccall(:_strdup, Cstring, (Cstring,), s) : ccall(:strdup, Cstring, (Cstring,), s)
 let p = cstrdup("hello")
-    @test bytestring(p) == "hello" == pointer_to_string(cstrdup(p), true)
+    @test String(p) == "hello" == pointer_to_string(cstrdup(p), true)
     Libc.free(p)
 end
 let p = @windows? ccall(:_wcsdup, Cwstring, (Cwstring,), "tést") : ccall(:wcsdup, Cwstring, (Cwstring,), "tést")
@@ -491,10 +486,16 @@ foobaz(ch) = reinterpret(Char, typemax(UInt32))
 @test ["a","b"].*["c","d"]' == ["ac" "ad"; "bc" "bd"]
 
 # Make sure NULL pointer are handled consistently by
-# `bytestring`, `ascii` and `utf8`
-@test_throws ArgumentError bytestring(Ptr{UInt8}(0))
-@test_throws ArgumentError bytestring(Ptr{UInt8}(0), 10)
-@test_throws ArgumentError ascii(Ptr{UInt8}(0))
-@test_throws ArgumentError ascii(Ptr{UInt8}(0), 10)
+# `String`, `ascii` and `utf8`
+@test_throws ArgumentError String(Ptr{UInt8}(0))
+@test_throws ArgumentError String(Ptr{UInt8}(0), 10)
 @test_throws ArgumentError utf8(Ptr{UInt8}(0))
 @test_throws ArgumentError utf8(Ptr{UInt8}(0), 10)
+
+# ascii works on ASCII strings and fails on non-ASCII strings
+@test ascii("Hello, world") == "Hello, world"
+@test typeof(ascii("Hello, world")) == String
+@test ascii(utf32("Hello, world")) == "Hello, world"
+@test typeof(ascii(utf32("Hello, world"))) == String
+@test_throws ArgumentError ascii("Hello, ∀")
+@test_throws ArgumentError ascii(utf32("Hello, ∀"))

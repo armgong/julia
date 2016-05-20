@@ -16,6 +16,9 @@
 extern "C" {
 #endif
 
+// useful constants
+extern jl_methtable_t *jl_type_type_mt;
+
 // execution of certain certain unpure
 // statements is prohibited from certain
 // callbacks (such as generated functions)
@@ -214,9 +217,8 @@ jl_value_t *jl_call_scm_on_ast(char *funcname, jl_value_t *expr);
 
 jl_lambda_info_t *jl_get_unspecialized(jl_lambda_info_t *method);
 jl_lambda_info_t *jl_method_lookup_by_type(jl_methtable_t *mt, jl_tupletype_t *types,
-                                           int cache, int inexact,
-                                           jl_typemap_entry_t **entry);
-jl_lambda_info_t *jl_method_lookup(jl_methtable_t *mt, jl_value_t **args, size_t nargs, int cache, jl_typemap_entry_t **entry);
+                                           int cache, int inexact);
+jl_lambda_info_t *jl_method_lookup(jl_methtable_t *mt, jl_value_t **args, size_t nargs, int cache);
 jl_value_t *jl_gf_invoke(jl_tupletype_t *types, jl_value_t **args, size_t nargs);
 
 jl_array_t *jl_lam_args(jl_expr_t *l);
@@ -257,6 +259,9 @@ void jl_init_serializer(void);
 void jl_gc_init(void);
 void jl_init_restored_modules(jl_array_t *init_order);
 void jl_init_signal_async(void);
+void jl_init_debuginfo(void);
+void jl_init_runtime_ccall(void);
+void jl_mk_thread_heap(jl_thread_heap_t *heap);
 
 void _julia_init(JL_IMAGE_SEARCH rel);
 #ifdef COPY_STACKS
@@ -347,6 +352,15 @@ jl_value_t *skip_meta(jl_array_t *body);
 int has_meta(jl_array_t *body, jl_sym_t *sym);
 
 // backtraces
+typedef struct {
+    char *func_name;
+    char *file_name;
+    int line;
+    jl_lambda_info_t *linfo;
+    int fromC;
+    int inlined;
+} jl_frame_t;
+
 // Might be called from unmanaged thread
 uint64_t jl_getUnwindInfo(uint64_t dwBase);
 #ifdef _OS_WINDOWS_
@@ -384,12 +398,14 @@ size_t rec_backtrace_ctx_dwarf(uintptr_t *data, size_t maxsize, bt_context_t *ct
 #endif
 void jl_critical_error(int sig, bt_context_t *context, uintptr_t *bt_data, size_t *bt_size);
 JL_DLLEXPORT void jl_raise_debugger(void);
-// Set *name and *filename to either NULL or malloc'd string
-void jl_getFunctionInfo(char **name, char **filename, size_t *line,
-                        char **inlinedat_file, size_t *inlinedat_line, jl_lambda_info_t **outer_linfo,
-                        uintptr_t pointer, int *fromC, int skipC, int skipInline);
+int jl_getFunctionInfo(jl_frame_t **frames, uintptr_t pointer, int skipC, int noInline);
 JL_DLLEXPORT void jl_gdblookup(uintptr_t ip);
-
+jl_value_t *jl_uncompress_ast_(jl_lambda_info_t*, jl_value_t*, int);
+#ifdef COPY_STACKS
+// the base of the stack we will copy this task's stack to
+// when switchting to it
+JL_DLLEXPORT char *jl_task_stackbase(jl_task_t *task);
+#endif
 // *to is NULL or malloc'd pointer, from is allowed to be NULL
 STATIC_INLINE char *jl_copy_str(char **to, const char *from)
 {
@@ -423,6 +439,7 @@ void *jl_get_library(const char *f_lib);
 JL_DLLEXPORT void *jl_load_and_lookup(const char *f_lib, const char *f_name,
                                       void **hnd);
 const char *jl_dlfind_win32(const char *name);
+void *jl_dlopen_soname(const char *pfx, size_t n, unsigned flags);
 
 // libuv wrappers:
 JL_DLLEXPORT int jl_fs_rename(const char *src_path, const char *dst_path);
@@ -620,7 +637,20 @@ jl_typemap_entry_t *jl_typemap_insert(union jl_typemap_t *cache, jl_value_t *par
 
 jl_typemap_entry_t *jl_typemap_assoc_by_type(union jl_typemap_t ml_or_cache, jl_tupletype_t *types, jl_svec_t **penv,
         int8_t subtype_inexact__sigseq_useenv, int8_t subtype, int8_t offs);
-jl_typemap_entry_t *jl_typemap_assoc_exact(union jl_typemap_t ml_or_cache, jl_value_t **args, size_t n, int8_t offs);
+static jl_typemap_entry_t *const INEXACT_ENTRY = (jl_typemap_entry_t*)(uintptr_t)-1;
+jl_typemap_entry_t *jl_typemap_level_assoc_exact(jl_typemap_level_t *cache, jl_value_t **args, size_t n, int8_t offs);
+jl_typemap_entry_t *jl_typemap_entry_assoc_exact(jl_typemap_entry_t *mn, jl_value_t **args, size_t n);
+STATIC_INLINE jl_typemap_entry_t *jl_typemap_assoc_exact(union jl_typemap_t ml_or_cache, jl_value_t **args, size_t n, int8_t offs)
+{
+    // NOTE: This function is a huge performance hot spot!!
+    if (jl_typeof(ml_or_cache.unknown) == (jl_value_t*)jl_typemap_entry_type) {
+        return jl_typemap_entry_assoc_exact(ml_or_cache.leaf, args, n);
+    }
+    else if (jl_typeof(ml_or_cache.unknown) == (jl_value_t*)jl_typemap_level_type) {
+        return jl_typemap_level_assoc_exact(ml_or_cache.node, args, n, offs);
+    }
+    return NULL;
+}
 
 typedef int (*jl_typemap_visitor_fptr)(jl_typemap_entry_t *l, void *closure);
 int jl_typemap_visitor(union jl_typemap_t a, jl_typemap_visitor_fptr fptr, void *closure);

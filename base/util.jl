@@ -7,7 +7,7 @@
 # high-resolution relative time, in nanoseconds
 time_ns() = ccall(:jl_hrtime, UInt64, ())
 
-# This type must be kept in sync with the C struct in src/gc.c
+# This type must be kept in sync with the C struct in src/gc.h
 immutable GC_Num
     allocd      ::Int64 # GC internal
     freed       ::Int64 # GC internal
@@ -40,7 +40,7 @@ immutable GC_Diff
 end
 
 function GC_Diff(new::GC_Num, old::GC_Num)
-    # logic from gc.c:jl_gc_total_bytes
+    # logic from `src/gc.c:jl_gc_total_bytes`
     old_allocd = old.allocd + Int64(old.collect) + Int64(old.total_allocd)
     new_allocd = new.allocd + Int64(new.collect) + Int64(new.total_allocd)
     return GC_Diff(new_allocd - old_allocd,
@@ -235,12 +235,12 @@ if blas_vendor() == :openblas64
     macro blasfunc(x)
         return Expr(:quote, Symbol(x, "64_"))
     end
-    openblas_get_config() = strip(bytestring( ccall((:openblas_get_config64_, Base.libblas_name), Ptr{UInt8}, () )))
+    openblas_get_config() = strip(String( ccall((:openblas_get_config64_, Base.libblas_name), Ptr{UInt8}, () )))
 else
     macro blasfunc(x)
         return Expr(:quote, x)
     end
-    openblas_get_config() = strip(bytestring( ccall((:openblas_get_config, Base.libblas_name), Ptr{UInt8}, () )))
+    openblas_get_config() = strip(String( ccall((:openblas_get_config, Base.libblas_name), Ptr{UInt8}, () )))
 end
 
 function blas_set_num_threads(n::Integer)
@@ -375,8 +375,8 @@ warn(err::Exception; prefix="ERROR: ", kw...) =
 
 function julia_cmd(julia=joinpath(JULIA_HOME, julia_exename()))
     opts = JLOptions()
-    cpu_target = bytestring(opts.cpu_target)
-    image_file = bytestring(opts.image_file)
+    cpu_target = String(opts.cpu_target)
+    image_file = String(opts.image_file)
     compile = if opts.compile_enabled == 0
                   "no"
               elseif opts.compile_enabled == 2

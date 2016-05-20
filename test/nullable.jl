@@ -262,5 +262,15 @@ end
 @test isnull(convert(Nullable{Int}, nothing))
 @test isa(convert(Nullable{Int}, nothing), Nullable{Int})
 
+@test convert(Nullable, 1) === Nullable(1)
+@test convert(Nullable, Nullable(1)) === Nullable(1)
+@test isequal(convert(Nullable, "a"), Nullable("a"))
+@test isequal(convert(Nullable, Nullable("a")), Nullable("a"))
+
+@test promote_type(Nullable{Int}, Int) === Nullable{Int}
+@test promote_type(Nullable{Union{}}, Int) === Nullable{Int}
+@test promote_type(Nullable{Float64}, Nullable{Int}) === Nullable{Float64}
+@test promote_type(Nullable{Union{}}, Nullable{Int}) === Nullable{Int}
+
 # issue #11675
 @test repr(Nullable()) == "Nullable{Union{}}()"

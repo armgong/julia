@@ -22,6 +22,7 @@ extern "C" {
 
 jl_datatype_t *jl_any_type;
 jl_datatype_t *jl_type_type;
+jl_methtable_t *jl_type_type_mt;
 jl_datatype_t *jl_typename_type;
 jl_datatype_t *jl_sym_type;
 jl_datatype_t *jl_symbol_type;
@@ -2183,7 +2184,7 @@ static jl_value_t *inst_datatype(jl_datatype_t *dt, jl_svec_t *p, jl_value_t **i
     jl_precompute_memoized_dt(ndt);
 
     // assign uid as early as possible
-    if (cacheable && !ndt->abstract && ndt->uid==0)
+    if (cacheable && !ndt->abstract)
         ndt->uid = jl_assign_type_uid();
 
     if (istuple)
@@ -2207,7 +2208,7 @@ static jl_value_t *inst_datatype(jl_datatype_t *dt, jl_svec_t *p, jl_value_t **i
             else {
                 jl_compute_field_offsets(ndt);
             }
-            if (jl_is_datatype_singleton(ndt)) {
+            if (jl_is_datatype_make_singleton(ndt)) {
                 ndt->instance = newstruct(ndt);
                 jl_gc_wb(ndt, ndt->instance);
             }
@@ -3263,7 +3264,8 @@ void jl_init_types(void)
     jl_any_type = jl_new_abstracttype((jl_value_t*)jl_symbol("Any"), NULL, jl_emptysvec);
     jl_any_type->super = jl_any_type;
     jl_type_type = jl_new_abstracttype((jl_value_t*)jl_symbol("Type"), jl_any_type, jl_emptysvec);
-    jl_type_type->name->mt = jl_new_method_table(jl_type_type->name->name, jl_current_module);
+    jl_type_type_mt = jl_new_method_table(jl_type_type->name->name, jl_current_module);
+    jl_type_type->name->mt = jl_type_type_mt;
 
     // initialize them. lots of cycles.
     jl_datatype_type->name = jl_new_typename(jl_symbol("DataType"));
@@ -3416,7 +3418,8 @@ void jl_init_types(void)
 
     jl_tupletype_t *empty_tuple_type = jl_apply_tuple_type(jl_emptysvec);
     empty_tuple_type->uid = jl_assign_type_uid();
-    jl_emptytuple = ((jl_datatype_t*)empty_tuple_type)->instance;
+    jl_emptytuple = newstruct(empty_tuple_type);
+    empty_tuple_type->instance = jl_emptytuple;
 
     // non-primitive definitions follow
     jl_int32_type = NULL;
@@ -3530,8 +3533,8 @@ void jl_init_types(void)
 
     jl_linenumbernode_type =
         jl_new_datatype(jl_symbol("LineNumberNode"), jl_any_type, jl_emptysvec,
-                        jl_svec(2, jl_symbol("file"), jl_symbol("line")),
-                        jl_svec(2, jl_symbol_type, jl_long_type), 0, 0, 2);
+                        jl_svec(1, jl_symbol("line")),
+                        jl_svec(1, jl_long_type), 0, 0, 1);
 
     jl_labelnode_type =
         jl_new_datatype(jl_symbol("LabelNode"), jl_any_type, jl_emptysvec,
@@ -3727,6 +3730,7 @@ void jl_init_types(void)
     jl_compute_field_offsets(jl_simplevector_type);
     jl_simplevector_type->pointerfree = 0;
 
+    empty_sym = jl_symbol("");
     call_sym = jl_symbol("call");
     quote_sym = jl_symbol("quote");
     inert_sym = jl_symbol("inert");

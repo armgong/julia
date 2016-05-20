@@ -70,6 +70,19 @@ for f in [getindex, setindex!]
     test_have_color(buf, "", "")
 end
 
+type PR16155
+    a::Int64
+    b
+end
+
+Base.show_method_candidates(buf, MethodError(PR16155,(1.0, 2.0, Int64(3))))
+test_have_color(buf, "\e[0m\nClosest candidates are:\n  PR16155(::Any, ::Any)\n  PR16155(\e[1m\e[31m::Int64\e[0m, ::Any)\n  PR16155{T}(::Any)\e[0m",
+                     "\nClosest candidates are:\n  PR16155(::Any, ::Any)\n  PR16155(!Matched::Int64, ::Any)\n  PR16155{T}(::Any)")
+
+Base.show_method_candidates(buf, MethodError(PR16155,(Int64(3), 2.0, Int64(3))))
+test_have_color(buf, "\e[0m\nClosest candidates are:\n  PR16155(::Int64, ::Any)\n  PR16155(::Any, ::Any)\n  PR16155{T}(::Any)\e[0m",
+                     "\nClosest candidates are:\n  PR16155(::Int64, ::Any)\n  PR16155(::Any, ::Any)\n  PR16155{T}(::Any)")
+
 macro except_str(expr, err_type)
     return quote
         let err = nothing
@@ -172,9 +185,9 @@ let undefvar
     @test contains(err_str, "Exponentiation yielding a complex result requires a complex argument")
 
     err_str = @except_str [5,4,3][-2,1] BoundsError
-    @test err_str == "BoundsError: attempt to access 3-element Array{$Int,1}:\n 5\n 4\n 3\n  at index [-2,1]"
+    @test err_str == "BoundsError: attempt to access 3-element Array{$Int,1} at index [-2,1]"
     err_str = @except_str [5,4,3][1:5] BoundsError
-    @test err_str == "BoundsError: attempt to access 3-element Array{$Int,1}:\n 5\n 4\n 3\n  at index [1:5]"
+    @test err_str == "BoundsError: attempt to access 3-element Array{$Int,1} at index [1:5]"
 
     err_str = @except_str 0::Bool TypeError
     @test err_str == "TypeError: non-boolean ($Int) used in boolean context"
@@ -200,7 +213,7 @@ let undefvar
     err_str = @except_str read(IOBuffer(), UInt8) EOFError
     @test err_str == "EOFError: read end of file"
     err_str = @except_str Dict()[:doesnotexist] KeyError
-    @test err_str == "KeyError: doesnotexist not found"
+    @test err_str == "KeyError: key :doesnotexist not found"
     err_str = @except_str throw(InterruptException()) InterruptException
     @test err_str == "InterruptException:"
     err_str = @except_str throw(ArgumentError("not an error")) ArgumentError
@@ -344,7 +357,7 @@ let d = Dict(1 => 2, 3 => 45)
     buf = IOBuffer()
     td = TextDisplay(buf)
     display(td, d)
-    result = bytestring(td.io)
+    result = String(td.io)
 
     @test contains(result, summary(d))
 
