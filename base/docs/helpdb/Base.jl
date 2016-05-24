@@ -1854,7 +1854,7 @@ Dict{String,Float64} with 2 entries:
   "bar" => 42.0
   "foo" => 0.0
 
-julia> b = Dict(utf8("baz") => 17, utf8("bar") => 4711)
+julia> b = Dict("baz" => 17, "bar" => 4711)
 Dict{String,Int64} with 2 entries:
   "bar" => 4711
   "baz" => 17
@@ -2046,36 +2046,6 @@ Tests whether a character is a numeric digit (0-9), or whether this is true for 
 of a string.
 """
 isdigit
-
-"""
-    @windows
-
-Given `@windows? a : b`, do `a` on Windows and `b` elsewhere. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
-"""
-:@windows
-
-"""
-    @unix
-
-Given `@unix? a : b`, do `a` on Unix systems (including Linux and OS X) and `b` elsewhere.
-See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
-"""
-:@unix
-
-"""
-    @windows_only
-
-A macro that evaluates the given expression only on Windows systems. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
-"""
-:@windows_only
-
-"""
-    @unix_only
-
-A macro that evaluates the given expression only on Unix systems (including Linux and OS X). See
-documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
-"""
-:@unix_only
 
 """
     num2hex(f)
@@ -2963,29 +2933,6 @@ Extract a named field from a `value` of composite type. The syntax `a.b` calls
 getfield
 
 """
-    utf8(::Array{UInt8,1})
-
-Create a UTF-8 string from a byte array.
-"""
-utf8(::Vector{UInt8})
-
-"""
-    utf8(::Ptr{UInt8}, [length])
-
-Create a UTF-8 string from the address of a C (0-terminated) string encoded in UTF-8. A copy
-is made; the ptr can be safely freed. If `length` is specified, the string does not have to
-be 0-terminated.
-"""
-utf8(::Ptr{UInt8}, length::Int = 1)
-
-"""
-    utf8(s)
-
-Convert a string to a contiguous UTF-8 string (all characters must be valid UTF-8 characters).
-"""
-utf8(s)
-
-"""
     hvcat(rows::Tuple{Vararg{Int}}, values...)
 
 Horizontal and vertical concatenation in one call. This function is called for block matrix
@@ -3168,7 +3115,7 @@ addprocs(n::Integer)
 """
     addprocs() -> List of process identifiers
 
-Equivalent to `addprocs(CPU_CORES)`
+Equivalent to `addprocs(Sys.CPU_CORES)`
 
 Note that workers do not run a `.juliarc.jl` startup script, nor do they synchronize their
 global state (such as global variables, new method definitions, and loaded modules) with any
@@ -6380,20 +6327,6 @@ Returns the number of dimensions of `A`.
 ndims
 
 """
-    @osx
-
-Given `@osx? a : b`, do `a` on OS X and `b` elsewhere. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
-"""
-:@osx
-
-"""
-    @osx_only
-
-A macro that evaluates the given expression only on OS X systems. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
-"""
-:@osx_only
-
-"""
     ishermitian(A) -> Bool
 
 Test whether a matrix is Hermitian.
@@ -8037,20 +7970,6 @@ Cumulative product of `A` along a dimension, storing the result in `B`. The dime
 cumprod!
 
 """
-    @linux
-
-Given `@linux? a : b`, do `a` on Linux and `b` elsewhere. See documentation [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
-"""
-:@linux
-
-"""
-    @linux_only
-
-A macro that evaluates the given expression only on Linux systems. See documentation in [Handling Operating System Variation](:ref:`Handling Operating System Variation <man-handling-operating-system-variation>`).
-"""
-:@linux_only
-
-"""
     complement(s)
 
 Returns the set-complement of [`IntSet`](:obj:`IntSet`) `s`.
@@ -9621,7 +9540,7 @@ Matrix trace.
 trace
 
 """
-    runtests([tests=["all"] [, numcores=iceil(CPU_CORES/2) ]])
+    runtests([tests=["all"] [, numcores=iceil(Sys.CPU_CORES / 2) ]])
 
 Run the Julia unit tests listed in `tests`, which can be either a string or an array of
 strings, using `numcores` processors. (not exported)

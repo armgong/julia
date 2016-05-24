@@ -336,11 +336,7 @@ let x = (2,3)
 end
 
 # bits types
-if WORD_SIZE == 64
-    @test isa((()->Core.Intrinsics.box(Ptr{Int8},Core.Intrinsics.unbox(Int64,0)))(), Ptr{Int8})
-else
-    @test isa((()->Core.Intrinsics.box(Ptr{Int8},Core.Intrinsics.unbox(Int32,0)))(), Ptr{Int8})
-end
+@test isa((()->Core.Intrinsics.box(Ptr{Int8}, Core.Intrinsics.unbox(Int, 0)))(), Ptr{Int8})
 @test isa(convert(Char,65), Char)
 
 # conversions
@@ -2198,7 +2194,7 @@ let x = [1,2,3]
 end
 
 # sig 2 is SIGINT per the POSIX.1-1990 standard
-@unix_only begin
+if !is_windows()
     ccall(:jl_exit_on_sigint, Void, (Cint,), 0)
     @test_throws InterruptException begin
         ccall(:kill, Void, (Cint, Cint,), getpid(), 2)
@@ -4157,3 +4153,18 @@ function f16431(x)
     z * g(x)
 end
 @test @inferred(f16431(1)) == 4
+
+# issue #14878
+type A14878
+    ext
+end
+A14878() = A14878(Dict())
+type B14878
+end
+B14878(ng) = B14878()
+function trigger14878()
+    w = A14878()
+    w.ext[:14878] = B14878(junk)  # junk not defined!
+    return w
+end
+@test_throws UndefVarError trigger14878()

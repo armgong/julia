@@ -201,7 +201,7 @@ show(io::IO, n::Signed) = (write(io, dec(n)); nothing)
 show(io::IO, n::Unsigned) = print(io, "0x", hex(n,sizeof(n)<<1))
 print(io::IO, n::Unsigned) = print(io, dec(n))
 
-show{T}(io::IO, p::Ptr{T}) = print(io, typeof(p), " @0x$(hex(UInt(p), WORD_SIZE>>2))")
+show{T}(io::IO, p::Ptr{T}) = print(io, typeof(p), " @0x$(hex(UInt(p), Sys.WORD_SIZE>>2))")
 
 function show(io::IO, p::Pair)
     if typeof(p.first) != typeof(p).parameters[1] ||
@@ -1189,7 +1189,7 @@ Accept keyword args `c` for alternate single character marker.
 """
 function replace_with_centered_mark(s::AbstractString;c::Char = '⋅')
     N = length(s)
-    return join(setindex!([utf8(" ") for i=1:N],string(c),ceil(Int,N/2)))
+    return join(setindex!([" " for i=1:N],string(c),ceil(Int,N/2)))
 end
 
 """

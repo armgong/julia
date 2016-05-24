@@ -310,7 +310,7 @@ static jl_sym_t *scmsym_to_julia(fl_context_t *fl_ctx, value_t s)
 {
     assert(issymbol(s));
     if (fl_isgensym(fl_ctx, s)) {
-        static char gsname[16];
+        char gsname[16];
         char *n = uint2str(&gsname[1], sizeof(gsname)-1,
                            ((gensym_t*)ptr(s))->id, 10);
         *(--n) = '#';
@@ -739,6 +739,7 @@ jl_value_t *jl_parse_eval_all(const char *fname, size_t len,
         fl_free_gc_handles(fl_ctx, 1);
     }
     else {
+        assert(memchr(fname, 0, len) == NULL); // was checked already in jl_load
         ast = fl_applyn(fl_ctx, 1, symbol_value(symbol(fl_ctx, "jl-parse-file")), f);
     }
     fl_free_gc_handles(fl_ctx, 1);

@@ -212,7 +212,6 @@ static Module *shadow_output;
 #define jl_Module ctx->f->getParent()
 #define jl_builderModule builder.GetInsertBlock()->getParent()->getParent()
 static MDBuilder *mbuilder;
-static std::map<int, std::string> argNumberStrings;
 #ifdef LLVM38
 static legacy::PassManager *PM;
 #else
@@ -2966,9 +2965,9 @@ static void emit_assignment(jl_value_t *l, jl_value_t *r, jl_codectx_t *ctx)
         if (!slot.isboxed && !slot.isimmutable) { // emit a copy of values stored in mutable slots
             Type *vtype = julia_type_to_llvm(slot.typ);
             assert(vtype != T_pjlvalue);
-            slot = mark_julia_type(
-                    emit_unbox(vtype, slot, slot.typ),
-                    false, slot.typ, ctx);
+            Value *dest = emit_static_alloca(vtype);
+            emit_unbox(vtype, slot, slot.typ, dest);
+            slot = mark_julia_slot(dest, slot.typ, tbaa_stack);
         }
         if (slot.isboxed && slot.isimmutable) {
             // see if inference had a better type for the ssavalue than the expression (after inlining getfield on a Tuple)
@@ -3045,9 +3044,7 @@ static void emit_assignment(jl_value_t *l, jl_value_t *r, jl_codectx_t *ctx)
     else {
         // store unboxed
         assert(vi.value.ispointer());
-        builder.CreateStore(
-                emit_unbox(julia_type_to_llvm(vi.value.typ), rval_info, vi.value.typ),
-                vi.value.V, vi.isVolatile);
+        emit_unbox(julia_type_to_llvm(vi.value.typ), rval_info, vi.value.typ, vi.value.V, vi.isVolatile);
     }
 }
 
@@ -4754,16 +4751,18 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
                 retboxed = true;
             }
             jl_cgval_t retvalinfo = emit_expr(jl_exprarg(ex,0), &ctx);
-            if (retboxed)
+            if (retboxed) {
                 retval = boxed(retvalinfo, &ctx, false); // skip the gcroot on the return path
-            else if (!type_is_ghost(retty))
-                retval = emit_unbox(retty, retvalinfo, jlrettype);
+                assert(!ctx.sret);
+            }
+            else if (!type_is_ghost(retty)) {
+                retval = emit_unbox(retty, retvalinfo, jlrettype,
+                                    ctx.sret ? &*ctx.f->arg_begin() : NULL);
+            }
             else // undef return type
                 retval = NULL;
             if (do_malloc_log && lno != -1)
                 mallocVisitLine(filename, lno);
-            if (ctx.sret)
-                builder.CreateStore(retval, &*ctx.f->arg_begin());
             if (type_is_ghost(retty) || ctx.sret)
                 builder.CreateRetVoid();
             else
@@ -5730,7 +5729,7 @@ extern "C" void jl_init_codegen(void)
         .setTargetOptions(options)
 #if (defined(_OS_LINUX_) && defined(_CPU_X86_64_)) || defined(CODEGEN_TLS)
         .setRelocationModel(Reloc::PIC_)
-#else
+#elif !defined(LLVM39)
         .setRelocationModel(Reloc::Default)
 #endif
 #ifdef CODEGEN_TLS
