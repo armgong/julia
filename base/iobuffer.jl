@@ -216,11 +216,10 @@ end
 
 isopen(io::AbstractIOBuffer) = io.readable || io.writable || io.seekable || nb_available(io) > 0
 
-function bytestring(io::AbstractIOBuffer)
-    io.readable || throw(ArgumentError("bytestring read failed, IOBuffer is not readable"))
-    io.seekable || throw(ArgumentError("bytestring read failed, IOBuffer is not seekable"))
-    b = copy!(Array(UInt8, io.size), 1, io.data, 1, io.size)
-    return isvalid(ASCIIString, b) ? ASCIIString(b) : UTF8String(b)
+function String(io::AbstractIOBuffer)
+    io.readable || throw(ArgumentError("IOBuffer is not readable"))
+    io.seekable || throw(ArgumentError("IOBuffer is not seekable"))
+    return String(copy!(Array(UInt8, io.size), 1, io.data, 1, io.size))
 end
 
 function takebuf_array(io::AbstractIOBuffer)
@@ -260,10 +259,7 @@ function takebuf_array(io::IOBuffer)
     end
     return data
 end
-function takebuf_string(io::AbstractIOBuffer)
-    b = takebuf_array(io)
-    return isvalid(ASCIIString, b) ? ASCIIString(b) : UTF8String(b)
-end
+takebuf_string(io::AbstractIOBuffer) = String(takebuf_array(io))
 
 function write(to::AbstractIOBuffer, from::AbstractIOBuffer)
     if to === from

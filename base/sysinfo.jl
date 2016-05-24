@@ -27,9 +27,16 @@ function __init__()
         haskey(ENV,"JULIA_CPU_CORES") ? parse(Int,ENV["JULIA_CPU_CORES"]) :
                                         Int(ccall(:jl_cpu_cores, Int32, ()))
     global const SC_CLK_TCK = ccall(:jl_SC_CLK_TCK, Clong, ())
-    global const cpu_name = ccall(:jl_get_cpu_name, Ref{ByteString}, ())
-    global const JIT = ccall(:jl_get_JIT, Ref{ByteString}, ())
+    global const cpu_name = ccall(:jl_get_cpu_name, Ref{String}, ())
+    global const JIT = ccall(:jl_get_JIT, Ref{String}, ())
 end
+
+"""
+    CPU_CORES
+
+The number of CPU cores in the system.
+"""
+:CPU_CORES
 
 type UV_cpu_info_t
     model::Ptr{UInt8}
@@ -41,7 +48,7 @@ type UV_cpu_info_t
     cpu_times!irq::UInt64
 end
 type CPUinfo
-    model::ASCIIString
+    model::String
     speed::Int32
     cpu_times!user::UInt64
     cpu_times!nice::UInt64
@@ -50,7 +57,7 @@ type CPUinfo
     cpu_times!irq::UInt64
     CPUinfo(model,speed,u,n,s,id,ir)=new(model,speed,u,n,s,id,ir)
 end
-CPUinfo(info::UV_cpu_info_t) = CPUinfo(bytestring(info.model), info.speed,
+CPUinfo(info::UV_cpu_info_t) = CPUinfo(String(info.model), info.speed,
     info.cpu_times!user, info.cpu_times!nice, info.cpu_times!sys,
     info.cpu_times!idle, info.cpu_times!irq)
 
@@ -141,7 +148,7 @@ function get_process_title()
     buf = zeros(UInt8, 512)
     err = ccall(:uv_get_process_title, Cint, (Ptr{UInt8}, Cint), buf, 512)
     uv_error("get_process_title", err)
-    return bytestring(pointer(buf))
+    return String(pointer(buf))
 end
 function set_process_title(title::AbstractString)
     err = ccall(:uv_set_process_title, Cint, (Cstring,), title)

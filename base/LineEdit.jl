@@ -23,7 +23,7 @@ type MIState
     current_mode
     aborted::Bool
     mode_state
-    kill_buffer::ByteString
+    kill_buffer::String
     previous_key::Array{Char,1}
     key_repeats::Int
 end
@@ -64,7 +64,7 @@ type PromptState <: ModeState
     indent::Int
 end
 
-input_string(s::PromptState) = bytestring(s.input_buffer)
+input_string(s::PromptState) = String(s.input_buffer)
 
 input_string_newlines(s::PromptState) = count(c->(c == '\n'), input_string(s))
 function input_string_newlines_aftercursor(s::PromptState)
@@ -386,7 +386,7 @@ function edit_move_up(buf::IOBuffer)
     npos = rsearch(buf.data, '\n', position(buf))
     npos == 0 && return false # we're in the first line
     # We're interested in character count, not byte count
-    offset = length(bytestring(buf.data[(npos+1):(position(buf))]))
+    offset = length(String(buf.data[(npos+1):(position(buf))]))
     npos2 = rsearch(buf.data, '\n', npos-1)
     seek(buf, npos2)
     for _ = 1:offset
@@ -407,7 +407,7 @@ end
 function edit_move_down(buf::IOBuffer)
     npos = rsearch(buf.data[1:buf.size], '\n', position(buf))
     # We're interested in character count, not byte count
-    offset = length(bytestring(buf.data[(npos+1):(position(buf))]))
+    offset = length(String(buf.data[(npos+1):(position(buf))]))
     npos2 = search(buf.data[1:buf.size], '\n', position(buf)+1)
     if npos2 == 0 #we're in the last line
         return false
@@ -624,7 +624,7 @@ function write_prompt(terminal, p::Prompt)
     write(terminal, Base.text_colors[:normal])
     write(terminal, suffix)
 end
-write_prompt(terminal, s::ByteString) = write(terminal, s)
+write_prompt(terminal, s::String) = write(terminal, s)
 
 ### Keymap Support
 
@@ -703,11 +703,11 @@ end
 # This is different from the default eager redirect, which only looks at the current and lower
 # layers of the stack.
 immutable KeyAlias
-    seq::ASCIIString
+    seq::String
     KeyAlias(seq) = new(normalize_key(seq))
 end
 
-match_input(k::Function, s, term, cs, keymap) = (update_key_repeats(s, cs); return keymap_fcn(k, ByteString(cs)))
+match_input(k::Function, s, term, cs, keymap) = (update_key_repeats(s, cs); return keymap_fcn(k, String(cs)))
 match_input(k::Void, s, term, cs, keymap) = (s,p) -> return :ok
 match_input(k::KeyAlias, s, term, cs, keymap) = match_input(keymap, s, IOBuffer(k.seq), Char[], keymap)
 function match_input(k::Dict, s, term=terminal(s), cs=Char[], keymap = k)
@@ -986,7 +986,7 @@ function history_set_backward(s::SearchState, backward)
     s.backward = backward
 end
 
-input_string(s::SearchState) = bytestring(s.query_buffer)
+input_string(s::SearchState) = String(s.query_buffer)
 
 function reset_state(s::SearchState)
     if s.query_buffer.size != 0
@@ -1013,7 +1013,7 @@ init_state(terminal, p::HistoryPrompt) = SearchState(terminal, p, true, IOBuffer
 type PrefixSearchState <: ModeState
     terminal
     histprompt
-    prefix::ByteString
+    prefix::String
     response_buffer::IOBuffer
     ias::InputAreaState
     indent::Int
@@ -1035,7 +1035,7 @@ refresh_multi_line(termbuf::TerminalBuffer, terminal::UnixTerminal,
     s::Union{PromptState,PrefixSearchState}) = s.ias =
     refresh_multi_line(termbuf, terminal, buffer(s), s.ias, s, indent = s.indent)
 
-input_string(s::PrefixSearchState) = bytestring(s.response_buffer)
+input_string(s::PrefixSearchState) = String(s.response_buffer)
 
 # a meta-prompt that presents itself as parent_prompt, but which has an independent keymap
 # for prefix searching
@@ -1153,7 +1153,7 @@ function enter_prefix_search(s::MIState, p::PrefixHistoryPrompt, backward::Bool)
         pss = state(s, p)
         pss.parent = parent
         pss.histprompt.parent_prompt = parent
-        pss.prefix = bytestring(pointer(buf.data), position(buf))
+        pss.prefix = String(pointer(buf.data), position(buf))
         copybuf!(pss.response_buffer, buf)
         pss.indent = state(s, parent).indent
         pss.mi = s
@@ -1325,11 +1325,11 @@ AnyDict(
         i = position(buf)
         if i != 0
             c = buf.data[i]
-            if c == '\n' || c == '\t' ||
+            if c == UInt8('\n') || c == UInt8('\t') ||
                # hack to allow path completion in cmds
                # after a space, e.g., `cd <tab>`, while still
                # allowing multiple indent levels
-               (c == ' ' && i > 3 && buf.data[i-1] == ' ')
+               (c == UInt8(' ') && i > 3 && buf.data[i-1] == UInt8(' '))
                 edit_insert(s, " "^4)
                 return
             end

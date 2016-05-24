@@ -74,7 +74,7 @@ end
 
 # Symbol
 create_serialization_stream() do s
-    gensym(len) = symbol(repeat("A", len))
+    gensym(len) = Symbol(repeat("A", len))
 
     smbl = gensym(1)
     serialize(s, smbl)
@@ -94,7 +94,7 @@ end
 # Module
 create_serialization_stream() do s # user-defined module
     mod = b"SomeModule"
-    modstring = bytestring(mod)
+    modstring = String(mod)
     eval(parse("module $(modstring); end"))
     modtype = eval(parse("$(modstring)"))
     serialize(s, modtype)

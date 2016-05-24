@@ -117,7 +117,11 @@ end
 
 function getdict(data::Vector{UInt})
     uip = unique(data)
-    Dict{UInt, StackFrame}([ip=>lookup(ip) for ip in uip])
+    Dict{UInt, StackFrame}(map(uip) do ip
+        lk = lookup(ip)
+        # TODO handle inlined frames
+        ip => first(lk)
+    end)
 end
 
 """
@@ -132,7 +136,7 @@ profile buffer is used.
 """
 function callers end
 
-function callers(funcname::ByteString, bt::Vector{UInt}, lidict; filename = nothing, linerange = nothing)
+function callers(funcname::String, bt::Vector{UInt}, lidict; filename = nothing, linerange = nothing)
     if filename === nothing && linerange === nothing
         return callersf(li -> li.func == funcname, bt, lidict)
     end
@@ -144,7 +148,7 @@ function callers(funcname::ByteString, bt::Vector{UInt}, lidict; filename = noth
     end
 end
 
-callers(funcname::ByteString; kwargs...) = callers(funcname, retrieve()...; kwargs...)
+callers(funcname::String; kwargs...) = callers(funcname, retrieve()...; kwargs...)
 callers(func::Function, bt::Vector{UInt}, lidict; kwargs...) = callers(string(func), bt, lidict; kwargs...)
 callers(func::Function; kwargs...) = callers(string(func), retrieve()...; kwargs...)
 
@@ -177,7 +181,7 @@ len_data() = convert(Int, ccall(:jl_profile_len_data, Csize_t, ()))
 
 maxlen_data() = convert(Int, ccall(:jl_profile_maxlen_data, Csize_t, ()))
 
-error_codes = Dict{Int,ASCIIString}(
+error_codes = Dict(
     -1=>"cannot specify signal action for profiling",
     -2=>"cannot create the timer for profiling",
     -3=>"cannot start the timer for profiling",
@@ -309,7 +313,7 @@ function print_flat(io::IO, lilist::Vector{StackFrame}, n::Vector{Int}, combine:
         Base.print(io, rpad(rtruncto(string(li.file), wfile), wfile, " "), " ")
         Base.print(io, lpad(string(li.line), wline, " "), " ")
         fname = string(li.func)
-        if !li.from_c && !isnull(li.outer_linfo)
+        if !li.from_c && !isnull(li.linfo)
             fname = sprint(show_spec_linfo, li)
         end
         Base.print(io, rpad(ltruncto(fname, wfunc), wfunc, " "))
@@ -348,7 +352,7 @@ function tree_format(lilist::Vector{StackFrame}, counts::Vector{Int}, level::Int
     ntext = cols-nindent-ndigcounts-ndigline-5
     widthfile = floor(Integer,0.4ntext)
     widthfunc = floor(Integer,0.6ntext)
-    strs = Array(ByteString, length(lilist))
+    strs = Array(String, length(lilist))
     showextra = false
     if level > nindent
         nextra = level-nindent
@@ -371,7 +375,7 @@ function tree_format(lilist::Vector{StackFrame}, counts::Vector{Int}, level::Int
                           ")")
             else
                 fname = string(li.func)
-                if !li.from_c && !isnull(li.outer_linfo)
+                if !li.from_c && !isnull(li.linfo)
                     fname = sprint(show_spec_linfo, li)
                 end
                 strs[i] = string(base,
@@ -510,14 +514,14 @@ function callersf(matchfunc::Function, bt::Vector{UInt}, lidict)
 end
 
 # Utilities
-function rtruncto(str::ByteString, w::Int)
+function rtruncto(str::String, w::Int)
     ret = str
     if length(str) > w
         ret = string("...", str[end-w+4:end])
     end
     ret
 end
-function ltruncto(str::ByteString, w::Int)
+function ltruncto(str::String, w::Int)
     ret = str
     if length(str) > w
         ret = string(str[1:w-4], "...")
@@ -530,7 +534,7 @@ truncto(str::Symbol, w::Int) = truncto(string(str), w)
 
 # Order alphabetically (file, function) and then by line number
 function liperm(lilist::Vector{StackFrame})
-    comb = Array(ByteString, length(lilist))
+    comb = Array(String, length(lilist))
     for i = 1:length(lilist)
         li = lilist[i]
         if li != UNKNOWN

@@ -41,7 +41,8 @@
                 ((ref)    (string (deparse (cadr e)) #\[ (deparse-arglist (cddr e)) #\]))
                 ((curly)  (string (deparse (cadr e)) #\{ (deparse-arglist (cddr e)) #\}))
                 ((quote inert)
-                 (if (symbol? (cadr e))
+                 (if (and (symbol? (cadr e))
+                          (not (= (string.char (string (cadr e)) 0) #\=)))
                      (string ":" (deparse (cadr e)))
                      (string ":(" (deparse (cadr e)) ")")))
                 ((vect)   (string #\[ (deparse-arglist (cdr e)) #\]))
@@ -56,7 +57,7 @@
                              "")))
                 ((comparison) (apply string (map deparse (cdr e))))
                 ((in) (string (deparse (cadr e)) " in " (deparse (caddr e))))
-                ((jlgensym) (string "GenSym(" (cdr e) ")"))
+                ((ssavalue) (string "SSAValue(" (cdr e) ")"))
                 ((line) (if (length= e 2)
                             (string "# line " (cadr e))
                             (string "# " (caddr e) ", line " (cadr e))))
@@ -93,15 +94,15 @@
 (define (reset-gensyms)
   (set! *current-gensyms* *gensyms*))
 
-(define make-jlgensym
-  (let ((jlgensym-counter 0))
+(define make-ssavalue
+  (let ((ssavalue-counter 0))
     (lambda ()
-      (begin0 `(jlgensym ,jlgensym-counter)
-              (set! jlgensym-counter (+ 1 jlgensym-counter))))))
+      (begin0 `(ssavalue ,ssavalue-counter)
+              (set! ssavalue-counter (+ 1 ssavalue-counter))))))
 
 ;; predicates and accessors
 
-(define (quoted? e) (memq (car e) '(quote top line break inert)))
+(define (quoted? e) (memq (car e) '(quote top core globalref line break inert)))
 
 (define (lam:args x) (cadr x))
 (define (lam:vars x) (llist-vars (lam:args x)))
@@ -162,11 +163,11 @@
 
 (define (make-decl n t) `(|::| ,n ,t))
 
-(define (jlgensym? e)
-  (and (pair? e) (eq? (car e) 'jlgensym)))
+(define (ssavalue? e)
+  (and (pair? e) (eq? (car e) 'ssavalue)))
 
 (define (symbol-like? e)
-  (or (symbol? e) (jlgensym? e)))
+  (or (symbol? e) (ssavalue? e)))
 
 (define (simple-atom? x)
   (or (number? x) (string? x) (char? x) (eq? x 'true) (eq? x 'false)))
@@ -207,7 +208,7 @@
 (define (return? e) (and (pair? e) (eq? (car e) 'return)))
 
 (define (eq-sym? a b)
-  (or (eq? a b) (and (jlgensym? a) (jlgensym? b) (eqv? (cdr a) (cdr b)))))
+  (or (eq? a b) (and (ssavalue? a) (ssavalue? b) (eqv? (cdr a) (cdr b)))))
 
 (define (make-var-info name) (list name 'Any 0))
 (define vinfo:name car)

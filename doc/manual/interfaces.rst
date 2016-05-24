@@ -83,7 +83,7 @@ Now, when we ask Julia to :func:`collect` all the elements into an array it can 
 .. doctest::
 
     julia> collect(Squares(100))' # transposed to save space
-    1x100 Array{Int64,2}:
+    1×100 Array{Int64,2}:
      1  4  9  16  25  36  49  64  81  100  …  9025  9216  9409  9604  9801  10000
 
 While we can rely upon generic implementations, we can also extend specific methods where we know there is a simpler algorithm.  For example, there's a formula to compute the sum of squares, so we can override the generic iterative version with a more performant solution:
@@ -151,11 +151,11 @@ Abstract Arrays
 Methods to implement                                                                                    Brief description
 ========================================================== ============================================ =======================================================================================
 :func:`size(A) <size>`                                                                                  Returns a tuple containing the dimensions of A
-:func:`Base.linearindexing(Type) <Base.linearindexing>`                                                 Returns either ``Base.LinearFast()`` or ``Base.LinearSlow()``. See the description below.
+:func:`Base.linearindexing{T<:YourType}(::Type{T}) <Base.linearindexing>`                               Returns either ``Base.LinearFast()`` or ``Base.LinearSlow()``. See the description below.
 :func:`getindex(A, i::Int) <getindex>`                                                                  (if ``LinearFast``) Linear scalar indexing
-:func:`getindex(A, i1::Int, ..., iN::Int) <getindex>`                                                   (if ``LinearSlow``, where ``N = ndims(A)``) N-dimensional scalar indexing
+:func:`getindex(A, I::Vararg{Int, N}) <getindex>`                                                       (if ``LinearSlow``, where ``N = ndims(A)``) N-dimensional scalar indexing
 :func:`setindex!(A, v, i::Int) <getindex>`                                                              (if ``LinearFast``) Scalar indexed assignment
-:func:`setindex!(A, v, i1::Int, ..., iN::Int) <getindex>`                                               (if ``LinearSlow``, where ``N = ndims(A)``) N-dimensional scalar indexed assignment
+:func:`setindex!(A, v, I::Vararg{Int, N}) <getindex>`                                                   (if ``LinearSlow``, where ``N = ndims(A)``) N-dimensional scalar indexed assignment
 **Optional methods**                                       **Default definition**                       **Brief description**
 :func:`getindex(A, I...) <getindex>`                       defined in terms of scalar :func:`getindex`  :ref:`Multidimensional and nonscalar indexing <man-array-indexing>`
 :func:`setindex!(A, I...) <setindex!>`                     defined in terms of scalar :func:`setindex!` :ref:`Multidimensional and nonscalar indexed assignment <man-array-indexing>`
@@ -181,7 +181,7 @@ Returning to the sequence of squares from above, we could instead define it as a
                count::Int
            end
            Base.size(S::SquaresVector) = (S.count,)
-           Base.linearindexing(::Type{SquaresVector}) = Base.LinearFast()
+           Base.linearindexing{T<:SquaresVector}(::Type{T}) = Base.LinearFast()
            Base.getindex(S::SquaresVector, i::Int) = i*i;
 
 Note that it's very important to specify the two parameters of the ``AbstractArray``; the first defines the :func:`eltype`, and the second defines the :func:`ndims`.  That supertype and those three methods are all it takes for ``SquaresVector`` to be an iterable, indexable, and completely functional array:
@@ -209,7 +209,7 @@ Note that it's very important to specify the two parameters of the ``AbstractArr
      49
 
     julia> s \ rand(7,2)
-    1x2 Array{Float64,2}:
+    1×2 Array{Float64,2}:
      0.0151876  0.0179393
 
 As a more complicated example, let's define our own toy N-dimensional sparse-like array type built on top of ``Dict``:
@@ -226,32 +226,28 @@ As a more complicated example, let's define our own toy N-dimensional sparse-lik
 
     julia> Base.size(A::SparseArray) = A.dims
            Base.similar{T}(A::SparseArray, ::Type{T}, dims::Dims) = SparseArray(T, dims)
-           # Define scalar indexing and indexed assignment for up to 3 dimensions
-           Base.getindex{T}(A::SparseArray{T,1}, i1::Int)                   = get(A.data, (i1,), zero(T))
-           Base.getindex{T}(A::SparseArray{T,2}, i1::Int, i2::Int)          = get(A.data, (i1,i2), zero(T))
-           Base.getindex{T}(A::SparseArray{T,3}, i1::Int, i2::Int, i3::Int) = get(A.data, (i1,i2,i3), zero(T))
-           Base.setindex!{T}(A::SparseArray{T,1}, v, i1::Int)                   = (A.data[(i1,)] = v)
-           Base.setindex!{T}(A::SparseArray{T,2}, v, i1::Int, i2::Int)          = (A.data[(i1,i2)] = v)
-           Base.setindex!{T}(A::SparseArray{T,3}, v, i1::Int, i2::Int, i3::Int) = (A.data[(i1,i2,i3)] = v);
+           # Define scalar indexing and indexed assignment
+           Base.getindex{T,N}(A::SparseArray{T,N}, I::Vararg{Int,N})     = get(A.data, I, zero(T))
+           Base.setindex!{T,N}(A::SparseArray{T,N}, v, I::Vararg{Int,N}) = (A.data[I] = v)
 
-Notice that this is a ``LinearSlow`` array, so we must manually define :func:`getindex` and :func:`setindex!` for each dimensionality we'd like to support.  Unlike the ``SquaresVector``, we are able to define :func:`setindex!`, and so we can mutate the array:
+Notice that this is a ``LinearSlow`` array, so we must manually define :func:`getindex` and :func:`setindex!` at the dimensionality of the array.  Unlike the ``SquaresVector``, we are able to define :func:`setindex!`, and so we can mutate the array:
 
 .. doctest::
 
     julia> A = SparseArray(Float64,3,3)
-    3x3 SparseArray{Float64,2}:
+    3×3 SparseArray{Float64,2}:
      0.0  0.0  0.0
      0.0  0.0  0.0
      0.0  0.0  0.0
 
     julia> rand!(A)
-    3x3 SparseArray{Float64,2}:
+    3×3 SparseArray{Float64,2}:
      0.28119   0.0203749  0.0769509
      0.209472  0.287702   0.640396
      0.251379  0.859512   0.873544
 
     julia> A[:] = 1:length(A); A
-    3x3 SparseArray{Float64,2}:
+    3×3 SparseArray{Float64,2}:
      1.0  4.0  7.0
      2.0  5.0  8.0
      3.0  6.0  9.0
@@ -261,7 +257,7 @@ The result of indexing an ``AbstractArray`` can itself be an array (for instance
 .. doctest::
 
     julia> A[1:2,:]
-    2x3 SparseArray{Float64,2}:
+    2×3 SparseArray{Float64,2}:
      1.0  4.0  7.0
      2.0  5.0  8.0
 
@@ -270,7 +266,7 @@ In this example it is accomplished by defining ``Base.similar{T}(A::SparseArray,
 .. doctest::
 
     julia> A + 4
-    3x3 SparseArray{Float64,2}:
+    3×3 SparseArray{Float64,2}:
      5.0   8.0  11.0
      6.0   9.0  12.0
      7.0  10.0  13.0

@@ -55,6 +55,8 @@ USE_INTEL_JITEVENTS ?= 0
 USEICC  ?= 0
 USEIFC  ?= 0
 
+JULIA_THREADS := 1 # Enable threading with one thread
+
 ifeq ($(USE_MKL), 1)
 $(warning "The julia make variable USE_MKL has been renamed to USE_INTEL_MKL")
 USE_INTEL_MKL := 1
@@ -125,7 +127,33 @@ else
 NO_GIT := 1
 endif
 
+# Julia's Semantic Versioning system labels the three decimal places in a version number as
+# the major, minor and patch versions.  Typically the major version would be incremented
+# whenever a backwards-incompatible change is made, the minor version would be incremented
+# whenever major backwards-compatible changes are made, and the patch version would be
+# incremented whenever smaller changes are made.  However, before v1.0.0, the major
+# version number is always zero and the meanings shift down a place; the minor version
+# number becomes the major version number, the patch version number becomes the minor
+# version number, and there is no patch version number to speak of.  In this case, the
+# version v0.4.1 has major backwards-compatible changes as compared to v0.4.0, and the
+# version v0.5.0 has major backwards-incompatible changes as compared to v0.4.X.
 JULIA_VERSION := $(shell cat $(JULIAHOME)/VERSION)
+JULIA_MAJOR_VERSION := $(shell echo $(JULIA_VERSION) | cut -d'-' -f 1 | cut -d'.' -f 1)
+JULIA_MINOR_VERSION := $(shell echo $(JULIA_VERSION) | cut -d'-' -f 1 | cut -d'.' -f 2)
+JULIA_PATCH_VERSION := $(shell echo $(JULIA_VERSION) | cut -d'-' -f 1 | cut -d'.' -f 3)
+
+# libjulia's SONAME will follow the format libjulia.so.$(SOMAJOR). Before v1.0.0,
+# SOMAJOR will be a two-decimal value, e.g. libjulia.so.0.5, whereas at and beyond
+# v1.0.0, SOMAJOR will be simply the major version number, e.g. libjulia.so.1
+# The file itself will ultimately symlink to libjulia.so.$(SOMAJOR).$(SOMINOR)
+ifeq ($(JULIA_MAJOR_VERSION),0)
+SOMAJOR := $(JULIA_MAJOR_VERSION).$(JULIA_MINOR_VERSION)
+SOMINOR := $(JULIA_PATCH_VERSION)
+else
+SOMAJOR := $(JULIA_MAJOR_VERSION)
+SOMINOR := $(JULIA_MINOR_VERSION)
+endif
+
 ifneq ($(NO_GIT), 1)
 JULIA_COMMIT := $(shell git rev-parse --short=10 HEAD)
 else
@@ -179,6 +207,7 @@ private_libdir_rel := $(shell $(JULIAHOME)/contrib/relative_path.sh $(bindir) $(
 datarootdir_rel := $(shell $(JULIAHOME)/contrib/relative_path.sh $(bindir) $(datarootdir))
 docdir_rel := $(shell $(JULIAHOME)/contrib/relative_path.sh $(bindir) $(docdir))
 sysconfdir_rel := $(shell $(JULIAHOME)/contrib/relative_path.sh $(bindir) $(sysconfdir))
+includedir_rel := $(shell $(JULIAHOME)/contrib/relative_path.sh $(bindir) $(includedir))
 
 INSTALL_F := $(JULIAHOME)/contrib/install.sh 644
 INSTALL_M := $(JULIAHOME)/contrib/install.sh 755
@@ -605,6 +634,16 @@ else
 ISX86:=0
 endif
 
+# If we are running on powerpc64, set certain options automatically
+ifneq (,$(findstring powerpc64,$(ARCH)))
+JCFLAGS += -fsigned-char
+
+override LLVM_VER:=3.8.0
+override OPENBLAS_DYNAMIC_ARCH:=0
+override OPENBLAS_TARGET_ARCH:=POWER8
+
+endif
+
 # If we are running on ARM, set certain options automatically
 ifneq (,$(findstring arm,$(ARCH)))
 JCFLAGS += -fsigned-char
@@ -854,23 +893,22 @@ ifeq ($(OS), WINNT)
 ifneq ($(USEMSVC), 1)
 HAVE_SSP := 1
 OSLIBS += -Wl,--export-all-symbols -Wl,--version-script=$(JULIAHOME)/src/julia.expmap \
-	$(NO_WHOLE_ARCHIVE) -lpsapi -lkernel32 -lws2_32 -liphlpapi -lwinmm -ldbghelp
+	$(NO_WHOLE_ARCHIVE) -lpsapi -lkernel32 -lws2_32 -liphlpapi -lwinmm -ldbghelp -luserenv
+JLDFLAGS := -Wl,--stack,8388608
 ifeq ($(ARCH),i686)
-JLDFLAGS := -Wl,--stack,8388608 -Wl,--large-address-aware
-else #x64
-JLDFLAGS := -Wl,--stack,16777216
+JLDFLAGS += -Wl,--large-address-aware
 endif
 else #USEMSVC
-OSLIBS += kernel32.lib ws2_32.lib psapi.lib advapi32.lib iphlpapi.lib shell32.lib winmm.lib
-JLDFLAGS := -stack:16777216
+OSLIBS += kernel32.lib ws2_32.lib psapi.lib advapi32.lib iphlpapi.lib shell32.lib winmm.lib userenv.lib
+JLDFLAGS := -stack:8388608
 endif
 JCPPFLAGS += -D_WIN32_WINNT=0x0502
 UNTRUSTED_SYSTEM_LIBM := 1
 endif
 
 # Threads
-ifeq ($(JULIA_THREADS), 1)
-JCPPFLAGS += -DJULIA_ENABLE_THREADING
+ifneq ($(JULIA_THREADS), 0)
+JCPPFLAGS += -DJULIA_ENABLE_THREADING -DJULIA_NUM_THREADS=$(JULIA_THREADS)
 endif
 
 # Intel VTune Amplifier

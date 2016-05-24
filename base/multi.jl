@@ -19,18 +19,34 @@
 # Messages
 abstract AbstractMsg
 
+let REF_ID::Int = 1
+    global next_ref_id
+    next_ref_id() = (id = REF_ID; REF_ID += 1; id)
+end
+
+type RRID
+    whence
+    id
+
+    RRID() = RRID(myid(),next_ref_id())
+    RRID(whence, id) = new(whence,id)
+end
+hash(r::RRID, h::UInt) = hash(r.whence, hash(r.id, h))
+==(r::RRID, s::RRID) = (r.whence==s.whence && r.id==s.id)
+
+
 type CallMsg{Mode} <: AbstractMsg
     f::Function
     args::Tuple
     kwargs::Array
-    response_oid::Tuple
+    response_oid::RRID
 end
 type CallWaitMsg <: AbstractMsg
     f::Function
     args::Tuple
     kwargs::Array
-    response_oid::Tuple
-    notify_oid::Tuple
+    response_oid::RRID
+    notify_oid::RRID
 end
 type RemoteDoMsg <: AbstractMsg
     f::Function
@@ -38,26 +54,31 @@ type RemoteDoMsg <: AbstractMsg
     kwargs::Array
 end
 type ResultMsg <: AbstractMsg
-    response_oid::Tuple
+    response_oid::RRID
     value::Any
 end
 
 # Worker initialization messages
 type IdentifySocketMsg <: AbstractMsg
     from_pid::Int
+    cookie::AbstractString
+end
+type IdentifySocketAckMsg <: AbstractMsg
+    cookie::AbstractString
 end
 type JoinPGRPMsg <: AbstractMsg
     self_pid::Int
     other_workers::Array
-    self_is_local::Bool
-    notify_oid::Tuple
+    notify_oid::RRID
     topology::Symbol
     worker_pool
+    cookie::AbstractString
 end
 type JoinCompleteMsg <: AbstractMsg
-    notify_oid::Tuple
+    notify_oid::RRID
     cpu_cores::Int
     ospid::Int
+    cookie::AbstractString
 end
 
 
@@ -254,10 +275,14 @@ type LocalProcess
     id::Int
     bind_addr::AbstractString
     bind_port::UInt16
+    cookie::AbstractString
     LocalProcess() = new(1)
 end
 
 const LPROC = LocalProcess()
+
+cluster_cookie() = LPROC.cookie
+cluster_cookie(cookie) = (LPROC.cookie = cookie; cookie)
 
 const map_pid_wrkr = Dict{Int, Union{Worker, LocalProcess}}()
 const map_sock_wrkr = ObjectIdDict()
@@ -476,16 +501,14 @@ type Future <: AbstractRemoteRef
     id::Int
     v::Nullable{Any}
 
-    Future(w, wh, id) = Future(w, wh, id, Nullable{Any}())
-    Future(w, wh, id, v) = (r = new(w,wh,id,v); test_existing_ref(r))
+    Future(w::Int, rrid::RRID) = Future(w, rrid, Nullable{Any}())
+    Future(w::Int, rrid::RRID, v) = (r = new(w,rrid.whence,rrid.id,v); return test_existing_ref(r))
 end
 
 function finalize_future(f::Future)
     if f.where > 0
         isnull(f.v) && send_del_client(f)
         f.where = 0
-        f.whence = 0
-        f.id = 0
         f.v = Nullable{Any}()
     end
     f
@@ -496,7 +519,7 @@ type RemoteChannel{T<:AbstractChannel} <: AbstractRemoteRef
     whence::Int
     id::Int
 
-    RemoteChannel(w, wh, id) = (r = new(w,wh,id); test_existing_ref(r))
+    RemoteChannel(w::Int, rrid::RRID) = (r = new(w, rrid.whence, rrid.id); return test_existing_ref(r))
 end
 
 function test_existing_ref(r::Future)
@@ -511,7 +534,7 @@ function test_existing_ref(r::Future)
     end
     client_refs[r] = true
     finalizer(r, finalize_future)
-    r
+    return r
 end
 
 function test_existing_ref(r::RemoteChannel)
@@ -519,50 +542,34 @@ function test_existing_ref(r::RemoteChannel)
     !is(found,false) && (client_refs[r] == true) && return found
     client_refs[r] = true
     finalizer(r, finalize_remote_channel)
-    r
+    return r
 end
 
 function finalize_remote_channel(r::RemoteChannel)
     if r.where > 0
         send_del_client(r)
         r.where = 0
-        r.whence = 0
-        r.id = 0
     end
-    r
-end
-
-
-let REF_ID::Int = 1
-    global next_ref_id
-    next_ref_id() = (id = REF_ID; REF_ID += 1; id)
-
-    global next_rrid_tuple
-    next_rrid_tuple() = (myid(),next_ref_id())
+    return r
 end
 
 Future(w::LocalProcess) = Future(w.id)
 Future(w::Worker) = Future(w.id)
-function Future(pid::Integer=myid())
-    rrid = next_rrid_tuple()
-    Future(pid, rrid[1], rrid[2])
-end
+Future(pid::Integer=myid()) = Future(pid, RRID())
 
-function RemoteChannel(pid::Integer=myid())
-    rrid = next_rrid_tuple()
-    RemoteChannel{Channel{Any}}(pid, rrid[1], rrid[2])
-end
+RemoteChannel(pid::Integer=myid()) = RemoteChannel{Channel{Any}}(pid, RRID())
+
 function RemoteChannel(f::Function, pid::Integer=myid())
-    remotecall_fetch(pid, f, next_rrid_tuple()) do f, rrid
+    remotecall_fetch(pid, f, RRID()) do f, rrid
         rv=lookup_ref(rrid, f)
-        RemoteChannel{typeof(rv.c)}(myid(), rrid[1], rrid[2])
+        RemoteChannel{typeof(rv.c)}(myid(), rrid)
     end
 end
 
 hash(r::AbstractRemoteRef, h::UInt) = hash(r.whence, hash(r.id, h))
 ==(r::AbstractRemoteRef, s::AbstractRemoteRef) = (r.whence==s.whence && r.id==s.id)
 
-remoteref_id(r::AbstractRemoteRef) = (r.whence, r.id)
+remoteref_id(r::AbstractRemoteRef) = RRID(r.whence, r.id)
 function channel_from_id(id)
     rv = get(PGRP.refs, id, false)
     if rv === false
@@ -571,14 +578,14 @@ function channel_from_id(id)
     rv.c
 end
 
-lookup_ref(id, f=def_rv_channel) = lookup_ref(PGRP, id, f)
-function lookup_ref(pg, id, f)
-    rv = get(pg.refs, id, false)
+lookup_ref(rrid::RRID, f=def_rv_channel) = lookup_ref(PGRP, rrid, f)
+function lookup_ref(pg, rrid, f)
+    rv = get(pg.refs, rrid, false)
     if rv === false
         # first we've heard of this ref
         rv = RemoteValue(f())
-        pg.refs[id] = rv
-        push!(rv.clientset, id[1])
+        pg.refs[rrid] = rv
+        push!(rv.clientset, rrid.whence)
     end
     rv
 end
@@ -694,13 +701,13 @@ end
 
 function deserialize{T<:Future}(s::SerializationState, t::Type{T})
     f = deserialize_rr(s,t)
-    Future(f.where, f.whence, f.id, f.v) # ctor adds to client_refs table
+    Future(f.where, RRID(f.whence, f.id), f.v) # ctor adds to client_refs table
 end
 
 function deserialize{T<:RemoteChannel}(s::SerializationState, t::Type{T})
     rr = deserialize_rr(s,t)
     # call ctor to make sure this rr gets added to the client_refs table
-    RemoteChannel{channel_type(rr)}(rr.where, rr.whence, rr.id)
+    RemoteChannel{channel_type(rr)}(rr.where, RRID(rr.whence, rr.id))
 end
 
 function deserialize_rr(s, t)
@@ -760,7 +767,7 @@ end
 function schedule_call(rid, thunk)
     rv = RemoteValue(def_rv_channel())
     (PGRP::ProcessGroup).refs[rid] = rv
-    push!(rv.clientset, rid[1])
+    push!(rv.clientset, rid.whence)
     schedule(@task(run_work_thunk(rv,thunk)))
     rv
 end
@@ -798,7 +805,7 @@ end
 function remotecall_fetch(f, w::Worker, args...; kwargs...)
     # can be weak, because the program will have no way to refer to the Ref
     # itself, it only gets the result.
-    oid = next_rrid_tuple()
+    oid = RRID()
     rv = lookup_ref(oid)
     rv.waitingfor = w.id
     send_msg(w, CallMsg{:call_fetch}(f, args, kwargs, oid))
@@ -814,7 +821,7 @@ remotecall_fetch(f, id::Integer, args...; kwargs...) =
 remotecall_wait(f, w::LocalProcess, args...; kwargs...) = wait(remotecall(f, w, args...; kwargs...))
 
 function remotecall_wait(f, w::Worker, args...; kwargs...)
-    prid = next_rrid_tuple()
+    prid = RRID()
     rv = lookup_ref(prid)
     rv.waitingfor = w.id
     rr = Future(w)
@@ -964,19 +971,25 @@ end
 process_messages(r_stream::IO, w_stream::IO) = @schedule message_handler_loop(r_stream, w_stream)
 
 function message_handler_loop(r_stream::IO, w_stream::IO)
-    global PGRP
-    global cluster_manager
-
     try
+        # Check for a valid first message with a cookie.
+        msg = deserialize(r_stream)
+        if !any(x->isa(msg, x), [JoinPGRPMsg, JoinCompleteMsg, IdentifySocketMsg, IdentifySocketAckMsg]) ||
+                (msg.cookie != cluster_cookie())
+
+            println(STDERR, "Unknown first message $(typeof(msg)) or cookie mismatch.")
+            error("Invalid connection credentials.")
+        end
+
         while true
+            handle_msg(msg, r_stream, w_stream)
             msg = deserialize(r_stream)
             # println("got msg: ", msg)
-            handle_msg(msg, r_stream, w_stream)
         end
     catch e
         iderr = worker_id_from_socket(r_stream)
         if (iderr < 1)
-            print(STDERR, "Socket from unknown remote worker in worker ", myid())
+            println(STDERR, "Socket from unknown remote worker in worker $(myid())")
         else
             werr = worker_from_id(iderr)
             oldstate = werr.state
@@ -997,8 +1010,8 @@ function message_handler_loop(r_stream::IO, w_stream::IO)
             deregister_worker(iderr)
         end
 
-        if isopen(r_stream) close(r_stream) end
-        if isopen(w_stream) close(w_stream) end
+        isopen(r_stream) && close(r_stream)
+        isopen(w_stream) && close(w_stream)
 
         if (myid() == 1) && (iderr > 1)
             if oldstate != W_TERMINATING
@@ -1030,7 +1043,12 @@ handle_msg(msg::RemoteDoMsg, r_stream, w_stream) = @schedule run_work_thunk(()->
 
 handle_msg(msg::ResultMsg, r_stream, w_stream) = put!(lookup_ref(msg.response_oid), msg.value)
 
-handle_msg(msg::IdentifySocketMsg, r_stream, w_stream) = Worker(msg.from_pid, r_stream, w_stream, cluster_manager)
+function handle_msg(msg::IdentifySocketMsg, r_stream, w_stream)
+    # register a new peer worker connection
+    w=Worker(msg.from_pid, r_stream, w_stream, cluster_manager)
+    send_msg_now(w, IdentifySocketAckMsg(cluster_cookie()))
+end
+handle_msg(msg::IdentifySocketAckMsg, r_stream, w_stream) = nothing
 
 function handle_msg(msg::JoinPGRPMsg, r_stream, w_stream)
     LPROC.id = msg.self_pid
@@ -1039,10 +1057,9 @@ function handle_msg(msg::JoinPGRPMsg, r_stream, w_stream)
     topology(msg.topology)
 
     wait_tasks = Task[]
-    for (connect_at, rpid, r_is_local) in msg.other_workers
+    for (connect_at, rpid) in msg.other_workers
         wconfig = WorkerConfig()
         wconfig.connect_at = connect_at
-        wconfig.environ = AnyDict(:self_is_local=>msg.self_is_local, :r_is_local=>r_is_local)
 
         let rpid=rpid, wconfig=wconfig
             t = @async connect_to_peer(cluster_manager, rpid, wconfig)
@@ -1054,7 +1071,7 @@ function handle_msg(msg::JoinPGRPMsg, r_stream, w_stream)
 
     set_default_worker_pool(msg.worker_pool)
 
-    send_msg_now(controller, JoinCompleteMsg(msg.notify_oid, Sys.CPU_CORES, getpid()))
+    send_msg_now(controller, JoinCompleteMsg(msg.notify_oid, Sys.CPU_CORES, getpid(), cluster_cookie()))
 end
 
 function connect_to_peer(manager::ClusterManager, rpid::Int, wconfig::WorkerConfig)
@@ -1062,8 +1079,9 @@ function connect_to_peer(manager::ClusterManager, rpid::Int, wconfig::WorkerConf
         (r_s, w_s) = connect(manager, rpid, wconfig)
         w = Worker(rpid, r_s, w_s, manager, wconfig)
         process_messages(w.r_stream, w.w_stream)
-        send_msg_now(w, IdentifySocketMsg(myid()))
+        send_msg_now(w, IdentifySocketMsg(myid(), cluster_cookie()))
     catch e
+        display_error(e, catch_backtrace())
         println(STDERR, "Error [$e] on $(myid()) while connecting to peer $rpid. Exiting.")
         exit(1)
     end
@@ -1071,7 +1089,6 @@ end
 
 function handle_msg(msg::JoinCompleteMsg, r_stream, w_stream)
     w = map_sock_wrkr[r_stream]
-
     environ = get(w.config.environ, Dict())
     environ[:cpu_cores] = msg.cpu_cores
     w.config.environ = environ
@@ -1095,8 +1112,8 @@ worker_timeout() = parse(Float64, get(ENV, "JULIA_WORKER_TIMEOUT", "60.0"))
 # The entry point for julia worker processes. does not return. Used for TCP transport.
 # Cluster managers implementing their own transport will provide their own.
 # Argument is descriptor to write listening port # to.
-start_worker() = start_worker(STDOUT)
-function start_worker(out::IO)
+start_worker(cookie::AbstractString) = start_worker(STDOUT, cookie)
+function start_worker(out::IO, cookie::AbstractString)
     # we only explicitly monitor worker STDOUT on the console, so redirect
     # stderr to stdout so we can see the output.
     # at some point we might want some or all worker output to go to log
@@ -1105,12 +1122,13 @@ function start_worker(out::IO)
     # exit when process 1 shut down. Don't yet know why.
     #redirect_stderr(STDOUT)
 
-    init_worker()
+    init_worker(cookie)
+    interface = IPv4(LPROC.bind_addr)
     if LPROC.bind_port == 0
-        (actual_port,sock) = listenany(UInt16(9009))
+        (actual_port,sock) = listenany(interface, UInt16(9009))
         LPROC.bind_port = actual_port
     else
-        sock = listen(LPROC.bind_port)
+        sock = listen(interface, LPROC.bind_port)
     end
     @schedule while isopen(sock)
         client = accept(sock)
@@ -1182,7 +1200,7 @@ function parse_connection_info(str)
     end
 end
 
-function init_worker(manager::ClusterManager=DefaultClusterManager())
+function init_worker(cookie::AbstractString, manager::ClusterManager=DefaultClusterManager())
     # On workers, the default cluster manager connects via TCP sockets. Custom
     # transports will need to call this function with their own manager.
     global cluster_manager
@@ -1194,9 +1212,12 @@ function init_worker(manager::ClusterManager=DefaultClusterManager())
     assert(isempty(PGRP.refs))
     assert(isempty(client_refs))
 
-    # System is started in head node mode, cleanup entries related to the same
+    # System is started in head node mode, cleanup related entries
     empty!(PGRP.workers)
     empty!(map_pid_wrkr)
+
+    cluster_cookie(cookie)
+    nothing
 end
 
 
@@ -1219,7 +1240,7 @@ end
 
 function addprocs_locked(manager::ClusterManager; kwargs...)
     params = merge(default_addprocs_params(), AnyDict(kwargs))
-    topology(symbol(params[:topology]))
+    topology(Symbol(params[:topology]))
 
     # some libs by default start as many threads as cores which leads to
     # inefficient use of cores in a multi-process model.
@@ -1345,7 +1366,7 @@ function create_worker(manager, wconfig)
     finalizer(w, (w)->if myid() == 1 manage(w.manager, w.id, w.config, :finalize) end)
 
     # set when the new worker has finshed connections with all other workers
-    ntfy_oid = next_rrid_tuple()
+    ntfy_oid = RRID()
     rr_ntfy_join = lookup_ref(ntfy_oid)
     rr_ntfy_join.waitingfor = myid()
 
@@ -1393,8 +1414,8 @@ function create_worker(manager, wconfig)
         end
     end
 
-    all_locs = map(x -> isa(x, Worker) ? (get(x.config.connect_at, ()), x.id, isa(x.manager, LocalManager)) : ((), x.id, true), join_list)
-    send_msg_now(w, JoinPGRPMsg(w.id, all_locs, isa(w.manager, LocalManager), ntfy_oid, PGRP.topology, default_worker_pool()))
+    all_locs = map(x -> isa(x, Worker) ? (get(x.config.connect_at, ()), x.id) : ((), x.id, true), join_list)
+    send_msg_now(w, JoinPGRPMsg(w.id, all_locs, ntfy_oid, PGRP.topology, default_worker_pool(), cluster_cookie()))
 
     @schedule manage(w.manager, w.id, w.config, :register)
     wait(rr_ntfy_join)

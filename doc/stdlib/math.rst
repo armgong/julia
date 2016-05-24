@@ -507,7 +507,7 @@ Mathematical Operators
        julia> A=[1.0 2.0; 3.0 4.0]; B=[1.0 1.0; 1.0 1.0]; Y = similar(B); A_mul_B!(Y, A, B);
 
        julia> Y
-       2x2 Array{Float64,2}:
+       2×2 Array{Float64,2}:
         3.0  3.0
         7.0  7.0
 
@@ -890,7 +890,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Compute the hypotenuse :math:`\sqrt{\sum x_i}` avoiding overflow and underflow.
+   Compute the hypotenuse :math:`\sqrt{\sum x_i^2}` avoiding overflow and underflow.
 
 .. function:: log(x)
 

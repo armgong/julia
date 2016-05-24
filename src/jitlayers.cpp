@@ -109,9 +109,6 @@ static void addOptimizationPasses(T *PM)
     PM->add(createDeadStoreEliminationPass());  // Delete dead stores
 #if !defined(INSTCOMBINE_BUG)
     if (jl_options.opt_level >= 3) {
-#ifdef LLVM39
-        initializeDemandedBitsPass(*PassRegistry::getPassRegistry());
-#endif
         PM->add(createSLPVectorizerPass());     // Vectorize straight-line code
     }
 #endif
@@ -200,6 +197,22 @@ extern RTDyldMemoryManager *createRTDyldMemoryManagerUnix();
 #define CUSTOM_MEMORY_MANAGER() new SectionMemoryManager
 #endif
 
+#ifdef _OS_LINUX_
+// Resolve non-lock free atomic functions in the libatomic library.
+// This is the library that provides support for c11/c++11 atomic operations.
+static uint64_t resolve_atomic(const char *name)
+{
+    static void *atomic_hdl = jl_load_dynamic_library_e("libatomic",
+                                                        JL_RTLD_LOCAL);
+    static const char *const atomic_prefix = "__atomic_";
+    if (!atomic_hdl)
+        return 0;
+    if (strncmp(name, atomic_prefix, strlen(atomic_prefix)) != 0)
+        return 0;
+    return (uintptr_t)jl_dlsym_e(atomic_hdl, name);
+}
+#endif
+
 // A simplified model of the LLVM ExecutionEngine that implements only the methods that Julia needs
 // but tries to roughly match the API anyways so that compatibility is easier
 class JuliaOJIT {
@@ -256,13 +269,15 @@ class JuliaOJIT {
                         continue;
                     if (!(Flags & object::BasicSymbolRef::SF_Exported))
                         continue;
-                    ErrorOr<StringRef> Name = Symbol.getName();
-                    orc::JITSymbol Sym = JIT.CompileLayer.findSymbolIn(H, *Name, true);
+                    auto NameOrError = Symbol.getName();
+                    assert(NameOrError);
+                    auto Name = NameOrError.get();
+                    orc::JITSymbol Sym = JIT.CompileLayer.findSymbolIn(H, Name, true);
                     assert(Sym);
                     // note: calling getAddress here eagerly finalizes H
                     // as an alternative, we could store the JITSymbol instead
                     // (which would present a lazy-initializer functor interface instead)
-                    JIT.LocalSymbolTable[*Name] = (void*)(uintptr_t)Sym.getAddress();
+                    JIT.LocalSymbolTable[Name] = (void*)(uintptr_t)Sym.getAddress();
                 }
             }
         }
@@ -399,6 +414,10 @@ public:
                             // Step 2: Search the program symbols
                             if (uint64_t addr = SectionMemoryManager::getSymbolAddressInProcess(Name))
                                 return RuntimeDyld::SymbolInfo(addr, JITSymbolFlags::Exported);
+#ifdef _OS_LINUX_
+                            if (uint64_t addr = resolve_atomic(Name.c_str()))
+                                return RuntimeDyld::SymbolInfo(addr, JITSymbolFlags::Exported);
+#endif
                             // Return failure code
                             return RuntimeDyld::SymbolInfo(nullptr);
                           },
@@ -795,11 +814,11 @@ static void* jl_emit_and_add_to_shadow(GlobalVariable *gv, void *gvarinit = NULL
 #endif
 }
 
-#ifdef JULIA_ENABLE_THREADING // only used in the threading build
+#ifdef JULIA_ENABLE_THREADING
 // Emit a slot in the system image to be filled at sysimg init time.
 // Returns the global var. Fill `idx` with 1-base index in the sysimg gv.
 // Use as an optimization for runtime constant addresses to have one less
-// load.
+// load. (Used only by threading).
 static GlobalVariable *jl_emit_sysimg_slot(Module *m, Type *typ, const char *name,
                                            uintptr_t init, size_t &idx)
 {
@@ -898,12 +917,6 @@ static void jl_gen_llvm_globaldata(llvm::Module *mod, ValueToValueMapTy &VMap,
                                  GlobalVariable::ExternalLinkage,
                                  ConstantInt::get(T_size, jltls_states_func_idx),
                                  "jl_ptls_states_getter_idx"));
-    addComdat(new GlobalVariable(*mod,
-                                 T_size,
-                                 true,
-                                 GlobalVariable::ExternalLinkage,
-                                 ConstantInt::get(T_size, jl_gc_signal_page_idx),
-                                 "jl_gc_signal_page_idx"));
 #endif
 
     Constant *feature_string = ConstantDataArray::getString(jl_LLVMContext, jl_options.cpu_target);

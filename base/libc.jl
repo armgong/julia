@@ -148,7 +148,7 @@ function strftime(fmt::AbstractString, tm::TmStruct)
     if n == 0
         return ""
     end
-    bytestring(pointer(timestr), n)
+    String(pointer(timestr), n)
 end
 
 """
@@ -205,7 +205,7 @@ function gethostname()
     @unix_only err=ccall(:gethostname, Int32, (Ptr{UInt8}, UInt), hn, length(hn))
     @windows_only err=ccall(:gethostname, stdcall, Int32, (Ptr{UInt8}, UInt32), hn, length(hn))
     systemerror("gethostname", err != 0)
-    bytestring(pointer(hn))
+    String(pointer(hn))
 end
 
 ## system error handling ##
@@ -228,7 +228,7 @@ errno(e::Integer) = ccall(:jl_set_errno, Void, (Cint,), e)
 
 Convert a system call error code to a descriptive string
 """
-strerror(e::Integer) = bytestring(ccall(:strerror, Cstring, (Int32,), e))
+strerror(e::Integer) = String(ccall(:strerror, Cstring, (Int32,), e))
 strerror() = strerror(errno())
 
 """
@@ -263,7 +263,7 @@ function FormatMessage end
         buf = Array(UInt16, len)
         unsafe_copy!(pointer(buf), p, len)
         ccall(:LocalFree,stdcall,Ptr{Void},(Ptr{Void},),p)
-        return UTF8String(utf16to8(buf))
+        return String(utf16to8(buf))
     end
 end
 

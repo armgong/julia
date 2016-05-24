@@ -88,13 +88,21 @@ end
 qrfact!{T<:BlasFloat}(A::StridedMatrix{T}, ::Type{Val{false}}) = QRCompactWY(LAPACK.geqrt!(A, min(minimum(size(A)), 36))...)
 qrfact!{T<:BlasFloat}(A::StridedMatrix{T}, ::Type{Val{true}}) = QRPivoted(LAPACK.geqp3!(A)...)
 qrfact!{T<:BlasFloat}(A::StridedMatrix{T}) = qrfact!(A, Val{false})
-qrfact{T<:BlasFloat}(A::StridedMatrix{T}, args...) = qrfact!(copy(A), args...)
 
 # Generic fallbacks
 qrfact!(A::StridedMatrix, ::Type{Val{false}}) = qrfactUnblocked!(A)
 qrfact!(A::StridedMatrix, ::Type{Val{true}}) = qrfactPivotedUnblocked!(A)
 qrfact!(A::StridedMatrix) = qrfact!(A, Val{false})
-qrfact{T}(A::StridedMatrix{T}, args...) = qrfact!(copy_oftype(A, typeof(zero(T)/norm(one(T)))), args...)
+function qrfact{T}(A::AbstractMatrix{T}, arg)
+    AA = similar(A, typeof(zero(T)/norm(one(T))), size(A))
+    copy!(AA, A)
+    return qrfact!(AA, arg)
+end
+function qrfact{T}(A::AbstractMatrix{T})
+    AA = similar(A, typeof(zero(T)/norm(one(T))), size(A))
+    copy!(AA, A)
+    return qrfact!(AA)
+end
 qrfact(x::Number) = qrfact(fill(x,1,1))
 
 qr(A::Union{Number, AbstractMatrix}, pivot::Union{Type{Val{false}}, Type{Val{true}}}=Val{false}; thin::Bool=true) =
@@ -210,6 +218,11 @@ function getindex{T}(A::QRPivoted{T}, d::Symbol)
     end
 end
 
+## reconstruct the original matrix
+full(F::QR) = F[:Q] * F[:R]
+full(F::QRCompactWY) = F[:Q] * F[:R]
+full(F::QRPivoted) = (F[:Q] * F[:R])[:,invperm(F[:p])]
+
 # Type-stable interface to get Q
 getq(A::QRCompactWY) = QRCompactWYQ(A.factors,A.T)
 getq(A::Union{QR, QRPivoted}) = QRPackedQ(A.factors,A.τ)
@@ -239,6 +252,14 @@ size(A::Union{QRPackedQ,QRCompactWYQ}, dim::Integer) = 0 < dim ? (dim <= 2 ? siz
 size(A::Union{QRPackedQ,QRCompactWYQ}) = size(A, 1), size(A, 2)
 
 full{T}(A::Union{QRPackedQ{T},QRCompactWYQ{T}}; thin::Bool=true) = A_mul_B!(A, thin ? eye(T, size(A.factors,1), minimum(size(A.factors))) : eye(T, size(A.factors,1)))
+
+function getindex(A::Union{QRPackedQ,QRCompactWYQ}, i::Integer, j::Integer)
+    x = zeros(eltype(A), size(A, 1))
+    x[i] = 1
+    y = zeros(eltype(A), size(A, 2))
+    y[j] = 1
+    return dot(x, A_mul_B!(A, y))
+end
 
 ## Multiplication by Q
 ### QB
@@ -394,7 +415,9 @@ function A_mul_Bc{TA,TB}(A::AbstractMatrix{TA}, B::Union{QRCompactWYQ{TB},QRPack
     TAB = promote_type(TA,TB)
     BB = convert(AbstractMatrix{TAB}, B)
     if size(A,2) == size(B.factors, 1)
-        return A_mul_Bc!(copy_oftype(A, TAB), BB)
+        AA = similar(A, TAB, size(A))
+        copy!(AA, A)
+        return A_mul_Bc!(AA, BB)
     elseif size(A,2) == size(B.factors,2)
         return A_mul_Bc!([A zeros(TAB, size(A, 1), size(B.factors, 1) - size(B.factors, 2))], BB)
     else
@@ -526,44 +549,3 @@ end
 ## Lower priority: Add LQ, QL and RQ factorizations
 
 # FIXME! Should add balancing option through xgebal
-immutable Hessenberg{T,S<:AbstractMatrix} <: Factorization{T}
-    factors::S
-    τ::Vector{T}
-    Hessenberg(factors::AbstractMatrix{T}, τ::Vector{T}) = new(factors, τ)
-end
-Hessenberg{T}(factors::AbstractMatrix{T}, τ::Vector{T}) = Hessenberg{T,typeof(factors)}(factors, τ)
-
-Hessenberg(A::StridedMatrix) = Hessenberg(LAPACK.gehrd!(A)...)
-
-hessfact!{T<:BlasFloat}(A::StridedMatrix{T}) = Hessenberg(A)
-hessfact{T<:BlasFloat}(A::StridedMatrix{T}) = hessfact!(copy(A))
-function hessfact{T}(A::StridedMatrix{T})
-    S = promote_type(Float32, typeof(one(T)/norm(one(T))))
-    return hessfact!(copy_oftype(A, S))
-end
-
-immutable HessenbergQ{T,S<:AbstractMatrix} <: AbstractMatrix{T}
-    factors::S
-    τ::Vector{T}
-    HessenbergQ(factors::AbstractMatrix{T}, τ::Vector{T}) = new(factors, τ)
-end
-HessenbergQ{T}(factors::AbstractMatrix{T}, τ::Vector{T}) = HessenbergQ{T,typeof(factors)}(factors, τ)
-HessenbergQ(A::Hessenberg) = HessenbergQ(A.factors, A.τ)
-size(A::HessenbergQ, args...) = size(A.factors, args...)
-
-function getindex(A::Hessenberg, d::Symbol)
-    d == :Q && return HessenbergQ(A)
-    d == :H && return triu(A.factors, -1)
-    throw(KeyError(d))
-end
-
-# Also printing of QRQs
-getindex(A::Union{QRPackedQ,QRCompactWYQ,HessenbergQ}, i::Integer, j::Integer) = (x = zeros(eltype(A), size(A, 1)); x[i] = 1; y = zeros(eltype(A), size(A, 2)); y[j] = 1; dot(x, A*y))
-
-## reconstruct the original matrix
-full(F::QR) = F[:Q] * F[:R]
-full(F::QRCompactWY) = F[:Q] * F[:R]
-full(F::QRPivoted) = (F[:Q] * F[:R])[:,invperm(F[:p])]
-
-full(A::HessenbergQ) = LAPACK.orghr!(1, size(A.factors, 1), copy(A.factors), A.τ)
-full(F::Hessenberg) = (fq = full(F[:Q]); (fq * F[:H]) * fq')

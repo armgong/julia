@@ -32,7 +32,7 @@
   (cond ((atom? e)   tab)
         ((quoted? e) tab)
         (else (case (car e)
-                ((=)            (if (not (jlgensym? (cadr e)))
+                ((=)            (if (not (ssavalue? (cadr e)))
                                     (put! tab (decl-var (cadr e)) #t))
                                 (find-possible-globals- (caddr e) tab))
                 ((method)       (let ((n (method-expr-name e)))
@@ -111,6 +111,24 @@
                  ;; (body (return x)) => x
                  (cadadr ex)
                  ex))))))
+
+;; construct default definitions of `eval` for non-bare modules
+;; called by jl_eval_module_expr
+(define (module-default-defs e)
+  (jl-expand-to-thunk
+   (let ((name (caddr e))
+         (body (cadddr e)))
+     (let ((loc (cadr body)))
+       `(block
+         ,(let ((x (if (eq? name 'x) 'y 'x)))
+            `(= (call eval ,x)
+                (block
+                 ,loc
+                 (call (core eval) ,name ,x))))
+         (= (call eval m x)
+            (block
+             ,loc
+             (call (core eval) m x))))))))
 
 ;; parse only, returning end position, no expansion.
 (define (jl-parse-one-string s pos0 greedy)

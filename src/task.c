@@ -170,6 +170,11 @@ static void NOINLINE save_stack(jl_task_t *t)
     jl_gc_wb_back(t);
 }
 
+char *jl_task_stackbase(jl_task_t *task)
+{
+    return (char*)jl_all_task_states[task->tid].ptls->stackbase;
+}
+
 static void NOINLINE restore_stack(jl_task_t *t, jl_jmp_buf *where, char *p)
 {
     char *_x = (char*)jl_stackbase - t->ssize;
@@ -246,6 +251,10 @@ static void NOINLINE JL_NORETURN start_task(void)
     }
     else {
         JL_TRY {
+            if (jl_get_ptls_states()->defer_signal) {
+                jl_get_ptls_states()->defer_signal = 0;
+                jl_sigint_safepoint();
+            }
             res = jl_apply(&t->start, 1);
         }
         JL_CATCH {
@@ -286,19 +295,6 @@ static void ctx_switch(jl_task_t *t, jl_jmp_buf *where)
 {
     if (t == jl_current_task)
         return;
-    /*
-      making task switching interrupt-safe is going to be challenging.
-      we need JL_SIGATOMIC_BEGIN in jl_enter_handler, and then
-      JL_SIGATOMIC_END after every JL_TRY sigsetjmp that returns zero.
-      also protect jl_eh_restore_state.
-      then we need JL_SIGATOMIC_BEGIN at the top of this function (ctx_switch).
-      the JL_SIGATOMIC_END at the end of this function handles the case
-      of task switching with yieldto().
-      then we need to handle the case of task switching via raise().
-      to do that, the top of every catch block must do JL_SIGATOMIC_END
-      *IF AND ONLY IF* throwing the exception involved a task switch.
-    */
-    //JL_SIGATOMIC_BEGIN();
     if (!jl_setjmp(jl_current_task->ctx, 0)) {
         jl_bt_size = 0;  // backtraces don't survive task switches, see e.g. issue #12485
 #ifdef COPY_STACKS
@@ -366,7 +362,6 @@ static void ctx_switch(jl_task_t *t, jl_jmp_buf *where)
         jl_longjmp(*where, 1);
 #endif
     }
-    //JL_SIGATOMIC_END();
 }
 
 JL_DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg)
@@ -383,6 +378,9 @@ JL_DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg)
     }
     if (jl_in_finalizer)
         jl_error("task switch not allowed from inside gc finalizer");
+    if (in_pure_callback)
+        jl_error("task switch not allowed from inside staged function");
+    sig_atomic_t defer_signal = jl_get_ptls_states()->defer_signal;
     int8_t gc_state = jl_gc_unsafe_enter();
     jl_task_arg_in_transit = arg;
     ctx_switch(t, &t->ctx);
@@ -390,6 +388,10 @@ JL_DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg)
     jl_task_arg_in_transit = jl_nothing;
     throw_if_exception_set(jl_current_task);
     jl_gc_unsafe_leave(gc_state);
+    sig_atomic_t other_defer_signal = jl_get_ptls_states()->defer_signal;
+    jl_get_ptls_states()->defer_signal = defer_signal;
+    if (other_defer_signal && !defer_signal)
+        jl_sigint_safepoint();
     return val;
 }
 
@@ -490,10 +492,10 @@ static void init_task(jl_task_t *t, char *stack)
 
 #endif /* !COPY_STACKS */
 
-
 // yield to exception handler
 void JL_NORETURN throw_internal(jl_value_t *e)
 {
+    jl_get_ptls_states()->io_wait = 0;
     if (jl_safe_restore)
         jl_longjmp(*jl_safe_restore, 1);
     jl_gc_unsafe_enter();
@@ -610,22 +612,28 @@ void jl_init_tasks(void)
     jl_task_type = jl_new_datatype(jl_symbol("Task"),
                                    jl_any_type,
                                    jl_emptysvec,
-                                   jl_svec(9,
-                                            jl_symbol("parent"),
-                                            jl_symbol("storage"),
-                                            jl_symbol("state"),
-                                            jl_symbol("consumers"),
-                                            jl_symbol("donenotify"),
-                                            jl_symbol("result"),
-                                            jl_symbol("exception"),
-                                            jl_symbol("backtrace"),
-                                            jl_symbol("code")),
-                                   jl_svec(9,
-                                            jl_any_type,
-                                            jl_any_type, jl_sym_type,
-                                            jl_any_type, jl_any_type,
-                                            jl_any_type, jl_any_type,
-                                            jl_any_type, jl_any_type),
+                                   jl_svec(13,
+                                           jl_symbol("parent"),
+                                           jl_symbol("storage"),
+                                           jl_symbol("state"),
+                                           jl_symbol("consumers"),
+                                           jl_symbol("donenotify"),
+                                           jl_symbol("result"),
+                                           jl_symbol("exception"),
+                                           jl_symbol("backtrace"),
+                                           jl_symbol("code"),
+                                           jl_symbol("ctx"),
+                                           jl_symbol("bufsz"),
+                                           jl_symbol("stkbuf"),
+                                           jl_symbol("ssize")),
+                                   jl_svec(13,
+                                           jl_any_type,
+                                           jl_any_type, jl_sym_type,
+                                           jl_any_type, jl_any_type,
+                                           jl_any_type, jl_any_type,
+                                           jl_any_type, jl_any_type,
+                                           jl_tupletype_fill(sizeof(jl_jmp_buf), (jl_value_t*)jl_uint8_type),
+                                           jl_long_type, jl_voidpointer_type, jl_long_type),
                                    0, 1, 8);
     jl_svecset(jl_task_type->types, 0, (jl_value_t*)jl_task_type);
 

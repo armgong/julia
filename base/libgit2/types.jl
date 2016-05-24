@@ -380,16 +380,32 @@ MergeOptions(; flags::Cint = Cint(0),
                  file_favor,
                  file_flags)
 
-immutable PushOptions
-    version::Cuint
-    parallelism::Cint
-    callbacks::RemoteCallbacks
+if LibGit2.version() >= v"0.24.0"
+    immutable PushOptions
+        version::Cuint
+        parallelism::Cint
+        callbacks::RemoteCallbacks
+        custom_headers::StrArrayStruct
+    end
+    PushOptions(; parallelism::Cint=one(Cint),
+                  callbacks::RemoteCallbacks=RemoteCallbacks(),
+                  custom_headers::StrArrayStruct = StrArrayStruct()) =
+        PushOptions(one(Cuint),
+                    parallelism,
+                    callbacks,
+                    custom_headers)
+else
+    immutable PushOptions
+        version::Cuint
+        parallelism::Cint
+        callbacks::RemoteCallbacks
+    end
+    PushOptions(; parallelism::Cint=one(Cint),
+                  callbacks::RemoteCallbacks=RemoteCallbacks()) =
+        PushOptions(one(Cuint),
+                    parallelism,
+                    callbacks)
 end
-PushOptions(; parallelism::Cint=one(Cint),
-              callbacks::RemoteCallbacks=RemoteCallbacks()) =
-    PushOptions(one(Cuint),
-                parallelism,
-                callbacks)
 
 immutable IndexTime
     seconds::Int64
@@ -443,7 +459,7 @@ if LibGit2.version() >= v"0.24.0"
                     rewrite_notes_ref::Cstring = Cstring_NULL,
                     merge_opts::MergeOptions = MergeOptions(),
                     checkout_opts::CheckoutOptions = CheckoutOptions()) =
-        RebaseOptions(one(Cuint), quiet, rewrite_notes_ref, merge_opts, checkout_opts)
+        RebaseOptions(one(Cuint), quiet, Cint(0), rewrite_notes_ref, merge_opts, checkout_opts)
 else
     immutable RebaseOptions
         version::Cuint

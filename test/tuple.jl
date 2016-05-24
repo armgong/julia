@@ -65,32 +65,33 @@
 @test eltype((1,2.0, false)) === Any
 @test eltype(()) === Union{}
 
+begin
+    local foo
+    ## mapping ##
+    foo() = 2
+    foo(x) = 2x
+    foo(x, y) = x + y
+    foo(x, y, z) = x + y + z
 
-## mapping ##
-foo() = 2
-foo(x) = 2x
-foo(x, y) = x + y
-foo(x, y, z) = x + y + z
+    # 1 argument
+    @test map(foo, ()) === ()
+    @test map(foo, (1,)) === (2,)
+    @test map(foo, (1,2)) === (2,4)
+    @test map(foo, (1,2,3,4)) === (2,4,6,8)
 
-# 1 argument
-@test map(foo, ()) === ()
-@test map(foo, (1,)) === (2,)
-@test map(foo, (1,2)) === (2,4)
-@test map(foo, (1,2,3,4)) === (2,4,6,8)
+    # 2 arguments
+    @test map(foo, (), ()) === ()
+    @test map(foo, (1,), (1,)) === (2,)
+    @test map(foo, (1,2), (1,2)) === (2,4)
+    @test map(foo, (1,2,3,4), (1,2,3,4)) === (2,4,6,8)
 
-# 2 arguments
-@test map(foo, (), ()) === ()
-@test map(foo, (1,), (1,)) === (2,)
-@test map(foo, (1,2), (1,2)) === (2,4)
-@test map(foo, (1,2,3,4), (1,2,3,4)) === (2,4,6,8)
-
-# n arguments
-@test map(foo, (), (), ()) === ()
-@test map(foo, (), (1,2,3), (1,2,3)) === ()
-@test map(foo, (1,), (1,), (1,)) === (3,)
-@test map(foo, (1,2), (1,2), (1,2)) === (3,6)
-@test map(foo, (1,2,3,4), (1,2,3,4), (1,2,3,4)) === (3,6,9,12)
-
+    # n arguments
+    @test map(foo, (), (), ()) === ()
+    @test map(foo, (), (1,2,3), (1,2,3)) === ()
+    @test map(foo, (1,), (1,), (1,)) === (3,)
+    @test map(foo, (1,2), (1,2), (1,2)) === (3,6)
+    @test map(foo, (1,2,3,4), (1,2,3,4), (1,2,3,4)) === (3,6,9,12)
+end
 
 ## comparison ##
 @test isequal((), ())
@@ -145,12 +146,12 @@ foo(x, y, z) = x + y + z
 @test any((true,true,false)) === true
 @test any((true,true,true)) === true
 
-@test @inferred(ntuple(Base.Abs2Fun(), Val{0})) == ()
-@test @inferred(ntuple(Base.Abs2Fun(), Val{2})) == (1, 4)
-@test @inferred(ntuple(Base.Abs2Fun(), Val{3})) == (1, 4, 9)
-@test @inferred(ntuple(Base.Abs2Fun(), Val{4})) == (1, 4, 9, 16)
-@test @inferred(ntuple(Base.Abs2Fun(), Val{5})) == (1, 4, 9, 16, 25)
-@test @inferred(ntuple(Base.Abs2Fun(), Val{6})) == (1, 4, 9, 16, 25, 36)
+@test @inferred(ntuple(abs2, Val{0})) == ()
+@test @inferred(ntuple(abs2, Val{2})) == (1, 4)
+@test @inferred(ntuple(abs2, Val{3})) == (1, 4, 9)
+@test @inferred(ntuple(abs2, Val{4})) == (1, 4, 9, 16)
+@test @inferred(ntuple(abs2, Val{5})) == (1, 4, 9, 16, 25)
+@test @inferred(ntuple(abs2, Val{6})) == (1, 4, 9, 16, 25, 36)
 
 # issue #12854
 @test_throws TypeError ntuple(identity, Val{1:2})

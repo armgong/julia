@@ -49,7 +49,7 @@ fdtimeout() = FDEvent(false, false, true)
 
 type FileMonitor
     handle::Ptr{Void}
-    file::ByteString
+    file::String
     notify::Condition
     active::Bool
     function FileMonitor(file::AbstractString)
@@ -68,7 +68,7 @@ end
 
 type PollingFileWatcher
     handle::Ptr{Void}
-    file::ByteString
+    file::String
     interval::UInt32
     notify::Condition
     active::Bool
@@ -149,7 +149,6 @@ type _FDWatcher
                         FDWatchers[fdnum] = nothing
                     end
                     notify(t.notify, FDEvent(true, true, false))
-                    nothing
                 end
             end
             nothing
@@ -217,7 +216,7 @@ end
 
 function uv_fseventscb(handle::Ptr{Void}, filename::Ptr, events::Int32, status::Int32)
     t = @handle_as handle FileMonitor
-    fname = filename == C_NULL ? "" : bytestring(convert(Ptr{UInt8}, filename))
+    fname = filename == C_NULL ? "" : String(convert(Ptr{UInt8}, filename))
     if status != 0
         notify_error(t.notify, UVError("FileMonitor", status))
     else

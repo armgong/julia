@@ -14,8 +14,10 @@ export
     atomic_fence
 
 # Disable 128-bit types on 32-bit Intel sytems due to LLVM problems;
-# see <https://github.com/JuliaLang/julia/issues/14818>
-if Base.ARCH === :i686
+# see <https://github.com/JuliaLang/julia/issues/14818> (fixed on LLVM 3.9)
+# 128-bit atomics do not exist on AArch32.
+if (VersionNumber(Base.libllvm_version) < v"3.9-" && Base.ARCH === :i686) ||
+        startswith(string(Base.ARCH), "arm")
     const inttypes = (Int8, Int16, Int32, Int64,
                       UInt8, UInt16, UInt32, UInt64)
 else
@@ -183,7 +185,7 @@ function atomic_min! end
 unsafe_convert{T}(::Type{Ptr{T}}, x::Atomic{T}) = convert(Ptr{T}, pointer_from_objref(x))
 setindex!{T}(x::Atomic{T}, v) = setindex!(x, convert(T, v))
 
-const llvmtypes = Dict{Type, ASCIIString}(
+const llvmtypes = Dict(
     Bool => "i1",
     Int8 => "i8", UInt8 => "i8",
     Int16 => "i16", UInt16 => "i16",
@@ -192,7 +194,8 @@ const llvmtypes = Dict{Type, ASCIIString}(
     Int128 => "i128", UInt128 => "i128",
     Float16 => "i16", # half
     Float32 => "float",
-    Float64 => "double")
+    Float64 => "double",
+)
 inttype{T<:Integer}(::Type{T}) = T
 inttype(::Type{Float16}) = Int16
 inttype(::Type{Float32}) = Int32
@@ -292,7 +295,7 @@ for typ in atomictypes
     end
     for rmwop in [:xchg, :add, :sub, :and, :nand, :or, :xor, :max, :min]
         rmw = string(rmwop)
-        fn = symbol("atomic_", rmw, "!")
+        fn = Symbol("atomic_", rmw, "!")
         if (rmw == "max" || rmw == "min") && typ <: Unsigned
             # LLVM distinguishes signedness in the operation, not the integer type.
             rmw = "u" * rmw
@@ -321,7 +324,7 @@ end
 const opnames = Dict{Symbol, Symbol}(:+ => :add, :- => :sub)
 for op in [:+, :-, :max, :min]
     opname = get(opnames, op, op)
-    @eval function $(symbol("atomic_", opname, "!")){T<:FloatTypes}(var::Atomic{T}, val::T)
+    @eval function $(Symbol("atomic_", opname, "!")){T<:FloatTypes}(var::Atomic{T}, val::T)
         IT = inttype(T)
         old = var[]
         while true

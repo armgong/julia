@@ -310,7 +310,7 @@ $5/$$($2_SRC_DIR)/$3: $$($2_SRC_FILE)
 endif # DEPS_GIT
 
 distclean-$1:
-	-rm -rf $5/$$($2_SRC_DIR) $$($2_SRC_FILE) $$(BUILDDIR)/$1
+	-rm -rf $5/$$($2_SRC_DIR) $$($2_SRC_FILE) $$(BUILDDIR)/$1 $$(BUILDDIR)/$1-$$($2_SHA1)
 endef
 
 
@@ -720,6 +720,17 @@ $(eval $(call LLVM_PATCH,llvm-3.7.1_2))
 $(eval $(call LLVM_PATCH,llvm-3.7.1_3))
 $(eval $(call LLVM_PATCH,llvm-D14260))
 $(LLVM_SRC_DIR)/llvm-3.7.1_2.patch-applied: $(LLVM_SRC_DIR)/llvm-3.7.1.patch-applied
+else ifeq ($(LLVM_VER),3.8.0)
+$(eval $(call LLVM_PATCH,llvm-3.7.1_3))
+$(eval $(call LLVM_PATCH,llvm-D14260))
+$(eval $(call LLVM_PATCH,llvm-3.8.0_winshlib))
+# Cygwin and openSUSE still use win32-threads mingw, https://llvm.org/bugs/show_bug.cgi?id=26365
+$(eval $(call LLVM_PATCH,llvm-3.8.0_threads))
+# fix replutil test on unix
+$(eval $(call LLVM_PATCH,llvm-D17165-D18583))
+$(eval $(call LLVM_PATCH,llvm-D17712))
+$(eval $(call LLVM_PATCH,llvm-PR26180))
+$(eval $(call LLVM_PATCH,llvm-PR27046))
 endif # LLVM_VER
 
 ifeq ($(LLVM_VER),3.7.1)
@@ -1811,7 +1822,7 @@ $(SRCDIR)/srccache/libosxunwind-$(OSXUNWIND_VER).tar.gz: | $(SRCDIR)/srccache
 
 $(BUILDDIR)/libosxunwind-$(OSXUNWIND_VER)/Makefile: $(SRCDIR)/srccache/libosxunwind-$(OSXUNWIND_VER).tar.gz
 	$(JLCHECKSUM) $<
-	cd $(BUILDDIR) && $(TAR) xfz $<
+	mkdir -p $(BUILDDIR) && cd $(BUILDDIR) && $(TAR) xfz $<
 	touch -c $@
 
 $(OSXUNWIND_OBJ_SOURCE): $(BUILDDIR)/libosxunwind-$(OSXUNWIND_VER)/Makefile

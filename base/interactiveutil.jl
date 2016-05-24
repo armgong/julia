@@ -138,7 +138,7 @@ end
         systemerror(:SetClipboardData, pdata!=p)
         ccall((:CloseClipboard, "user32"), stdcall, Void, ())
     end
-    clipboard(x) = clipboard(sprint(io->print(io,x))::ByteString)
+    clipboard(x) = clipboard(sprint(io->print(io,x))::String)
 
     function clipboard()
         systemerror(:OpenClipboard, 0==ccall((:OpenClipboard, "user32"), stdcall, Cint, (Ptr{Void},), C_NULL))
@@ -150,8 +150,8 @@ end
         # find NUL terminator (0x0000 16-bit code unit)
         len = 0
         while unsafe_load(plock, len+1) != 0; len += 1; end
-        # get Vector{UInt16}, transcode data to UTF-8, make a ByteString of it
-        s = bytestring(utf16to8(pointer_to_array(plock, len)))
+        # get Vector{UInt16}, transcode data to UTF-8, make a String of it
+        s = String(utf16to8(pointer_to_array(plock, len)))
         systemerror(:GlobalUnlock, 0==ccall((:GlobalUnlock, "kernel32"), stdcall, Cint, (Ptr{UInt16},), plock))
         return s
     end
@@ -205,7 +205,7 @@ function versioninfo(io::IO=STDOUT, verbose::Bool=false)
     if verbose
         println(io,         "Environment:")
         for (k,v) in ENV
-            if !is(match(r"JULIA|PATH|FLAG|^TERM$|HOME", bytestring(k)), nothing)
+            if !is(match(r"JULIA|PATH|FLAG|^TERM$|HOME", String(k)), nothing)
                 println(io, "  $(k) = $(v)")
             end
         end
@@ -264,7 +264,8 @@ function gen_call_with_extracted_types(fcn, ex0)
         exret = Expr(:call, :error, "expression is not a function call or symbol")
     elseif ex.head == :call
         if any(e->(isa(e, Expr) && e.head==:(...)), ex0.args) &&
-            isa(ex.args[1], TopNode) && ex.args[1].name == :_apply
+            (ex.args[1] === GlobalRef(Core,:_apply) ||
+             ex.args[1] === GlobalRef(Base,:_apply))
             # check for splatting
             exret = Expr(:call, ex.args[1], fcn,
                         Expr(:tuple, esc(ex.args[2]),
@@ -383,9 +384,8 @@ function type_close_enough(x::ANY, t::ANY)
 end
 
 # `methodswith` -- shows a list of methods using the type given
-function methodswith(t::Type, f::Function, showparents::Bool=false, meths = TypeMapEntry[])
-    mt = typeof(f).name.mt
-    visit(mt) do d
+function methodswith(t::Type, f::Function, showparents::Bool=false, meths = Method[])
+    for d in methods(f)
         if any(x -> (type_close_enough(x, t) ||
                      (showparents ? (t <: x && (!isa(x,TypeVar) || x.ub != Any)) :
                       (isa(x,TypeVar) && x.ub != Any && t == x.ub)) &&
@@ -398,7 +398,7 @@ function methodswith(t::Type, f::Function, showparents::Bool=false, meths = Type
 end
 
 function methodswith(t::Type, m::Module, showparents::Bool=false)
-    meths = TypeMapEntry[]
+    meths = Method[]
     for nm in names(m)
         if isdefined(m, nm)
             f = getfield(m, nm)
@@ -411,7 +411,7 @@ function methodswith(t::Type, m::Module, showparents::Bool=false)
 end
 
 function methodswith(t::Type, showparents::Bool=false)
-    meths = TypeMapEntry[]
+    meths = Method[]
     mainmod = current_module()
     # find modules in Main
     for nm in names(mainmod)
@@ -589,7 +589,7 @@ function _summarysize(obj::ANY, seen, excl)
     ft = typeof(obj).types
     for i in 1:nfields(obj)
         if !isbits(ft[i]) && isdefined(obj,i)
-            val = obj.(i)
+            val = getfield(obj, i)
             if !isa(val,excl)
                 size += summarysize(val, seen, excl)::Int
             end

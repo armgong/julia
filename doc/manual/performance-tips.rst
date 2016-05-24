@@ -733,6 +733,7 @@ Once one learns to appreciate multiple dispatch, there's an
 understandable tendency to go crazy and try to use it for everything.
 For example, you might imagine using it to store information, e.g.
 ::
+
     immutable Car{Make,Model}
         year::Int
         ...more fields...
@@ -795,7 +796,7 @@ that the array is ordered ``[1 3 2 4]``, not ``[1 2 3 4]``):
 .. doctest::
 
     julia> x = [1 2; 3 4]
-    2x2 Array{Int64,2}:
+    2×2 Array{Int64,2}:
      1  2
      3  4
 

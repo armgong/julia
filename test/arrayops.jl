@@ -7,9 +7,10 @@
 @test length([1, 2, 3]) == 3
 @test countnz([1, 2, 3]) == 3
 
-a = ones(4)
-b = a+a
-@test b[1]==2. && b[2]==2. && b[3]==2. && b[4]==2.
+let a = ones(4), b = a+a, c = a-a
+    @test b[1] === 2. && b[2] === 2. && b[3] === 2. && b[4] === 2.
+    @test c[1] === 0. && c[2] === 0. && c[3] === 0. && c[4] === 0.
+end
 
 @test length((1,)) == 1
 @test length((1,2)) == 2
@@ -87,8 +88,23 @@ a = reshape(b, (2, 2, 2, 2, 2))
 @test a[2,1,2,2,1] == b[14]
 @test a[2,2,2,2,2] == b[end]
 
-# reshaping linearslow arrays
 a = collect(reshape(1:5, 1, 5))
+# reshaping linearfast SubArrays
+s = sub(a, :, 2:4)
+r = reshape(s, (length(s),))
+@test length(r) == 3
+@test r[1] == 2
+@test r[3,1] == 4
+@test r[Base.ReshapedIndex(CartesianIndex((1,2)))] == 3
+@test parent(reshape(r, (1,3))) === r.parent === s
+@test parentindexes(r) == (1:1, 1:3)
+@test reshape(r, (3,)) === r
+@test convert(Array{Int,1}, r) == [2,3,4]
+@test_throws MethodError convert(Array{Int,2}, r)
+@test convert(Array{Int}, r) == [2,3,4]
+@test Base.unsafe_convert(Ptr{Int}, r) == Base.unsafe_convert(Ptr{Int}, s)
+
+# reshaping linearslow SubArrays
 s = sub(a, :, [2,3,5])
 r = reshape(s, length(s))
 @test length(r) == 3
@@ -98,6 +114,10 @@ r = reshape(s, length(s))
 @test parent(reshape(r, (1,3))) === r.parent === s
 @test parentindexes(r) == (1:1, 1:3)
 @test reshape(r, (3,)) === r
+@test convert(Array{Int,1}, r) == [2,3,5]
+@test_throws MethodError convert(Array{Int,2}, r)
+@test convert(Array{Int}, r) == [2,3,5]
+@test_throws ErrorException Base.unsafe_convert(Ptr{Int}, r)
 r[2] = -1
 @test a[3] == -1
 a = zeros(0, 5)  # an empty linearslow array
@@ -342,6 +362,15 @@ a = [0,1,2,3,0,1,2,3]
 @test findprev(a,1,8) == 6
 @test findprev(isodd, [2,4,5,3,9,2,0], 7) == 5
 @test findprev(isodd, [2,4,5,3,9,2,0], 2) == 0
+
+# find with general iterables
+s = "julia"
+# FIXME once 16269 is resolved
+# @test find(s) == [1,2,3,4,5]
+@test find(c -> c == 'l', s) == [3]
+g = graphemes("日本語")
+@test find(g) == [1,2,3]
+@test find(isascii, g) == Int[]
 
 ## findn ##
 
@@ -1025,6 +1054,11 @@ function i7197()
     ind2sub(size(S), 5)
 end
 @test i7197() == (2,2)
+A = reshape(collect(1:9), (3,3))
+@test ind2sub(size(A), 6) == (3,2)
+@test sub2ind(size(A), 3, 2) == 6
+@test ind2sub(A, 6) == (3,2)
+@test sub2ind(A, 3, 2) == 6
 
 # PR #9256
 function pr9256()
@@ -1164,6 +1198,11 @@ I2 = CartesianIndex((-1,5,2))
 @test I1 + 1 == CartesianIndex((3,4,1))
 @test I1 - 2 == CartesianIndex((0,1,-2))
 
+@test zero(CartesianIndex{2}) == CartesianIndex((0,0))
+@test zero(CartesianIndex((2,3))) == CartesianIndex((0,0))
+@test one(CartesianIndex{2}) == CartesianIndex((1,1))
+@test one(CartesianIndex((2,3))) == CartesianIndex((1,1))
+
 @test min(CartesianIndex((2,3)), CartesianIndex((5,2))) == CartesianIndex((2,2))
 @test max(CartesianIndex((2,3)), CartesianIndex((5,2))) == CartesianIndex((5,3))
 
@@ -1177,6 +1216,11 @@ I2 = CartesianIndex((-1,5,2))
 @test_throws DimensionMismatch CartesianIndex{3}((1,2,3,4))
 
 @test length(I1) == 3
+
+@test isless(CartesianIndex((1,1)), CartesianIndex((2,1)))
+@test isless(CartesianIndex((1,1)), CartesianIndex((1,2)))
+@test isless(CartesianIndex((2,1)), CartesianIndex((1,2)))
+@test !isless(CartesianIndex((1,2)), CartesianIndex((2,1)))
 
 a = spzeros(2,3)
 @test CartesianRange(size(a)) == eachindex(a)
@@ -1264,21 +1308,21 @@ let x = fill(0.9, 1000)
 end
 
 #binary ops on bool arrays
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test A + true == [2,2,2,2,2]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test A + false == [1,1,1,1,1]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test true + A == [2,2,2,2,2]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test false + A == [1,1,1,1,1]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test A - true == [0,0,0,0,0]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test A - false == [1,1,1,1,1]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test true - A == [0,0,0,0,0]
-A = bitunpack(trues(5))
+A = Array(trues(5))
 @test false - A == [-1,-1,-1,-1,-1]
 
 # simple transposes
@@ -1338,9 +1382,9 @@ module RetTypeDecl
     (.*){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,2}(x.val*y.val)
     zero{T,pow}(x::MeterUnits{T,pow}) = MeterUnits{T,pow}(zero(T))
 
-    Base.promote_op{R,S}(::Base.AddFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),1}
-    Base.promote_op{R,S}(::Base.MulFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
-    Base.promote_op{R,S}(::Base.DotMulFun, ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
+    Base.promote_op{R,S}(::typeof(+), ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),1}
+    Base.promote_op{R,S}(::typeof(*), ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
+    Base.promote_op{R,S}(::typeof(.*), ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
 
     @test @inferred(m+[m,m]) == [m+m,m+m]
     @test @inferred([m,m]+m) == [m+m,m+m]
@@ -1550,5 +1594,29 @@ function f15894(d)
     s
 end
 @test f15894(ones(Int, 100)) == 100
+end
 
+# sign, conj, ~
+let A = [-10,0,3], B = [-10.0,0.0,3.0], C = [1,im,0]
+    @test sign(A) == [-1,0,1]
+    @test sign(B) == [-1,0,1]
+    @test typeof(sign(A)) == Vector{Int}
+    @test typeof(sign(B)) == Vector{Float64}
+
+    @test conj(A) == A
+    @test conj(B) == A
+    @test conj(C) == [1,-im,0]
+    @test typeof(conj(A)) == Vector{Int}
+    @test typeof(conj(B)) == Vector{Float64}
+    @test typeof(conj(C)) == Vector{Complex{Int}}
+
+    @test ~A == [9,-1,-4]
+    @test typeof(~A) == Vector{Int}
+end
+
+# issue #16247
+let A = zeros(3,3)
+    @test size(A[:,0x1:0x2]) == (3, 2)
+    @test size(A[:,UInt(1):UInt(2)]) == (3,2)
+    @test size(similar(A, UInt(3), 0x3)) == size(similar(A, (UInt(3), 0x3))) == (3,3)
 end

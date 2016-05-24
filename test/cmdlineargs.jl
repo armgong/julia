@@ -60,7 +60,7 @@ let exename = `$(Base.julia_cmd()) --precompiled=yes`
     # NOTE: this test only holds true when there is a sys.{dll,dylib,so} shared library present.
     # The tests are also limited to unix platforms at the moment because loading the system image
     # not turned on for Window's binary builds at the moment.
-    @unix_only if Libdl.dlopen_e(splitext(bytestring(Base.JLOptions().image_file))[1]) != C_NULL
+    @unix_only if Libdl.dlopen_e(splitext(String(Base.JLOptions().image_file))[1]) != C_NULL
         @test !success(`$exename -C invalidtarget`)
         @test !success(`$exename --cpu-target=invalidtarget`)
     end
@@ -77,7 +77,7 @@ let exename = `$(Base.julia_cmd()) --precompiled=yes`
         touch(fname)
         fname = realpath(fname)
         try
-            @test readchomp(`$exename --machinefile $fname -e "println(bytestring(Base.JLOptions().machinefile))"`) == fname
+            @test readchomp(`$exename --machinefile $fname -e "println(String(Base.JLOptions().machinefile))"`) == fname
         finally
             rm(fname)
         end
@@ -214,10 +214,10 @@ let exename = `$(Base.julia_cmd()) --precompiled=yes`
             write(testfile, """
                 println(ARGS)
             """)
-            @test readchomp(`$exename $testfile foo -bar --baz`) == "UTF8String[\"foo\",\"-bar\",\"--baz\"]"
-            @test readchomp(`$exename $testfile -- foo -bar --baz`) == "UTF8String[\"foo\",\"-bar\",\"--baz\"]"
-            @test readchomp(`$exename -L $testfile -e 'exit(0)' -- foo -bar --baz`) == "UTF8String[\"foo\",\"-bar\",\"--baz\"]"
-            @test split(readchomp(`$exename -L $testfile $testfile`), '\n') == ["UTF8String[\"$(escape(testfile))\"]", "UTF8String[]"]
+            @test readchomp(`$exename $testfile foo -bar --baz`) == "String[\"foo\",\"-bar\",\"--baz\"]"
+            @test readchomp(`$exename $testfile -- foo -bar --baz`) == "String[\"foo\",\"-bar\",\"--baz\"]"
+            @test readchomp(`$exename -L $testfile -e 'exit(0)' -- foo -bar --baz`) == "String[\"foo\",\"-bar\",\"--baz\"]"
+            @test split(readchomp(`$exename -L $testfile $testfile`), '\n') == ["String[\"$(escape(testfile))\"]", "String[]"]
             @test !success(`$exename --foo $testfile`)
             @test !success(`$exename -L $testfile -e 'exit(0)' -- foo -bar -- baz`)
         finally
@@ -249,7 +249,7 @@ let exename = `$(Base.julia_cmd()) --precompiled=yes`
     end
 
     # issue #10562
-    @test readchomp(`$exename -e 'println(ARGS);' ''`) == "UTF8String[\"\"]"
+    @test readchomp(`$exename -e 'println(ARGS);' ''`) == "String[\"\"]"
 
     # issue #12679
     extrapath = @windows? joinpath(JULIA_HOME,"..","Git","usr","bin")*";" : ""
@@ -275,3 +275,6 @@ let exename = `$(Base.julia_cmd()) --precompiled=yes`
         end
     end
 end
+
+# Make sure `julia --lisp` doesn't break
+run(pipeline(DevNull, `$(Base.julia_cmd()) --lisp`, DevNull))

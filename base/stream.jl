@@ -343,7 +343,7 @@ function displaysize(io::TTY)
     @windows_only if ispty(io)
         # io is actually a libuv pipe but a cygwin/msys2 pty
         try
-            h, w = map(x -> parse(Int, x), split(readstring(open(Base.Cmd(ByteString["stty", "size"]), "r", io)[1])))
+            h, w = map(x -> parse(Int, x), split(readstring(open(Base.Cmd(String["stty", "size"]), "r", io)[1])))
             h > 0 || (h = default_size[1])
             w > 0 || (w = default_size[2])
             return h, w
@@ -831,14 +831,14 @@ end
 
 function flush(s::LibuvStream)
     if isnull(s.sendbuf)
-        return s
+        return
     end
     buf = get(s.sendbuf)
     if nb_available(buf) > 0
         arr = takebuf_array(buf)        # Array of UInt8s
         uv_write(s, arr)
     end
-    return s
+    return
 end
 
 buffer_writes(s::LibuvStream, bufsize) = (s.sendbuf=PipeBuffer(bufsize); s)
@@ -955,8 +955,8 @@ _fd(x::IOStream) = RawFD(fd(x))
     ccall(:jl_uv_handle,Ptr{Void},(Ptr{Void},),x.handle))
 
 for (x,writable,unix_fd,c_symbol) in ((:STDIN,false,0,:jl_uv_stdin),(:STDOUT,true,1,:jl_uv_stdout),(:STDERR,true,2,:jl_uv_stderr))
-    f = symbol("redirect_"*lowercase(string(x)))
-    _f = symbol("_",f)
+    f = Symbol("redirect_",lowercase(string(x)))
+    _f = Symbol("_",f)
     @eval begin
         function ($_f)(stream)
             global $x
@@ -999,7 +999,12 @@ type BufferStream <: LibuvStream
 end
 
 isopen(s::BufferStream) = s.is_open
-close(s::BufferStream) = (s.is_open = false; notify(s.r_c; all=true); notify(s.close_c; all=true); nothing)
+function close(s::BufferStream)
+    s.is_open = false
+    notify(s.r_c; all=true)
+    notify(s.close_c; all=true)
+    nothing
+end
 read(s::BufferStream, ::Type{UInt8}) = (wait_readnb(s, 1); read(s.buffer, UInt8))
 unsafe_read(s::BufferStream, a::Ptr{UInt8}, nb::UInt) = (wait_readnb(s, Int(nb)); unsafe_read(s.buffer, a, nb))
 nb_available(s::BufferStream) = nb_available(s.buffer)
@@ -1038,4 +1043,4 @@ end
 
 # If buffer_writes is called, it will delay notifying waiters till a flush is called.
 buffer_writes(s::BufferStream, bufsize=0) = (s.buffer_writes=true; s)
-flush(s::BufferStream) = (notify(s.r_c; all=true); s)
+flush(s::BufferStream) = (notify(s.r_c; all=true); nothing)

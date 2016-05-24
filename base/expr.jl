@@ -2,20 +2,12 @@
 
 ## symbols ##
 
-symbol(s::Symbol) = s
-symbol(s::ASCIIString) = symbol(s.data)
-symbol(s::UTF8String) = symbol(s.data)
-symbol(a::Array{UInt8,1}) =
-    ccall(:jl_symbol_n, Ref{Symbol}, (Ptr{UInt8}, Int32), a, length(a))
-symbol(x...) = symbol(string(x...))
-
 gensym() = ccall(:jl_gensym, Ref{Symbol}, ())
 
-gensym(s::ASCIIString) = gensym(s.data)
-gensym(s::UTF8String) = gensym(s.data)
+gensym(s::String) = gensym(s.data)
 gensym(a::Array{UInt8,1}) =
     ccall(:jl_tagged_gensym, Ref{Symbol}, (Ptr{UInt8}, Int32), a, length(a))
-gensym(ss::Union{ASCIIString, UTF8String}...) = map(gensym, ss)
+gensym(ss::String...) = map(gensym, ss)
 gensym(s::Symbol) =
     ccall(:jl_tagged_gensym, Ref{Symbol}, (Ptr{UInt8}, Int32), s, ccall(:strlen, Csize_t, (Ptr{UInt8},), s))
 
@@ -30,21 +22,18 @@ end
 
 ## expressions ##
 
-splicedexpr(hd::Symbol, args::Array{Any,1}) = (e=Expr(hd); e.args=args; e)
 copy(e::Expr) = (n = Expr(e.head);
-                 n.args = astcopy(e.args);
+                 n.args = copy_exprargs(e.args);
                  n.typ = e.typ;
                  n)
-copy(s::Slot) = Slot(s.id, s.typ)
 
 # copy parts of an AST that the compiler mutates
-astcopy(x::Union{Slot,Expr}) = copy(x)
-astcopy(x::Array{Any,1}) = Any[astcopy(a) for a in x]
-astcopy(x) = x
+copy_exprs(x::Expr) = copy(x)
+copy_exprs(x::ANY) = x
+copy_exprargs(x::Array{Any,1}) = Any[copy_exprs(a) for a in x]
 
-==(x::Expr, y::Expr) = x.head === y.head && x.args == y.args
-==(x::QuoteNode, y::QuoteNode) = x.value == y.value
-==(x::Slot, y::Slot) = x.id === y.id && x.typ === y.typ
+==(x::Expr, y::Expr) = x.head === y.head && isequal(x.args, y.args)
+==(x::QuoteNode, y::QuoteNode) = isequal(x.value, y.value)
 
 expand(x::ANY) = ccall(:jl_expand, Any, (Any,), x)
 macroexpand(x::ANY) = ccall(:jl_macroexpand, Any, (Any,), x)
@@ -94,7 +83,7 @@ function find_vars(e, lst)
                 push!(lst, e)
             end
         end
-    elseif isa(e,Expr) && e.head !== :quote && e.head !== :top
+    elseif isa(e,Expr) && e.head !== :quote && e.head !== :top && e.head !== :core
         for x in e.args
             find_vars(x,lst)
         end

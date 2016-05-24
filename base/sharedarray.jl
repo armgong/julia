@@ -7,7 +7,7 @@ type SharedArray{T,N} <: DenseArray{T,N}
 
     # The segname is currently used only in the test scripts to ensure that
     # the shmem segment has been unlinked.
-    segname::UTF8String
+    segname::String
 
     # Fields below are not to be serialized
     # Local shmem map.
@@ -19,7 +19,7 @@ type SharedArray{T,N} <: DenseArray{T,N}
     # the local partition into the array when viewed as a single dimensional array.
     # this can be removed when @parallel or its equivalent supports looping on
     # a subset of workers.
-    loc_subarr_1d::SubArray{T,1,Array{T,N},Tuple{UnitRange{Int}},true}
+    loc_subarr_1d::SubArray{T,1,Array{T,1},Tuple{UnitRange{Int}},true}
 
     SharedArray(d,p,r,sn) = new(d,p,r,sn)
 end
@@ -236,11 +236,7 @@ length(S::SharedArray) = prod(S.dims)
 size(S::SharedArray) = S.dims
 linearindexing{S<:SharedArray}(::Type{S}) = LinearFast()
 
-reshape(a::SharedVector, dims::Tuple{Int}) = reshape_sa(a, dims)
-reshape(a::SharedArray,  dims::Tuple{Int}) = reshape_sa(a, dims)
-reshape{N}(a::SharedArray, dims::NTuple{N,Int}) = reshape_sa(a, dims)
-
-function reshape_sa{T,N}(a::SharedArray{T}, dims::NTuple{N,Int})
+function reshape{T,N}(a::SharedArray{T}, dims::NTuple{N,Int})
     (length(a) != prod(dims)) && throw(DimensionMismatch("dimensions must be consistent with array size"))
     refs = Array(Future, length(a.pids))
     for (i, p) in enumerate(a.pids)
@@ -434,12 +430,10 @@ function shmem_randn(dims; kwargs...)
 end
 shmem_randn(I::Int...; kwargs...) = shmem_randn(I; kwargs...)
 
-similar(S::SharedArray, T, dims::Dims) = similar(S.s, T, dims)
-similar(S::SharedArray, T) = similar(S.s, T, size(S))
+similar(S::SharedArray, T::Type, dims::Dims) = similar(S.s, T, dims)
+similar(S::SharedArray, T::Type) = similar(S.s, T, size(S))
 similar(S::SharedArray, dims::Dims) = similar(S.s, eltype(S), dims)
 similar(S::SharedArray) = similar(S.s, eltype(S), size(S))
-
-map(f, S::SharedArray) = (S2 = similar(S); S2[:] = S[:]; map!(f, S2); S2)
 
 reduce(f, S::SharedArray) =
     mapreduce(fetch, f,

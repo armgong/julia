@@ -44,6 +44,11 @@ if !isdefined(Main, :Base)
     (::Type{T}){T}(arg) = convert(T, arg)::T
 end
 
+# Symbol constructors
+Symbol(s::String) = Symbol(s.data)
+Symbol(a::Array{UInt8,1}) =
+    ccall(:jl_symbol_n, Ref{Symbol}, (Ptr{UInt8}, Int32), a, length(a))
+
 # core array operations
 include("abstractarray.jl")
 include("array.jl")
@@ -56,7 +61,6 @@ include("nofloat_hashing.jl")
 macro simd(forloop)
     esc(forloop)
 end
-include("functors.jl")
 include("reduce.jl")
 
 ## core structures
@@ -69,6 +73,7 @@ include("docs/core.jl")
 
 # compiler
 include("inference.jl")
+ccall(:jl_set_typeinf_func, Void, (Any,), typeinf_ext)
 
 end # baremodule Inference
 ))

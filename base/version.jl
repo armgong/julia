@@ -6,12 +6,12 @@ immutable VersionNumber
     major::Int
     minor::Int
     patch::Int
-    prerelease::Tuple{Vararg{Union{Int,ASCIIString}}}
-    build::Tuple{Vararg{Union{Int,ASCIIString}}}
+    prerelease::Tuple{Vararg{Union{Int,String}}}
+    build::Tuple{Vararg{Union{Int,String}}}
 
     function VersionNumber(major::Int, minor::Int, patch::Int,
-            pre::Tuple{Vararg{Union{Int,ASCIIString}}},
-            bld::Tuple{Vararg{Union{Int,ASCIIString}}})
+            pre::Tuple{Vararg{Union{Int,String}}},
+            bld::Tuple{Vararg{Union{Int,String}}})
         major >= 0 || throw(ArgumentError("invalid negative major version: $major"))
         minor >= 0 || throw(ArgumentError("invalid negative minor version: $minor"))
         patch >= 0 || throw(ArgumentError("invalid negative patch version: $patch"))
@@ -42,8 +42,8 @@ VersionNumber(major::Integer, minor::Integer = 0, patch::Integer = 0,
         pre::Tuple{Vararg{Union{Integer,AbstractString}}} = (),
         bld::Tuple{Vararg{Union{Integer,AbstractString}}} = ()) =
     VersionNumber(Int(major), Int(minor), Int(patch),
-        map(x->isa(x,Integer) ? Int(x) : ASCIIString(x), pre),
-        map(x->isa(x,Integer) ? Int(x) : ASCIIString(x), bld))
+        map(x->isa(x,Integer) ? Int(x) : String(x), pre),
+        map(x->isa(x,Integer) ? Int(x) : String(x), bld))
 
 function print(io::IO, v::VersionNumber)
     v == typemax(VersionNumber) && return print(io, "∞")
@@ -82,7 +82,7 @@ function split_idents(s::AbstractString)
     idents = split(s, '.')
     ntuple(length(idents)) do i
         ident = idents[i]
-        ismatch(r"^\d+$", ident) ? parse(Int, ident) : bytestring(ident)
+        ismatch(r"^\d+$", ident) ? parse(Int, ident) : String(ident)
     end
 end
 
@@ -109,12 +109,12 @@ typemin(::Type{VersionNumber}) = v"0-"
 typemax(::Type{VersionNumber}) = VersionNumber(typemax(Int),typemax(Int),typemax(Int),(),("",))
 
 ident_cmp(a::Int, b::Int) = cmp(a,b)
-ident_cmp(a::Int, b::ASCIIString) = isempty(b) ? +1 : -1
-ident_cmp(a::ASCIIString, b::Int) = isempty(a) ? -1 : +1
-ident_cmp(a::ASCIIString, b::ASCIIString) = cmp(a,b)
+ident_cmp(a::Int, b::String) = isempty(b) ? +1 : -1
+ident_cmp(a::String, b::Int) = isempty(a) ? -1 : +1
+ident_cmp(a::String, b::String) = cmp(a,b)
 
-function ident_cmp(A::Tuple{Vararg{Union{Int,ASCIIString}}},
-                   B::Tuple{Vararg{Union{Int,ASCIIString}}})
+function ident_cmp(A::Tuple{Vararg{Union{Int,String}}},
+                   B::Tuple{Vararg{Union{Int,String}}})
     i = start(A)
     j = start(B)
     while !done(A,i) && !done(B,i)
@@ -199,13 +199,19 @@ end
 
 ## julia version info
 
-# Include build number if we've got at least some distance from a tag (e.g. a release)
-try
+"""
+    VERSION
+
+A `VersionNumber` object describing which version of Julia is in use. For details see
+[Version Number Literals](:ref:`man-version-number-literals`).
+"""
+const VERSION = try
+    # Include build number if we've got at least some distance from a tag (e.g. a release)
     build_number = GIT_VERSION_INFO.build_number != 0 ? "+$(GIT_VERSION_INFO.build_number)" : ""
-    global const VERSION = convert(VersionNumber, "$(VERSION_STRING)$(build_number)")
+    convert(VersionNumber, "$(VERSION_STRING)$(build_number)")
 catch e
     println("while creating Base.VERSION, ignoring error $e")
-    global const VERSION = VersionNumber(0)
+    VersionNumber(0)
 end
 
 function banner(io::IO = STDOUT)

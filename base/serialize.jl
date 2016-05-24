@@ -19,14 +19,14 @@ const TAGS = Any[
     #LongSymbol, LongTuple, LongExpr,
     Symbol, Tuple, Expr,  # dummy entries, intentionally shadowed by earlier ones
     LineNumberNode, Slot, LabelNode, GotoNode,
-    QuoteNode, TopNode, TypeVar, Core.Box, LambdaInfo,
-    Module, #=UndefRefTag=#Symbol, Task, ASCIIString, UTF8String,
+    QuoteNode, :reserved23 #=was TopNode=#, TypeVar, Core.Box, LambdaInfo,
+    Module, #=UndefRefTag=#Symbol, Task, String,
     UTF16String, UTF32String, Float16,
     SimpleVector, #=BackrefTag=#Symbol, Method, :reserved12,
 
     (), Bool, Any, :Any, Bottom, :reserved21, :reserved22, Type,
     :Array, :TypeVar, :Box,
-    :lambda, :body, :return, :call, symbol("::"),
+    :lambda, :body, :return, :call, Symbol("::"),
     :(=), :null, :gotoifnot, :A, :B, :C, :M, :N, :T, :S, :X, :Y,
     :a, :b, :c, :d, :e, :f, :g, :h, :i, :j, :k, :l, :m, :n, :o,
     :p, :q, :r, :s, :t, :u, :v, :w, :x, :y, :z,
@@ -314,6 +314,9 @@ function serialize(s::SerializationState, meth::Method)
     serialize(s, meth.name)
     serialize(s, meth.file)
     serialize(s, meth.line)
+    serialize(s, meth.sig)
+    serialize(s, meth.tvars)
+    serialize(s, meth.ambig)
     serialize(s, meth.isstaged)
     serialize(s, meth.lambda_template)
     if isdefined(meth, :roots)
@@ -331,7 +334,7 @@ function serialize(s::SerializationState, linfo::LambdaInfo)
     serialize(s, linfo.slotnames)
     serialize(s, linfo.slottypes)
     serialize(s, linfo.slotflags)
-    serialize(s, linfo.gensymtypes)
+    serialize(s, linfo.ssavaluetypes)
     serialize(s, linfo.sparam_syms)
     serialize(s, linfo.sparam_vals)
     serialize(s, linfo.rettype)
@@ -527,9 +530,9 @@ function handle_deserialize(s::SerializationState, b::Int32)
     elseif b == DATATYPE_TAG
         return deserialize_datatype(s)
     elseif b == SYMBOL_TAG
-        return symbol(read(s.io, UInt8, Int(read(s.io, UInt8)::UInt8)))
+        return Symbol(read(s.io, UInt8, Int(read(s.io, UInt8)::UInt8)))
     elseif b == LONGSYMBOL_TAG
-        return symbol(read(s.io, UInt8, Int(read(s.io, Int32)::Int32)))
+        return Symbol(read(s.io, UInt8, Int(read(s.io, Int32)::Int32)))
     elseif b == EXPR_TAG
         return deserialize_expr(s, Int(read(s.io, UInt8)::UInt8))
     elseif b == LONGEXPR_TAG
@@ -585,6 +588,9 @@ function deserialize(s::SerializationState, ::Type{Method})
     name = deserialize(s)::Symbol
     file = deserialize(s)::Symbol
     line = deserialize(s)
+    sig = deserialize(s)
+    tvars = deserialize(s)
+    ambig = deserialize(s)
     isstaged = deserialize(s)::Bool
     template = deserialize(s)::LambdaInfo
     tag = Int32(read(s.io, UInt8)::UInt8)
@@ -598,6 +604,9 @@ function deserialize(s::SerializationState, ::Type{Method})
         meth.name = name
         meth.file = file
         meth.line = line
+        meth.sig = sig
+        meth.tvars = tvars
+        meth.ambig = ambig
         meth.isstaged = isstaged
         meth.lambda_template = template
         roots === nothing || (meth.roots = roots)
@@ -614,7 +623,7 @@ function deserialize(s::SerializationState, ::Type{LambdaInfo})
     linfo.slotnames = deserialize(s)::Array{Any, 1}
     linfo.slottypes = deserialize(s)
     linfo.slotflags = deserialize(s)
-    linfo.gensymtypes = deserialize(s)
+    linfo.ssavaluetypes = deserialize(s)
     linfo.sparam_syms = deserialize(s)::SimpleVector
     linfo.sparam_vals = deserialize(s)::SimpleVector
     linfo.rettype = deserialize(s)

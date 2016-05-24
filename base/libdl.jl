@@ -6,7 +6,13 @@ export DL_LOAD_PATH, RTLD_DEEPBIND, RTLD_FIRST, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOC
     RTLD_NODELETE, RTLD_NOLOAD, RTLD_NOW, dlclose, dlopen, dlopen_e, dlsym, dlsym_e,
     dlpath, find_library, dlext, dllist
 
-const DL_LOAD_PATH = ByteString[]
+"""
+    DL_LOAD_PATH
+
+When calling [`dlopen`](:func:`dlopen`), the paths in this list will be searched first, in
+order, before searching the system locations for a valid library handle.
+"""
+const DL_LOAD_PATH = String[]
 @osx_only push!(DL_LOAD_PATH, "@loader_path/julia")
 @osx_only push!(DL_LOAD_PATH, "@loader_path")
 
@@ -19,6 +25,22 @@ const RTLD_NODELETE  = 0x00000010
 const RTLD_NOLOAD    = 0x00000020
 const RTLD_DEEPBIND  = 0x00000040
 const RTLD_FIRST     = 0x00000080
+
+@doc """
+    RTLD_DEEPBIND
+    RTLD_FIRST
+    RTLD_GLOBAL
+    RTLD_LAZY
+    RTLD_LOCAL
+    RTLD_NODELETE
+    RTLD_NOLOAD
+    RTLD_NOW
+
+Enum constant for [`dlopen`](:func:`dlopen`). See your platform man page for details, if
+applicable.
+""" ->
+(RTLD_DEEPBIND, RTLD_FIRST, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NODELETE, RTLD_NOLOAD, RTLD_NOW)
+
 
 """
     dlsym(handle, sym)
@@ -97,7 +119,7 @@ On success, the return value will be one of the names (potentially prefixed by o
 paths in locations). This string can be assigned to a `global const` and used as the library
 name in future `ccall`'s. On failure, it returns the empty string.
 """
-function find_library(libnames, extrapaths=ASCIIString[])
+function find_library(libnames, extrapaths=String[])
     for lib in libnames
         for path in extrapaths
             l = joinpath(path, lib)
@@ -115,12 +137,12 @@ function find_library(libnames, extrapaths=ASCIIString[])
     end
     return ""
 end
-find_library(libname::Union{Symbol,AbstractString}, extrapaths=ASCIIString[]) =
+find_library(libname::Union{Symbol,AbstractString}, extrapaths=String[]) =
     find_library([string(libname)], extrapaths)
 
 function dlpath(handle::Ptr{Void})
     p = ccall(:jl_pathname_for_handle, Cstring, (Ptr{Void},), handle)
-    s = bytestring(p)
+    s = String(p)
     @windows_only Libc.free(p)
     return s
 end
@@ -166,7 +188,7 @@ dlext
     # This callback function called by dl_iterate_phdr() on Linux
     function dl_phdr_info_callback(di::dl_phdr_info, size::Csize_t, dynamic_libraries::Array{AbstractString,1})
         # Skip over objects without a path (as they represent this own object)
-        name = bytestring(di.name)
+        name = String(di.name)
         if !isempty(name)
             push!(dynamic_libraries, name)
         end
@@ -188,7 +210,7 @@ function dllist()
 
         # start at 1 instead of 0 to skip self
         for i in 1:numImages-1
-            name = bytestring(ccall(:_dyld_get_image_name, Cstring, (UInt32,), i))
+            name = String(ccall(:_dyld_get_image_name, Cstring, (UInt32,), i))
             push!(dynamic_libraries, name)
         end
     end

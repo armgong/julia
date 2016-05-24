@@ -4,7 +4,6 @@ module Broadcast
 
 using ..Cartesian
 using Base: promote_op, promote_eltype, promote_eltype_op, @get!, _msk_end, unsafe_bitgetindex
-using Base: AddFun, SubFun, MulFun, LDivFun, RDivFun, PowFun
 import Base: .+, .-, .*, ./, .\, .//, .==, .<, .!=, .<=, .÷, .%, .<<, .>>, .^
 export broadcast, broadcast!, broadcast_function, broadcast!_function, bitbroadcast
 export broadcast_getindex, broadcast_setindex!
@@ -168,7 +167,7 @@ function gen_broadcast_body_iter_tobitarray(nd::Int, narrays::Int, f)
 end
 
 function gen_broadcast_function(genbody::Function, nd::Int, narrays::Int, f)
-    As = [symbol("A_"*string(i)) for i = 1:narrays]
+    As = [Symbol("A_",i) for i = 1:narrays]
     body = genbody(nd, narrays, f)
     @eval let
         local _F_
@@ -180,7 +179,7 @@ function gen_broadcast_function(genbody::Function, nd::Int, narrays::Int, f)
 end
 
 function gen_broadcast_function_tobitarray(genbody::Function, nd::Int, narrays::Int, f)
-    As = [symbol("A_"*string(i)) for i = 1:narrays]
+    As = [Symbol("A_",i) for i = 1:narrays]
     body = genbody(nd, narrays, f)
     @eval let
         local _F_
@@ -277,24 +276,24 @@ end
 .<<(A::AbstractArray, B::AbstractArray) = broadcast(<<, A, B)
 .>>(A::AbstractArray, B::AbstractArray) = broadcast(>>, A, B)
 
-eltype_plus(As::AbstractArray...) = promote_eltype_op(AddFun(), As...)
+eltype_plus(As::AbstractArray...) = promote_eltype_op(+, As...)
 
 .+(As::AbstractArray...) = broadcast!(+, Array(eltype_plus(As...), broadcast_shape(As...)), As...)
 
 function .-(A::AbstractArray, B::AbstractArray)
-    broadcast!(-, Array(promote_op(SubFun(), eltype(A), eltype(B)), broadcast_shape(A,B)), A, B)
+    broadcast!(-, Array(promote_op(-, eltype(A), eltype(B)), broadcast_shape(A,B)), A, B)
 end
 
-eltype_mul(As::AbstractArray...) = promote_eltype_op(MulFun(), As...)
+eltype_mul(As::AbstractArray...) = promote_eltype_op(*, As...)
 
 .*(As::AbstractArray...) = broadcast!(*, Array(eltype_mul(As...), broadcast_shape(As...)), As...)
 
 function ./(A::AbstractArray, B::AbstractArray)
-    broadcast!(/, Array(promote_op(RDivFun(), eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
+    broadcast!(/, Array(promote_op(/, eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
 end
 
 function .\(A::AbstractArray, B::AbstractArray)
-    broadcast!(\, Array(promote_op(LDivFun(), eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
+    broadcast!(\, Array(promote_op(\, eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
 end
 
 typealias RatIntT{T<:Integer} Union{Type{Rational{T}},Type{T}}
@@ -308,7 +307,7 @@ function .//(A::AbstractArray, B::AbstractArray)
 end
 
 function .^(A::AbstractArray, B::AbstractArray)
-    broadcast!(^, Array(promote_op(PowFun(), eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
+    broadcast!(^, Array(promote_op(^, eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
 end
 
 ## element-wise comparison operators returning BitArray ##
@@ -329,8 +328,8 @@ for (f, scalarf, bitf, bitfbody) in ((:.==, :(==), :biteq , :(~a $ b)),
             end
             F = BitArray(shape)
             Fc = F.chunks
-            Ac = bitpack(A).chunks
-            Bc = bitpack(B).chunks
+            Ac = BitArray(A).chunks
+            Bc = BitArray(B).chunks
             if !isempty(Ac) && !isempty(Bc)
                 for i = 1:length(Fc) - 1
                     Fc[i] = ($bitf)(Ac[i], Bc[i])
@@ -431,7 +430,7 @@ for (sigA, sigB) in ((BitArray, BitArray),
                      (BitArray, AbstractArray{Bool}))
     @eval function (.*)(A::$sigA, B::$sigB)
         try
-            return bitpack(A) & bitpack(B)
+            return BitArray(A) & BitArray(B)
         catch
             return bitbroadcast(&, A, B)
         end

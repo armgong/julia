@@ -96,11 +96,8 @@ function reinterpret{T,S,N}(::Type{T}, a::Array{S}, dims::NTuple{N,Int})
     ccall(:jl_reshape_array, Array{T,N}, (Any, Any, Any), Array{T,N}, a, dims)
 end
 
-reshape(a::Vector, dims::Tuple{Int}) = reshape_a(a, dims)
-reshape{N}(a::Array, dims::NTuple{N,Int}) = reshape_a(a, dims)
-
 # reshaping to same # of dimensions
-function reshape_a{T,N}(a::Array{T,N}, dims::NTuple{N,Int})
+function reshape{T,N}(a::Array{T,N}, dims::NTuple{N,Int})
     if prod(dims) != length(a)
         throw(DimensionMismatch("new dimensions $(dims) must be consistent with array size $(length(a))"))
     end
@@ -111,7 +108,7 @@ function reshape_a{T,N}(a::Array{T,N}, dims::NTuple{N,Int})
 end
 
 # reshaping to different # of dimensions
-function reshape_a{T,N}(a::Array{T}, dims::NTuple{N,Int})
+function reshape{T,N}(a::Array{T}, dims::NTuple{N,Int})
     if prod(dims) != length(a)
         throw(DimensionMismatch("new dimensions $(dims) must be consistent with array size $(length(a))"))
     end
@@ -120,15 +117,15 @@ end
 
 ## Constructors ##
 
-similar(a::Array, T, dims::Dims)      = Array(T, dims)
-similar{T}(a::Array{T,1})             = Array(T, size(a,1))
-similar{T}(a::Array{T,2})             = Array(T, size(a,1), size(a,2))
-similar{T}(a::Array{T,1}, dims::Dims) = Array(T, dims)
-similar{T}(a::Array{T,1}, m::Int)     = Array(T, m)
-similar{T}(a::Array{T,1}, S)          = Array(S, size(a,1))
-similar{T}(a::Array{T,2}, dims::Dims) = Array(T, dims)
-similar{T}(a::Array{T,2}, m::Int)     = Array(T, m)
-similar{T}(a::Array{T,2}, S)          = Array(S, size(a,1), size(a,2))
+similar(a::Array, T::Type, dims::Dims) = Array(T, dims)
+similar{T}(a::Array{T,1})              = Array(T, size(a,1))
+similar{T}(a::Array{T,2})              = Array(T, size(a,1), size(a,2))
+similar{T}(a::Array{T,1}, dims::Dims)  = Array(T, dims)
+similar{T}(a::Array{T,1}, m::Int)      = Array(T, m)
+similar{T}(a::Array{T,1}, S::Type)     = Array(S, size(a,1))
+similar{T}(a::Array{T,2}, dims::Dims)  = Array(T, dims)
+similar{T}(a::Array{T,2}, m::Int)      = Array(T, m)
+similar{T}(a::Array{T,2}, S::Type)     = Array(S, size(a,1), size(a,2))
 
 # T[x...] constructs Array{T,1}
 function getindex(T::Type, vals...)
@@ -138,6 +135,7 @@ function getindex(T::Type, vals...)
     end
     return a
 end
+getindex(T::Type) = Array{T}(0)
 
 function getindex(::Type{Any}, vals::ANY...)
     a = Array(Any,length(vals))
@@ -146,6 +144,7 @@ function getindex(::Type{Any}, vals::ANY...)
     end
     return a
 end
+getindex(::Type{Any}) = Array{Any}(0)
 
 function fill!(a::Union{Array{UInt8}, Array{Int8}}, x::Integer)
     ccall(:memset, Ptr{Void}, (Ptr{Void}, Cint, Csize_t), a, x, length(a))
@@ -309,7 +308,7 @@ done(a::Array,i) = i == length(a)+1
 
 # This is more complicated than it needs to be in order to get Win64 through bootstrap
 getindex(A::Array, i1::Real) = arrayref(A, to_index(i1))
-getindex(A::Array, i1::Real, i2::Real, I::Real...) = arrayref(A, to_index(i1), to_index(i2), to_indexes(I...)...)
+getindex(A::Array, i1::Real, i2::Real, I::Real...) = arrayref(A, to_index(i1), to_index(i2), to_indexes(I...)...) # TODO: REMOVE FOR #14770
 
 # Faster contiguous indexing using copy! for UnitRange and Colon
 function getindex(A::Array, I::UnitRange{Int})
@@ -338,7 +337,7 @@ end
 
 ## Indexing: setindex! ##
 setindex!{T}(A::Array{T}, x, i1::Real) = arrayset(A, convert(T,x)::T, to_index(i1))
-setindex!{T}(A::Array{T}, x, i1::Real, i2::Real, I::Real...) = arrayset(A, convert(T,x)::T, to_index(i1), to_index(i2), to_indexes(I...)...)
+setindex!{T}(A::Array{T}, x, i1::Real, i2::Real, I::Real...) = arrayset(A, convert(T,x)::T, to_index(i1), to_index(i2), to_indexes(I...)...) # TODO: REMOVE FOR #14770
 
 # These are redundant with the abstract fallbacks but needed for bootstrap
 function setindex!(A::Array, x, I::AbstractVector{Int})
@@ -383,6 +382,9 @@ function setindex!{T}(A::Array{T}, X::Array{T}, c::Colon)
     end
     return A
 end
+
+setindex!(A::Array, x::Number, ::Colon) = fill!(A, x)
+setindex!{T, N}(A::Array{T, N}, x::Number, ::Vararg{Colon, N}) = fill!(A, x)
 
 # efficiently grow an array
 
@@ -778,7 +780,7 @@ function findprev(testf::Function, A, start::Integer)
 end
 findlast(testf::Function, A) = findprev(testf, A, length(A))
 
-function find(testf::Function, A::AbstractArray)
+function find(testf::Function, A)
     # use a dynamic-length array to store the indexes, then copy to a non-padded
     # array for the return
     tmpI = Array(Int, 0)
@@ -792,9 +794,9 @@ function find(testf::Function, A::AbstractArray)
     I
 end
 
-function find(A::AbstractArray)
+function find(A)
     nnzA = countnz(A)
-    I = similar(A, Int, nnzA)
+    I = Vector{Int}(nnzA)
     count = 1
     for (i,a) in enumerate(A)
         if a != 0

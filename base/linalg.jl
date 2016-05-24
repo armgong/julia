@@ -10,7 +10,7 @@ import Base: USE_BLAS64, abs, big, ceil, conj, convert, copy, copy!, copy_transp
     imag, inv, isapprox, kron, ndims, parent, power_by_squaring, print_matrix,
     promote_rule, real, round, setindex!, show, similar, size, transpose, transpose!,
     trunc
-using Base: promote_op, MulFun
+using Base: promote_op
 
 export
 # Modules
@@ -176,11 +176,11 @@ else
 end
 
 # Check that stride of matrix/vector is 1
-function chkstride1(A...)
-    for a in A
-        stride(a,1)== 1 || error("matrix does not have contiguous columns")
-    end
-end
+# Writing like this to avoid splatting penalty when called with multiple arguments,
+# see PR 16416
+@inline chkstride1(A...) = _chkstride1(true, A...)
+@noinline _chkstride1(ok::Bool) = ok || error("matrix does not have contiguous columns")
+@inline _chkstride1(ok::Bool, A, B...) = _chkstride1(ok & (stride(A, 1) == 1), B...)
 
 """
     LinAlg.checksquare(A)
@@ -229,6 +229,7 @@ include("linalg/triangular.jl")
 
 include("linalg/factorization.jl")
 include("linalg/qr.jl")
+include("linalg/hessenberg.jl")
 include("linalg/lq.jl")
 include("linalg/eigen.jl")
 include("linalg/svd.jl")

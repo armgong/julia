@@ -123,7 +123,7 @@ function err_message(errno)
     buffer = Array(UInt8, 256)
     ccall((:pcre2_get_error_message_8, PCRE_LIB), Void,
           (Int32, Ptr{UInt8}, Csize_t), errno, buffer, sizeof(buffer))
-    bytestring(pointer(buffer))
+    String(pointer(buffer))
 end
 
 function exec(re,subject,offset,options,match_data)
@@ -166,7 +166,7 @@ function capture_names(re)
     name_count = info(re, INFO_NAMECOUNT, UInt32)
     name_entry_size = info(re, INFO_NAMEENTRYSIZE, UInt32)
     nametable_ptr = info(re, INFO_NAMETABLE, Ptr{UInt8})
-    names = Dict{Int, ASCIIString}()
+    names = Dict{Int, String}()
     for i=1:name_count
         offset = (i-1)*name_entry_size + 1
         # The capture group index corresponding to name 'i' is stored as a
@@ -176,7 +176,7 @@ function capture_names(re)
         idx = (high_byte << 8) | low_byte
         # The capture group name is a null-terminated string located directly
         # after the index.
-        names[idx] = bytestring(nametable_ptr+offset+1)
+        names[idx] = String(nametable_ptr+offset+1)
     end
     names
 end

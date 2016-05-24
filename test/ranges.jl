@@ -45,6 +45,9 @@ r = 5:-1:1
 @test isempty((1:4)[5:4])
 @test_throws BoundsError (1:10)[8:-1:-2]
 
+r = typemax(Int)-5:typemax(Int)-1
+@test_throws BoundsError r[7]
+
 @test findin([5.2, 3.3], 3:20) == findin([5.2, 3.3], collect(3:20))
 
 let
@@ -115,6 +118,9 @@ end
 
 @test sort(UnitRange(1,2)) == UnitRange(1,2)
 @test sort!(UnitRange(1,2)) == UnitRange(1,2)
+@test sort(1:10, rev=true) == collect(10:-1:1)
+@test sort(-3:3, by=abs) == [0,-1,1,-2,2,-3,3]
+@test select(1:10, 4) == 4
 
 @test 0 in UInt(0):100:typemax(UInt)
 @test last(UInt(0):100:typemax(UInt)) in UInt(0):100:typemax(UInt)
@@ -704,4 +710,18 @@ for r in (big(1):big(2), UInt128(1):UInt128(2), 0x1:0x2)
     @test r[r] == r
     # these calls to similar must not throw:
     @test size(similar(r, size(r))) == size(similar(r, length(r)))
+end
+
+# sign, conj, ~ (Issue #16067)
+let A = -1:1, B = -1.0:1.0
+    @test sign(A) == [-1,0,1]
+    @test sign(B) == [-1,0,1]
+    @test typeof(sign(A)) === Vector{Int}
+    @test typeof(sign(B)) === Vector{Float64}
+
+    @test conj(A) === A
+    @test conj(B) === B
+
+    @test ~A == [0,-1,-2]
+    @test typeof(~A) == Vector{Int}
 end

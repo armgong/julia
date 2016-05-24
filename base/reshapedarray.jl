@@ -34,23 +34,36 @@ start(R::ReshapedArrayIterator) = start(R.iter)
 end
 length(R::ReshapedArrayIterator) = length(R.iter)
 
-function reshape(parent::AbstractArray, dims::Dims)
-    prod(dims) == length(parent) || throw(DimensionMismatch("parent has $(length(parent)) elements, which is incompatible with size $dims"))
-    _reshape((parent, linearindexing(parent)), dims)
+reshape(parent::AbstractArray, dims::Dims) = _reshape(parent, dims)
+reshape(parent::AbstractArray, len::Integer) = reshape(parent, (Int(len),))
+reshape(parent::AbstractArray, dims::Int...) = reshape(parent, dims)
+
+reshape{T,N}(parent::AbstractArray{T,N}, ndims::Type{Val{N}}) = parent
+function reshape{T,AN,N}(parent::AbstractArray{T,AN}, ndims::Type{Val{N}})
+    reshape(parent, rdims((), size(parent), Val{N}))
 end
-reshape(R::ReshapedArray, dims::Dims) = reshape(R.parent, dims)
-reshape(a::AbstractArray, len::Int) = reshape(a, (len,))
-reshape(a::AbstractArray, dims::Int...) = reshape(a, dims)
+# Move elements from sz to out until out reaches the desired dimensionality N,
+# either filling with 1 or collapsing the product of trailing dims into the last element
+@pure rdims{N}(out::NTuple{N}, sz::Tuple{}, ::Type{Val{N}}) = out
+@pure rdims{N}(out::NTuple{N}, sz::Tuple{Any, Vararg{Any}}, ::Type{Val{N}}) = (front(out)..., last(out) * prod(sz))
+@pure rdims{N}(out::Tuple, sz::Tuple{}, ::Type{Val{N}}) = rdims((out..., 1), (), Val{N})
+@pure rdims{N}(out::Tuple, sz::Tuple{Any, Vararg{Any}}, ::Type{Val{N}}) = rdims((out..., first(sz)), tail(sz), Val{N})
+
+function _reshape(parent::AbstractArray, dims::Dims)
+    prod(dims) == length(parent) || throw(DimensionMismatch("parent has $(length(parent)) elements, which is incompatible with size $dims"))
+    __reshape((parent, linearindexing(parent)), dims)
+end
+_reshape(R::ReshapedArray, dims::Dims) = _reshape(R.parent, dims)
 
 # When reshaping Vector->Vector, don't wrap with a ReshapedArray
-reshape{T}(v::ReshapedArray{T,1}, dims::Tuple{Int}) = reshape(v.parent, dims[1])
-reshape(v::AbstractVector, dims::Tuple{Int}) = reshape(v, dims[1])
-function reshape(v::AbstractVector, len::Int)
+_reshape{T}(v::ReshapedArray{T,1}, dims::Tuple{Int}) = _reshape(v.parent, dims)
+function _reshape(v::AbstractVector, dims::Tuple{Int})
+    len = dims[1]
     len == length(v) || throw(DimensionMismatch("parent has $(length(v)) elements, which is incompatible with length $len"))
     v
 end
 
-function _reshape(p::Tuple{AbstractArray,LinearSlow}, dims::Dims)
+function __reshape(p::Tuple{AbstractArray,LinearSlow}, dims::Dims)
     parent = p[1]
     strds = front(size_strides(parent))
     strds1 = map(s->max(1,s), strds)  # for resizing empty arrays
@@ -58,7 +71,7 @@ function _reshape(p::Tuple{AbstractArray,LinearSlow}, dims::Dims)
     ReshapedArray(parent, dims, reverse(mi))
 end
 
-function _reshape(p::Tuple{AbstractArray,LinearFast}, dims::Dims)
+function __reshape(p::Tuple{AbstractArray,LinearFast}, dims::Dims)
     parent = p[1]
     ReshapedArray(parent, dims, ())
 end
@@ -70,7 +83,7 @@ size_strides(out::Tuple) = out
 size(A::ReshapedArray) = A.dims
 size(A::ReshapedArray, d) = d <= ndims(A) ? A.dims[d] : 1
 similar(A::ReshapedArray, eltype::Type) = similar(parent(A), eltype, size(A))
-similar(A::ReshapedArray, eltype::Type, dims...) = similar(parent(A), eltype, dims...)
+similar(A::ReshapedArray, eltype::Type, dims::Dims) = similar(parent(A), eltype, dims)
 linearindexing{R<:ReshapedArrayLF}(::Type{R}) = LinearFast()
 parent(A::ReshapedArray) = A.parent
 parentindexes(A::ReshapedArray) = map(s->1:s, size(parent(A)))
@@ -140,10 +153,4 @@ setindex!(A::ReshapedRange, val, index::ReshapedIndex) = _rs_setindex!_err()
 
 _rs_setindex!_err() = error("indexed assignment fails for a reshaped range; consider calling collect")
 
-typealias ArrayT{N, T} Array{T,N}
-convert{T,S,N}(::Type{Array{T,N}}, V::ReshapedArray{S,N}) = copy!(Array(T, size(V)), V)
-convert{T,N}(::Type{ArrayT{N}}, V::ReshapedArray{T,N}) = copy!(Array(T, size(V)), V)
-
 unsafe_convert{T}(::Type{Ptr{T}}, a::ReshapedArray{T}) = unsafe_convert(Ptr{T}, parent(a))
-unsafe_convert{T,N,P<:ReshapedArray,I<:Tuple{Vararg{Union{RangeIndex, NoSlice}}}}(::Type{Ptr{T}}, V::SubArray{T,N,P,I}) =
-    unsafe_convert(Ptr{T}, V.parent) + (first_index(V)-1)*sizeof(T)

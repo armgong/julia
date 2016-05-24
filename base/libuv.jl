@@ -20,10 +20,10 @@ function uv_sizeof_req(req)
 end
 
 for h in uv_handle_types
-@eval const $(symbol("_sizeof_"*lowercase(string(h)))) = uv_sizeof_handle($h)
+@eval const $(Symbol("_sizeof_",lowercase(string(h)))) = uv_sizeof_handle($h)
 end
 for r in uv_req_types
-@eval const $(symbol("_sizeof_"*lowercase(string(r)))) = uv_sizeof_req($r)
+@eval const $(Symbol("_sizeof_",lowercase(string(r)))) = uv_sizeof_req($r)
 end
 
 uv_handle_data(handle) = ccall(:jl_uv_handle_data,Ptr{Void},(Ptr{Void},),handle)
@@ -59,8 +59,10 @@ type UVError <: Exception
     UVError(p::AbstractString,code::Integer)=new(p,code)
 end
 
-struverror(err::UVError) = bytestring(ccall(:uv_strerror,Cstring,(Int32,),err.code))
-uverrorname(err::UVError) = bytestring(ccall(:uv_err_name,Cstring,(Int32,),err.code))
+struverror(err::Int32) = String(ccall(:uv_strerror,Cstring,(Int32,),err))
+struverror(err::UVError) = struverror(err.code)
+uverrorname(err::Int32) = String(ccall(:uv_err_name,Cstring,(Int32,),err))
+uverrorname(err::UVError) = uverrorname(err.code)
 
 uv_error(prefix::Symbol, c::Integer) = uv_error(string(prefix),c)
 uv_error(prefix::AbstractString, c::Integer) = c < 0 ? throw(UVError(prefix,c)) : nothing
@@ -102,3 +104,23 @@ function reinit_stdio()
     global STDERR = init_stdio(ccall(:jl_stderr_stream,Ptr{Void},()))
 end
 
+"""
+    STDIN
+
+Global variable referring to the standard input stream.
+"""
+:STDIN
+
+"""
+    STDOUT
+
+Global variable referring to the standard out stream.
+"""
+:STDOUT
+
+"""
+    STDERR
+
+Global variable referring to the standard error stream.
+"""
+:STDERR

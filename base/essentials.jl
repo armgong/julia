@@ -44,7 +44,7 @@ macro generated(f)
 end
 
 
-tuple_type_head(::Type{Union{}}) = throw(MethodError(tuple_type_head, (Type{Union{}},)))
+tuple_type_head(::Type{Union{}}) = throw(MethodError(tuple_type_head, (Union{},)))
 function tuple_type_head{T<:Tuple}(::Type{T})
     @_pure_meta
     T.parameters[1]
@@ -125,11 +125,11 @@ end
 map(f::Function, a::Array{Any,1}) = Any[ f(a[i]) for i=1:length(a) ]
 
 function precompile(f::ANY, args::Tuple)
-    ccall(:jl_compile_hint, Void, (Any,), Tuple{Core.Typeof(f), args...})
+    ccall(:jl_compile_hint, Cint, (Any,), Tuple{Core.Typeof(f), args...}) != 0
 end
 
 function precompile(argt::Type)
-    ccall(:jl_compile_hint, Void, (Any,), argt)
+    ccall(:jl_compile_hint, Cint, (Any,), argt) != 0
 end
 
 esc(e::ANY) = Expr(:escape, e)

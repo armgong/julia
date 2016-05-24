@@ -86,7 +86,9 @@ and return the UpperTriangular matrix `U` such that `A = U'U`.
 """
 function chol{T}(A::AbstractMatrix{T})
     S = promote_type(typeof(chol(one(T))), Float32)
-    chol!(copy_oftype(A, S))
+    AA = similar(A, S, size(A))
+    copy!(AA, A)
+    chol!(AA)
 end
 function chol!(x::Number, uplo)
     rx = real(x)
@@ -126,7 +128,10 @@ end
 """
     cholfact!(A::StridedMatrix, uplo::Symbol, Val{false}) -> Cholesky
 
-The same as `cholfact`, but saves space by overwriting the input `A`, instead of creating a copy.
+The same as `cholfact`, but saves space by overwriting the input `A`, instead
+of creating a copy. An `InexactError` exception is thrown if the factorisation
+produces a number not representable by the element type of `A`, e.g. for
+integer types.
 """
 function cholfact!(A::StridedMatrix, uplo::Symbol, ::Type{Val{false}})
     if uplo == :U
@@ -139,7 +144,10 @@ end
 """
     cholfact!(A::StridedMatrix, uplo::Symbol, Val{true}) -> PivotedCholesky
 
-The same as `cholfact`, but saves space by overwriting the input `A`, instead of creating a copy.
+The same as `cholfact`, but saves space by overwriting the input `A`, instead
+of creating a copy. An `InexactError` exception is thrown if the
+factorisation produces a number not representable by the element type of `A`,
+e.g. for integer types.
 """
 cholfact!(A::StridedMatrix, uplo::Symbol, ::Type{Val{true}}; tol = 0.0) =
     throw(ArgumentError("generic pivoted Cholesky fectorization is not implemented yet"))
@@ -207,14 +215,14 @@ size(C::Union{Cholesky, CholeskyPivoted}) = size(C.factors)
 size(C::Union{Cholesky, CholeskyPivoted}, d::Integer) = size(C.factors, d)
 
 function getindex{T,S}(C::Cholesky{T,S}, d::Symbol)
-    d == :U && return UpperTriangular(symbol(C.uplo) == d ? C.factors : C.factors')
-    d == :L && return LowerTriangular(symbol(C.uplo) == d ? C.factors : C.factors')
-    d == :UL && return symbol(C.uplo) == :U ? UpperTriangular(C.factors) : LowerTriangular(C.factors)
+    d == :U && return UpperTriangular(Symbol(C.uplo) == d ? C.factors : C.factors')
+    d == :L && return LowerTriangular(Symbol(C.uplo) == d ? C.factors : C.factors')
+    d == :UL && return Symbol(C.uplo) == :U ? UpperTriangular(C.factors) : LowerTriangular(C.factors)
     throw(KeyError(d))
 end
 function getindex{T<:BlasFloat}(C::CholeskyPivoted{T}, d::Symbol)
-    d == :U && return UpperTriangular(symbol(C.uplo) == d ? C.factors : C.factors')
-    d == :L && return LowerTriangular(symbol(C.uplo) == d ? C.factors : C.factors')
+    d == :U && return UpperTriangular(Symbol(C.uplo) == d ? C.factors : C.factors')
+    d == :L && return LowerTriangular(Symbol(C.uplo) == d ? C.factors : C.factors')
     d == :p && return C.piv
     if d == :P
         n = size(C, 1)

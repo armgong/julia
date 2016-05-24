@@ -82,10 +82,6 @@ finalize(o::ANY) = ccall(:jl_finalize, Void, (Any,), o)
 gc(full::Bool=true) = ccall(:jl_gc_collect, Void, (Cint,), full)
 gc_enable(on::Bool) = ccall(:jl_gc_enable, Cint, (Cint,), on)!=0
 
-bytestring(str::ByteString) = str
-
-identity(x) = x
-
 # used by { } syntax
 function cell_1d(xs::ANY...)
     n = length(xs)

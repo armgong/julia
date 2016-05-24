@@ -7,7 +7,9 @@ starttime = time()
 pwd_ = pwd()
 dir = mktempdir()
 file = joinpath(dir, "afile.txt")
-close(open(file,"w")) # like touch, but lets the operating system update the timestamp for greater precision on some platforms (windows)
+# like touch, but lets the operating system update the timestamp
+# for greater precision on some platforms (windows)
+@test close(open(file,"w")) === nothing
 
 subdir = joinpath(dir, "adir")
 mkdir(subdir)
@@ -874,7 +876,7 @@ end
 function test_LibcFILE(FILEp)
     buf = Array(UInt8, 8)
     str = ccall(:fread, Csize_t, (Ptr{Void}, Csize_t, Csize_t, Ptr{Void}), buf, 1, 8, FILEp)
-    @test bytestring(buf) == "Hello, w"
+    @test String(buf) == "Hello, w"
     @test position(FILEp) == 8
     seek(FILEp, 5)
     @test position(FILEp) == 5

@@ -5,7 +5,7 @@ module BaseDocs
 immutable Keyword
     name :: Symbol
 end
-macro kw_str(text) Keyword(symbol(text)) end
+macro kw_str(text) Keyword(Symbol(text)) end
 
 "Hello, Human."
 kw"hello", kw"hi"
@@ -235,22 +235,22 @@ kw"quote"
 `'` is the conjugate transposition operator:
 
     julia> A = reshape(1:4, 2,2)
-    2x2 Array{Int64,2}:
+    2×2 Array{Int64,2}:
      1  3
      2  4
 
     julia> A'
-    2x2 Array{Int64,2}:
+    2×2 Array{Int64,2}:
      1  2
      3  4
 
     julia> B = A + im
-    2x2 Array{Complex{Int64},2}:
+    2×2 Array{Complex{Int64},2}:
      1+1im  3+1im
      2+1im  4+1im
 
     julia> B'
-    2x2 Array{Complex{Int64},2}:
+    2×2 Array{Complex{Int64},2}:
      1-1im  2-1im
      3-1im  4-1im
 
@@ -262,22 +262,22 @@ kw"'"
 `.'` is the transposition operator:
 
     julia> A = reshape(1:4, 2,2)
-    2x2 Array{Int64,2}:
+    2×2 Array{Int64,2}:
      1  3
      2  4
 
     julia> A.'
-    2x2 Array{Int64,2}:
+    2×2 Array{Int64,2}:
      1  2
      3  4
 
     julia> B = A + im
-    2x2 Array{Complex{Int64},2}:
+    2×2 Array{Complex{Int64},2}:
      1+1im  3+1im
      2+1im  4+1im
 
     julia> B.'
-    2x2 Array{Complex{Int64},2}:
+    2×2 Array{Complex{Int64},2}:
      1+1im  2+1im
      3+1im  4+1im
 
@@ -587,7 +587,7 @@ functions for further details). In most cases, this simply results in a call to
 
 See `test/llvmcall.jl` for usage examples.
 """
-kw"llvmcall"
+Core.Intrinsics.llvmcall
 
 """
 `begin...end` denotes a block of code.
@@ -656,5 +656,21 @@ kw"immutable"
 `@__LINE__` expands to the line number of the call-site.
 """
 kw"@__LINE__"
+
+"""
+    nothing
+
+The singleton instance of type `Void`, used by convention when there is no value to return
+(as in a C `void` function). Can be converted to an empty `Nullable` value.
+"""
+nothing
+
+"""
+    ANY
+
+Equivalent to `Any` for dispatch purposes, but signals the compiler to skip code
+generation specialization for that field.
+"""
+ANY
 
 end

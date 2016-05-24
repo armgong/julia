@@ -37,7 +37,7 @@ end
 
     function splitdrive(path::AbstractString)
         m = match(r"^(\w+:|\\\\\w+\\\w+|\\\\\?\\UNC\\\w+\\\w+|\\\\\?\\\w+:|)(.*)$", path)
-        bytestring(m.captures[1]), bytestring(m.captures[2])
+        String(m.captures[1]), String(m.captures[2])
     end
     homedir() = get(ENV,"HOME",string(ENV["HOMEDRIVE"],ENV["HOMEPATH"]))
 end
@@ -45,14 +45,14 @@ end
 isabspath(path::AbstractString) = ismatch(path_absolute_re, path)
 isdirpath(path::AbstractString) = ismatch(path_directory_re, splitdrive(path)[2])
 
-function splitdir(path::ByteString)
+function splitdir(path::String)
     a, b = splitdrive(path)
     m = match(path_dir_splitter,b)
     m === nothing && return (a,b)
     a = string(a, isempty(m.captures[1]) ? m.captures[2][1] : m.captures[1])
-    a, bytestring(m.captures[3])
+    a, String(m.captures[3])
 end
-splitdir(path::AbstractString) = splitdir(bytestring(path))
+splitdir(path::AbstractString) = splitdir(String(path))
 
  dirname(path::AbstractString) = splitdir(path)[1]
 basename(path::AbstractString) = splitdir(path)[2]
@@ -61,7 +61,7 @@ function splitext(path::AbstractString)
     a, b = splitdrive(path)
     m = match(path_ext_splitter, b)
     m === nothing && return (path,"")
-    a*m.captures[1], bytestring(m.captures[2])
+    a*m.captures[1], String(m.captures[2])
 end
 
 function pathsep(paths::AbstractString...)
@@ -134,7 +134,7 @@ abspath(a::AbstractString, b::AbstractString...) = abspath(joinpath(a,b...))
         systemerror(:realpath, n == 0)
         x = n < length(buf) # is the buffer big enough?
         resize!(buf, n) # shrink if x, grow if !x
-        x && return UTF8String(utf16to8(buf))
+        x && return String(utf16to8(buf))
     end
 end
 
@@ -148,14 +148,14 @@ end
         systemerror(:longpath, n == 0)
         x = n < length(buf) # is the buffer big enough?
         resize!(buf, n) # shrink if x, grow if !x
-        x && return UTF8String(utf16to8(buf))
+        x && return String(utf16to8(buf))
     end
 end
 
 @unix_only function realpath(path::AbstractString)
     p = ccall(:realpath, Ptr{UInt8}, (Cstring, Ptr{UInt8}), path, C_NULL)
     systemerror(:realpath, p == C_NULL)
-    s = bytestring(p)
+    s = String(p)
     Libc.free(p)
     return s
 end

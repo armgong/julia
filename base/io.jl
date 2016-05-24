@@ -102,6 +102,13 @@ readlines(filename::AbstractString) = open(readlines, filename)
 
 ## byte-order mark, ntoh & hton ##
 
+"""
+    ENDIAN_BOM
+
+The 32-bit byte-order-mark indicates the native byte order of the host machine.
+Little-endian machines will contain the value `0x04030201`. Big-endian machines will contain
+the value `0x01020304`.
+"""
 const ENDIAN_BOM = reinterpret(UInt32,UInt8[1:4;])[1]
 
 if ENDIAN_BOM == 0x01020304
@@ -139,7 +146,7 @@ function write(s::IO, x::Union{Int16,UInt16,Int32,UInt32,Int64,UInt64,Int128,UIn
     return write(s, Ref(x))
 end
 
-write(s::IO, x::Bool)    = write(s, UInt8(x))
+write(s::IO, x::Bool) = write(s, UInt8(x))
 write(to::IO, p::Ptr) = write(to, convert(UInt, p))
 
 function write(s::IO, A::AbstractArray)
@@ -254,9 +261,7 @@ end
 
 function readuntil(s::IO, delim::Char)
     if delim < Char(0x80)
-        data = readuntil(s, delim%UInt8)
-        enc = byte_string_classify(data)
-        return (enc==1) ? ASCIIString(data) : UTF8String(data)
+        return String(readuntil(s, delim % UInt8))
     end
     out = IOBuffer()
     while !eof(s)
@@ -346,10 +351,7 @@ function read(s::IO, nb=typemax(Int))
     return resize!(b, nr)
 end
 
-function readstring(s::IO)
-    b = read(s)
-    return isvalid(ASCIIString, b) ? ASCIIString(b) : UTF8String(b)
-end
+readstring(s::IO) = String(read(s))
 
 ## high-level iterator interfaces ##
 
@@ -374,7 +376,7 @@ function done(itr::EachLine, nada)
     true
 end
 next(itr::EachLine, nada) = (readline(itr.stream), nothing)
-eltype(::Type{EachLine}) = ByteString
+eltype(::Type{EachLine}) = String
 
 readlines(s=STDIN) = collect(eachline(s))
 
@@ -404,3 +406,7 @@ function reset{T<:IO}(io::T)
 end
 
 ismarked(io::IO) = io.mark >= 0
+
+# Make sure all IO streams support flush, even if only as a no-op,
+# to make it easier to write generic I/O code.
+flush(io::IO) = nothing

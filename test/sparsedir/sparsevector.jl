@@ -129,7 +129,7 @@ let xr = sprand(1000, 0.9)
     @test all(nonzeros(xr) .>= 0.0)
 end
 
-let xr = sprand(1000, 0.9, Float32)
+let xr = sprand(Float32, 1000, 0.9)
     @test isa(xr, SparseVector{Float32,Int})
     @test length(xr) == 1000
     @test all(nonzeros(xr) .>= 0.0)
@@ -143,7 +143,7 @@ let xr = sprandn(1000, 0.9)
     end
 end
 
-let xr = sprandbool(1000, 0.9)
+let xr = sprand(Bool, 1000, 0.9)
     @test isa(xr, SparseVector{Bool,Int})
     @test length(xr) == 1000
     @test all(nonzeros(xr))
@@ -152,7 +152,7 @@ end
 let r1 = MersenneTwister(), r2 = MersenneTwister()
     @test sprand(r1, 100, .9) == sprand(r2, 100, .9)
     @test sprandn(r1, 100, .9) == sprandn(r2, 100, .9)
-    @test sprandbool(r1, 100, .9) == sprandbool(r2, 100, .9)
+    @test sprand(r1, Bool, 100, .9, ) == sprand(r2,  Bool, 100, .9)
 end
 
 ### Element access
@@ -547,9 +547,9 @@ let x = spv_x1, x2 = spv_x2
     @test exact_equal(complex(x, x),
         SparseVector(8, [2,5,6], [1.25+1.25im, -0.75-0.75im, 3.5+3.5im]))
     @test exact_equal(complex(x, x2),
-        SparseVector(8, [1,2,5,6,7], [3.25im, 1.25+4.0im, -0.75+0.im, 3.5-5.5im, -6.0im]))
+        SparseVector(8, [1,2,5,6,7], [3.25im, 1.25+4.0im, -0.75+0.0im, 3.5-5.5im, -6.0im]))
     @test exact_equal(complex(x2, x),
-        SparseVector(8, [1,2,5,6,7], [3.25+0.im, 4.0+1.25im, -0.75im, -5.5+3.5im, -6.0+0.im]))
+        SparseVector(8, [1,2,5,6,7], [3.25+0.0im, 4.0+1.25im, -0.75im, -5.5+3.5im, -6.0+0.0im]))
 
     # real & imag
 
@@ -890,8 +890,8 @@ let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 7)
 
     xdrop = copy(x)
     # This will keep index 1, 3, 4, 7 in xdrop
-    f_drop(i, x, other) = (abs(x) == 1.) || (i in [1, 7])
-    Base.SparseArrays.fkeep!(xdrop, f_drop, Void)
+    f_drop(i, x) = (abs(x) == 1.) || (i in [1, 7])
+    Base.SparseArrays.fkeep!(xdrop, f_drop)
     @test exact_equal(xdrop, SparseVector(7, [1, 3, 4, 7], [3., -1., 1., 3.]))
 end
 
@@ -950,3 +950,20 @@ x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 15)
 @test collect(sort(x, by=abs)) == sort(collect(x), by=abs)
 @test collect(sort(x, by=sign)) == sort(collect(x), by=sign)
 @test collect(sort(x, by=inv)) == sort(collect(x), by=inv)
+
+#fill!
+for Tv in [Float32, Float64, Int64, Int32, Complex128]
+    for Ti in [Int16, Int32, Int64, BigInt]
+        sptypes = (SparseMatrixCSC{Tv, Ti}, SparseVector{Tv, Ti})
+        sizes = [(3, 4), (3,)]
+        for (siz, Sp) in zip(sizes, sptypes)
+            arr = rand(Tv, siz...)
+            sparr = Sp(arr)
+            fillval = rand(Tv)
+            fill!(sparr, fillval)
+            @test full(sparr) == fillval * ones(arr)
+            fill!(sparr, 0)
+            @test full(sparr) == zeros(arr)
+        end
+    end
+end

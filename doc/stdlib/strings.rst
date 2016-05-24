@@ -50,35 +50,23 @@
 
    Create a string from any value using the ``showall`` function.
 
-.. function:: bytestring(::Ptr{UInt8}, [length])
+.. function:: String(p::Ptr{UInt8}, [length::Integer])
 
    .. Docstring generated from Julia source
 
-   Create a string from the address of a C (0-terminated) string encoded in ASCII or UTF-8. A copy is made; the ptr can be safely freed. If ``length`` is specified, the string does not have to be 0-terminated.
+   Create a string from the address of a C (0-terminated) string encoded as UTF-8. A copy is made so the ptr can be safely freed. If ``length`` is specified, the string does not have to be 0-terminated.
 
-.. function:: bytestring(s)
-
-   .. Docstring generated from Julia source
-
-   Convert a string to a contiguous byte array representation appropriate for passing it to C functions. The string will be encoded as either ASCII or UTF-8.
-
-.. function:: ascii(::Array{UInt8,1})
+.. function:: String(s::AbstractString)
 
    .. Docstring generated from Julia source
 
-   Create an ASCII string from a byte array.
+   Convert a string to a contiguous byte array representation encoded as UTF-8 bytes. This representation is often appropriate for passing strings to C.
 
-.. function:: ascii(s)
-
-   .. Docstring generated from Julia source
-
-   Convert a string to a contiguous ASCII string (all characters must be valid ASCII characters).
-
-.. function:: ascii(::Ptr{UInt8}, [length])
+.. function:: ascii(s::AbstractString)
 
    .. Docstring generated from Julia source
 
-   Create an ASCII string from the address of a C (0-terminated) string encoded in ASCII. A copy is made; the ptr can be safely freed. If ``length`` is specified, the string does not have to be 0-terminated.
+   Convert a string to ``String`` type and check that it contains only ASCII data, otherwise throwing an ``ArugmentError`` indicating the position of the first non-ASCII byte.
 
 .. function:: utf8(::Array{UInt8,1})
 
@@ -159,13 +147,13 @@
 
    .. Docstring generated from Julia source
 
-   Returns ``true`` if the given value is valid for its type, which currently can be one of ``Char``\ , ``ASCIIString``\ , ``UTF8String``\ , ``UTF16String``\ , or ``UTF32String``\ .
+   Returns ``true`` if the given value is valid for its type, which currently can be one of ``Char``\ , ``String``\ , ``UTF16String``\ , or ``UTF32String``\ .
 
 .. function:: isvalid(T, value) -> Bool
 
    .. Docstring generated from Julia source
 
-   Returns ``true`` if the given value is valid for that type. Types currently can be ``Char``\ , ``ASCIIString``\ , ``UTF8String``\ , ``UTF16String``\ , or ``UTF32String`` Values for ``Char`` can be of type ``Char`` or ``UInt32`` Values for ``ASCIIString`` and ``UTF8String`` can be of that type, or ``Vector{UInt8}`` Values for ``UTF16String`` can be ``UTF16String`` or ``Vector{UInt16}`` Values for ``UTF32String`` can be ``UTF32String``\ , ``Vector{Char}`` or ``Vector{UInt32}``
+   Returns ``true`` if the given value is valid for that type. Types currently can be ``Char``\ , ``String``\ , ``UTF16String``\ , or ``UTF32String`` Values for ``Char`` can be of type ``Char`` or ``UInt32`` Values for ``String`` can be of that type, or ``Vector{UInt8}`` Values for ``UTF16String`` can be ``UTF16String`` or ``Vector{UInt16}`` Values for ``UTF32String`` can be ``UTF32String``\ , ``Vector{Char}`` or ``Vector{UInt32}``
 
 .. function:: isvalid(str, i)
 
@@ -471,7 +459,7 @@
 
    Tests whether a character is a valid hexadecimal digit, or whether this is true for all elements of a string.
 
-.. function:: symbol(x...) -> Symbol
+.. function:: Symbol(x...) -> Symbol
 
    .. Docstring generated from Julia source
 

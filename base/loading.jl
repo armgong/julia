@@ -44,7 +44,7 @@ elseif OS_NAME == :Darwin
     # getattrpath(path, &attr_list, &buf, sizeof(buf), FSOPT_NOFOLLOW);
     function isfile_casesensitive(path)
         isfile(path) || return false
-        path_basename = bytestring(basename(path))
+        path_basename = String(basename(path))
         local casepreserved_basename
         const header_size = 12
         buf = Array(UInt8, length(path_basename) + header_size + 1)
@@ -80,7 +80,7 @@ else
     end
 end
 
-function try_path(prefix::ByteString, base::ByteString, name::ByteString)
+function try_path(prefix::String, base::String, name::String)
     path = joinpath(prefix, name)
     isfile_casesensitive(path) && return abspath(path)
     path = joinpath(prefix, base, "src", name)
@@ -92,7 +92,7 @@ end
 
 # `wd` is a working directory to search. defaults to current working directory.
 # if `wd === nothing`, no extra path is searched.
-function find_in_path(name::ByteString, wd = pwd())
+function find_in_path(name::String, wd)
     isabspath(name) && return name
     base = name
     if endswith(name,".jl")
@@ -111,8 +111,9 @@ function find_in_path(name::ByteString, wd = pwd())
     end
     return nothing
 end
+find_in_path(name::AbstractString, wd = pwd()) = find_in_path(String(name), wd)
 
-function find_in_node_path(name::ByteString, srcpath, node::Int=1)
+function find_in_node_path(name::String, srcpath, node::Int=1)
     if myid() == node
         find_in_path(name, srcpath)
     else
@@ -120,7 +121,7 @@ function find_in_node_path(name::ByteString, srcpath, node::Int=1)
     end
 end
 
-function find_source_file(file::ByteString)
+function find_source_file(file::String)
     (isabspath(file) || isfile(file)) && return file
     file2 = find_in_path(file)
     file2 !== nothing && return file2
@@ -145,7 +146,7 @@ function _include_from_serialized(content::Vector{UInt8})
 end
 
 # returns an array of modules loaded, or nothing if failed
-function _require_from_serialized(node::Int, mod::Symbol, path_to_try::ByteString, toplevel_load::Bool)
+function _require_from_serialized(node::Int, mod::Symbol, path_to_try::String, toplevel_load::Bool)
     if JLOptions().use_compilecache == 0
         return nothing
     end
@@ -212,7 +213,7 @@ end
 const package_locks = Dict{Symbol,Condition}()
 
 # used to optionally track dependencies when requiring a module:
-const _require_dependencies = Tuple{ByteString,Float64}[]
+const _require_dependencies = Tuple{String,Float64}[]
 const _track_dependencies = [false]
 function _include_dependency(_path::AbstractString)
     prev = source_path(nothing)
@@ -304,7 +305,7 @@ function reload(name::AbstractString)
         error("use `include` instead of `reload` to load source files")
     else
         # reload("Package") is ok
-        require(symbol(require_modname(name)))
+        require(Symbol(require_modname(name)))
     end
 end
 
@@ -376,12 +377,12 @@ end
 
 # remote/parallel load
 
-include_string(txt::ByteString, fname::ByteString) =
+include_string(txt::String, fname::String) =
     ccall(:jl_load_file_string, Any, (Ptr{UInt8},Csize_t,Ptr{UInt8},Csize_t),
           txt, sizeof(txt), fname, sizeof(fname))
 
 include_string(txt::AbstractString, fname::AbstractString="string") =
-    include_string(bytestring(txt), bytestring(fname))
+    include_string(String(txt), String(fname))
 
 function source_path(default::Union{AbstractString,Void}="")
     t = current_task()
@@ -437,7 +438,7 @@ function include_from_node1(_path::AbstractString)
     result
 end
 
-function evalfile(path::AbstractString, args::Vector{UTF8String}=UTF8String[])
+function evalfile(path::AbstractString, args::Vector{String}=String[])
     return eval(Module(:__anon__),
                 Expr(:toplevel,
                      :(const ARGS = $args),
@@ -445,7 +446,7 @@ function evalfile(path::AbstractString, args::Vector{UTF8String}=UTF8String[])
                      :(eval(m,x) = Main.Core.eval(m,x)),
                      :(Main.Base.include($path))))
 end
-evalfile(path::AbstractString, args::Vector) = evalfile(path, UTF8String[args...])
+evalfile(path::AbstractString, args::Vector) = evalfile(path, String[args...])
 
 function create_expr_cache(input::AbstractString, output::AbstractString)
     rm(output, force=true)   # Remove file if it exists
@@ -491,7 +492,7 @@ function create_expr_cache(input::AbstractString, output::AbstractString)
 end
 
 compilecache(mod::Symbol) = compilecache(string(mod))
-function compilecache(name::ByteString)
+function compilecache(name::String)
     myid() == 1 || error("can only precompile from node 1")
     path = find_in_path(name, nothing)
     path === nothing && throw(ArgumentError("$name not found in path"))
@@ -512,19 +513,19 @@ isvalid_cache_header(f::IOStream) = 0 != ccall(:jl_deserialize_verify_header, Ci
 
 function cache_dependencies(f::IO)
     modules = Tuple{Symbol,UInt64}[]
-    files = Tuple{ByteString,Float64}[]
+    files = Tuple{String,Float64}[]
     while true
         n = ntoh(read(f, Int32))
         n == 0 && break
         push!(modules,
-              (symbol(read(f, n)), # module symbol
+              (Symbol(read(f, n)), # module symbol
                ntoh(read(f, UInt64)))) # module UUID (timestamp)
     end
     read(f, Int64) # total bytes for file dependencies
     while true
         n = ntoh(read(f, Int32))
         n == 0 && break
-        push!(files, (bytestring(read(f, n)), ntoh(read(f, Float64))))
+        push!(files, (String(read(f, n)), ntoh(read(f, Float64))))
     end
     return modules, files
 end
@@ -560,7 +561,7 @@ function stale_cachefile(modpath, cachefile)
             if !isdefined(Main, M)
                 require(M) # should recursively recompile module M if stale
             end
-            if module_uuid(Main.(M)) != uuid
+            if module_uuid(getfield(Main, M)) != uuid
                 return true
             end
         end

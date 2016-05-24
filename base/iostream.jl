@@ -35,7 +35,6 @@ function flush(s::IOStream)
     bad = ccall(:ios_flush, Cint, (Ptr{Void},), s.ios) != 0
     sigatomic_end()
     systemerror("flush", bad)
-    s
 end
 iswritable(s::IOStream) = ccall(:ios_get_writable, Cint, (Ptr{Void},), s.ios)!=0
 isreadable(s::IOStream) = ccall(:ios_get_readable, Cint, (Ptr{Void},), s.ios)!=0
@@ -181,7 +180,7 @@ end
 read(s::IOStream, ::Type{Char}) = Char(ccall(:jl_getutf8, UInt32, (Ptr{Void},), s.ios))
 
 takebuf_string(s::IOStream) =
-    ccall(:jl_takebuf_string, Ref{ByteString}, (Ptr{Void},), s.ios)
+    ccall(:jl_takebuf_string, Ref{String}, (Ptr{Void},), s.ios)
 
 takebuf_array(s::IOStream) =
     ccall(:jl_takebuf_array, Vector{UInt8}, (Ptr{Void},), s.ios)

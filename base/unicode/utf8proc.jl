@@ -3,7 +3,7 @@
 # Various Unicode functionality from the utf8proc library
 module UTF8proc
 
-import Base: show, ==, hash, string, symbol, isless, length, eltype, start, next, done, convert, isvalid, lowercase, uppercase
+import Base: show, ==, hash, string, Symbol, isless, length, eltype, start, next, done, convert, isvalid, lowercase, uppercase
 
 export isgraphemebreak
 
@@ -68,17 +68,17 @@ const UTF8PROC_STRIPMARK = (1<<13)
 
 ############################################################################
 
-function utf8proc_map(s::ByteString, flags::Integer)
+function utf8proc_map(s::String, flags::Integer)
     p = Ref{Ptr{UInt8}}()
     result = ccall(:utf8proc_map, Cssize_t,
                    (Ptr{UInt8}, Cssize_t, Ref{Ptr{UInt8}}, Cint),
                    s, sizeof(s), p, flags)
-    result < 0 && error(bytestring(ccall(:utf8proc_errmsg, Cstring,
+    result < 0 && error(String(ccall(:utf8proc_errmsg, Cstring,
                                          (Cssize_t,), result)))
-    pointer_to_string(p[], result, true)::ByteString
+    pointer_to_string(p[], result, true)::String
 end
 
-utf8proc_map(s::AbstractString, flags::Integer) = utf8proc_map(bytestring(s), flags)
+utf8proc_map(s::AbstractString, flags::Integer) = utf8proc_map(String(s), flags)
 
 function normalize_string(s::AbstractString; stable::Bool=false, compat::Bool=false, compose::Bool=true, decompose::Bool=false, stripignore::Bool=false, rejectna::Bool=false, newline2ls::Bool=false, newline2ps::Bool=false, newline2lf::Bool=false, stripcc::Bool=false, casefold::Bool=false, lump::Bool=false, stripmark::Bool=false)
     flags = 0
@@ -156,8 +156,7 @@ iscntrl(c::Char) = (c <= Char(0x1f) || Char(0x7f) <= c <= Char(0x9f))
 ispunct(c::Char) = (UTF8PROC_CATEGORY_PC <= category_code(c) <= UTF8PROC_CATEGORY_PO)
 
 # \u85 is the Unicode Next Line (NEL) character
-# the check for \ufffd allows for branch removal on ASCIIStrings
-@inline isspace(c::Char) = c == ' ' || '\t' <= c <='\r' || c == '\u85' || '\ua0' <= c && c != '\ufffd' && category_code(c)==UTF8PROC_CATEGORY_ZS
+@inline isspace(c::Char) = c == ' ' || '\t' <= c <='\r' || c == '\u85' || '\ua0' <= c && category_code(c) == UTF8PROC_CATEGORY_ZS
 
 isprint(c::Char) = (UTF8PROC_CATEGORY_LU <= category_code(c) <= UTF8PROC_CATEGORY_ZS)
 
@@ -166,7 +165,7 @@ isgraph(c::Char) = (UTF8PROC_CATEGORY_LU <= category_code(c) <= UTF8PROC_CATEGOR
 
 for name = ("alnum", "alpha", "cntrl", "digit", "number", "graph",
             "lower", "print", "punct", "space", "upper")
-    f = symbol("is",name)
+    f = Symbol("is",name)
     @eval begin
         function $f(s::AbstractString)
             for c in s
