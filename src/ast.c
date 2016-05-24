@@ -225,13 +225,13 @@ static void jl_init_ast_ctx(jl_ast_context_t *ast_ctx)
 }
 
 // There should be no GC allocation while holding this lock
-JL_DEFINE_MUTEX(flisp)
+static jl_mutex_t flisp_lock;
 static jl_ast_context_list_t *jl_ast_ctx_using = NULL;
 static jl_ast_context_list_t *jl_ast_ctx_freed = NULL;
 
 static jl_ast_context_t *jl_ast_ctx_enter(void)
 {
-    JL_LOCK_NOGC(flisp);
+    JL_LOCK_NOGC(&flisp_lock);
     jl_ast_context_list_t *node;
     jl_ast_context_t *ctx;
     // First check if the current task is using one of the contexts
@@ -239,7 +239,7 @@ static jl_ast_context_t *jl_ast_ctx_enter(void)
         ctx = jl_ast_context_list_item(node);
         if (ctx->task == jl_current_task) {
             ctx->ref++;
-            JL_UNLOCK_NOGC(flisp);
+            JL_UNLOCK_NOGC(&flisp_lock);
             return ctx;
         }
     }
@@ -251,7 +251,7 @@ static jl_ast_context_t *jl_ast_ctx_enter(void)
         ctx->ref = 1;
         ctx->task = jl_current_task;
         ctx->roots = NULL;
-        JL_UNLOCK_NOGC(flisp);
+        JL_UNLOCK_NOGC(&flisp_lock);
         return ctx;
     }
     // Construct a new one if we can't find any
@@ -261,7 +261,7 @@ static jl_ast_context_t *jl_ast_ctx_enter(void)
     ctx->task = jl_current_task;
     node = &ctx->list;
     jl_ast_context_list_insert(&jl_ast_ctx_using, node);
-    JL_UNLOCK_NOGC(flisp);
+    JL_UNLOCK_NOGC(&flisp_lock);
     jl_init_ast_ctx(ctx);
     return ctx;
 }
@@ -270,12 +270,12 @@ static void jl_ast_ctx_leave(jl_ast_context_t *ctx)
 {
     if (--ctx->ref)
         return;
-    JL_LOCK_NOGC(flisp);
+    JL_LOCK_NOGC(&flisp_lock);
     ctx->task = NULL;
     jl_ast_context_list_t *node = &ctx->list;
     jl_ast_context_list_delete(node);
     jl_ast_context_list_insert(&jl_ast_ctx_freed, node);
-    JL_UNLOCK_NOGC(flisp);
+    JL_UNLOCK_NOGC(&flisp_lock);
 }
 
 void jl_init_frontend(void)
@@ -490,8 +490,8 @@ static jl_value_t *scm_to_julia_(fl_context_t *fl_ctx, value_t e, int eo)
                 jl_cellset(ex->args, i, scm_to_julia_(fl_ctx, car_(e), eo));
                 e = cdr_(e);
             }
-            nli = jl_new_lambda_info((jl_value_t*)ex, tvars, jl_emptysvec, jl_current_module);
-            jl_preresolve_globals((jl_value_t*)nli, nli);
+            nli = jl_new_lambda_info_uninit(tvars);
+            jl_lambda_info_set_ast(nli, (jl_value_t*)ex);
             JL_GC_POP();
             return (jl_value_t*)nli;
         }
@@ -892,7 +892,8 @@ jl_lambda_info_t *jl_wrap_expr(jl_value_t *expr)
     // `(lambda () (() () () ()) ,expr)
     jl_expr_t *le=NULL, *bo=NULL; jl_value_t *vi=NULL;
     jl_value_t *mt = jl_an_empty_cell;
-    JL_GC_PUSH3(&le, &vi, &bo);
+    jl_lambda_info_t *li = NULL;
+    JL_GC_PUSH4(&le, &vi, &bo, &li);
     le = jl_exprn(lambda_sym, 3);
     jl_cellset(le->args, 0, mt);
     vi = (jl_value_t*)jl_alloc_cell_1d(3);
@@ -907,7 +908,8 @@ jl_lambda_info_t *jl_wrap_expr(jl_value_t *expr)
         expr = (jl_value_t*)bo;
     }
     jl_cellset(le->args, 2, expr);
-    jl_lambda_info_t *li = jl_new_lambda_info((jl_value_t*)le, jl_emptysvec, jl_emptysvec, jl_current_module);
+    li = jl_new_lambda_info_uninit(jl_emptysvec);
+    jl_lambda_info_set_ast(li, (jl_value_t*)le);
     JL_GC_POP();
     return li;
 }
@@ -1045,64 +1047,6 @@ int has_meta(jl_array_t *body, jl_sym_t *sym)
         }
     }
     return 0;
-}
-
-extern jl_value_t *jl_builtin_getfield;
-
-jl_value_t *jl_preresolve_globals(jl_value_t *expr, jl_lambda_info_t *lam)
-{
-    if (jl_is_symbol(expr)) {
-        if (lam->module == NULL)
-            return expr;
-        return jl_module_globalref(lam->module, (jl_sym_t*)expr);
-    }
-    else if (jl_is_lambda_info(expr)) {
-        jl_array_t *exprs = ((jl_lambda_info_t*)expr)->code;
-        if (jl_typeis(exprs, jl_array_any_type)) {
-            size_t l = jl_array_len(exprs);
-            size_t i;
-            for(i=0; i < l; i++)
-                jl_cellset(exprs, i, jl_preresolve_globals(jl_cellref(exprs,i), lam));
-        }
-    }
-    else if (jl_is_expr(expr)) {
-        jl_expr_t *e = (jl_expr_t*)expr;
-        if (e->head == lambda_sym) {
-            (void)jl_preresolve_globals(jl_exprarg(e,2), lam);
-        }
-        else if (jl_is_toplevel_only_expr(expr) || e->head == const_sym || e->head == copyast_sym ||
-                 e->head == global_sym || e->head == quote_sym || e->head == inert_sym ||
-                 e->head == line_sym || e->head == meta_sym) {
-        }
-        else {
-            if (e->head == call_sym && jl_expr_nargs(e) == 3 && jl_is_quotenode(jl_exprarg(e,2)) &&
-                lam->module != NULL) {
-                // replace getfield(module_expr, :sym) with GlobalRef
-                jl_value_t *s = jl_fieldref(jl_exprarg(e,2),0);
-                jl_value_t *fe = jl_exprarg(e,0);
-                if (jl_is_symbol(s) && jl_is_topnode(fe)) {
-                    jl_value_t *f = jl_static_eval(fe, NULL, lam->module, lam, 0, 0);
-                    if (f == jl_builtin_getfield) {
-                        jl_value_t *me = jl_exprarg(e,1);
-                        if (jl_is_topnode(me) ||
-                            (jl_is_symbol(me) && jl_binding_resolved_p(lam->module,(jl_sym_t*)me))) {
-                            jl_value_t *m = jl_static_eval(me, NULL, lam->module, lam, 0, 0);
-                            if (m && jl_is_module(m))
-                                return jl_module_globalref((jl_module_t*)m, (jl_sym_t*)s);
-                        }
-                    }
-                }
-            }
-            size_t i = 0;
-            if (e->head == method_sym || e->head == abstracttype_sym || e->head == compositetype_sym ||
-                e->head == bitstype_sym || e->head == module_sym)
-                i++;
-            for(; i < jl_array_len(e->args); i++) {
-                jl_exprargset(e, i, jl_preresolve_globals(jl_exprarg(e,i), lam));
-            }
-        }
-    }
-    return expr;
 }
 
 #ifdef __cplusplus

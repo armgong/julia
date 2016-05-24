@@ -7,12 +7,16 @@ tc{N}(r1::BitArray{N}, r2::Union{BitArray{N},Array{Bool,N}}) = true
 tc{T}(r1::T, r2::T) = true
 tc(r1,r2) = false
 
+bitcheck(b::BitArray) = length(b.chunks) == 0 || (b.chunks[end] == b.chunks[end] & Base._msk_end(b))
+bitcheck(x) = true
+
 function check_bitop(ret_type, func, args...)
     r1 = func(args...)
     r2 = func(map(x->(isa(x, BitArray) ? bitunpack(x) : x), args)...)
     @test isa(r1, ret_type)
     @test tc(r1, r2)
     @test isequal(r1, convert(ret_type, r2))
+    @test bitcheck(r1)
 end
 
 macro check_bit_operation(ex, ret_type)
@@ -38,10 +42,30 @@ v1 = 260
 # matrices size
 n1, n2 = 17, 20
 # arrays size
-s1, s2, s3, s4 = 5, 8, 3, 4
+s1, s2, s3, s4 = 5, 8, 3, 7
 
 allsizes = [((), BitArray{0}), ((v1,), BitVector),
             ((n1,n2), BitMatrix), ((s1,s2,s3,s4), BitArray{4})]
+
+# trues and falses
+for (sz,T) in allsizes
+    a = falses(sz...)
+    @test a == falses(sz)
+    @test !any(a)
+    @test sz == size(a)
+    b = trues(sz...)
+    @test b == trues(sz)
+    @test all(b)
+    @test sz == size(b)
+    c = trues(a)
+    @test all(c)
+    @test !any(a)
+    @test sz == size(c)
+    d = falses(b)
+    @test !any(d)
+    @test all(b)
+    @test sz == size(d)
+end
 
 ## Conversions ##
 
@@ -77,7 +101,31 @@ for (sz,T) in allsizes
     @check_bit_operation size(b1)   Tuple{Vararg{Int}}
 
     b2 = similar(b1)
+    u1 = bitunpack(b1)
     @check_bit_operation copy!(b2, b1) T
+    @check_bit_operation copy!(b2, u1) T
+end
+
+for n in [1; 1023:1025]
+    b1 = falses(n)
+    for m in [1; 10; 1023:1025]
+        u1 = ones(Bool, m)
+        for fu! in [u->fill!(u, true), u->rand!(u)]
+            fu!(u1)
+            c1 = convert(Vector{Int}, u1)
+            for i1 in [1; 10; 53:65; 1013:1015; 1020:1025], i2 in [1; 3; 10; 511:513], l in [1; 5; 10; 511:513; 1023:1025]
+                for fb! in [b->fill!(b, false), b->rand!(b)]
+                    fb!(b1)
+                    if i1 < 1 || i1 > n || (i2 + l - 1 > m) || (i1 + l - 1 > n)
+                        @test_throws BoundsError copy!(b1, i1, u1, i2, l)
+                    else
+                        @check_bit_operation copy!(b1, i1, u1, i2, l) BitArray
+                        @check_bit_operation copy!(b1, i1, c1, i2, l) BitArray
+                    end
+                end
+            end
+        end
+    end
 end
 
 @test_throws ArgumentError size(trues(5),0)
@@ -276,22 +324,21 @@ t1 = bitrand(n1, n2)
 b2 = bitrand(countnz(t1))
 @check_bit_operation setindex!(b1, b2, t1) BitMatrix
 
-m1 = rand(1:n1)
-m2 = rand(1:n2)
+let m1 = rand(1:n1), m2 = rand(1:n2)
+    t1 = bitrand(n1)
+    b2 = bitrand(countnz(t1), m2)
+    k2 = randperm(m2)
+    @check_bit_operation setindex!(b1, b2, t1, 1:m2)       BitMatrix
+    @check_bit_operation setindex!(b1, b2, t1, n2-m2+1:n2) BitMatrix
+    @check_bit_operation setindex!(b1, b2, t1, k2)         BitMatrix
 
-t1 = bitrand(n1)
-b2 = bitrand(countnz(t1), m2)
-k2 = randperm(m2)
-@check_bit_operation setindex!(b1, b2, t1, 1:m2)       BitMatrix
-@check_bit_operation setindex!(b1, b2, t1, n2-m2+1:n2) BitMatrix
-@check_bit_operation setindex!(b1, b2, t1, k2)         BitMatrix
-
-t2 = bitrand(n2)
-b2 = bitrand(m1, countnz(t2))
-k1 = randperm(m1)
-@check_bit_operation setindex!(b1, b2, 1:m1, t2)       BitMatrix
-@check_bit_operation setindex!(b1, b2, n1-m1+1:n1, t2) BitMatrix
-@check_bit_operation setindex!(b1, b2, k1, t2)         BitMatrix
+    t2 = bitrand(n2)
+    b2 = bitrand(m1, countnz(t2))
+    k1 = randperm(m1)
+    @check_bit_operation setindex!(b1, b2, 1:m1, t2)       BitMatrix
+    @check_bit_operation setindex!(b1, b2, n1-m1+1:n1, t2) BitMatrix
+    @check_bit_operation setindex!(b1, b2, k1, t2)         BitMatrix
+end
 
 timesofar("indexing")
 
@@ -1006,23 +1053,25 @@ end
 
 ## Reductions ##
 
-b1 = bitrand(s1, s2, s3, s4)
-m1 = 1
-m2 = 3
-@check_bit_operation maximum(b1, (m1, m2)) BitArray{4}
-@check_bit_operation minimum(b1, (m1, m2)) BitArray{4}
-@check_bit_operation sum(b1, (m1, m2)) Array{Int,4}
+let
+    b1 = bitrand(s1, s2, s3, s4)
+    m1 = 1
+    m2 = 3
+    @check_bit_operation maximum(b1, (m1, m2)) BitArray{4}
+    @check_bit_operation minimum(b1, (m1, m2)) BitArray{4}
+    @check_bit_operation sum(b1, (m1, m2)) Array{Int,4}
 
-@check_bit_operation maximum(b1) Bool
-@check_bit_operation minimum(b1) Bool
-@check_bit_operation any(b1) Bool
-@check_bit_operation all(b1) Bool
-@check_bit_operation sum(b1) Int
+    @check_bit_operation maximum(b1) Bool
+    @check_bit_operation minimum(b1) Bool
+    @check_bit_operation any(b1) Bool
+    @check_bit_operation all(b1) Bool
+    @check_bit_operation sum(b1) Int
 
-b0 = falses(0)
-@check_bit_operation any(b0) Bool
-@check_bit_operation all(b0) Bool
-@check_bit_operation sum(b0) Int
+    b0 = falses(0)
+    @check_bit_operation any(b0) Bool
+    @check_bit_operation all(b0) Bool
+    @check_bit_operation sum(b0) Int
+end
 
 timesofar("reductions")
 

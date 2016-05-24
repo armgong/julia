@@ -144,7 +144,19 @@ download
     @everywhere
 
 Execute an expression on all processes. Errors on any of the processes are collected into a
-`CompositeException` and thrown.
+`CompositeException` and thrown. For example :
+
+    @everywhere bar=1
+
+will define `bar` under module `Main` on all processes.
+
+Unlike `@spawn` and `@spawnat`, `@everywhere` does not capture any local variables. Prefixing
+`@everywhere` with `@eval` allows us to broadcast local variables using interpolation :
+
+    foo = 1
+    @eval @everywhere bar=\$foo
+
+
 """
 :@everywhere
 
@@ -1110,13 +1122,6 @@ results to `r`.
 any!
 
 """
-    falses(dims)
-
-Create a `BitArray` with all values set to `false`.
-"""
-falses
-
-"""
     filter!(function, collection)
 
 Update `collection`, removing elements for which `function` is `false`. For associative
@@ -1572,9 +1577,7 @@ ind2chr
 """
     reshape(A, dims)
 
-Create an array with the same data as the given array, but with different dimensions. An
-implementation for a particular type of array may choose whether the data is copied or
-shared.
+Create an array with the same data as the given array, but with different dimensions.
 """
 reshape
 
@@ -2748,9 +2751,9 @@ mapping the SharedArray
 indexpids
 
 """
-    remotecall_wait(func, id, args...)
+    remotecall_wait(func, id, args...; kwargs...)
 
-Perform `wait(remotecall(...))` in one message.
+Perform `wait(remotecall(...))` in one message. Keyword arguments, if any, are passed through to `func`.
 """
 remotecall_wait
 
@@ -5396,10 +5399,10 @@ value is a range of indexes where the matching sequence is found, such that `s[s
 search
 
 """
-    remotecall_fetch(func, id, args...)
+    remotecall_fetch(func, id, args...; kwargs...)
 
-Perform `fetch(remotecall(...))` in one message. Any remote exceptions are captured in a
-`RemoteException` and thrown.
+Perform `fetch(remotecall(...))` in one message.  Keyword arguments, if any, are passed through to `func`.
+Any remote exceptions are captured in a `RemoteException` and thrown.
 """
 remotecall_fetch
 
@@ -6040,7 +6043,7 @@ histrange
 """
     eta(x)
 
-Dirichlet eta function ``\\eta(s) = \\sum^\\infty_{n=1}(-)^{n-1}/n^{s}``.
+Dirichlet eta function ``\\eta(s) = \\sum^\\infty_{n=1}(-1)^{n-1}/n^{s}``.
 """
 eta
 
@@ -6920,7 +6923,7 @@ less(f::AbstractString, ?)
 Show the definition of a function using the default pager, optionally specifying a tuple of
 types to indicate which method to see.
 """
-less(m::Method, ?)
+less(m::TypeMapEntry, ?)
 
 """
     sqrtm(A)
@@ -7811,13 +7814,6 @@ x == fld(x,y)*y + mod(x,y)
 mod
 
 """
-    trues(dims)
-
-Create a `BitArray` with all values set to `true`.
-"""
-trues
-
-"""
     qr(A [,pivot=Val{false}][;thin=true]) -> Q, R, [p]
 
 Compute the (pivoted) QR factorization of `A` such that either `A = Q*R` or `A[:,p] = Q*R`.
@@ -8665,10 +8661,10 @@ result is a `Vector{UInt8,1}`.
 readavailable
 
 """
-    remotecall(func, id, args...)
+    remotecall(func, id, args...; kwargs...)
 
 Call a function asynchronously on the given arguments on the specified process. Returns a `Future`.
-If using keyword arguments for `func`, `remotecall` can be called with `remotecall(()->func(args...; kw...), id)`.
+Keyword arguments, if any, are passed through to `func`.
 """
 remotecall
 
@@ -9592,14 +9588,6 @@ symbol
 Riemann zeta function ``\\zeta(s)``.
 """
 zeta(s)
-
-"""
-    zeta(s, z)
-
-Hurwitz zeta function ``\\zeta(s, z)``.  (This is equivalent to the Riemann zeta function
-``\\zeta(s)`` for the case of `z=1`.)
-"""
-zeta(s,z)
 
 """
     A_mul_Bt(A, B)
