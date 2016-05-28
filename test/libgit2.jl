@@ -375,6 +375,14 @@ mktempdir() do dir
             LibGit2.branch!(repo, test_branch)
             @test_throws LibGit2.Error.GitError LibGit2.merge!(repo, fastforward=true)
 
+            # Set the username and email for the test_repo (needed for rebase)
+            cfg = LibGit2.GitConfig(repo)
+            LibGit2.set!(cfg, "user.name", "AAAA")
+            LibGit2.set!(cfg, "user.email", "BBBB@BBBB.COM")
+
+            # Try rebasing on master instead
+            LibGit2.rebase!(repo, master_branch)
+
             # Switch to the master branch
             LibGit2.branch!(repo, master_branch)
 
@@ -458,6 +466,57 @@ mktempdir() do dir
         finally
             finalize(repo)
         end
+    #end
+
+    #@testset "Credentials" begin
+        creds = LibGit2.EmptyCredentials()
+        @test LibGit2.checkused!(creds)
+        @test LibGit2.reset!(creds) === nothing
+        @test creds[:user] === nothing
+        @test creds[:pass] === nothing
+        @test creds[:pubkey, "localhost"] === nothing
+
+        creds_user = "USER"
+        creds_pass = "PASS"
+        creds = LibGit2.UserPasswordCredentials(creds_user, creds_pass)
+        @test !LibGit2.checkused!(creds)
+        @test !LibGit2.checkused!(creds)
+        @test !LibGit2.checkused!(creds)
+        @test LibGit2.checkused!(creds)
+        @test LibGit2.reset!(creds) == 3
+        @test !LibGit2.checkused!(creds)
+        @test creds.count == 2
+        @test creds[:user] == creds_user
+        @test creds[:pass] == creds_pass
+        @test creds[:pubkey] === nothing
+        @test creds[:user, "localhost"] == creds_user
+        @test creds[:pubkey, "localhost"] === nothing
+        @test creds[:usesshagent, "localhost"] == "Y"
+        creds[:usesshagent, "localhost"] = "E"
+        @test creds[:usesshagent, "localhost"] == "E"
+
+        creds = LibGit2.CachedCredentials()
+        @test !LibGit2.checkused!(creds)
+        @test !LibGit2.checkused!(creds)
+        @test !LibGit2.checkused!(creds)
+        @test LibGit2.checkused!(creds)
+        @test LibGit2.reset!(creds) == 3
+        @test !LibGit2.checkused!(creds)
+        @test creds.count == 2
+        @test creds[:user, "localhost"] === nothing
+        @test creds[:pass, "localhost"] === nothing
+        @test creds[:pubkey, "localhost"] === nothing
+        @test creds[:prvkey, "localhost"] === nothing
+        @test creds[:usesshagent, "localhost"] === nothing
+        creds[:user, "localhost"] = creds_user
+        creds[:pass, "localhost"] = creds_pass
+        creds[:usesshagent, "localhost"] = "Y"
+        @test creds[:user] === nothing
+        @test creds[:user, "localhost2"] === nothing
+        @test creds[:user, "localhost"] == creds_user
+        @test creds[:pass, "localhost"] == creds_pass
+        @test creds[:pubkey, "localhost"] === nothing
+        @test creds[:usesshagent, "localhost"] == "Y"
     #end
 end
 

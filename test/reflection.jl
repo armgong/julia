@@ -251,6 +251,10 @@ tlayout = TLayout(5,7,11)
 @test_throws BoundsError fieldname(TLayout, 4)
 @test_throws BoundsError fieldoffset(TLayout, 4)
 
+@test fieldnames((1,2,3)) == fieldnames(NTuple{3, Int}) == [fieldname(NTuple{3, Int}, i) for i = 1:3] == [1, 2, 3]
+@test_throws BoundsError fieldname(NTuple{3, Int}, 0)
+@test_throws BoundsError fieldname(NTuple{3, Int}, 4)
+
 import Base: isstructtype, type_alignment, return_types
 @test !isstructtype(Union{})
 @test !isstructtype(Union{Int,Float64})
@@ -273,6 +277,14 @@ end
     end
 end
 @test functionloc(f15447)[2] > 0
+
+# issue #14346
+@noinline function f14346(id, mask, limit)
+    if id <= limit && mask[id]
+        return true
+    end
+end
+@test functionloc(f14346)[2] == @__LINE__-4
 
 # test jl_get_llvm_fptr. We test functions both in and definitely not in the system image
 definitely_not_in_sysimg() = nothing

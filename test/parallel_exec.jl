@@ -226,7 +226,7 @@ test_indexing(RemoteChannel(id_other))
 
 dims = (20,20,20)
 
-@linux_only begin
+if is_linux()
     S = SharedArray(Int64, dims)
     @test startswith(S.segname, "/jl")
     @test !ispath("/dev/shm" * S.segname)
@@ -255,7 +255,7 @@ end
 d = Base.shmem_rand(1:100, dims)
 a = convert(Array, d)
 
-partsums = Array(Int, length(procs(d)))
+partsums = Array{Int}(length(procs(d)))
 @sync begin
     for (i, p) in enumerate(procs(d))
         @async partsums[i] = remotecall_fetch(p, d) do D
@@ -331,12 +331,13 @@ check_pids_all(S)
 filedata = similar(Atrue)
 read!(fn, filedata)
 @test filedata == sdata(S)
+finalize(S)
 
 # Error for write-only files
 @test_throws ArgumentError SharedArray(fn, Int, sz, mode="w")
 
 # Error for file doesn't exist, but not allowed to create
-@test_throws ArgumentError SharedArray(tempname(), Int, sz, mode="r")
+@test_throws ArgumentError SharedArray(joinpath(tempdir(),randstring()), Int, sz, mode="r")
 
 # Creating a new file
 fn2 = tempname()
@@ -345,6 +346,7 @@ S = SharedArray(fn2, Int, sz, init=D->D[localindexes(D)] = myid())
 filedata2 = similar(Atrue)
 read!(fn2, filedata2)
 @test filedata == filedata2
+finalize(S)
 
 # Appending to a file
 fn3 = tempname()
@@ -352,14 +354,18 @@ write(fn3, ones(UInt8, 4))
 S = SharedArray(fn3, UInt8, sz, 4, mode="a+", init=D->D[localindexes(D)]=0x02)
 len = prod(sz)+4
 @test filesize(fn3) == len
-filedata = Array(UInt8, len)
+filedata = Array{UInt8}(len)
 read!(fn3, filedata)
 @test all(filedata[1:4] .== 0x01)
 @test all(filedata[5:end] .== 0x02)
+finalize(S)
 
-@unix_only begin # these give unlink: operation not permitted (EPERM) on Windows
-    rm(fn); rm(fn2); rm(fn3)
-end
+# call gc 3 times to avoid unlink: operation not permitted (EPERM) on Windows
+S = nothing
+@everywhere gc()
+@everywhere gc()
+@everywhere gc()
+rm(fn); rm(fn2); rm(fn3)
 
 ### Utility functions
 
@@ -476,7 +482,8 @@ finalize(d)
 
 # Test @parallel load balancing - all processors should get either M or M+1
 # iterations out of the loop range for some M.
-workloads = hist(@parallel((a,b)->[a;b], for i=1:7; myid(); end), nprocs())[2]
+ids = @parallel((a,b)->[a;b], for i=1:7; myid(); end)
+workloads = Int[sum(ids .== i) for i in 2:nprocs()]
 @test maximum(workloads) - minimum(workloads) <= 1
 
 # @parallel reduction should work even with very short ranges
@@ -820,7 +827,20 @@ if DoFullTest
     end
     sleep(0.5)  # Give some time for the above error to be printed
 
-@unix_only begin
+    println("\n\nThe following 'invalid connection credentials' error messages are to be ignored.")
+    all_w = workers()
+    # Test sending fake data to workers. The worker processes will print an
+    # error message but should not terminate.
+    for w in Base.PGRP.workers
+        if isa(w, Base.Worker)
+            s = connect(get(w.config.host), get(w.config.port))
+            write(s, randstring(32))
+        end
+    end
+    @test workers() == all_w
+    @test all([p == remotecall_fetch(myid, p) for p in all_w])
+
+if is_unix() # aka have ssh
     function test_n_remove_pids(new_pids)
         for p in new_pids
             w_in_remote = sort(remotecall_fetch(workers, p))
@@ -880,8 +900,8 @@ if DoFullTest
     end)
     @test length(new_pids) == num_workers
     test_n_remove_pids(new_pids)
-end # @unix_only
-end
+end # unix-only
+end # full-test
 
 # issue #7727
 let A = [], B = []
@@ -959,7 +979,10 @@ for tid in [id_other, id_me, Base.default_worker_pool()]
 end
 
 # github PR #14456
-for n = 1:10^5
+n = DoFullTest ? 6 : 5
+for i = 1:10^n
     fetch(@spawnat myid() myid())
 end
 
+# issue #15451
+@test remotecall_fetch(x->(y->2y)(x)+1, workers()[1], 3) == 7

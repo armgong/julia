@@ -54,13 +54,13 @@ parent(A::AbstractTriangular) = A.data
 # then handle all methods that requires specific handling of upper/lower and unit diagonal
 
 function convert{Tret,T,S}(::Type{Matrix{Tret}}, A::LowerTriangular{T,S})
-    B = Array(Tret, size(A, 1), size(A, 1))
+    B = Array{Tret}(size(A, 1), size(A, 1))
     copy!(B, A.data)
     tril!(B)
     B
 end
 function convert{Tret,T,S}(::Type{Matrix{Tret}}, A::UnitLowerTriangular{T,S})
-    B = Array(Tret, size(A, 1), size(A, 1))
+    B = Array{Tret}(size(A, 1), size(A, 1))
     copy!(B, A.data)
     tril!(B)
     for i = 1:size(B,1)
@@ -69,13 +69,13 @@ function convert{Tret,T,S}(::Type{Matrix{Tret}}, A::UnitLowerTriangular{T,S})
     B
 end
 function convert{Tret,T,S}(::Type{Matrix{Tret}}, A::UpperTriangular{T,S})
-    B = Array(Tret, size(A, 1), size(A, 1))
+    B = Array{Tret}(size(A, 1), size(A, 1))
     copy!(B, A.data)
     triu!(B)
     B
 end
 function convert{Tret,T,S}(::Type{Matrix{Tret}}, A::UnitUpperTriangular{T,S})
-    B = Array(Tret, size(A, 1), size(A, 1))
+    B = Array{Tret}(size(A, 1), size(A, 1))
     copy!(B, A.data)
     triu!(B)
     for i = 1:size(B,1)
@@ -1291,27 +1291,6 @@ function A_rdiv_Bt!(A::StridedMatrix, B::UnitLowerTriangular)
     A
 end
 
-for f in (:A_mul_B!, :A_ldiv_B!)
-    @eval begin
-        $f(A::UpperTriangular, B::UpperTriangular) =
-            UpperTriangular($f(A, triu!(B.data)))
-        $f(A::UnitUpperTriangular, B::UpperTriangular) =
-            UpperTriangular($f(A, triu!(B.data)))
-        $f(A::UpperTriangular, B::UnitUpperTriangular) =
-            UpperTriangular($f(A, triu!(B.data)))
-        $f(A::UnitUpperTriangular, B::UnitUpperTriangular) =
-            UnitUpperTriangular($f(A, triu!(B.data)))
-        $f(A::LowerTriangular, B::LowerTriangular) =
-            LowerTriangular($f(A, tril!(B.data)))
-        $f(A::UnitLowerTriangular, B::LowerTriangular) =
-            LowerTriangular($f(A, tril!(B.data)))
-        $f(A::LowerTriangular, B::UnitLowerTriangular) =
-            LowerTriangular($f(A, tril!(B.data)))
-        $f(A::UnitLowerTriangular, B::UnitLowerTriangular) =
-            LowerTriangular($f(A, tril!(B.data)))
-    end
-end
-
 for f in (:Ac_mul_B!, :At_mul_B!, :Ac_ldiv_B!, :At_ldiv_B!)
     @eval begin
         $f(A::Union{LowerTriangular,UnitLowerTriangular}, B::UpperTriangular) =
@@ -1345,26 +1324,38 @@ for t in (UpperTriangular, UnitUpperTriangular, LowerTriangular, UnitLowerTriang
     end
 end
 
-for (f1, f2) in ((:*, :A_mul_B!), (:\, :A_ldiv_B))
+for (f1, f2) in ((:*, :A_mul_B!), (:\, :A_ldiv_B!))
     @eval begin
-        function $f1(A::LowerTriangular, B::LowerTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return LowerTriangular($f2(convert(AbstractMatrix{TAB}, A), copy_oftype(B, TAB)))
+        function ($f1)(A::LowerTriangular, B::LowerTriangular)
+            TAB = typeof(($f1)(zero(eltype(A)), zero(eltype(B))) +
+                         ($f1)(zero(eltype(A)), zero(eltype(B))))
+            BB = similar(B, TAB, size(B))
+            copy!(BB, B)
+            return LowerTriangular($f2(convert(AbstractMatrix{TAB}, A), BB))
         end
 
-        function $f1(A::UnitLowerTriangular, B::LowerTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return LowerTriangular($f2(convert(AbstractMatrix{TAB}, A), copy_oftype(B, TAB)))
+        function $(f1)(A::UnitLowerTriangular, B::LowerTriangular)
+            TAB = typeof((*)(zero(eltype(A)), zero(eltype(B))) +
+                         (*)(zero(eltype(A)), zero(eltype(B))))
+            BB = similar(B, TAB, size(B))
+            copy!(BB, B)
+            return LowerTriangular($f2(convert(AbstractMatrix{TAB}, A), BB))
         end
 
-        function $f1(A::UpperTriangular, B::UpperTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return UpperTriangular($f2(convert(AbstractMatrix{TAB}, A), copy_oftype(B, TAB)))
+        function ($f1)(A::UpperTriangular, B::UpperTriangular)
+            TAB = typeof(($f1)(zero(eltype(A)), zero(eltype(B))) +
+                         ($f1)(zero(eltype(A)), zero(eltype(B))))
+            BB = similar(B, TAB, size(B))
+            copy!(BB, B)
+            return UpperTriangular($f2(convert(AbstractMatrix{TAB}, A), BB))
         end
 
-        function $f1(A::UnitUpperTriangular, B::UpperTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return UpperTriangular($f2(convert(AbstractMatrix{TAB}, A), copy_oftype(B, TAB)))
+        function ($f1)(A::UnitUpperTriangular, B::UpperTriangular)
+            TAB = typeof((*)(zero(eltype(A)), zero(eltype(B))) +
+                         (*)(zero(eltype(A)), zero(eltype(B))))
+            BB = similar(B, TAB, size(B))
+            copy!(BB, B)
+            return UpperTriangular($f2(convert(AbstractMatrix{TAB}, A), BB))
         end
     end
 end
@@ -1372,68 +1363,102 @@ end
 for (f1, f2) in ((:Ac_mul_B, :Ac_mul_B!), (:At_mul_B, :At_mul_B!),
                  (:Ac_ldiv_B, Ac_ldiv_B!), (:At_ldiv_B, :At_ldiv_B!))
     @eval begin
-        function $f1(A::UpperTriangular, B::LowerTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return LowerTriangular($f2(convert(AbstractMatrix{TAB}, A), copy_oftype(B, TAB)))
+        function ($f1)(A::UpperTriangular, B::LowerTriangular)
+            TAB = typeof(($f1)(zero(eltype(A)), zero(eltype(B))) +
+                         ($f1)(zero(eltype(A)), zero(eltype(B))))
+            BB = similar(B, TAB, size(B))
+            copy!(BB, B)
+            return LowerTriangular($f2(convert(AbstractMatrix{TAB}, A), BB))
         end
 
-        function $f1(A::UnitUpperTriangular, B::LowerTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return LowerTriangular($f2(convert(AbstractMatrix{TAB}, A), copy_oftype(B, TAB)))
+        function ($f1)(A::UnitUpperTriangular, B::LowerTriangular)
+            TAB = typeof((*)(zero(eltype(A)), zero(eltype(B))) +
+                         (*)(zero(eltype(A)), zero(eltype(B))))
+            BB = similar(B, TAB, size(B))
+            copy!(BB, B)
+            return LowerTriangular($f2(convert(AbstractMatrix{TAB}, A), BB))
         end
 
-        function $f1(A::LowerTriangular, B::UpperTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return UpperTriangular($f2(convert(AbstractMatrix{TAB}, A), copy_oftype(B, TAB)))
+        function ($f1)(A::LowerTriangular, B::UpperTriangular)
+            TAB = typeof(($f1)(zero(eltype(A)), zero(eltype(B))) +
+                         ($f1)(zero(eltype(A)), zero(eltype(B))))
+            BB = similar(B, TAB, size(B))
+            copy!(BB, B)
+            return UpperTriangular($f2(convert(AbstractMatrix{TAB}, A), BB))
         end
 
-        function $f1(A::UnitLowerTriangular, B::UpperTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return UpperTriangular($f2(convert(AbstractMatrix{TAB}, A), copy_oftype(B, TAB)))
+        function ($f1)(A::UnitLowerTriangular, B::UpperTriangular)
+            TAB = typeof((*)(zero(eltype(A)), zero(eltype(B))) +
+                         (*)(zero(eltype(A)), zero(eltype(B))))
+            BB = similar(B, TAB, size(B))
+            copy!(BB, B)
+            return UpperTriangular($f2(convert(AbstractMatrix{TAB}, A), BB))
         end
     end
 end
 
 function (/)(A::LowerTriangular, B::LowerTriangular)
-    TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B))/
-        one(eltype(A)))
-    return LowerTriangular(A_rdiv_B!(copy_oftype(A, TAB), convert(AbstractMatrix{TAB}, B)))
+    TAB = typeof((/)(zero(eltype(A)), zero(eltype(B))) +
+                 (/)(zero(eltype(A)), zero(eltype(B))))
+    AA = similar(A, TAB, size(A))
+    copy!(AA, A)
+    return LowerTriangular(A_rdiv_B!(AA, convert(AbstractMatrix{TAB}, B)))
 end
 function (/)(A::LowerTriangular, B::UnitLowerTriangular)
-    TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-    return LowerTriangular(A_rdiv_B!(copy_oftype(A, TAB), convert(AbstractMatrix{TAB}, B)))
+    TAB = typeof((*)(zero(eltype(A)), zero(eltype(B))) +
+                 (*)(zero(eltype(A)), zero(eltype(B))))
+    AA = similar(A, TAB, size(A))
+    copy!(AA, A)
+    return LowerTriangular(A_rdiv_B!(AA, convert(AbstractMatrix{TAB}, B)))
 end
 function (/)(A::UpperTriangular, B::UpperTriangular)
-    TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B))/
-        one(eltype(A)))
-    return UpperTriangular(A_rdiv_B!(copy_oftype(A, TAB), convert(AbstractMatrix{TAB}, B)))
+    TAB = typeof((/)(zero(eltype(A)), zero(eltype(B))) +
+                 (/)(zero(eltype(A)), zero(eltype(B))))
+    AA = similar(A, TAB, size(A))
+    copy!(AA, A)
+    return UpperTriangular(A_rdiv_B!(AA, convert(AbstractMatrix{TAB}, B)))
 end
 function (/)(A::UpperTriangular, B::UnitUpperTriangular)
-    TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-    return UpperTriangular(A_rdiv_B!(copy_oftype(A, TAB), convert(AbstractMatrix{TAB}, B)))
+    TAB = typeof((*)(zero(eltype(A)), zero(eltype(B))) +
+                 (*)(zero(eltype(A)), zero(eltype(B))))
+    AA = similar(A, TAB, size(A))
+    copy!(AA, A)
+    return UpperTriangular(A_rdiv_B!(AA, convert(AbstractMatrix{TAB}, B)))
 end
 
 for (f1, f2) in ((:A_mul_Bc, :A_mul_Bc!), (:A_mul_Bt, :A_mul_Bt!),
                  (:A_rdiv_Bc, :A_rdiv_Bc!), (:A_rdiv_Bt, :A_rdiv_Bt!))
     @eval begin
         function $f1(A::LowerTriangular, B::UpperTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return LowerTriangular($f2(copy_oftype(A, TAB), convert(AbstractMatrix{TAB}, B)))
+            TAB = typeof(($f1)(zero(eltype(A)), zero(eltype(B))) +
+                         ($f1)(zero(eltype(A)), zero(eltype(B))))
+            AA = similar(A, TAB, size(A))
+            copy!(AA, A)
+            return LowerTriangular($f2(AA, convert(AbstractMatrix{TAB}, B)))
         end
 
         function $f1(A::LowerTriangular, B::UnitUpperTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return LowerTriangular($f2(copy_oftype(A, TAB), convert(AbstractMatrix{TAB}, B)))
+            TAB = typeof((*)(zero(eltype(A)), zero(eltype(B))) +
+                         (*)(zero(eltype(A)), zero(eltype(B))))
+            AA = similar(A, TAB, size(A))
+            copy!(AA, A)
+            return LowerTriangular($f2(AA, convert(AbstractMatrix{TAB}, B)))
         end
 
         function $f1(A::UpperTriangular, B::LowerTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return UpperTriangular($f2(copy_oftype(A, TAB), convert(AbstractMatrix{TAB}, B)))
+            TAB = typeof(($f1)(zero(eltype(A)), zero(eltype(B))) +
+                         ($f1)(zero(eltype(A)), zero(eltype(B))))
+            AA = similar(A, TAB, size(A))
+            copy!(AA, A)
+            return UpperTriangular($f2(AA, convert(AbstractMatrix{TAB}, B)))
         end
 
         function $f1(A::UpperTriangular, B::UnitLowerTriangular)
-            TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
-            return UpperTriangular($f2(copy_oftype(A, TAB), convert(AbstractMatrix{TAB}, B)))
+            TAB = typeof((*)(zero(eltype(A)), zero(eltype(B))) +
+                         (*)(zero(eltype(A)), zero(eltype(B))))
+            AA = similar(A, TAB, size(A))
+            copy!(AA, A)
+            return UpperTriangular($f2(AA, convert(AbstractMatrix{TAB}, B)))
         end
     end
 end
@@ -1510,7 +1535,7 @@ end
 ### Right division with triangle to the right hence lhs cannot be transposed. No quotients.
 for (f, g) in ((:/, :A_rdiv_B!), (:A_rdiv_Bc, :A_rdiv_Bc!), (:A_rdiv_Bt, :A_rdiv_Bt!))
     @eval begin
-        function ($f)(A::$mat, B::Tuple{UnitUpperTriangular, UnitLowerTriangular})
+        function ($f)(A::$mat, B::Union{UnitUpperTriangular, UnitLowerTriangular})
             TAB = typeof(zero(eltype(A))*zero(eltype(B)) + zero(eltype(A))*zero(eltype(B)))
             AA = similar(A, TAB, size(A))
             copy!(AA, A)
@@ -1575,7 +1600,7 @@ function logm{T<:Union{Float64,Complex{Float64}}}(A0::UpperTriangular{T})
 
     # Compute repeated roots
     d = diag(A)
-    dm1 = Array(T, n)
+    dm1 = Array{T}(n)
     s = 0
     for i = 1:n
         dm1[i] = d[i] - 1.
@@ -1701,7 +1726,7 @@ function logm{T<:Union{Float64,Complex{Float64}}}(A0::UpperTriangular{T})
         R[i+1,i] = R[i,i+1]
     end
     x,V = eig(R)
-    w = Array(Float64, m)
+    w = Array{Float64}(m)
     for i = 1:m
         x[i] = (x[i] + 1) / 2
         w[i] = V[1,i]^2

@@ -135,7 +135,7 @@ endif
 # version number is always zero and the meanings shift down a place; the minor version
 # number becomes the major version number, the patch version number becomes the minor
 # version number, and there is no patch version number to speak of.  In this case, the
-# version v0.4.1 has major backwards-compatible changes as compared to v0.4.0, and the
+# version v0.4.1 has backwards-compatible changes as compared to v0.4.0, and the
 # version v0.5.0 has major backwards-incompatible changes as compared to v0.4.X.
 JULIA_VERSION := $(shell cat $(JULIAHOME)/VERSION)
 JULIA_MAJOR_VERSION := $(shell echo $(JULIA_VERSION) | cut -d'-' -f 1 | cut -d'.' -f 1)
@@ -222,6 +222,7 @@ BUILD_LLVM_CLANG := 0
 # set to 1 to get lldb (often does not work, no chance with llvm3.2 and earlier)
 # see http://lldb.llvm.org/build.html for dependencies
 BUILD_LLDB := 0
+USE_POLLY := 0
 
 # Cross-compile
 #XC_HOST := i686-w64-mingw32
