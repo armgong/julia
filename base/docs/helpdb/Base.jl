@@ -1417,7 +1417,8 @@ permutedims
 """
     shuffle!([rng,] v)
 
-In-place version of [`shuffle`](:func:`shuffle`).
+In-place version of [`shuffle`](:func:`shuffle`): randomly permute the array `v` in-place,
+optionally supplying the random-number generator `rng`.
 """
 shuffle!
 
@@ -3481,15 +3482,6 @@ not representable.
 `digits` and `base` work as for [`round`](:func:`round`).
 """
 trunc
-
-"""
-    broadcast_function(f)
-
-Returns a function `broadcast_f` such that
-`broadcast_function(f)(As...) === broadcast(f, As...)`. Most useful in the form
-`const broadcast_f = broadcast_function(f)`.
-"""
-broadcast_function
 
 """
     unsafe_convert(T,x)
@@ -5626,15 +5618,6 @@ information.
 code_warntype
 
 """
-```
-broadcast!_function(f)
-```
-
-Like `broadcast_function`, but for `broadcast!`.
-"""
-broadcast!_function
-
-"""
     setrounding(T, mode)
 
 Set the rounding mode of floating point type `T`, controlling the rounding of basic
@@ -5934,7 +5917,9 @@ wait
     shuffle([rng,] v)
 
 Return a randomly permuted copy of `v`. The optional `rng` argument specifies a random
-number generator, see [Random Numbers](:ref:`Random Numbers <random-numbers>`).
+number generator (see [Random Numbers](:ref:`Random Numbers <random-numbers>`)).
+To permute `v` in-place, see [`shuffle!`](:func:`shuffle!`).  To obtain randomly permuted
+indices, see [`randperm`](:func:`randperm`).
 """
 shuffle
 
@@ -10004,7 +9989,9 @@ filter
     randperm([rng,] n)
 
 Construct a random permutation of length `n`. The optional `rng` argument specifies a random
-number generator, see [Random Numbers](:ref:`Random Numbers <random-numbers>`).
+number generator (see [Random Numbers](:ref:`Random Numbers <random-numbers>`)).
+To randomly permute a arbitrary vector, see [`shuffle`](:func:`shuffle`)
+or [`shuffle!`](:func:`shuffle!`).
 """
 randperm
 
