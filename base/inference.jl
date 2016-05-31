@@ -6,6 +6,8 @@ const MAX_TYPE_DEPTH = 7
 const MAX_TUPLETYPE_LEN  = 8
 const MAX_TUPLE_DEPTH = 4
 
+const MAX_TUPLE_SPLAT = 16
+
 # alloc_elim_pass! relies on `Slot_AssignedOnce | Slot_UsedUndef` being
 # SSA. This should be true now but can break if we start to track conditional
 # constants. e.g.
@@ -796,7 +798,7 @@ function abstract_call_gf_by_type(f::ANY, argtype::ANY, sv)
                         p1, p2 = sig.parameters, infstate.atypes.parameters
                         if length(p2) == ls
                             limitdepth = false
-                            newsig = Array(Any, ls)
+                            newsig = Array{Any}(ls)
                             for i = 1:ls
                                 if p1[i] <: Function && type_depth(p1[i]) > type_depth(p2[i]) &&
                                     isa(p1[i],DataType)
@@ -1964,14 +1966,32 @@ function finish(me::InferenceState)
     nothing
 end
 
-function eval_annotate(e::ANY, vtypes::ANY, sv::InferenceState, undefs)
-    if isa(e, Slot)
-        t = abstract_eval(e, vtypes, sv)
-        s = vtypes[e.id]
-        if s.undef
-            undefs[e.id] = true
+function record_slot_type!(id, vt::ANY, slottypes)
+    if vt !== Bottom
+        otherTy = slottypes[id]
+        if otherTy === Bottom
+            slottypes[id] = vt
+        elseif otherTy !== Any && !typeseq(otherTy, vt)
+            slottypes[id] = Any
         end
-        return t === sv.linfo.slottypes[e.id] ? e : TypedSlot(e.id, t)
+    end
+end
+
+function eval_annotate(e::ANY, vtypes::ANY, sv::InferenceState, undefs, pass)
+    if isa(e, Slot)
+        id = (e::Slot).id
+        s = vtypes[id]
+        vt = widenconst(s.typ)
+        if pass == 1
+            # first pass: find used-undef variables and type-constant variables
+            if s.undef
+                undefs[id] = true
+            end
+            record_slot_type!(id, vt, sv.linfo.slottypes)
+            return e
+        end
+        # second pass: add type annotations where needed
+        return vt === sv.linfo.slottypes[id] ? e : TypedSlot(id, vt)
     end
 
     if !isa(e,Expr)
@@ -1983,14 +2003,14 @@ function eval_annotate(e::ANY, vtypes::ANY, sv::InferenceState, undefs)
     if is(head,:static_typeof) || is(head,:line) || is(head,:const)
         return e
     elseif is(head,:(=))
-        e.args[2] = eval_annotate(e.args[2], vtypes, sv, undefs)
+        e.args[2] = eval_annotate(e.args[2], vtypes, sv, undefs, pass)
         return e
     end
     i0 = is(head,:method) ? 2 : 1
     for i=i0:length(e.args)
         subex = e.args[i]
         if !(isa(subex,Number) || isa(subex,AbstractString))
-            e.args[i] = eval_annotate(subex, vtypes, sv, undefs)
+            e.args[i] = eval_annotate(subex, vtypes, sv, undefs, pass)
         end
     end
     return e
@@ -2011,38 +2031,31 @@ end
 # annotate types of all symbols in AST
 function type_annotate!(linfo::LambdaInfo, states::Array{Any,1}, sv::ANY, nargs)
     nslots = length(states[1])
-    for i = 1:nslots
+    nargs = linfo.nargs
+    for i = 1:nargs
+        linfo.slottypes[i] = widenconst(states[1][i].typ)
+    end
+    for i = nargs+1:nslots
         linfo.slottypes[i] = Bottom
     end
     undefs = fill(false, nslots)
     body = linfo.code::Array{Any,1}
     nexpr = length(body)
-    for i=1:nexpr
-        # identify variables always used as the same type
-        st_i = states[i]
-        if st_i !== ()
-            for j = 1:nslots
-                vt = widenconst(st_i[j].typ)
-                if vt !== Bottom
-                    otherTy = linfo.slottypes[j]
-                    if otherTy === Bottom
-                        linfo.slottypes[j] = vt
-                    elseif otherTy !== Any && !typeseq(otherTy, vt)
-                        linfo.slottypes[j] = Any
-                    end
-                end
-            end
-        end
-    end
     i = 1
     optimize = sv.optimize::Bool
     while i <= nexpr
         st_i = states[i]
+        expr = body[i]
         if st_i !== ()
             # st_i === ()  =>  unreached statement  (see issue #7836)
-            body[i] = eval_annotate(body[i], st_i, sv, undefs)
+            eval_annotate(expr, st_i, sv, undefs, 1)
+            if isa(expr, Expr) && expr.head == :(=) && i < nexpr && isa(expr.args[1],Slot) && states[i+1] !== ()
+                # record type of assigned slot by looking at the next statement.
+                # this is needed in case the slot is never used (which makes eval_annotate miss it).
+                id = expr.args[1].id
+                record_slot_type!(id, widenconst(states[i+1][id].typ), linfo.slottypes)
+            end
         elseif optimize
-            expr = body[i]
             if isa(expr, Expr) && expr_cannot_delete(expr::Expr)
                 i += 1
                 continue
@@ -2055,6 +2068,12 @@ function type_annotate!(linfo::LambdaInfo, states::Array{Any,1}, sv::ANY, nargs)
             continue
         end
         i += 1
+    end
+    for i = 1:nexpr
+        st_i = states[i]
+        if st_i !== ()
+            body[i] = eval_annotate(body[i], st_i, sv, undefs, 2)
+        end
     end
 
     # mark used-undef variables
@@ -2960,7 +2979,7 @@ function inlining_pass(e::Expr, sv, linfo)
                     newargs[i-2] = aarg.args[2:end]
                 elseif isa(aarg, Tuple)
                     newargs[i-2] = Any[ QuoteNode(x) for x in aarg ]
-                elseif isa(t,DataType) && t.name===Tuple.name && !isvatuple(t) && effect_free(aarg,sv,true)
+                elseif isa(t,DataType) && t.name===Tuple.name && !isvatuple(t) && effect_free(aarg,sv,true) && length(t.parameters) <= MAX_TUPLE_SPLAT
                     # apply(f,t::(x,y)) => f(t[1],t[2])
                     tp = t.parameters
                     newargs[i-2] = Any[ mk_getfield(aarg,j,tp[j]) for j=1:length(tp) ]

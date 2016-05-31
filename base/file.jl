@@ -29,7 +29,7 @@ export
 # get and set current directory
 
 function pwd()
-    b = Array(UInt8,1024)
+    b = Array{UInt8}(1024)
     len = Ref{Csize_t}(length(b))
     uv_error(:getcwd, ccall(:uv_cwd, Cint, (Ptr{UInt8}, Ptr{Csize_t}), b, len))
     String(b[1:len[]])
@@ -40,31 +40,37 @@ function cd(dir::AbstractString)
 end
 cd() = cd(homedir())
 
-@unix_only function cd(f::Function, dir::AbstractString)
-    fd = ccall(:open,Int32,(Cstring,Int32),:.,0)
-    systemerror(:open, fd == -1)
-    try
-        cd(dir)
-        f()
-    finally
-        systemerror(:fchdir, ccall(:fchdir,Int32,(Int32,),fd) != 0)
-        systemerror(:close, ccall(:close,Int32,(Int32,),fd) != 0)
+if is_windows()
+    function cd(f::Function, dir::AbstractString)
+        old = pwd()
+        try
+            cd(dir)
+            f()
+       finally
+            cd(old)
+        end
     end
-end
-@windows_only function cd(f::Function, dir::AbstractString)
-    old = pwd()
-    try
-        cd(dir)
-        f()
-   finally
-        cd(old)
+else
+    function cd(f::Function, dir::AbstractString)
+        fd = ccall(:open, Int32, (Cstring, Int32), :., 0)
+        systemerror(:open, fd == -1)
+        try
+            cd(dir)
+            f()
+        finally
+            systemerror(:fchdir, ccall(:fchdir, Int32, (Int32,), fd) != 0)
+            systemerror(:close, ccall(:close, Int32, (Int32,), fd) != 0)
+        end
     end
 end
 cd(f::Function) = cd(f, homedir())
 
 function mkdir(path::AbstractString, mode::Unsigned=0o777)
-    @unix_only ret = ccall(:mkdir, Int32, (Cstring,UInt32), path, mode)
-    @windows_only ret = ccall(:_wmkdir, Int32, (Cwstring,), path)
+    @static if is_windows()
+        ret = ccall(:_wmkdir, Int32, (Cwstring,), path)
+    else
+        ret = ccall(:mkdir, Int32, (Cstring, UInt32), path, mode)
+    end
     systemerror(:mkdir, ret != 0; extrainfo=path)
 end
 
@@ -92,7 +98,12 @@ mkpath(path::AbstractString, mode::Signed) = throw(ArgumentError("mode must be a
 function rm(path::AbstractString; force::Bool=false, recursive::Bool=false)
     if islink(path) || !isdir(path)
         try
-            @windows_only if (filemode(path) & 0o222) == 0; chmod(path, 0o777); end # is writable on windows actually means "is deletable"
+            @static if is_windows()
+                # is writable on windows actually means "is deletable"
+                if (filemode(path) & 0o222) == 0
+                    chmod(path, 0o777)
+                end
+            end
             unlink(path)
         catch err
             if force && isa(err, UVError) && err.code==Base.UV_ENOENT
@@ -106,8 +117,11 @@ function rm(path::AbstractString; force::Bool=false, recursive::Bool=false)
                 rm(joinpath(path, p), force=force, recursive=true)
             end
         end
-        @unix_only ret = ccall(:rmdir, Int32, (Cstring,), path)
-        @windows_only ret = ccall(:_wrmdir, Int32, (Cwstring,), path)
+        @static if is_windows()
+            ret = ccall(:_wrmdir, Int32, (Cwstring,), path)
+        else
+            ret = ccall(:rmdir, Int32, (Cstring,), path)
+        end
         systemerror(:rmdir, ret != 0, extrainfo=path)
     end
 end
@@ -181,7 +195,50 @@ function touch(path::AbstractString)
     end
 end
 
-@unix_only begin
+if is_windows()
+function tempdir()
+    temppath = Array{UInt16}(32767)
+    lentemppath = ccall(:GetTempPathW,stdcall,UInt32,(UInt32,Ptr{UInt16}),length(temppath),temppath)
+    if lentemppath >= length(temppath) || lentemppath == 0
+        error("GetTempPath failed: $(Libc.FormatMessage())")
+    end
+    resize!(temppath,lentemppath)
+    return String(utf16to8(temppath))
+end
+tempname(uunique::UInt32=UInt32(0)) = tempname(tempdir(), uunique)
+const temp_prefix = cwstring("jl_")
+function tempname(temppath::AbstractString,uunique::UInt32)
+    tempp = cwstring(temppath)
+    tname = Array{UInt16}(32767)
+    uunique = ccall(:GetTempFileNameW,stdcall,UInt32,(Ptr{UInt16},Ptr{UInt16},UInt32,Ptr{UInt16}), tempp,temp_prefix,uunique,tname)
+    lentname = findfirst(tname,0)-1
+    if uunique == 0 || lentname <= 0
+        error("GetTempFileName failed: $(Libc.FormatMessage())")
+    end
+    resize!(tname,lentname)
+    return String(utf16to8(tname))
+end
+function mktemp(parent=tempdir())
+    filename = tempname(parent, UInt32(0))
+    return (filename, Base.open(filename, "r+"))
+end
+function mktempdir(parent=tempdir())
+    seed::UInt32 = rand(UInt32)
+    while true
+        if (seed & typemax(UInt16)) == 0
+            seed += 1
+        end
+        filename = tempname(parent, seed)
+        ret = ccall(:_wmkdir, Int32, (Ptr{UInt16},), cwstring(filename))
+        if ret == 0
+            return filename
+        end
+        systemerror(:mktempdir, Libc.errno()!=Libc.EEXIST)
+        seed += 1
+    end
+end
+
+else # !windows
 # Obtain a temporary filename.
 function tempname()
     d = get(ENV, "TMPDIR", C_NULL) # tempnam ignores TMPDIR on darwin
@@ -210,51 +267,8 @@ function mktempdir(parent=tempdir())
     systemerror(:mktempdir, p == C_NULL)
     return String(p)
 end
-end
 
-@windows_only begin
-function tempdir()
-    temppath = Array(UInt16,32767)
-    lentemppath = ccall(:GetTempPathW,stdcall,UInt32,(UInt32,Ptr{UInt16}),length(temppath),temppath)
-    if lentemppath >= length(temppath) || lentemppath == 0
-        error("GetTempPath failed: $(Libc.FormatMessage())")
-    end
-    resize!(temppath,lentemppath)
-    return String(utf16to8(temppath))
-end
-tempname(uunique::UInt32=UInt32(0)) = tempname(tempdir(), uunique)
-const temp_prefix = cwstring("jl_")
-function tempname(temppath::AbstractString,uunique::UInt32)
-    tempp = cwstring(temppath)
-    tname = Array(UInt16,32767)
-    uunique = ccall(:GetTempFileNameW,stdcall,UInt32,(Ptr{UInt16},Ptr{UInt16},UInt32,Ptr{UInt16}), tempp,temp_prefix,uunique,tname)
-    lentname = findfirst(tname,0)-1
-    if uunique == 0 || lentname <= 0
-        error("GetTempFileName failed: $(Libc.FormatMessage())")
-    end
-    resize!(tname,lentname)
-    return String(utf16to8(tname))
-end
-function mktemp(parent=tempdir())
-    filename = tempname(parent, UInt32(0))
-    return (filename, Base.open(filename, "r+"))
-end
-function mktempdir(parent=tempdir())
-    seed::UInt32 = rand(UInt32)
-    while true
-        if (seed & typemax(UInt16)) == 0
-            seed += 1
-        end
-        filename = tempname(parent, seed)
-        ret = ccall(:_wmkdir, Int32, (Ptr{UInt16},), cwstring(filename))
-        if ret == 0
-            return filename
-        end
-        systemerror(:mktempdir, Libc.errno()!=Libc.EEXIST)
-        seed += 1
-    end
-end
-end
+end # os-test
 
 function mktemp(fn::Function, parent=tempdir())
     (tmp_path, tmp_io) = mktemp(parent)
@@ -334,8 +348,8 @@ function walkdir(root; topdown=true, follow_symlinks=false, onerror=throw)
         #Need to return an empty task to skip the current root folder
         return Task(()->())
     end
-    dirs = Array(eltype(content), 0)
-    files = Array(eltype(content), 0)
+    dirs = Array{eltype(content)}(0)
+    files = Array{eltype(content)}(0)
     for name in content
         if isdir(joinpath(root, name))
             push!(dirs, name)
@@ -405,16 +419,27 @@ function sendfile(src::AbstractString, dst::AbstractString)
     end
 end
 
-@windows_only const UV_FS_SYMLINK_JUNCTION = 0x0002
+if is_windows()
+    const UV_FS_SYMLINK_JUNCTION = 0x0002
+end
 function symlink(p::AbstractString, np::AbstractString)
-    @windows_only if Base.windows_version() < Base.WINDOWS_VISTA_VER
-        error("Windows XP does not support soft symlinks")
+    @static if is_windows()
+        if Sys.windows_version() < Sys.WINDOWS_VISTA_VER
+            error("Windows XP does not support soft symlinks")
+        end
     end
     flags = 0
-    @windows_only if isdir(p); flags |= UV_FS_SYMLINK_JUNCTION; p = abspath(p); end
+    @static if is_windows()
+        if isdir(p)
+            flags |= UV_FS_SYMLINK_JUNCTION
+            p = abspath(p)
+        end
+    end
     err = ccall(:jl_fs_symlink, Int32, (Cstring, Cstring, Cint), p, np, flags)
-    @windows_only if err < 0 && !isdir(p)
-        Base.warn_once("Note: on Windows, creating file symlinks requires Administrator privileges.")
+    @static if is_windows()
+        if err < 0 && !isdir(p)
+            Base.warn_once("Note: on Windows, creating file symlinks requires Administrator privileges.")
+        end
     end
     uv_error("symlink",err)
 end

@@ -577,7 +577,7 @@ Types
 
    .. Docstring generated from Julia source
 
-   Determine whether ``T`` is a concrete type that can have instances, meaning its only subtypes are itself and ``None`` (but ``T`` itself is not ``None``\ ).
+   Determine whether ``T`` is a concrete type that can have instances, meaning its only subtypes are itself and ``Union{}`` (but ``T`` itself is not ``Union{}``\ ).
 
 .. function:: typejoin(T, S)
 
@@ -667,12 +667,6 @@ Generic Functions
 
        julia> [1:5;] |> x->x.^2 |> sum |> inv
        0.01818181818181818
-
-.. function:: call(x, args...)
-
-   .. Docstring generated from Julia source
-
-   If ``x`` is not a ``Function``\ , then ``x(args...)`` is equivalent to ``call(x, args...)``\ . This means that function-like behavior can be added to any type by defining new ``call`` methods.
 
 Syntax
 ------
@@ -878,7 +872,7 @@ System
 
    .. Docstring generated from Julia source
 
-   Redirect I/O to or from the given ``command``\ . Keyword arguments specify which of the command's streams should be redirected. ``append`` controls whether file output appends to the file. This is a more general version of the 2-argument ``pipeline`` function. ``pipeline(from, to)`` is equivalent to ``pipeline(from, stdout=to)`` when ``from`` is a command, and to ``pipe(to, stdin=from)`` when ``from`` is another kind of data source.
+   Redirect I/O to or from the given ``command``\ . Keyword arguments specify which of the command's streams should be redirected. ``append`` controls whether file output appends to the file. This is a more general version of the 2-argument ``pipeline`` function. ``pipeline(from, to)`` is equivalent to ``pipeline(from, stdout=to)`` when ``from`` is a command, and to ``pipeline(to, stdin=from)`` when ``from`` is another kind of data source.
 
    **Examples**:
 
@@ -977,53 +971,49 @@ System
 
    Reference to the singleton ``EnvHash``\ , providing a dictionary interface to system environment variables.
 
-.. function:: @unix
+.. function:: is_unix([os])
 
    .. Docstring generated from Julia source
 
-   Given ``@unix? a : b``\ , do ``a`` on Unix systems (including Linux and OS X) and ``b`` elsewhere. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
+   Predicate for testing if the OS provides a Unix-like interface. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
 
-.. function:: @unix_only
-
-   .. Docstring generated from Julia source
-
-   A macro that evaluates the given expression only on Unix systems (including Linux and OS X). See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
-
-.. function:: @osx
+.. function:: is_apple([os])
 
    .. Docstring generated from Julia source
 
-   Given ``@osx? a : b``\ , do ``a`` on OS X and ``b`` elsewhere. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
+   Predicate for testing if the OS is a derivative of Apple Macintosh OS X or Darwin. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
 
-.. function:: @osx_only
-
-   .. Docstring generated from Julia source
-
-   A macro that evaluates the given expression only on OS X systems. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
-
-.. function:: @linux
+.. function:: is_linux([os])
 
    .. Docstring generated from Julia source
 
-   Given ``@linux? a : b``\ , do ``a`` on Linux and ``b`` elsewhere. See documentation :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
+   Predicate for testing if the OS is a derivative of Linux. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
 
-.. function:: @linux_only
-
-   .. Docstring generated from Julia source
-
-   A macro that evaluates the given expression only on Linux systems. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
-
-.. function:: @windows
+.. function:: is_bsd([os])
 
    .. Docstring generated from Julia source
 
-   Given ``@windows? a : b``\ , do ``a`` on Windows and ``b`` elsewhere. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
+   Predicate for testing if the OS is a derivative of BSD. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
 
-.. function:: @windows_only
+.. function:: is_windows([os])
 
    .. Docstring generated from Julia source
 
-   A macro that evaluates the given expression only on Windows systems. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
+   Predicate for testing if the OS is a derivative of Microsoft Windows NT. See documentation in :ref:`Handling Operating System Variation <man-handling-operating-system-variation>`\ .
+
+.. function:: windows_version()
+
+   .. Docstring generated from Julia source
+
+   Returns the version number for the Windows NT Kernel as a (major, minor) pair, or ``(0, 0)`` if this is not running on Windows.
+
+.. function:: @static
+
+   .. Docstring generated from Julia source
+
+   Partially evaluates an expression at parse time.
+
+   For example, ``@static is_windows() ? foo : bar`` will evaluate ``is_windows()`` and insert either ``foo`` or ``bar`` into the expression. This is useful in cases where a construct would be invalid on other platforms, such as a ``ccall`` to a non-existent function.
 
 Errors
 ------
@@ -1220,7 +1210,7 @@ Errors
 
    An error occurred when running a module's ``__init__`` function. The actual error thrown is available in the ``.error`` field.
 
-.. function:: retry(f, [retry_on]; n=DEFAULT_RETRY_N, max_delay=DEFAULT_RETRY_MAX_DELAY) -> Function
+.. function:: retry(f, [retry_on]; n=1, max_delay=10.0) -> Function
 
    .. Docstring generated from Julia source
 

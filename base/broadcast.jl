@@ -5,7 +5,7 @@ module Broadcast
 using ..Cartesian
 using Base: promote_op, promote_eltype, promote_eltype_op, @get!, _msk_end, unsafe_bitgetindex
 import Base: .+, .-, .*, ./, .\, .//, .==, .<, .!=, .<=, .÷, .%, .<<, .>>, .^
-export broadcast, broadcast!, broadcast_function, broadcast!_function, bitbroadcast
+export broadcast, broadcast!, bitbroadcast
 export broadcast_getindex, broadcast_setindex!
 
 ## Broadcasting utilities ##
@@ -111,7 +111,7 @@ function gen_broadcast_body_cartesian_tobitarray(nd::Int, narrays::Int, f)
     quote
         @assert ndims(B) == $nd
         @ncall $narrays check_broadcast_shape size(B) k->A_k
-        C = Array(Bool, bitcache_size)
+        C = Array{Bool}(bitcache_size)
         Bc = B.chunks
         ind = 1
         cind = 1
@@ -140,7 +140,7 @@ function gen_broadcast_body_iter_tobitarray(nd::Int, narrays::Int, f)
     quote
         @assert ndims(B) == $nd
         @ncall $narrays check_broadcast_shape size(B) k->A_k
-        C = Array(Bool, bitcache_size)
+        C = Array{Bool}(bitcache_size)
         Bc = B.chunks
         ind = 1
         cind = 1
@@ -217,14 +217,11 @@ for (Bsig, Asig, gbf, gbb) in
 end
 
 
-broadcast(f, As...) = broadcast!(f, Array(promote_eltype_op(f, As...), broadcast_shape(As...)), As...)
+broadcast(f, As...) = broadcast!(f, Array{promote_eltype_op(f, As...)}(broadcast_shape(As...)), As...)
 
 bitbroadcast(f, As...) = broadcast!(f, BitArray(broadcast_shape(As...)), As...)
 
-broadcast!_function(f) = (B, As...) -> broadcast!(f, B, As...)
-broadcast_function(f) = (As...) -> broadcast(f, As...)
-
-broadcast_getindex(src::AbstractArray, I::AbstractArray...) = broadcast_getindex!(Array(eltype(src), broadcast_shape(I...)), src, I...)
+broadcast_getindex(src::AbstractArray, I::AbstractArray...) = broadcast_getindex!(Array{eltype(src)}(broadcast_shape(I...)), src, I...)
 @generated function broadcast_getindex!(dest::AbstractArray, src::AbstractArray, I::AbstractArray...)
     N = length(I)
     Isplat = Expr[:(I[$d]) for d = 1:N]
@@ -278,22 +275,22 @@ end
 
 eltype_plus(As::AbstractArray...) = promote_eltype_op(+, As...)
 
-.+(As::AbstractArray...) = broadcast!(+, Array(eltype_plus(As...), broadcast_shape(As...)), As...)
+.+(As::AbstractArray...) = broadcast!(+, Array{eltype_plus(As...)}(broadcast_shape(As...)), As...)
 
 function .-(A::AbstractArray, B::AbstractArray)
-    broadcast!(-, Array(promote_op(-, eltype(A), eltype(B)), broadcast_shape(A,B)), A, B)
+    broadcast!(-, Array{promote_op(-, eltype(A), eltype(B))}(broadcast_shape(A,B)), A, B)
 end
 
 eltype_mul(As::AbstractArray...) = promote_eltype_op(*, As...)
 
-.*(As::AbstractArray...) = broadcast!(*, Array(eltype_mul(As...), broadcast_shape(As...)), As...)
+.*(As::AbstractArray...) = broadcast!(*, Array{eltype_mul(As...)}(broadcast_shape(As...)), As...)
 
 function ./(A::AbstractArray, B::AbstractArray)
-    broadcast!(/, Array(promote_op(/, eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
+    broadcast!(/, Array{promote_op(/, eltype(A), eltype(B))}(broadcast_shape(A, B)), A, B)
 end
 
 function .\(A::AbstractArray, B::AbstractArray)
-    broadcast!(\, Array(promote_op(\, eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
+    broadcast!(\, Array{promote_op(\, eltype(A), eltype(B))}(broadcast_shape(A, B)), A, B)
 end
 
 typealias RatIntT{T<:Integer} Union{Type{Rational{T}},Type{T}}
@@ -303,11 +300,11 @@ type_rdiv{T<:Integer,S<:Integer}(::RatIntT{T}, ::RatIntT{S}) =
 type_rdiv{T<:Integer,S<:Integer}(::CRatIntT{T}, ::CRatIntT{S}) =
     Complex{Rational{promote_type(T,S)}}
 function .//(A::AbstractArray, B::AbstractArray)
-    broadcast!(//, Array(type_rdiv(eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
+    broadcast!(//, Array{type_rdiv(eltype(A), eltype(B))}(broadcast_shape(A, B)), A, B)
 end
 
 function .^(A::AbstractArray, B::AbstractArray)
-    broadcast!(^, Array(promote_op(^, eltype(A), eltype(B)), broadcast_shape(A, B)), A, B)
+    broadcast!(^, Array{promote_op(^, eltype(A), eltype(B))}(broadcast_shape(A, B)), A, B)
 end
 
 ## element-wise comparison operators returning BitArray ##
@@ -372,7 +369,7 @@ for (f, cachef, scalarf) in ((:.==, :bitcache_eq , :(==)),
                 l = length(F)
                 l == 0 && return F
                 Fc = F.chunks
-                C = Array(Bool, bitcache_size)
+                C = Array{Bool}(bitcache_size)
                 ind = 1
                 cind = 1
                 for i = 1:div(l + bitcache_size - 1, bitcache_size)
@@ -414,7 +411,7 @@ function (.^){T<:Integer}(A::BitArray, B::Array{T})
     l == 0 && return F
     Ac = A.chunks
     Fc = F.chunks
-    C = Array(Bool, bitcache_size)
+    C = Array{Bool}(bitcache_size)
     ind = 1
     cind = 1
     for i = 1:div(l + bitcache_size - 1, bitcache_size)

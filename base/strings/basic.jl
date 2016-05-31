@@ -32,8 +32,8 @@ String(s::Vector{UInt8}) =
     String(p::Ptr{UInt8}, [length::Integer])
 
 Create a string from the address of a C (0-terminated) string encoded as UTF-8.
-A copy is made so the ptr can be safely freed. If `length` is specified, the string
-does not have to be 0-terminated.
+A copy is made so the pointer can be safely freed. If `length` is specified, the
+string does not have to be 0-terminated.
 """
 function String(p::Union{Ptr{UInt8},Ptr{Int8}}, len::Integer)
     p == C_NULL && throw(ArgumentError("cannot convert NULL to string"))
@@ -263,7 +263,7 @@ end
 ## string map, filter, has ##
 
 function map(f, s::AbstractString)
-    out = IOBuffer(Array(UInt8,endof(s)),true,true)
+    out = IOBuffer(Array{UInt8}(endof(s)),true,true)
     truncate(out,0)
     for c in s
         c2 = f(c)
@@ -276,7 +276,7 @@ function map(f, s::AbstractString)
 end
 
 function filter(f, s::AbstractString)
-    out = IOBuffer(Array(UInt8,endof(s)),true,true)
+    out = IOBuffer(Array{UInt8}(endof(s)),true,true)
     truncate(out,0)
     for c in s
         if f(c)

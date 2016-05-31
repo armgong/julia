@@ -136,6 +136,7 @@ JL_DLLEXPORT jl_value_t *jl_methtable_lookup(jl_methtable_t *mt, jl_tupletype_t 
 // ----- LambdaInfo specialization instantiation ----- //
 
 JL_DLLEXPORT jl_method_t *jl_new_method_uninit(void);
+static jl_function_t *jl_new_generic_function_with_supertype(jl_sym_t *name, jl_module_t *module, jl_datatype_t *st, int iskw);
 jl_value_t *jl_mk_builtin_func(const char *name, jl_fptr_t fptr)
 {
     jl_sym_t *sname = jl_symbol(name);
@@ -1581,15 +1582,7 @@ JL_DLLEXPORT jl_value_t *jl_apply_generic(jl_value_t **args, uint32_t nargs)
             jl_method_error((jl_function_t*)F, args, nargs);
             // unreachable
         }
-        jl_value_t *res;
-        if (mfunc->inInference || mfunc->inCompile) {
-            // if inference is running on this function, return a copy
-            // of the function to be compiled without inference and run.
-            res = jl_call_unspecialized(mfunc->sparam_vals, jl_get_unspecialized(mfunc), args, nargs);
-        }
-        else {
-            res = jl_call_method_internal(mfunc, args, nargs);
-        }
+        jl_value_t *res = jl_call_method_internal(mfunc, args, nargs);
         JL_GC_POP();
         return verify_type(res);
     }
@@ -1599,15 +1592,7 @@ JL_DLLEXPORT jl_value_t *jl_apply_generic(jl_value_t **args, uint32_t nargs)
     if (traceen)
         jl_printf(JL_STDOUT, " at %s:%d\n", jl_symbol_name(mfunc->file), mfunc->line);
 #endif
-    jl_value_t *res;
-    if (mfunc->inInference || mfunc->inCompile) {
-        // if inference is running on this function, return a copy
-        // of the function to be compiled without inference and run.
-        res = jl_call_unspecialized(mfunc->sparam_vals, jl_get_unspecialized(mfunc), args, nargs);
-    }
-    else {
-        res = jl_call_method_internal(mfunc, args, nargs);
-    }
+    jl_value_t *res = jl_call_method_internal(mfunc, args, nargs);
     return verify_type(res);
 }
 
@@ -1675,15 +1660,10 @@ jl_value_t *jl_gf_invoke(jl_tupletype_t *types0, jl_value_t **args, size_t nargs
         mfunc = tm->func.linfo;
     }
     JL_GC_POP();
-    if (mfunc->inInference || mfunc->inCompile) {
-        // if inference is running on this function, return a copy
-        // of the function to be compiled without inference and run.
-        return jl_call_unspecialized(mfunc->sparam_vals, jl_get_unspecialized(mfunc), args, nargs);
-    }
     return jl_call_method_internal(mfunc, args, nargs);
 }
 
-JL_DLLEXPORT jl_function_t *jl_new_generic_function_with_supertype(jl_sym_t *name, jl_module_t *module, jl_datatype_t *st, int iskw)
+static jl_function_t *jl_new_generic_function_with_supertype(jl_sym_t *name, jl_module_t *module, jl_datatype_t *st, int iskw)
 {
     // type name is function name prefixed with #
     size_t l = strlen(jl_symbol_name(name));
@@ -1722,7 +1702,7 @@ JL_DLLEXPORT jl_function_t *jl_get_kwsorter(jl_typename_t *tn)
     return mt->kwsorter;
 }
 
-JL_DLLEXPORT jl_function_t *jl_new_generic_function(jl_sym_t *name, jl_module_t *module)
+jl_function_t *jl_new_generic_function(jl_sym_t *name, jl_module_t *module)
 {
     return jl_new_generic_function_with_supertype(name, module, jl_function_type, 0);
 }
@@ -1843,42 +1823,50 @@ static int ml_matches_visitor(jl_typemap_entry_t *ml, struct typemap_intersectio
         if (matched_all_typevars && jl_types_equal(closure->match.ti, closure->match.type) &&
             jl_subtype(closure->match.type, (jl_value_t*)ml->sig, 0)) {
             done = 1; // terminate visiting method list
-            // here we have reached a definition that fully covers the arguments.
-            // however, if there are ambiguities this method might not actually
-            // match, so we shouldn't add it to the results.
-            if (meth->ambig != jl_nothing) {
-                jl_svec_t *env = NULL;
-                JL_GC_PUSH1(&env);
-                for (size_t j = 0; j < jl_array_len(meth->ambig); j++) {
-                    jl_method_t *mambig = (jl_method_t*)jl_cellref(meth->ambig, j);
-                    env = jl_emptysvec;
-                    jl_value_t *mti = jl_type_intersection_matching((jl_value_t*)closure->match.type,
-                                                                    (jl_value_t*)mambig->sig,
-                                                                    &env, mambig->tvars);
-                    if (mti != (jl_value_t*)jl_bottom_type) {
-                        if (closure->include_ambiguous) {
-                            int k;
-                            for(k=0; k < len; k++) {
-                                if ((jl_value_t*)mambig == jl_svecref(jl_cellref(closure->t, k), 2))
-                                    break;
-                            }
-                            if (k >= len) {
-                                if (len == 0) {
-                                    closure->t = (jl_value_t*)jl_alloc_cell_1d(0);
-                                }
-                                jl_cell_1d_push((jl_array_t*)closure->t,
-                                                (jl_value_t*)jl_svec(3, mti, env, mambig));
-                                len++;
-                            }
+        }
+        // here we have reached a definition that fully covers the arguments.
+        // however, if there are ambiguities this method might not actually
+        // match, so we shouldn't add it to the results.
+        if (meth->ambig != jl_nothing && (!closure->include_ambiguous || done)) {
+            jl_svec_t *env = NULL;
+            JL_GC_PUSH1(&env);
+            for (size_t j = 0; j < jl_array_len(meth->ambig); j++) {
+                jl_method_t *mambig = (jl_method_t*)jl_cellref(meth->ambig, j);
+                env = jl_emptysvec;
+                jl_value_t *mti = jl_type_intersection_matching((jl_value_t*)closure->match.type,
+                                                                (jl_value_t*)mambig->sig,
+                                                                &env, mambig->tvars);
+                if (mti != (jl_value_t*)jl_bottom_type) {
+                    if (closure->include_ambiguous) {
+                        assert(done);
+                        int k;
+                        for(k=0; k < len; k++) {
+                            if ((jl_value_t*)mambig == jl_svecref(jl_cellref(closure->t, k), 2))
+                                break;
                         }
-                        else {
+                        if (k >= len) {
+                            if (len == 0) {
+                                closure->t = (jl_value_t*)jl_alloc_cell_1d(0);
+                            }
+                            jl_cell_1d_push((jl_array_t*)closure->t,
+                                            (jl_value_t*)jl_svec(3, mti, env, mambig));
+                            len++;
+                        }
+                    }
+                    else {
+                        // the current method doesn't match if there is an intersection with an
+                        // ambiguous method that covers our intersection with this one.
+                        jl_value_t *ambi = jl_type_intersection_matching((jl_value_t*)ml->sig,
+                                                                         (jl_value_t*)mambig->sig,
+                                                                         &env, mambig->tvars);
+                        if (jl_subtype(closure->match.ti, ambi, 0)) {
                             return_this_match = 0;
                             break;
                         }
                     }
                 }
-                JL_GC_POP();
             }
+            JL_GC_POP();
         }
         if (return_this_match) {
             if (closure->lim >= 0 && len >= closure->lim) {

@@ -47,7 +47,13 @@ function showerror(io::IO, ex::CompositeException)
 end
 
 function show(io::IO, t::Task)
-    print(io, "Task ($(t.state)) @0x$(hex(convert(UInt, pointer_from_objref(t)), WORD_SIZE>>2))")
+    print(io, "Task ($(t.state)) @0x$(hex(convert(UInt, pointer_from_objref(t)), Sys.WORD_SIZE>>2))")
+    if get(io, :multiline, false)
+        if t.state == :failed
+            println(io)
+            showerror(io, CapturedException(t.result, t.backtrace))
+        end
+    end
 end
 
 macro task(ex)
@@ -146,7 +152,6 @@ function task_done_hook(t::Task)
                 # run a new task to print the error for us
                 @schedule with_output_color(:red, STDERR) do io
                     print(io, "ERROR (unhandled task failure): ")
-                    println("BT ", typeof(bt), length(bt))
                     showerror(io, result, bt)
                     println(io)
                 end
