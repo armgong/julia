@@ -604,7 +604,9 @@
       (let loop ((ex
                   ;; in allow-empty mode skip leading runs of operator
                   (if (and allow-empty (memv t ops))
-                      '()
+                      (if add-linenums
+                          (list (line-number-node s))
+                          '())
                       (if add-linenums
                           (let ((loc (line-number-node s)))
                             ;; note: line-number must happen before (down s)
@@ -1019,6 +1021,9 @@
                      ((comprehension)
                       (loop (list* 'typed_comprehension ex (cdr al))))
                      ((dict_comprehension)
+		      (syntax-deprecation
+		       s (string #\( (deparse ex) #\) "[a=>b for (a,b) in c]")
+		       (string (deprecated-dict-replacement ex) "(a=>b for (a,b) in c)"))
                       (loop (list* 'typed_dict_comprehension ex (cdr al))))
                      (else (error "unknown parse-cat result (internal error)"))))))
             ((|.|)
@@ -1234,12 +1239,16 @@
                           #f
                           finalb)
                     (let* ((var (if nl #f (parse-eq* s)))
-                           (var? (and (not nl) (or (symbol? var) (and (length= var 2) (eq? (car var) '$)))))
+                           (var? (and (not nl) (or (and (symbol? var) (not (eq? var 'false))
+                                                        (not (eq? var 'true)))
+                                                   (and (length= var 2) (eq? (car var) '$)))))
                            (catch-block (if (eq? (require-token s) 'finally)
-                                            '(block)
+                                            `(block ,(line-number-node s))
                                             (parse-block s))))
                       (loop (require-token s)
-                            catch-block
+                            (if (or var? (not var))
+                                catch-block
+                                `(block ,(cadr catch-block) ,var ,@(cddr catch-block)))
                             (if var? var 'false)
                             finalb)))))
              ((and (eq? nxt 'finally)
@@ -1995,7 +2004,7 @@
                         (syntax-deprecation s "{a for a in b}" "Any[a for a in b]")
                         `(typed_comprehension (top Any) ,@(cdr vex)))
                        ((dict_comprehension)
-                        (syntax-deprecation s "{a=>b for (a,b) in c}" "Dict{Any,Any}([a=>b for (a,b) in c])")
+                        (syntax-deprecation s "{a=>b for (a,b) in c}" "Dict{Any,Any}(a=>b for (a,b) in c)")
                         `(typed_dict_comprehension (=> (top Any) (top Any)) ,@(cdr vex)))
                        ((dict)
                         (syntax-deprecation s "{a=>b, ...}" "Dict{Any,Any}(a=>b, ...)")

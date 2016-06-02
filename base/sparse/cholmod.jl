@@ -2,7 +2,7 @@
 
 module CHOLMOD
 
-import Base: (*), convert, copy, eltype, get, getindex, show, showarray, size,
+import Base: (*), convert, copy, eltype, get, getindex, show, size,
              linearindexing, LinearFast, LinearSlow, ctranspose
 
 import Base.LinAlg: (\), A_mul_Bc, A_mul_Bt, Ac_ldiv_B, Ac_mul_B, At_ldiv_B, At_mul_B,
@@ -1076,8 +1076,7 @@ function show(io::IO, F::Factor)
     showfactor(io, F)
 end
 
-# FactorComponent is a subtype of AbstractArray and we therefore define showarray instead of show
-function showarray(io::IO, FC::FactorComponent; kargs...)
+function show(io::IO, FC::FactorComponent)
     println(io, typeof(FC))
     showfactor(io, Factor(FC))
 end
@@ -1263,7 +1262,8 @@ appropriate.
 cholfact!{T<:Real}(F::Factor, A::Union{SparseMatrixCSC{T},
         SparseMatrixCSC{Complex{T}},
         Symmetric{T,SparseMatrixCSC{T,SuiteSparse_long}},
-        Hermitian{Complex{T},SparseMatrixCSC{Complex{T},SuiteSparse_long}}};
+        Hermitian{Complex{T},SparseMatrixCSC{Complex{T},SuiteSparse_long}},
+        Hermitian{T,SparseMatrixCSC{T,SuiteSparse_long}}};
     shift = 0.0) =
     cholfact!(F, Sparse(A); shift = shift)
 
@@ -1315,7 +1315,8 @@ Many other functions from CHOLMOD are wrapped but not exported from the
 """
 cholfact{T<:Real}(A::Union{SparseMatrixCSC{T}, SparseMatrixCSC{Complex{T}},
     Symmetric{T,SparseMatrixCSC{T,SuiteSparse_long}},
-    Hermitian{Complex{T},SparseMatrixCSC{Complex{T},SuiteSparse_long}}};
+    Hermitian{Complex{T},SparseMatrixCSC{Complex{T},SuiteSparse_long}},
+    Hermitian{T,SparseMatrixCSC{T,SuiteSparse_long}}};
     kws...) = cholfact(Sparse(A); kws...)
 
 
@@ -1351,7 +1352,8 @@ appropriate.
 ldltfact!{T<:Real}(F::Factor, A::Union{SparseMatrixCSC{T},
     SparseMatrixCSC{Complex{T}},
     Symmetric{T,SparseMatrixCSC{T,SuiteSparse_long}},
-    Hermitian{Complex{T},SparseMatrixCSC{Complex{T},SuiteSparse_long}}};
+    Hermitian{Complex{T},SparseMatrixCSC{Complex{T},SuiteSparse_long}},
+    Hermitian{T,SparseMatrixCSC{T,SuiteSparse_long}}};
     shift = 0.0) =
     ldltfact!(F, Sparse(A), shift = shift)
 
@@ -1404,7 +1406,8 @@ Many other functions from CHOLMOD are wrapped but not exported from the
 """
 ldltfact{T<:Real}(A::Union{SparseMatrixCSC{T},SparseMatrixCSC{Complex{T}},
     Symmetric{T,SparseMatrixCSC{T,SuiteSparse_long}},
-    Hermitian{Complex{T},SparseMatrixCSC{Complex{T},SuiteSparse_long}}};
+    Hermitian{Complex{T},SparseMatrixCSC{Complex{T},SuiteSparse_long}},
+    Hermitian{T,SparseMatrixCSC{T,SuiteSparse_long}}};
     kws...) = ldltfact(Sparse(A); kws...)
 
 ## Solvers
@@ -1559,5 +1562,6 @@ end
 
 (*){Ti}(A::Symmetric{Float64,SparseMatrixCSC{Float64,Ti}}, B::SparseVecOrMat{Float64,Ti}) = sparse(Sparse(A)*Sparse(B))
 (*){Ti}(A::Hermitian{Complex{Float64},SparseMatrixCSC{Complex{Float64},Ti}}, B::SparseVecOrMat{Complex{Float64},Ti}) = sparse(Sparse(A)*Sparse(B))
+(*){Ti}(A::Hermitian{Float64,SparseMatrixCSC{Float64,Ti}}, B::SparseVecOrMat{Float64,Ti}) = sparse(Sparse(A)*Sparse(B))
 
 end #module

@@ -88,12 +88,14 @@ CPUinfo(info::UV_cpu_info_t) = CPUinfo(String(info.model), info.speed,
     info.cpu_times!user, info.cpu_times!nice, info.cpu_times!sys,
     info.cpu_times!idle, info.cpu_times!irq)
 
+show(io::IO, info::CPUinfo) = Base._show_cpuinfo(io, info, true, "    ")
+
 function _cpu_summary(io::IO, cpu::Array{CPUinfo}, i, j)
     if j-i < 9
         header = true
         for x = i:j
             header || println(io)
-            show(io, cpu[x], header, "#$(x-i+1) ")
+            Base._show_cpuinfo(io, cpu[x], header, "#$(x-i+1) ")
             header = false
         end
     else
@@ -108,7 +110,7 @@ function _cpu_summary(io::IO, cpu::Array{CPUinfo}, i, j)
             summary.cpu_times!irq += cpu[x].cpu_times!irq
         end
         summary.speed = div(summary.speed,count)
-        show(io, summary, true, "#1-$(count) ")
+        Base._show_cpuinfo(io, summary, true, "#1-$(count) ")
     end
     println(io)
 end
@@ -126,10 +128,10 @@ function cpu_summary(io::IO=STDOUT, cpu::Array{CPUinfo}=cpu_info())
 end
 
 function cpu_info()
-    UVcpus = Array(Ptr{UV_cpu_info_t},1)
-    count = Array(Int32,1)
+    UVcpus = Array{Ptr{UV_cpu_info_t}}(1)
+    count = Array{Int32}(1)
     Base.uv_error("uv_cpu_info",ccall(:uv_cpu_info, Int32, (Ptr{Ptr{UV_cpu_info_t}}, Ptr{Int32}), UVcpus, count))
-    cpus = Array(CPUinfo,count[1])
+    cpus = Array{CPUinfo}(count[1])
     for i = 1:length(cpus)
         cpus[i] = CPUinfo(unsafe_load(UVcpus[1],i))
     end
@@ -138,13 +140,13 @@ function cpu_info()
 end
 
 function uptime()
-    uptime_ = Array(Float64,1)
+    uptime_ = Array{Float64}(1)
     Base.uv_error("uv_uptime",ccall(:uv_uptime, Int32, (Ptr{Float64},), uptime_))
     return uptime_[1]
 end
 
 function loadavg()
-    loadavg_ = Array(Float64,3)
+    loadavg_ = Array{Float64}(3)
     ccall(:uv_loadavg, Void, (Ptr{Float64},), loadavg_)
     return loadavg_
 end
@@ -178,7 +180,7 @@ end
     windows_version()
 
 Returns the version number for the Windows NT Kernel as a (major, minor) pair,
-or (0, 0) if this is not running on Windows.
+or `(0, 0)` if this is not running on Windows.
 """
 windows_version
 

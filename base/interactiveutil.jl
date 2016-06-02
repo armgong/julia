@@ -161,7 +161,8 @@ end
 
 # system information
 
-function show(io::IO, info::Sys.CPUinfo, header::Bool=true, prefix::AbstractString="    ")
+# used by sysinfo.jl
+function _show_cpuinfo(io::IO, info::Sys.CPUinfo, header::Bool=true, prefix::AbstractString="    ")
     tck = Sys.SC_CLK_TCK
     if header
         println(io, info.model, ": ")
@@ -222,8 +223,8 @@ function versioninfo(io::IO=STDOUT, verbose::Bool=false)
         Sys.cpu_summary(io)
         println(io          )
     end
-    if Base.libblas_name == "libopenblas" || blas_vendor() == :openblas || blas_vendor() == :openblas64
-        openblas_config = openblas_get_config()
+    if Base.libblas_name == "libopenblas" || BLAS.vendor() == :openblas || BLAS.vendor() == :openblas64
+        openblas_config = BLAS.openblas_get_config()
         println(io,         "  BLAS: libopenblas (", openblas_config, ")")
     else
         println(io,         "  BLAS: ",libblas_name)

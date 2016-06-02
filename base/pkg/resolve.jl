@@ -51,7 +51,6 @@ end
 # Scan dependencies for (explicit or implicit) contradictions
 function sanity_check(deps::Dict{String,Dict{VersionNumber,Available}},
                       pkgs::Set{String} = Set{String}())
-
     isempty(pkgs) || (deps = Query.undirected_dependencies_subset(deps, pkgs))
 
     deps, eq_classes = Query.prune_versions(deps)
@@ -65,7 +64,7 @@ function sanity_check(deps::Dict{String,Dict{VersionNumber,Available}},
         end
     end
 
-    vers = Array(Tuple{String,VersionNumber,VersionNumber}, 0)
+    vers = Array{Tuple{String,VersionNumber,VersionNumber}}(0)
     for (p,d) in deps, vn in keys(d)
         lvns = VersionNumber[filter(vn2->(vn2>vn), keys(d))...]
         nvn = isempty(lvns) ? typemax(VersionNumber) : minimum(lvns)
@@ -75,11 +74,11 @@ function sanity_check(deps::Dict{String,Dict{VersionNumber,Available}},
 
     nv = length(vers)
 
-    svdict = (Tuple{String,VersionNumber}=>Int)[ vers[i][1:2]=>i for i = 1:nv ]
+    svdict = Dict{Tuple{String,VersionNumber},Int}(vers[i][1:2]=>i for i = 1:nv)
 
     checked = falses(nv)
 
-    problematic = Array(Tuple{String,VersionNumber,String},0)
+    problematic = Array{Tuple{String,VersionNumber,String}}(0)
     i = 1
     psl = 0
     for (p,vn,nvn) in vers

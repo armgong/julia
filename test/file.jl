@@ -289,6 +289,7 @@ my_tempdir = tempdir()
 path = tempname()
 # Issue #9053.
 @test ispath(path) == is_windows()
+ispath(path) && rm(path)
 
 (p, f) = mktemp()
 print(f, "Here is some text")
@@ -880,7 +881,7 @@ end
 ###################
 
 function test_LibcFILE(FILEp)
-    buf = Array(UInt8, 8)
+    buf = Array{UInt8}(8)
     str = ccall(:fread, Csize_t, (Ptr{Void}, Csize_t, Csize_t, Ptr{Void}), buf, 1, 8, FILEp)
     @test String(buf) == "Hello, w"
     @test position(FILEp) == 8

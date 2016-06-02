@@ -134,7 +134,7 @@ Mathematical Operators
 
    .. Docstring generated from Julia source
 
-   Modulus after flooring division, returning in the range [0,``y``\ ), if ``y`` is positive, or (``y``\ ,0] if ``y`` is negative.
+   Modulus after flooring division, returning in the range :math:`[0,y)`\ , if ``y`` is positive, or :math:`(y,0]` if ``y`` is negative.
 
    .. code-block:: julia
 
@@ -144,9 +144,9 @@ Mathematical Operators
 
    .. Docstring generated from Julia source
 
-   Modulus after division by 2pi, returning in the range [0,2pi).
+   Modulus after division by ``2π``\ , returning in the range :math:`[0,2π)`\ .
 
-   This function computes a floating point representation of the modulus after division by numerically exact 2pi, and is therefore not exactly the same as mod(x,2pi), which would compute the modulus of ``x`` relative to division by the floating-point number 2pi.
+   This function computes a floating point representation of the modulus after division by numerically exact ``2π``\ , and is therefore not exactly the same as ``mod(x,2π)``\ , which would compute the modulus of ``x`` relative to division by the floating-point number ``2π``\ .
 
 .. function:: rem(x, y)
               %(x, y)
@@ -186,19 +186,13 @@ Mathematical Operators
 
    .. Docstring generated from Julia source
 
-   Modulus after flooring division, returning a value in the range ``(0, y]``\ .
+   Modulus after flooring division, returning a value ``r`` such that ``mod(r, y) == mod(x, y)``  in the range :math:`(0, y]` for positive ``y`` and in the range :math:`[y,0)` for negative ``y``\ .
 
 .. function:: fldmod1(x, y)
 
    .. Docstring generated from Julia source
 
    Return ``(fld1(x,y), mod1(x,y))``\ .
-
-.. function:: rem1(x, y)
-
-   .. Docstring generated from Julia source
-
-   (Deprecated.) Remainder after division, returning in the range ``(0, y]``\ .
 
 .. _//:
 .. function:: //(num, den)
@@ -1359,19 +1353,6 @@ Mathematical Functions
 
    Compute ``factorial(n)/factorial(k)``\ .
 
-.. function:: factor(n) -> Dict
-
-   .. Docstring generated from Julia source
-
-   Compute the prime factorization of an integer ``n``\ . Returns a dictionary. The keys of the dictionary correspond to the factors, and hence are of the same type as ``n``\ . The value associated with each key indicates the number of times the factor appears in the factorization.
-
-   .. doctest::
-
-       julia> factor(100) # == 2*2*5*5
-       Dict{Int64,Int64} with 2 entries:
-         2 => 2
-         5 => 2
-
 .. function:: gcd(x,y)
 
    .. Docstring generated from Julia source
@@ -1676,7 +1657,7 @@ Mathematical Functions
 
    Generalized zeta function :math:`\zeta(s, z)`\ , defined by the sum :math:`\sum_{k=0}^\infty ((k+z)^2)^{-s/2}`\ , where any term with :math:`k+z=0` is excluded.  For :math:`\Re z > 0`\ , this definition is equivalent to the Hurwitz zeta function :math:`\sum_{k=0}^\infty (k+z)^{-s}`\ .   For :math:`z=1`\ , it yields the Riemann zeta function :math:`\zeta(s)`\ .
 
-.. function:: ndigits(n, b)
+.. function:: ndigits(n, b = 10)
 
    .. Docstring generated from Julia source
 
@@ -1768,42 +1749,6 @@ Statistics
    .. Docstring generated from Julia source
 
    Like ``median``\ , but may overwrite the input vector.
-
-.. function:: hist(v[, n]) -> e, counts
-
-   .. Docstring generated from Julia source
-
-   Compute the histogram of ``v``\ , optionally using approximately ``n`` bins. The return values are a range ``e``\ , which correspond to the edges of the bins, and ``counts`` containing the number of elements of ``v`` in each bin. Note: Julia does not ignore ``NaN`` values in the computation.
-
-.. function:: hist(v, e) -> e, counts
-
-   .. Docstring generated from Julia source
-
-   Compute the histogram of ``v`` using a vector/range ``e`` as the edges for the bins. The result will be a vector of length ``length(e) - 1``\ , such that the element at location ``i`` satisfies ``sum(e[i] .< v .<= e[i+1])``\ . Note: Julia does not ignore ``NaN`` values in the computation.
-
-.. function:: hist!(counts, v, e) -> e, counts
-
-   .. Docstring generated from Julia source
-
-   Compute the histogram of ``v``\ , using a vector/range ``e`` as the edges for the bins. This function writes the resultant counts to a pre-allocated array ``counts``\ .
-
-.. function:: hist2d(M, e1, e2) -> (edge1, edge2, counts)
-
-   .. Docstring generated from Julia source
-
-   Compute a "2d histogram" of a set of N points specified by N-by-2 matrix ``M``\ . Arguments ``e1`` and ``e2`` are bins for each dimension, specified either as integer bin counts or vectors of bin edges. The result is a tuple of ``edge1`` (the bin edges used in the first dimension), ``edge2`` (the bin edges used in the second dimension), and ``counts``\ , a histogram matrix of size ``(length(edge1)-1, length(edge2)-1)``\ . Note: Julia does not ignore ``NaN`` values in the computation.
-
-.. function:: hist2d!(counts, M, e1, e2) -> (e1, e2, counts)
-
-   .. Docstring generated from Julia source
-
-   Compute a "2d histogram" with respect to the bins delimited by the edges given in ``e1`` and ``e2``\ . This function writes the results to a pre-allocated array ``counts``\ .
-
-.. function:: histrange(v, n)
-
-   .. Docstring generated from Julia source
-
-   Compute *nice* bin ranges for the edges of a histogram of ``v``\ , using approximately ``n`` bins. The resulting step sizes will be 1, 2 or 5 multiplied by a power of 10. Note: Julia does not ignore ``NaN`` values in the computation.
 
 .. function:: midpoints(e)
 

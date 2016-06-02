@@ -120,11 +120,15 @@ svdfact(M::Bidiagonal; thin::Bool=true) = svdfact!(copy(M),thin=thin)
 ####################
 
 function show(io::IO, M::Bidiagonal)
-    println(io, summary(M), ":")
-    print(io, " diag:")
-    print_matrix(io, (M.dv)')
-    print(io, M.isupper?"\n super:":"\n sub:")
-    print_matrix(io, (M.ev)')
+    if get(io, :multiline, false)
+        Base.showarray(io, M)
+    else
+        println(io, summary(M), ":")
+        print(io, " diag:")
+        print_matrix(io, (M.dv)')
+        print(io, M.isupper?"\n super:":"\n sub:")
+        print_matrix(io, (M.ev)')
+    end
 end
 
 size(M::Bidiagonal) = (length(M.dv), length(M.dv))
@@ -443,7 +447,7 @@ factorize(A::Bidiagonal) = A
 eigvals(M::Bidiagonal) = M.dv
 function eigvecs{T}(M::Bidiagonal{T})
     n = length(M.dv)
-    Q = Array(T, n, n)
+    Q = Array{T}(n, n)
     blks = [0; find(x -> x == 0, M.ev); n]
     if M.isupper
         for idx_block = 1:length(blks) - 1, i = blks[idx_block] + 1:blks[idx_block + 1] #index of eigenvector
