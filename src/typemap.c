@@ -83,6 +83,10 @@ static int sig_match_by_type_simple(jl_value_t **types, size_t n, jl_tupletype_t
     }
     if (va) {
         jl_value_t *decl = jl_field_type(sig, i);
+        if (jl_vararg_kind(decl) == JL_VARARG_INT) {
+            if (n-i != jl_unbox_long(jl_tparam1(decl)))
+                return 0;
+        }
         jl_value_t *t = jl_tparam0(decl);
         for(; i < n; i++) {
             if (!jl_subtype(types[i], t, 0))
@@ -150,6 +154,10 @@ static inline int sig_match_simple(jl_value_t **args, size_t n, jl_value_t **sig
     }
     if (va) {
         jl_value_t *decl = sig[i];
+        if (jl_vararg_kind(decl) == JL_VARARG_INT) {
+            if (n-i != jl_unbox_long(jl_tparam1(decl)))
+                return 0;
+        }
         jl_value_t *t = jl_tparam0(decl);
         for(; i < n; i++) {
             if (!jl_subtype(args[i], t, 1))
@@ -171,7 +179,7 @@ union jl_typemap_t mtcache_hash_lookup(jl_array_t *a, jl_value_t *ty, int8_t tpa
     ml.unknown = jl_nothing;
     if (!uid)
         return ml;
-    ml.unknown = jl_cellref(a, uid & (a->nrows-1));
+    ml.unknown = jl_array_ptr_ref(a, uid & (a->nrows-1));
     if (ml.unknown != NULL && ml.unknown != jl_nothing) {
         jl_value_t *t;
         if (jl_typeof(ml.unknown) == (jl_value_t*)jl_typemap_level_type) {
@@ -207,7 +215,7 @@ static void mtcache_rehash(jl_array_t **pa, jl_value_t *parent, int8_t tparam, i
     size_t i, len = jl_array_len(*pa);
     size_t newlen = next_power_of_two(len) * 2;
     jl_value_t **d = (jl_value_t**)jl_array_data(*pa);
-    jl_array_t *n = jl_alloc_cell_1d(newlen);
+    jl_array_t *n = jl_alloc_array_ptr_1d(newlen);
     for (i = 1; i <= len; i++) {
         union jl_typemap_t ml;
         ml.unknown = d[i - 1];
@@ -230,7 +238,7 @@ static void mtcache_rehash(jl_array_t **pa, jl_value_t *parent, int8_t tparam, i
                 // hash collision: start over after doubling the size again
                 i = 0;
                 newlen *= 2;
-                n = jl_alloc_cell_1d(newlen);
+                n = jl_alloc_array_ptr_1d(newlen);
             }
         }
     }
@@ -244,7 +252,7 @@ void jl_typemap_rehash_array(jl_array_t **pa, jl_value_t *parent, int8_t tparam,
     size_t i, len = (*pa)->nrows;
     for (i = 0; i < len; i++) {
         union jl_typemap_t ml;
-        ml.unknown = jl_cellref(*pa, i);
+        ml.unknown = jl_array_ptr_ref(*pa, i);
         assert(ml.unknown != NULL);
         jl_typemap_rehash(ml, offs+1);
     }
@@ -270,7 +278,7 @@ static union jl_typemap_t *mtcache_hash_bp(jl_array_t **pa, jl_value_t *ty,
             // since they should have a lower priority and need to go into the sorted list
             return NULL;
         if (*pa == (void*)jl_nothing) {
-            *pa = jl_alloc_cell_1d(INIT_CACHE_SIZE);
+            *pa = jl_alloc_array_ptr_1d(INIT_CACHE_SIZE);
             jl_gc_wb(parent, *pa);
         }
         while (1) {

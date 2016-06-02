@@ -68,7 +68,6 @@ dimension sizes passed as a variable number of arguments.
 Function                                            Description
 =================================================== =====================================================================
 :func:`Array{type}(dims...) <Array>`                an uninitialized dense array
-:func:`cell(dims...) <cell>`                        an uninitialized cell array (heterogeneous array)
 :func:`zeros(type, dims...) <zeros>`                an array of all zeros of specified type, defaults to ``Float64`` if
                                                     ``type`` not specified
 :func:`zeros(A) <zeros>`                            an array of all zeros of same element type and shape of ``A``
@@ -242,12 +241,10 @@ parentheses lets us add a third argument to ``map``:
 
 .. doctest::
 
-    julia> map(tuple, (1/(i+j) for i=1:2, j=1:2), [1:4;])
-    4-element Array{Any,1}:
-    (0.5,1)
-    (0.333333,2)
-    (0.333333,3)
-    (0.25,4)
+    julia> map(tuple, (1/(i+j) for i=1:2, j=1:2), [1 3; 2 4])
+    2×2 Array{Tuple{Float64,Int64},2}:
+     (0.5,1)       (0.333333,3)
+     (0.333333,2)  (0.25,4)
 
 .. _man-array-indexing:
 

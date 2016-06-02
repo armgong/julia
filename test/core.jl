@@ -522,7 +522,7 @@ function const_implies_local()
 end
 @test const_implies_local() === (1, 0)
 
-a = cell(3)
+a = Vector{Any}(3)
 for i=1:3
     let ii = i
         a[i] = x->x+ii
@@ -555,7 +555,7 @@ end
 
 let
     local a
-    a = cell(2)
+    a = Vector{Any}(2)
     @test !isdefined(a,1) && !isdefined(a,2)
     a[1] = 1
     @test isdefined(a,1) && !isdefined(a,2)
@@ -578,7 +578,7 @@ end
 
 let
     local a
-    a = cell(2)
+    a = Vector{Any}(2)
     @test !isassigned(a,1) && !isassigned(a,2)
     a[1] = 1
     @test isassigned(a,1) && !isassigned(a,2)
@@ -600,11 +600,23 @@ Type11167{Float32,5}
 
 # dispatch
 let
-    local foo, bar, baz
-    foo(x::Tuple{Vararg{Any}})=0
-    foo(x::Tuple{Vararg{Integer}})=1
-    @test foo((:a,))==0
-    @test foo(( 2,))==1
+    local foo, foo2, fooN, bar, baz
+    foo(x::Tuple{Vararg{Any}}) = 0
+    foo(x::Tuple{Vararg{Integer}}) = 1
+    @test foo((:a,)) == 0
+    @test foo(( 2,)) == 1
+
+    foo2(x::Vararg{Any,2}) = 2
+    @test foo2(1,2) == 2
+    @test_throws MethodError foo2(1)
+    @test_throws MethodError foo2(1,2,3)
+
+    fooN{T,N}(A::Array{T,N}, x::Vararg{Any,N}) = -1
+    @test fooN([1,2], 1) == -1
+    @test_throws MethodError fooN([1,2], 1, 2) == -1
+    @test fooN([1 2; 3 4], 1, 2) == -1
+    @test_throws MethodError fooN([1 2; 3 4], 1)
+    @test_throws MethodError fooN([1 2; 3 4], 1, 2, 3)
 
     bar{T}(x::Tuple{T,T,T,T})=1
     bar(x::Tuple{Any,Any,Any,Any})=2
@@ -3035,7 +3047,7 @@ type D11597{T} <: C11597{T} d::T end
 @test_throws TypeError repr(D11597(1.0))
 
 # issue #11772
-@test_throws UndefRefError (cell(5)...)
+@test_throws UndefRefError (Vector{Any}(5)...)
 
 # issue #11813
 let a = UInt8[1, 107, 66, 88, 2, 99, 254, 13, 0, 0, 0, 0]
@@ -4190,3 +4202,16 @@ let nometh = expand(:(A15838.@f(1, 2)))
     @test e.f === getfield(A15838, Symbol("@f"))
     @test e.args === (1,2)
 end
+
+# issue #1090
+function f1090(x)::Int
+    if x == 1
+        return 1
+    end
+    2.0
+end
+@test f1090(1) === 1
+@test f1090(2) === 2
+g1090{T}(x::T)::T = x+1.0
+@test g1090(1) === 2
+@test g1090(Float32(3)) === Float32(4)
