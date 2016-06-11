@@ -535,7 +535,7 @@ end
 
 function test_existing_ref(r::AbstractRemoteRef)
     found = getkey(client_refs, r, false)
-    if !is(found,false)
+    if found !== false
         if client_refs[r] == true
             @assert r.where > 0
             if isa(r, Future) && isnull(found.v) && !isnull(r.v)
@@ -640,7 +640,7 @@ function del_client(pg, id, client)
 # 14445 is fixed.
     @async begin
         rv = get(pg.refs, id, false)
-        if rv != false
+        if rv !== false
             delete!(rv.clientset, client)
             if isempty(rv.clientset)
                 delete!(pg.refs, id)
@@ -1040,6 +1040,10 @@ end
 function process_hdr(s, validate_cookie)
     if validate_cookie
         cookie = read(s, HDR_COOKIE_LEN)
+        if length(cookie) < HDR_COOKIE_LEN
+            error("Cookie read failed. Connection closed by peer.")
+        end
+
         self_cookie = cluster_cookie()
         for i in 1:HDR_COOKIE_LEN
             if UInt8(self_cookie[i]) != cookie[i]
@@ -1051,7 +1055,12 @@ function process_hdr(s, validate_cookie)
     # When we have incompatible julia versions trying to connect to each other,
     # and can be detected, raise an appropriate error.
     # For now, just return the version.
-    return VersionNumber(strip(String(read(s, HDR_VERSION_LEN))))
+    version = read(s, HDR_VERSION_LEN)
+    if length(version) < HDR_VERSION_LEN
+        error("Version read failed. Connection closed by peer.")
+    end
+
+    return VersionNumber(strip(String(version)))
 end
 
 function handle_msg(msg::CallMsg{:call}, r_stream, w_stream, version)
@@ -1357,7 +1366,7 @@ function setup_launched_worker(manager, wconfig, launched_q)
     # process on the remote machine, with a request to start additional workers of the
     # same type. This is done by setting an appropriate value to `WorkerConfig.cnt`.
     cnt = get(wconfig.count, 1)
-    if cnt == :auto
+    if cnt === :auto
         cnt = get(wconfig.environ)[:cpu_cores]
     end
     cnt = cnt - 1   # Removing self from the requested number
@@ -1476,8 +1485,8 @@ end
 
 additional_io_objs=Dict()
 function launch_additional(np::Integer, cmd::Cmd)
-    io_objs = cell(np)
-    addresses = cell(np)
+    io_objs = Vector{Any}(np)
+    addresses = Vector{Any}(np)
 
     for i in 1:np
         io, pobj = open(pipeline(detach(cmd), stderr=STDERR), "r")
@@ -1748,12 +1757,12 @@ function terminate_all_workers()
 
     if nprocs() > 1
         ret = rmprocs(workers(); waitfor=0.5)
-        if ret != :ok
+        if ret !== :ok
             warn("Forcibly interrupting busy workers")
             # Might be computation bound, interrupt them and try again
             interrupt(workers())
             ret = rmprocs(workers(); waitfor=0.5)
-            if ret != :ok
+            if ret !== :ok
                 warn("Unable to terminate all workers")
             end
         end

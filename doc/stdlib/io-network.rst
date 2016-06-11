@@ -360,7 +360,7 @@ General I/O
 
    .. Docstring generated from Julia source
 
-   Read the entirety of ``x`` as a string but remove trailing newlines. Equivalent to ``chomp(readstring(x))``\ .
+   Read the entirety of ``x`` as a string and remove a single trailing newline. Equivalent to ``chomp(readstring(x))``\ .
 
 .. function:: truncate(file,n)
 
@@ -434,9 +434,11 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   Show a more compact representation of a value.
+   Show a compact representation of a value.
 
-   This is used for printing array elements. If a new type has a different compact representation, it should test ``get(io, :compact, false)`` in its normal ``show`` method. A compact representation should skip any type information, which would be redundant with that printed once for the whole array.
+   This is used for printing array elements without repeating type information (which would be redundant with that printed once for the whole array), and without line breaks inside the representation of an element.
+
+   To offer a compact representation different from its standard one, a custom type should test ``get(io, :compact, false)`` in its normal ``show`` method.
 
 .. function:: showall(x)
 
@@ -580,7 +582,7 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a cell array of numbers and strings is returned.
+   If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings is returned.
 
 .. function:: readdlm(source, delim::Char, T::Type; options...)
 
@@ -592,7 +594,7 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   The end of line delimiter is taken as ``n``\ . If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a cell array of numbers and strings is returned.
+   The end of line delimiter is taken as ``n``\ . If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings is returned.
 
 .. function:: readdlm(source, T::Type; options...)
 
@@ -604,7 +606,7 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   The columns are assumed to be separated by one or more whitespaces. The end of line delimiter is taken as ``n``\ . If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a cell array of numbers and strings is returned.
+   The columns are assumed to be separated by one or more whitespaces. The end of line delimiter is taken as ``n``\ . If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings is returned.
 
 .. function:: writedlm(f, A, delim='\\t')
 

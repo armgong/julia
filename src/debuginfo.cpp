@@ -820,7 +820,7 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
         bool insysimage = (fbase == jl_sysimage_base);
         if (isSysImg)
             *isSysImg = insysimage;
-        if (onlySysImg && insysimage) {
+        if (onlySysImg && !insysimage) {
             return false;
         }
         static char frame_info_func[
@@ -853,7 +853,7 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
     Dl_info dlinfo;
     int dladdr_success;
     uint64_t fbase;
-#ifdef _OS_LINUX_
+#ifdef __GLIBC__
     struct link_map *extra_info;
     dladdr_success = dladdr1((void*)pointer, &dlinfo, (void**)&extra_info, RTLD_DL_LINKMAP) != 0;
 #else
@@ -861,7 +861,7 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
 #endif
 
     if (dladdr_success && dlinfo.dli_fname) {
-#ifdef _OS_LINUX_
+#ifdef __GLIBC__
         // dlinfo.dli_fbase is not the right value for the main executable on linux
         fbase = (uintptr_t)extra_info->l_addr;
 #else
@@ -876,7 +876,7 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
         bool insysimage = (fbase == jl_sysimage_base);
         if (isSysImg)
             *isSysImg = insysimage;
-        if (onlySysImg && insysimage) {
+        if (onlySysImg && !insysimage) {
             return false;
         }
         // In case we fail with the debug info lookup, we at least still
@@ -1312,7 +1312,9 @@ static const char *processFDE(const char *Entry, callback f)
     uint32_t Length = *((const uint32_t *)P);
     P += 4;
     uint32_t Offset = *((const uint32_t *)P);
-    if (Offset != 0) {
+    // Offset == 0: CIE
+    // Length == 0: Terminator
+    if (Offset != 0 && Length != 0) {
         f(Entry);
     }
     return P + Length;
@@ -1515,8 +1517,10 @@ static DW_EH_PE parseCIE(const uint8_t *Addr, const uint8_t *End)
     // Assume there's no EH Data field, which exist when the augmentation
     // string has "eh" in it.
     p += augmentation_len + 1;
-    // Code Alignment Factor (1 byte) should always be 1
-    assert(*p == 1);
+    // Code Alignment Factor (1 byte)
+    // should always be 1 on x86, 4 on PPC, etc.
+    // (used for DW_CFA_advance_loc / not used here)
+    //assert(*p == 1);
     p++;
     // Data Alignment Factor (LEB128)
     assert(cie_end >= p);

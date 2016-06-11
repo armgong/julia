@@ -382,7 +382,6 @@ typedef struct _jl_module_t {
     htable_t bindings;
     arraylist_t usings;  // modules with all bindings potentially imported
     uint8_t istopmod;
-    uint8_t std_imports;  // only for temporarily deprecating `importall Base.Operators`
     uint64_t uuid;
     uint32_t counter;
 } jl_module_t;
@@ -495,7 +494,7 @@ extern JL_DLLEXPORT jl_value_t *jl_inexact_exception;
 extern JL_DLLEXPORT jl_value_t *jl_undefref_exception;
 extern JL_DLLEXPORT jl_value_t *jl_interrupt_exception;
 extern JL_DLLEXPORT jl_datatype_t *jl_boundserror_type;
-extern JL_DLLEXPORT jl_value_t *jl_an_empty_cell;
+extern JL_DLLEXPORT jl_value_t *jl_an_empty_vec_any;
 
 extern JL_DLLEXPORT jl_datatype_t *jl_bool_type;
 extern JL_DLLEXPORT jl_datatype_t *jl_char_type;
@@ -698,12 +697,12 @@ JL_DLLEXPORT size_t jl_array_len_(jl_array_t *a);
 #define jl_array_data_owner_offset(ndims) (offsetof(jl_array_t,ncols) + sizeof(size_t)*(1+jl_array_ndimwords(ndims))) // in bytes
 #define jl_array_data_owner(a) (*((jl_value_t**)((char*)a + jl_array_data_owner_offset(jl_array_ndims(a)))))
 
-STATIC_INLINE jl_value_t *jl_cellref(void *a, size_t i)
+STATIC_INLINE jl_value_t *jl_array_ptr_ref(void *a, size_t i)
 {
     assert(i < jl_array_len(a));
     return ((jl_value_t**)(jl_array_data(a)))[i];
 }
-STATIC_INLINE jl_value_t *jl_cellset(void *a, size_t i, void *x)
+STATIC_INLINE jl_value_t *jl_array_ptr_set(void *a, size_t i, void *x)
 {
     assert(i < jl_array_len(a));
     ((jl_value_t**)(jl_array_data(a)))[i] = (jl_value_t*)x;
@@ -730,7 +729,7 @@ STATIC_INLINE void jl_array_uint8_set(void *a, size_t i, uint8_t x)
 }
 
 #define jl_exprarg(e,n) (((jl_value_t**)jl_array_data(((jl_expr_t*)(e))->args))[n])
-#define jl_exprargset(e, n, v) jl_cellset(((jl_expr_t*)(e))->args, n, v)
+#define jl_exprargset(e, n, v) jl_array_ptr_set(((jl_expr_t*)(e))->args, n, v)
 #define jl_expr_nargs(e) jl_array_len(((jl_expr_t*)(e))->args)
 
 #define jl_fieldref(s,i) jl_get_nth_field(((jl_value_t*)s),i)
@@ -753,7 +752,7 @@ STATIC_INLINE void jl_array_uint8_set(void *a, size_t i, uint8_t x)
 // get a pointer to the data in a datatype
 #define jl_data_ptr(v)  ((jl_value_t**)v)
 
-#define jl_cell_data(a)   ((jl_value_t**)((jl_array_t*)a)->data)
+#define jl_array_ptr_data(a)   ((jl_value_t**)((jl_array_t*)a)->data)
 #define jl_string_data(s) ((char*)((jl_array_t*)jl_data_ptr(s)[0])->data)
 #define jl_string_len(s)  (jl_array_len((jl_array_t*)(jl_data_ptr(s)[0])))
 #define jl_iostr_data(s)  ((char*)((jl_array_t*)jl_data_ptr(s)[0])->data)
@@ -1003,7 +1002,8 @@ JL_DLLEXPORT jl_value_t *jl_new_struct(jl_datatype_t *type, ...);
 JL_DLLEXPORT jl_value_t *jl_new_structv(jl_datatype_t *type, jl_value_t **args,
                                         uint32_t na);
 JL_DLLEXPORT jl_value_t *jl_new_struct_uninit(jl_datatype_t *type);
-JL_DLLEXPORT jl_lambda_info_t *jl_new_lambda_info_uninit(jl_svec_t *sparams);
+JL_DLLEXPORT jl_lambda_info_t *jl_new_lambda_info_uninit(void);
+JL_DLLEXPORT jl_lambda_info_t *jl_new_lambda_info_from_ast(jl_expr_t *ast);
 JL_DLLEXPORT jl_method_t *jl_new_method(jl_lambda_info_t *definition, jl_sym_t *name, jl_tupletype_t *sig, jl_svec_t *tvars, int isstaged);
 JL_DLLEXPORT jl_svec_t *jl_svec(size_t n, ...);
 JL_DLLEXPORT jl_svec_t *jl_svec1(void *a);
@@ -1147,7 +1147,7 @@ JL_DLLEXPORT jl_array_t *jl_pchar_to_array(const char *str, size_t len);
 JL_DLLEXPORT jl_value_t *jl_pchar_to_string(const char *str, size_t len);
 JL_DLLEXPORT jl_value_t *jl_cstr_to_string(const char *str);
 JL_DLLEXPORT jl_value_t *jl_array_to_string(jl_array_t *a);
-JL_DLLEXPORT jl_array_t *jl_alloc_cell_1d(size_t n);
+JL_DLLEXPORT jl_array_t *jl_alloc_vec_any(size_t n);
 JL_DLLEXPORT jl_value_t *jl_arrayref(jl_array_t *a, size_t i);  // 0-indexed
 JL_DLLEXPORT void jl_arrayset(jl_array_t *a, jl_value_t *v, size_t i);  // 0-indexed
 JL_DLLEXPORT void jl_arrayunset(jl_array_t *a, size_t i);  // 0-indexed
@@ -1156,8 +1156,8 @@ JL_DLLEXPORT void jl_array_del_end(jl_array_t *a, size_t dec);
 JL_DLLEXPORT void jl_array_grow_beg(jl_array_t *a, size_t inc);
 JL_DLLEXPORT void jl_array_del_beg(jl_array_t *a, size_t dec);
 JL_DLLEXPORT void jl_array_sizehint(jl_array_t *a, size_t sz);
-JL_DLLEXPORT void jl_cell_1d_push(jl_array_t *a, jl_value_t *item);
-JL_DLLEXPORT void jl_cell_1d_push2(jl_array_t *a, jl_value_t *b, jl_value_t *c);
+JL_DLLEXPORT void jl_array_ptr_1d_push(jl_array_t *a, jl_value_t *item);
+JL_DLLEXPORT void jl_array_ptr_1d_push2(jl_array_t *a, jl_value_t *b, jl_value_t *c);
 JL_DLLEXPORT jl_value_t *jl_apply_array_type(jl_datatype_t *type, size_t dim);
 // property access
 JL_DLLEXPORT void *jl_array_ptr(jl_array_t *a);
@@ -1361,11 +1361,6 @@ JL_DLLEXPORT jl_array_t *jl_uncompress_ast(jl_lambda_info_t *li, jl_array_t *dat
 JL_DLLEXPORT int jl_is_operator(char *sym);
 JL_DLLEXPORT int jl_operator_precedence(char *sym);
 
-STATIC_INLINE int jl_vinfo_assigned(uint8_t vi)
-{
-    return (vi&2)!=0;
-}
-
 STATIC_INLINE int jl_vinfo_sa(uint8_t vi)
 {
     return (vi&16)!=0;
@@ -1398,17 +1393,6 @@ JL_DLLEXPORT void jl_yield(void);
 
 // async signal handling ------------------------------------------------------
 
-#define JL_SIGATOMIC_BEGIN() do {               \
-        jl_get_ptls_states()->defer_signal++;   \
-        jl_signal_fence();                      \
-    } while (0)
-#define JL_SIGATOMIC_END() do {                                 \
-        jl_signal_fence();                                      \
-        if (--jl_get_ptls_states()->defer_signal == 0) {        \
-            jl_sigint_safepoint();                              \
-        }                                                       \
-    } while (0)
-
 JL_DLLEXPORT void jl_sigint_action(void);
 JL_DLLEXPORT void jl_install_sigint_handler(void);
 JL_DLLEXPORT void jl_sigatomic_begin(void);
@@ -1426,6 +1410,7 @@ typedef struct _jl_handler_t {
     size_t locks_len;
 #endif
     sig_atomic_t defer_signal;
+    int finalizers_inhibited;
 } jl_handler_t;
 
 typedef struct _jl_task_t {
@@ -1507,23 +1492,26 @@ static inline void jl_lock_frame_pop(void)
 
 STATIC_INLINE void jl_eh_restore_state(jl_handler_t *eh)
 {
+    jl_tls_states_t *ptls = jl_get_ptls_states();
+    jl_task_t *current_task = ptls->current_task;
     // `eh` may not be `jl_current_task->eh`. See `jl_pop_handler`
     // This function should **NOT** have any safepoint before the ones at the
     // end.
-    sig_atomic_t old_defer_signal = jl_get_ptls_states()->defer_signal;
-    int8_t old_gc_state = jl_get_ptls_states()->gc_state;
-    jl_current_task->eh = eh->prev;
-    jl_pgcstack = eh->gcstack;
+    sig_atomic_t old_defer_signal = ptls->defer_signal;
+    int8_t old_gc_state = ptls->gc_state;
+    current_task->eh = eh->prev;
+    ptls->pgcstack = eh->gcstack;
 #ifdef JULIA_ENABLE_THREADING
-    arraylist_t *locks = &jl_current_task->locks;
+    arraylist_t *locks = &current_task->locks;
     if (locks->len > eh->locks_len) {
         for (size_t i = locks->len;i > eh->locks_len;i--)
             jl_mutex_unlock_nogc((jl_mutex_t*)locks->items[i - 1]);
         locks->len = eh->locks_len;
     }
 #endif
-    jl_get_ptls_states()->defer_signal = eh->defer_signal;
-    jl_get_ptls_states()->gc_state = eh->gc_state;
+    ptls->defer_signal = eh->defer_signal;
+    ptls->gc_state = eh->gc_state;
+    ptls->finalizers_inhibited = eh->finalizers_inhibited;
     if (old_gc_state && !eh->gc_state) {
         jl_gc_safepoint();
     }

@@ -85,10 +85,10 @@ for (i, T) in enumerate(types)
     show(io1, x1)
     @test takebuf_string(io1) == @sprintf("Nullable{%s}()", T)
     show(io1, x2)
-    show(io2, get(x2))
+    showcompact(io2, get(x2))
     @test takebuf_string(io1) == @sprintf("Nullable{%s}(%s)", T, takebuf_string(io2))
     show(io1, x3)
-    show(io2, get(x3))
+    showcompact(io2, get(x3))
     @test takebuf_string(io1) == @sprintf("Nullable{%s}(%s)", T, takebuf_string(io2))
 
     a1 = [x2]
@@ -101,6 +101,13 @@ for (i, T) in enumerate(types)
     show(IOContext(io2, compact=true), x2)
     @test takebuf_string(io1) ==
         @sprintf("Nullable{%s}[%s]", string(T), takebuf_string(io2))
+end
+
+module NullableTestEnum
+    io = IOBuffer()
+    @enum TestEnum a b
+    show(io, Nullable(a))
+    Base.Test.@test takebuf_string(io) == "Nullable{NullableTestEnum.TestEnum}(a)"
 end
 
 # showcompact(io::IO, x::Nullable)
@@ -276,6 +283,13 @@ end
 @test promote_type(Nullable{Union{}}, Int) === Nullable{Int}
 @test promote_type(Nullable{Float64}, Nullable{Int}) === Nullable{Float64}
 @test promote_type(Nullable{Union{}}, Nullable{Int}) === Nullable{Int}
+@test promote_type(Nullable{Date}, Nullable{DateTime}) === Nullable{DateTime}
+
+@test Base.promote_op(+, Nullable{Int}, Nullable{Int}) == Nullable{Int}
+@test Base.promote_op(-, Nullable{Int}, Nullable{Int}) == Nullable{Int}
+@test Base.promote_op(+, Nullable{Float64}, Nullable{Int}) == Nullable{Float64}
+@test Base.promote_op(-, Nullable{Float64}, Nullable{Int}) == Nullable{Float64}
+@test Base.promote_op(-, Nullable{DateTime}, Nullable{DateTime}) == Nullable{Base.Dates.Millisecond}
 
 # issue #11675
 @test repr(Nullable()) == "Nullable{Union{}}()"

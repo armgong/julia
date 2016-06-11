@@ -19,31 +19,43 @@ This representation is often appropriate for passing strings to C.
 String(s::AbstractString) = print_to_string(s)
 String(s::String) = s
 
+# String constructor docstring from boot.jl, workaround for #16730
+# and the unavailability of @doc in boot.jl context.
 """
     String(v::Vector{UInt8})
 
-Wrap a vector of bytes encoding string data as UTF-8 in a `String` object.
-The resulting `String` object takes ownership of the array.
+Create a new `String` from a vector `v` of bytes containing
+UTF-8 encoded characters.   This function takes "ownership" of
+the array, which means that you should not subsequently modify
+`v` (since strings are supposed to be immutable in Julia) for
+as long as the string exists.
+
+If you need to subsequently modify `v`, use `String(copy(v))` instead.
 """
-String(s::Vector{UInt8}) =
-    ccall(:jl_pchar_to_string, Ref{String}, (Ptr{UInt8},Int), s, length(s))
+String(v::Array{UInt8,1})
+
 
 """
-    String(p::Ptr{UInt8}, [length::Integer])
+    unsafe_string(p::Ptr{UInt8}, [length::Integer])
 
-Create a string from the address of a C (0-terminated) string encoded as UTF-8.
-A copy is made so the pointer can be safely freed. If `length` is specified, the
-string does not have to be 0-terminated.
+Copy a string from the address of a C-style (NUL-terminated) string encoded as UTF-8.
+(The pointer can be safely freed afterwards.) If `length` is specified
+(the length of the data in bytes), the string does not have to be NUL-terminated.
+
+This function is labelled "unsafe" because it will crash if `p` is not
+a valid memory address to data of the requested length.
+
+See also [`unsafe_wrap(String, p, [length])`](:func:`unsafe_wrap`), which takes a pointer
+and wraps a string object around it without making a copy.
 """
-function String(p::Union{Ptr{UInt8},Ptr{Int8}}, len::Integer)
+function unsafe_string(p::Union{Ptr{UInt8},Ptr{Int8}}, len::Integer)
     p == C_NULL && throw(ArgumentError("cannot convert NULL to string"))
     ccall(:jl_pchar_to_string, Ref{String}, (Ptr{UInt8},Int), p, len)
 end
-function String(p::Union{Ptr{UInt8},Ptr{Int8}})
+function unsafe_string(p::Union{Ptr{UInt8},Ptr{Int8}})
     p == C_NULL && throw(ArgumentError("cannot convert NULL to string"))
-    ccall(:jl_cstr_to_string, Ref{String}, (Cstring,), p)
+    ccall(:jl_cstr_to_string, Ref{String}, (Ptr{UInt8},), p)
 end
-String(s::Cstring) = String(convert(Ptr{UInt8}, s))
 
 convert(::Type{Vector{UInt8}}, s::AbstractString) = String(s).data
 convert(::Type{Array{UInt8}}, s::AbstractString) = String(s).data
@@ -116,7 +128,9 @@ isless(a::AbstractString, b::AbstractString) = cmp(a,b) < 0
 cmp(a::String, b::String) = lexcmp(a.data, b.data)
 cmp(a::Symbol, b::Symbol) = Int(sign(ccall(:strcmp, Int32, (Cstring, Cstring), a, b)))
 
-==(a::String, b::String) = endof(a) == endof(b) && cmp(a,b) == 0
+==(a::String, b::String) =
+    (len = length(a.data)) == length(b.data) &&
+    ccall(:memcmp, Int32, (Ptr{UInt8}, Ptr{UInt8}, UInt), a.data, b.data, len) == 0
 isless(a::Symbol, b::Symbol) = cmp(a,b) < 0
 
 ## Generic validation functions ##
@@ -135,17 +149,43 @@ end
 
 ## Generic indexing functions ##
 
-prevind(s::DirectIndexString, i::Integer) = i-1
-prevind(s::AbstractArray   , i::Integer) = i-1
-nextind(s::DirectIndexString, i::Integer) = i+1
-nextind(s::AbstractArray   , i::Integer) = i+1
+prevind(s::DirectIndexString, i::Integer) = Int(i)-1
+prevind(s::AbstractArray    , i::Integer) = Int(i)-1
+nextind(s::DirectIndexString, i::Integer) = Int(i)+1
+nextind(s::AbstractArray    , i::Integer) = Int(i)+1
+
+function prevind(s::String, i::Integer)
+    j = Int(i)
+    e = endof(s.data)
+    if j > e
+        return endof(s)
+    end
+    j -= 1
+    while j > 0 && is_valid_continuation(s.data[j])
+        j -= 1
+    end
+    j
+end
+
+function nextind(s::String, i::Integer)
+    j = Int(i)
+    if j < 1
+        return 1
+    end
+    e = endof(s.data)
+    j += 1
+    while j <= e && is_valid_continuation(s.data[j])
+        j += 1
+    end
+    j
+end
 
 function prevind(s::AbstractString, i::Integer)
     e = endof(s)
     if i > e
         return e
     end
-    j = i-1
+    j = Int(i)-1
     while j >= 1
         if isvalid(s,j)
             return j
@@ -161,9 +201,9 @@ function nextind(s::AbstractString, i::Integer)
         return 1
     end
     if i > e
-        return i+1
+        return Int(i)+1
     end
-    for j = i+1:e
+    for j = Int(i)+1:e
         if isvalid(s,j)
             return j
         end
@@ -236,7 +276,6 @@ promote_rule{S<:AbstractString,T<:AbstractString}(::Type{S}, ::Type{T}) = String
 
 isxdigit(c::Char) = '0'<=c<='9' || 'a'<=c<='f' || 'A'<=c<='F'
 isxdigit(s::AbstractString) = all(isxdigit, s)
-need_full_hex(s::AbstractString, i::Int) = !done(s,i) && isxdigit(next(s,i)[1])
 
 ## checking UTF-8 & ACSII validity ##
 

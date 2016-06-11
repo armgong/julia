@@ -221,7 +221,8 @@ function doc!(b::Binding, str::DocStr, sig::ANY = Union{})
     if haskey(m.docs, sig)
         # We allow for docstrings to be updated, but print a warning since it is possible
         # that over-writing a docstring *may* have been accidental.
-        warn("replacing docs for '$b :: $sig'.")
+        s = "replacing docs for '$b :: $sig' in module '$(current_module())'."
+        isdefined(Base, :STDERR) ? warn(s) : ccall(:jl_, Void, (Any,), "WARNING: $s")
     else
         # The ordering of docstrings for each Binding is defined by the order in which they
         # are initially added. Replacing a specific docstring does not change it's ordering.
@@ -392,8 +393,8 @@ const keywords = Dict{Symbol, DocStr}()
 isdoc(s::AbstractString) = true
 
 isdoc(x) = isexpr(x, :string) ||
-    (isexpr(x, :macrocall) && x.args[1] == Symbol("@doc_str")) ||
-    (isexpr(x, :call) && x.args[1] == Base.Markdown.doc_str)
+    (isexpr(x, :macrocall) && x.args[1] === Symbol("@doc_str")) ||
+    (isexpr(x, :call) && x.args[1] === Base.Markdown.doc_str)
 
 function unblock(ex)
     isexpr(ex, :block) || return ex
@@ -497,7 +498,7 @@ function moduledoc(meta, def, def′)
     docex = Expr(:call, doc!, bindingexpr(name),
         docexpr(lazy_iterpolate(meta), metadata(name))
     )
-    if def == nothing
+    if def === nothing
         esc(:(eval($name, $(quot(docex)))))
     else
         def = unblock(def)
@@ -597,6 +598,7 @@ isquotedmacrocall(x) =
     isexpr(x.args[1].value, :macrocall, 1)
 # Simple expressions / atoms the may be documented.
 isbasicdoc(x) = isexpr(x, :.) || isa(x, Union{QuoteNode, Symbol})
+is_signature(x) = isexpr(x, :call) || (isexpr(x, :(::), 2) && isexpr(x.args[1], :call))
 
 function docm(meta, ex, define = true)
     # Some documented expressions may be decorated with macro calls which obscure the actual
@@ -621,7 +623,7 @@ function docm(meta, ex, define = true)
     #   function f end
     #   f(...)
     #
-    isexpr(x, FUNC_HEADS) &&  isexpr(x.args[1], :call) ? objectdoc(meta, def, x, signature(x)) :
+    isexpr(x, FUNC_HEADS) && is_signature(x.args[1])   ? objectdoc(meta, def, x, signature(x)) :
     isexpr(x, :function)  && !isexpr(x.args[1], :call) ? objectdoc(meta, def, x) :
     isexpr(x, :call)                                   ? calldoc(meta, x) :
 

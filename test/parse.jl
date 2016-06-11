@@ -450,3 +450,81 @@ add_method_to_glob_fn!()
 @test (try error(); catch 0; end) === 0
 @test (try error(); catch false; end) === false  # false and true are Bool literals, not variables
 @test (try error(); catch true; end) === true
+
+# issue #16671
+@test parse("1.") === 1.0
+
+# issue #16672
+let isline(x) = isa(x,Expr) && x.head === :line
+    @test count(isline, parse("begin end").args) == 1
+    @test count(isline, parse("begin; end").args) == 1
+    @test count(isline, parse("begin; x+2; end").args) == 1
+    @test count(isline, parse("begin; x+2; y+1; end").args) == 2
+end
+
+# issue #16736
+let
+    local lineoffset0 = @__LINE__ + 1
+    local lineoffset1 = @__LINE__
+    local lineoffset2 = @__LINE__ - 1
+    @test lineoffset0 == lineoffset1 == lineoffset2
+end
+
+# issue #16686
+@test parse("try x
+             catch test()
+                 y
+             end") == Expr(:try,
+                           Expr(:block,
+                                Expr(:line, 1, :none),
+                                :x),
+                           false,
+                           Expr(:block,
+                                Expr(:line, 2, :none),
+                                Expr(:call, :test),
+                                Expr(:line, 3, :none),
+                                :y))
+
+# test that pre 0.5 deprecated syntax is a parse error
+@test_throws ParseError parse("Int [1,2,3]")
+@test_throws ParseError parse("Int [x for x in 1:10]")
+@test_throws ParseError parse("foo (x) = x")
+@test_throws ParseError parse("foo {T<:Int}(x::T) = x")
+
+@test_throws ParseError parse("Foo .bar")
+
+@test_throws ParseError parse("import x .y")
+@test_throws ParseError parse("using x .y")
+
+@test_throws ParseError parse("--x")
+@test_throws ParseError parse("stagedfunction foo(x); end")
+
+#@test_throws ParseError parse("{1,2,3}")
+#@test_throws ParseError parse("{1 2 3 4}")
+#@test_throws ParseError parse("{1,2; 3,4}")
+@test_throws ParseError parse("{x for x in 1:10}")
+@test_throws ParseError parse("{x=>y for (x,y) in zip([1,2,3],[4,5,6])}")
+#@test_throws ParseError parse("{:a=>1, :b=>2}")
+
+# this now is parsed as getindex(Pair{Any,Any}, ...)
+@test_throws MethodError eval(parse("(Any=>Any)[]"))
+@test_throws MethodError eval(parse("(Any=>Any)[:a=>1,:b=>2]"))
+# to be removed post 0.5
+#@test_throws MethodError eval(parse("(Any=>Any)[x=>y for (x,y) in zip([1,2,3],[4,5,6])]"))
+
+# issue #16720
+let err = try
+    include_string("module A
+
+       function broken()
+
+           x[1] = some_func(
+
+       end
+
+       end")
+    catch e
+        e
+    end
+    @test err.line == 7
+end

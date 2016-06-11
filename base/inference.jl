@@ -3,7 +3,7 @@
 #### parameters limiting potentially-infinite types ####
 const MAX_TYPEUNION_LEN = 3
 const MAX_TYPE_DEPTH = 7
-const MAX_TUPLETYPE_LEN  = 8
+const MAX_TUPLETYPE_LEN  = 15
 const MAX_TUPLE_DEPTH = 4
 
 const MAX_TUPLE_SPLAT = 16
@@ -20,7 +20,6 @@ const MAX_TUPLE_SPLAT = 16
 const Slot_Assigned     = 2
 const Slot_AssignedOnce = 16
 const Slot_UsedUndef    = 32
-const Slot_Called       = 64
 
 #### inference state types ####
 
@@ -195,10 +194,6 @@ function contains_is(itr, x::ANY)
     end
     return false
 end
-
-_ieval(x::ANY, sv) =
-    ccall(:jl_interpret_toplevel_expr_in, Any, (Any, Any, Any, Any),
-          sv.mod, x, svec(), svec())
 
 _topmod(sv::InferenceState) = _topmod(sv.mod)
 _topmod(m::Module) = ccall(:jl_base_relative_to, Any, (Any,), m)::Module
@@ -873,7 +868,7 @@ end
 function precise_container_types(args, types, vtypes::VarTable, sv)
     n = length(args)
     assert(n == length(types))
-    result = cell(n)
+    result = Vector{Any}(n)
     for i = 1:n
         ai = args[i]
         ti = types[i]
@@ -1415,10 +1410,6 @@ end
 #### entry points for inferring a LambdaInfo given a type signature ####
 
 function typeinf_edge(method::Method, atypes::ANY, sparams::SimpleVector, needtree::Bool, optimize::Bool, cached::Bool, caller)
-    #println(method)
-    if method.module === Core && isempty(method.lambda_template.sparam_syms)
-        atypes = Tuple
-    end
     local frame = nothing
     offs = 0
     # check cached t-functions
@@ -1570,7 +1561,7 @@ function typeinf_loop(frame)
         frame.inworkq || typeinf_frame(frame)
         return
     end
-    ccall(:jl_sigatomic_begin, Void, ())
+    ccall(:jl_typeinf_begin, Void, ())
     try
         in_typeinf_loop = true
         # the core type-inference algorithm
@@ -1617,7 +1608,7 @@ function typeinf_loop(frame)
         println(ex)
         ccall(:jlbacktrace, Void, ())
     end
-    ccall(:jl_sigatomic_end, Void, ())
+    ccall(:jl_typeinf_end, Void, ())
     nothing
 end
 
@@ -2544,26 +2535,18 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
             end
         end
 
-        islocal = false # if the argument name is also used as a local variable,
-                        # we need to keep it as a variable name
-        if linfo.slotflags[i] & (Slot_Assigned | Slot_AssignedOnce) != 0
-            islocal = true
-            aeitype = tmerge(aeitype, linfo.slottypes[i])
-        end
-
         # ok for argument to occur more than once if the actual argument
         # is a symbol or constant, or is not affected by previous statements
         # that will exist after the inlining pass finishes
         if needtypeassert
             vnew1 = unique_name(enclosing_ast, ast)
-            add_variable(enclosing_ast, vnew1, aeitype, !islocal)
+            add_variable(enclosing_ast, vnew1, aeitype, true)
             v1 = (aeitype===Any ? vnew1 : SymbolNode(vnew1,aeitype))
             push!(spvals, v1)
             vnew2 = unique_name(enclosing_ast, ast)
             v2 = (argtype===Any ? vnew2 : SymbolNode(vnew2,argtype))
             unshift!(body.args, Expr(:(=), args_i, v2))
             args[i] = args_i = vnew2
-            islocal = false
             aeitype = argtype
             affect_free = stmts_free
             occ = 3
@@ -2578,7 +2561,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
             cond.typ = Bool
             partmatch.args[1] = cond
         else
-            affect_free = stmts_free && !islocal # false = previous statements might affect the result of evaluating argument
+            affect_free = stmts_free  # false = previous statements might affect the result of evaluating argument
             occ = 0
             for j = length(body.args):-1:1
                 b = body.args[j]
@@ -2595,16 +2578,11 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
             end
         end
         free = effect_free(aei,sv,true)
-        if ((occ==0 && is(aeitype,Bottom)) || islocal || (occ > 1 && !inline_worthy(aei, occ*2000)) ||
+        if ((occ==0 && is(aeitype,Bottom)) || (occ > 1 && !inline_worthy(aei, occ*2000)) ||
                 (affect_free && !free) || (!affect_free && !effect_free(aei,sv,false)))
-            if occ != 0 # islocal=true is implied by occ!=0
-                if !islocal
-                    vnew = newvar!(sv, aeitype)
-                    argexprs[i] = vnew
-                else
-                    vnew = add_slot!(enclosing, aeitype, #=SSA=#false)
-                    argexprs[i] = vnew
-                end
+            if occ != 0
+                vnew = newvar!(sv, aeitype)
+                argexprs[i] = vnew
                 unshift!(prelude_stmts, Expr(:(=), vnew, aei))
                 stmts_free &= free
             elseif !free && !isType(aeitype)
@@ -2942,7 +2920,7 @@ function inlining_pass(e::Expr, sv, linfo)
     end
 
     for ninline = 1:100
-        ata = cell(length(e.args))
+        ata = Vector{Any}(length(e.args))
         ata[1] = ft
         for i = 2:length(e.args)
             a = exprtype(e.args[i], sv)
@@ -2970,7 +2948,7 @@ function inlining_pass(e::Expr, sv, linfo)
 
         if is(f,_apply)
             na = length(e.args)
-            newargs = cell(na-2)
+            newargs = Vector{Any}(na-2)
             for i = 3:na
                 aarg = e.args[i]
                 t = widenconst(exprtype(aarg,sv))
@@ -3033,8 +3011,6 @@ function is_known_call_p(e::Expr, pred, sv)
     return isa(f,Const) && pred(f.val)
 end
 
-is_var_assigned(linfo, v) = isa(v,Slot) && linfo.slotflags[v.id]&Slot_Assigned != 0
-
 function delete_var!(linfo, id, T)
     filter!(x->!(isa(x,Expr) && (x.head === :(=) || x.head === :const) &&
                  isa(x.args[1],T) && x.args[1].id == id),
@@ -3064,8 +3040,9 @@ end
 occurs_undef(var::Int, expr, flags) =
     flags[var]&Slot_UsedUndef != 0 && occurs_more(expr, e->(isa(e,Slot) && e.id==var), 0)>0
 
-# remove all single-assigned vars v in "v = x" where x is an argument
-# and not assigned.
+is_argument(linfo, v) = isa(v,Slot) && v.id <= linfo.nargs
+
+# remove all single-assigned vars v in "v = x" where x is an argument.
 # "sa" is the result of find_sa_vars
 # T: Slot or SSAValue
 function remove_redundant_temp_vars(linfo, sa, T)
@@ -3073,7 +3050,7 @@ function remove_redundant_temp_vars(linfo, sa, T)
     ssavalue_types = linfo.ssavaluetypes
     bexpr = Expr(:block); bexpr.args = linfo.code
     for (v,init) in sa
-        if (isa(init, Slot) && !is_var_assigned(linfo, init::Slot))
+        if (isa(init, Slot) && is_argument(linfo, init::Slot))
             # this transformation is not valid for vars used before def.
             # we need to preserve the point of assignment to know where to
             # throw errors (issue #4645).
@@ -3171,7 +3148,7 @@ end
 # boundscheck context in the method body
 function inbounds_meta_elim_pass!(code::Array{Any,1})
     if findfirst(x -> isa(x, Expr) &&
-                      ((x.head === :inbounds && x.args[1] == true) || x.head === :boundscheck),
+                      ((x.head === :inbounds && x.args[1] === true) || x.head === :boundscheck),
                  code) == 0
         filter!(x -> !(isa(x, Expr) && x.head === :inbounds), code)
     end
@@ -3337,7 +3314,7 @@ function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
                     end
                 end
             else
-                vals = cell(nv)
+                vals = Vector{Any}(nv)
                 for j=1:nv
                     tupelt = tup[j+1]
                     if (isa(tupelt,Number) || isa(tupelt,AbstractString) ||
@@ -3474,8 +3451,6 @@ function reindex_labels!(linfo::LambdaInfo, sv::InferenceState)
         end
     end
 end
-
-#tfunc(f,t) = methods(f,t)[1].func.code.tfunc
 
 
 #### bootstrapping ####

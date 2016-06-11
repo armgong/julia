@@ -289,8 +289,8 @@ warn(err::Exception; prefix="ERROR: ", kw...) =
 
 function julia_cmd(julia=joinpath(JULIA_HOME, julia_exename()))
     opts = JLOptions()
-    cpu_target = String(opts.cpu_target)
-    image_file = String(opts.image_file)
+    cpu_target = unsafe_string(opts.cpu_target)
+    image_file = unsafe_string(opts.image_file)
     compile = if opts.compile_enabled == 0
                   "no"
               elseif opts.compile_enabled == 2
@@ -300,7 +300,14 @@ function julia_cmd(julia=joinpath(JULIA_HOME, julia_exename()))
               else
                   "yes"
               end
-    `$julia -C$cpu_target -J$image_file --compile=$compile`
+    depwarn = if opts.depwarn == 0
+                  "no"
+              elseif opts.depwarn == 2
+                  "error"
+              else
+                  "yes"
+              end
+    `$julia -C$cpu_target -J$image_file --compile=$compile --depwarn=$depwarn`
 end
 
 julia_exename() = ccall(:jl_is_debugbuild,Cint,())==0 ? "julia" : "julia-debug"
@@ -325,7 +332,8 @@ function getpass(prompt::AbstractString)
                 p[plen += 1] = c
             end
         end
-        return String(pointer(p), plen)
+        return unsafe_string(pointer(p), plen) # use unsafe_string rather than String(p[1:plen])
+                                               # to be absolutely certain we never make an extra copy
     finally
         fill!(p, 0) # don't leave password in memory
     end
@@ -333,5 +341,5 @@ function getpass(prompt::AbstractString)
     return ""
 end
 else
-getpass(prompt::AbstractString) = String(ccall(:getpass, Cstring, (Cstring,), prompt))
+getpass(prompt::AbstractString) = unsafe_string(ccall(:getpass, Cstring, (Cstring,), prompt))
 end

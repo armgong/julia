@@ -1421,14 +1421,6 @@ Mathematical Functions
 
    Next integer not less than ``n`` that can be written as :math:`\prod k_i^{p_i}` for integers :math:`p_1`\ , :math:`p_2`\ , etc.
 
-   For a list of integers i1, i2, i3, find the smallest
-
-   .. code-block:: julia
-
-       i1^n1 * i2^n2 * i3^n3 >= x
-
-   for integer n1, n2, n3
-
 .. function:: invmod(x,m)
 
    .. Docstring generated from Julia source
@@ -1683,6 +1675,12 @@ Statistics
    .. Docstring generated from Julia source
 
    Compute the mean of whole array ``v``\ , or optionally along the dimensions in ``region``\ . Note: Julia does not ignore ``NaN`` values in the computation. For applications requiring the handling of missing data, the ``DataArray`` package is recommended.
+
+.. function:: mean(f::Function, v)
+
+   .. Docstring generated from Julia source
+
+   Apply the function ``f`` to each element of ``v`` and take the mean.
 
 .. function:: mean!(r, v)
 

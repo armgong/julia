@@ -613,8 +613,8 @@ cat(catdim::Integer) = Array{Any}(0)
 
 vcat() = Array{Any}(0)
 hcat() = Array{Any}(0)
-typed_vcat(T::Type) = Array{T}(0)
-typed_hcat(T::Type) = Array{T}(0)
+typed_vcat{T}(::Type{T}) = Array{T}(0)
+typed_hcat{T}(::Type{T}) = Array{T}(0)
 
 ## cat: special cases
 vcat{T}(X::T...)         = T[ X[i] for i=1:length(X) ]
@@ -624,13 +624,13 @@ hcat{T<:Number}(X::T...) = T[ X[j] for i=1, j=1:length(X) ]
 
 vcat(X::Number...) = hvcat_fill(Array{promote_typeof(X...)}(length(X)), X)
 hcat(X::Number...) = hvcat_fill(Array{promote_typeof(X...)}(1,length(X)), X)
-typed_vcat(T::Type, X::Number...) = hvcat_fill(Array{T}(length(X)), X)
-typed_hcat(T::Type, X::Number...) = hvcat_fill(Array{T}(1,length(X)), X)
+typed_vcat{T}(::Type{T}, X::Number...) = hvcat_fill(Array{T}(length(X)), X)
+typed_hcat{T}(::Type{T}, X::Number...) = hvcat_fill(Array{T}(1,length(X)), X)
 
 vcat(V::AbstractVector...) = typed_vcat(promote_eltype(V...), V...)
 vcat{T}(V::AbstractVector{T}...) = typed_vcat(T, V...)
 
-function typed_vcat(T::Type, V::AbstractVector...)
+function typed_vcat{T}(::Type{T}, V::AbstractVector...)
     n::Int = 0
     for Vk in V
         n += length(Vk)
@@ -649,7 +649,7 @@ end
 hcat(A::AbstractVecOrMat...) = typed_hcat(promote_eltype(A...), A...)
 hcat{T}(A::AbstractVecOrMat{T}...) = typed_hcat(T, A...)
 
-function typed_hcat(T::Type, A::AbstractVecOrMat...)
+function typed_hcat{T}(::Type{T}, A::AbstractVecOrMat...)
     nargs = length(A)
     nrows = size(A[1], 1)
     ncols = 0
@@ -686,7 +686,7 @@ end
 vcat(A::AbstractMatrix...) = typed_vcat(promote_eltype(A...), A...)
 vcat{T}(A::AbstractMatrix{T}...) = typed_vcat(T, A...)
 
-function typed_vcat(T::Type, A::AbstractMatrix...)
+function typed_vcat{T}(::Type{T}, A::AbstractMatrix...)
     nargs = length(A)
     nrows = sum(a->size(a, 1), A)::Int
     ncols = size(A[1], 2)
@@ -796,7 +796,10 @@ function hvcat(nbc::Integer, as...)
     hvcat(ntuple(i->nbc, nbr), as...)
 end
 
-function hvcat{T}(rows::Tuple{Vararg{Int}}, as::AbstractMatrix{T}...)
+hvcat(rows::Tuple{Vararg{Int}}, xs::AbstractMatrix...) = typed_hvcat(promote_eltype(xs...), rows, xs...)
+hvcat{T}(rows::Tuple{Vararg{Int}}, xs::AbstractMatrix{T}...) = typed_hvcat(T, rows, xs...)
+
+function typed_hvcat{T}(::Type{T}, rows::Tuple{Vararg{Int}}, as::AbstractMatrix...)
     nbr = length(rows)  # number of block rows
 
     nc = 0
@@ -840,6 +843,7 @@ function hvcat{T}(rows::Tuple{Vararg{Int}}, as::AbstractMatrix{T}...)
 end
 
 hvcat(rows::Tuple{Vararg{Int}}) = []
+typed_hvcat{T}(::Type{T}, rows::Tuple{Vararg{Int}}) = Array{T}(0)
 
 function hvcat{T<:Number}(rows::Tuple{Vararg{Int}}, xs::T...)
     nr = length(rows)
@@ -874,7 +878,9 @@ function hvcat_fill(a::Array, xs::Tuple)
     a
 end
 
-function typed_hvcat(T::Type, rows::Tuple{Vararg{Int}}, xs::Number...)
+hvcat(rows::Tuple{Vararg{Int}}, xs::Number...) = typed_hvcat(promote_typeof(xs...), rows, xs...)
+
+function typed_hvcat{T}(::Type{T}, rows::Tuple{Vararg{Int}}, xs::Number...)
     nr = length(rows)
     nc = rows[1]
     for i = 2:nr
@@ -889,15 +895,10 @@ function typed_hvcat(T::Type, rows::Tuple{Vararg{Int}}, xs::Number...)
     hvcat_fill(Array{T}(nr, nc), xs)
 end
 
-function hvcat(rows::Tuple{Vararg{Int}}, xs::Number...)
-    T = promote_typeof(xs...)
-    typed_hvcat(T, rows, xs...)
-end
-
 # fallback definition of hvcat in terms of hcat and vcat
 function hvcat(rows::Tuple{Vararg{Int}}, as...)
     nbr = length(rows)  # number of block rows
-    rs = cell(nbr)
+    rs = Array{Any}(nbr)
     a = 1
     for i = 1:nbr
         rs[i] = hcat(as[a:a-1+rows[i]]...)
@@ -906,9 +907,9 @@ function hvcat(rows::Tuple{Vararg{Int}}, as...)
     vcat(rs...)
 end
 
-function typed_hvcat(T::Type, rows::Tuple{Vararg{Int}}, as...)
+function typed_hvcat{T}(::Type{T}, rows::Tuple{Vararg{Int}}, as...)
     nbr = length(rows)  # number of block rows
-    rs = cell(nbr)
+    rs = Array{Any}(nbr)
     a = 1
     for i = 1:nbr
         rs[i] = hcat(as[a:a-1+rows[i]]...)
@@ -1065,7 +1066,7 @@ function mapslices(f, A::AbstractArray, dims::AbstractVector)
 
     otherdims = setdiff(alldims, dims)
 
-    idx = cell(ndimsA)
+    idx = Array{Any}(ndimsA)
     fill!(idx, 1)
     Asliceshape = tuple(dimsA[dims]...)
     itershape   = tuple(dimsA[otherdims]...)
@@ -1084,7 +1085,7 @@ function mapslices(f, A::AbstractArray, dims::AbstractVector)
     Rsize[dims] = [size(r1)...; ones(Int,max(0,length(dims)-ndims(r1)))]
     R = similar(r1, tuple(Rsize...))
 
-    ridx = cell(ndims(R))
+    ridx = Array{Any}(ndims(R))
     fill!(ridx, 1)
     for d in dims
         ridx[d] = 1:size(R,d)

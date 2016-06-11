@@ -207,12 +207,14 @@ let T = TypeVar(:T, Tuple{Vararg{RangeIndex}}, true)
 end
 
 # issue #11840
+typealias TT11840{T} Tuple{T,T}
 f11840(::Type) = "Type"
 f11840(::DataType) = "DataType"
 f11840{T<:Tuple}(::Type{T}) = "Tuple"
 @test f11840(Type) == "DataType"
 @test f11840(AbstractVector) == "Type"
 @test f11840(Tuple) == "Tuple"
+@test f11840(TT11840) == "Tuple"
 
 g11840(::DataType) = 1
 g11840(::Type) = 2
@@ -220,7 +222,21 @@ g11840{T<:Tuple}(sig::Type{T}) = 3
 @test g11840(Vector.body) == 1
 @test g11840(Vector) == 2
 @test g11840(Vector.body) == 1
+@test g11840(Vector) == 2
 @test g11840(Tuple) == 3
+@test g11840(TT11840) == 3
+
+g11840b(::DataType) = 1
+g11840b(::Type) = 2
+# FIXME: how to compute that the guard entry is still required,
+# even though Type{Vector} ∩ DataType = Bottom and this method would set cache_with_orig = true
+#g11840b{T<:Tuple}(sig::Type{T}) = 3
+@test g11840b(Vector) == 2
+@test g11840b(Vector.body) == 1
+@test g11840b(Vector) == 2
+@test g11840b(Vector.body) == 1
+#@test g11840b(Tuple) == 3
+#@test g11840b(TT11840) == 3
 
 h11840(::DataType) = '1'
 h11840(::Type) = '2'
@@ -232,6 +248,7 @@ h11840{T<:Tuple}(::Type{T}) = '4'
 @test h11840(Union{Vector, Matrix}) == '2'
 @test h11840(Union{Vector.body, Matrix.body}) == '2'
 @test h11840(Tuple) == '4'
+@test h11840(TT11840) == '4'
 
 # join
 @test typejoin(Int8,Int16) === Signed
@@ -522,7 +539,7 @@ function const_implies_local()
 end
 @test const_implies_local() === (1, 0)
 
-a = cell(3)
+a = Vector{Any}(3)
 for i=1:3
     let ii = i
         a[i] = x->x+ii
@@ -555,7 +572,7 @@ end
 
 let
     local a
-    a = cell(2)
+    a = Vector{Any}(2)
     @test !isdefined(a,1) && !isdefined(a,2)
     a[1] = 1
     @test isdefined(a,1) && !isdefined(a,2)
@@ -578,7 +595,7 @@ end
 
 let
     local a
-    a = cell(2)
+    a = Vector{Any}(2)
     @test !isassigned(a,1) && !isassigned(a,2)
     a[1] = 1
     @test isassigned(a,1) && !isassigned(a,2)
@@ -600,11 +617,23 @@ Type11167{Float32,5}
 
 # dispatch
 let
-    local foo, bar, baz
-    foo(x::Tuple{Vararg{Any}})=0
-    foo(x::Tuple{Vararg{Integer}})=1
-    @test foo((:a,))==0
-    @test foo(( 2,))==1
+    local foo, foo2, fooN, bar, baz
+    foo(x::Tuple{Vararg{Any}}) = 0
+    foo(x::Tuple{Vararg{Integer}}) = 1
+    @test foo((:a,)) == 0
+    @test foo(( 2,)) == 1
+
+    foo2(x::Vararg{Any,2}) = 2
+    @test foo2(1,2) == 2
+    @test_throws MethodError foo2(1)
+    @test_throws MethodError foo2(1,2,3)
+
+    fooN{T,N}(A::Array{T,N}, x::Vararg{Any,N}) = -1
+    @test fooN([1,2], 1) == -1
+    @test_throws MethodError fooN([1,2], 1, 2) == -1
+    @test fooN([1 2; 3 4], 1, 2) == -1
+    @test_throws MethodError fooN([1 2; 3 4], 1)
+    @test_throws MethodError fooN([1 2; 3 4], 1, 2, 3)
 
     bar{T}(x::Tuple{T,T,T,T})=1
     bar(x::Tuple{Any,Any,Any,Any})=2
@@ -964,15 +993,15 @@ end
 let
     local a, aa
     a = [1,2,3]
-    aa = pointer_to_array(pointer(a), length(a))
+    aa = unsafe_wrap(Array, pointer(a), length(a))
     @test aa == a
-    aa = pointer_to_array(pointer(a), (length(a),))
+    aa = unsafe_wrap(Array, pointer(a), (length(a),))
     @test aa == a
-    aa = pointer_to_array(pointer(a), UInt(length(a)))
+    aa = unsafe_wrap(Array, pointer(a), UInt(length(a)))
     @test aa == a
-    aa = pointer_to_array(pointer(a), UInt16(length(a)))
+    aa = unsafe_wrap(Array, pointer(a), UInt16(length(a)))
     @test aa == a
-    @test_throws InexactError pointer_to_array(pointer(a), -3)
+    @test_throws InexactError unsafe_wrap(Array, pointer(a), -3)
 end
 
 immutable FooBar
@@ -1883,7 +1912,7 @@ type ObjMember
     member::DateRange6387
 end
 
-obj = ObjMember(DateRange6387{Int64}())
+obj6387 = ObjMember(DateRange6387{Int64}())
 
 function v6387{T}(r::Range{T})
     a = Array{T}(1)
@@ -1896,7 +1925,7 @@ function day_in(obj::ObjMember)
     @test isa(x, Vector{Date6387{Int64}})
     @test isa(x[1], Date6387{Int64})
 end
-day_in(obj)
+day_in(obj6387)
 
 # issue #6784
 @test ndims(Array{Array{Float64}}(3,5)) == 2
@@ -3035,7 +3064,7 @@ type D11597{T} <: C11597{T} d::T end
 @test_throws TypeError repr(D11597(1.0))
 
 # issue #11772
-@test_throws UndefRefError (cell(5)...)
+@test_throws UndefRefError (Vector{Any}(5)...)
 
 # issue #11813
 let a = UInt8[1, 107, 66, 88, 2, 99, 254, 13, 0, 0, 0, 0]
@@ -3138,6 +3167,23 @@ end
 @test_throws ErrorException NTuple{-1, Int}
 @test_throws TypeError Union{Int, 1}
 
+type FooNTuple{N}
+    z::Tuple{Integer, Vararg{Int, N}}
+end
+@test_throws ErrorException FooNTuple{-1}
+@test_throws ErrorException FooNTuple{typemin(Int)}
+@test_throws TypeError FooNTuple{0x01}
+@test fieldtype(FooNTuple{0}, 1) == Tuple{Integer}
+
+type FooTupleT{T}
+    z::Tuple{Int, T, Int}
+end
+@test_throws TypeError FooTupleT{Vararg{Int, 2}}
+@test fieldtype(FooTupleT{Int}, 1) == NTuple{3, Int}
+
+@test Tuple{} === NTuple{0, Any}
+@test Tuple{Int} === Tuple{Int, Vararg{Integer, 0}}
+
 # issue #12003
 const DATE12003 = DateTime(1917,1,1)
 failure12003(dt=DATE12003) = Dates.year(dt)
@@ -3160,6 +3206,12 @@ f12092(x::Int, y) = 0
 f12092(x::Int,) = 1
 f12092(x::Int, y::Int...) = 2
 @test f12092(1) == 1
+
+# issue #12096
+let a = Val{Val{TypeVar(:_,Int,true)}}
+    @test_throws UndefRefError a.instance
+    @test !isleaftype(a)
+end
 
 # PR #12058
 let N = TypeVar(:N,true)
@@ -3753,6 +3805,31 @@ let ary = Vector{Any}(10)
     end
 end
 
+# check if we can run multiple finalizers at the same time
+# Use a `@noinline` function to make sure the inefficient gc root generation
+# doesn't keep the object alive.
+@noinline function create_dead_object13995(finalized)
+    obj = Ref(1)
+    finalizer(obj, (x)->(finalized[1] = true))
+    finalizer(obj, (x)->(finalized[2] = true))
+    finalizer(obj, (x)->(finalized[3] = true))
+    finalizer(obj, (x)->(finalized[4] = true))
+    nothing
+end
+# disable GC to make sure no collection/promotion happens
+# when we are constructing the objects
+let gc_enabled13995 = gc_enable(false)
+    finalized13995 = [false, false, false, false]
+    create_dead_object13995(finalized13995)
+    gc_enable(true)
+    # obj is unreachable and young, a single young gc should collect it
+    # and trigger all the finalizers.
+    gc(false)
+    gc_enable(false)
+    @test finalized13995 == [true, true, true, true]
+    gc_enable(gc_enabled13995)
+end
+
 # issue #15283
 j15283 = 0
 let
@@ -4190,3 +4267,24 @@ let nometh = expand(:(A15838.@f(1, 2)))
     @test e.f === getfield(A15838, Symbol("@f"))
     @test e.args === (1,2)
 end
+
+# issue #1090
+function f1090(x)::Int
+    if x == 1
+        return 1
+    end
+    2.0
+end
+@test f1090(1) === 1
+@test f1090(2) === 2
+g1090{T}(x::T)::T = x+1.0
+@test g1090(1) === 2
+@test g1090(Float32(3)) === Float32(4)
+
+# issue #16783
+function f16783()
+    T = UInt32
+    x::T = 0
+    bar() = x+1
+end
+@test f16783()() == 1

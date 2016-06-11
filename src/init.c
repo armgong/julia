@@ -633,7 +633,7 @@ void _julia_init(JL_IMAGE_SEARCH rel)
 
     jl_start_threads();
 
-    jl_an_empty_cell = (jl_value_t*)jl_alloc_cell_1d(0);
+    jl_an_empty_vec_any = (jl_value_t*)jl_alloc_vec_any(0);
     jl_init_serializer();
 
     if (!jl_options.image_file) {
@@ -739,12 +739,12 @@ static void julia_save(void)
 
     jl_array_t *worklist = jl_module_init_order;
     JL_GC_PUSH1(&worklist);
-    jl_module_init_order = jl_alloc_cell_1d(0);
+    jl_module_init_order = jl_alloc_vec_any(0);
     int i, l = jl_array_len(worklist);
     for (i = 0; i < l; i++) {
         jl_value_t *m = jl_arrayref(worklist, i);
         if (jl_module_get_initializer((jl_module_t*)m)) {
-            jl_cell_1d_push(jl_module_init_order, m);
+            jl_array_ptr_1d_push(jl_module_init_order, m);
         }
     }
 
@@ -775,11 +775,10 @@ static void julia_save(void)
             }
         }
 
-        if (jl_options.outputbc)
-            jl_dump_bitcode((char*)jl_options.outputbc, (const char*)s->buf, (size_t)s->size);
-
-        if (jl_options.outputo)
-            jl_dump_objfile((char*)jl_options.outputo, 0, (const char*)s->buf, (size_t)s->size);
+        if (jl_options.outputo || jl_options.outputbc)
+            jl_dump_native(jl_options.outputbc,
+                           jl_options.outputo,
+                           (const char*)s->buf, (size_t)s->size);
     }
     JL_GC_POP();
 }

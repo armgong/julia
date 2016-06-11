@@ -871,6 +871,27 @@ let m = 10
         end
     end
 end
+# The preceding tests miss the edge case where the sparse vector is empty (#16716)
+let
+    origmat = [-1.5 -0.7; 0.0 1.0]
+    transmat = transpose(origmat)
+    utmat = UpperTriangular(origmat)
+    ltmat = LowerTriangular(transmat)
+    uutmat = Base.LinAlg.UnitUpperTriangular(origmat)
+    ultmat = Base.LinAlg.UnitLowerTriangular(transmat)
+
+    zerospvec = spzeros(Float64, 2)
+    zerodvec = zeros(Float64, 2)
+
+    for mat in (utmat, ltmat, uutmat, ultmat)
+        for func in (\, At_ldiv_B, Ac_ldiv_B)
+            @test isequal((func)(mat, zerospvec), zerodvec)
+        end
+        for ipfunc in (A_ldiv_B!, Base.LinAlg.At_ldiv_B!, Base.LinAlg.Ac_ldiv_B!)
+            @test isequal((ipfunc)(mat, copy(zerospvec)), zerospvec)
+        end
+    end
+end
 
 # fkeep!
 let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 7)
@@ -967,3 +988,15 @@ for Tv in [Float32, Float64, Int64, Int32, Complex128]
         end
     end
 end
+
+# ref 13130 and 16661
+@test issparse([sprand(10,10,.1) sprand(10,.1)])
+@test issparse([sprand(10,1,.1); sprand(10,.1)])
+
+@test issparse([sprand(10,10,.1) rand(10)])
+@test issparse([sprand(10,1,.1)  rand(10)])
+@test issparse([sprand(10,2,.1) sprand(10,1,.1) rand(10)])
+@test issparse([sprand(10,1,.1); rand(10)])
+
+@test issparse([sprand(10,.1)  rand(10)])
+@test issparse([sprand(10,.1); rand(10)])

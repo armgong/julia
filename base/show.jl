@@ -419,7 +419,7 @@ const expr_infix = Set{Symbol}([:(:), :(->), Symbol("::")])
 const expr_infix_any = union(expr_infix, expr_infix_wide)
 const all_ops = union(quoted_syms, uni_ops, expr_infix_any)
 const expr_calls  = Dict(:call =>('(',')'), :calldecl =>('(',')'), :ref =>('[',']'), :curly =>('{','}'))
-const expr_parens = Dict(:tuple=>('(',')'), :vcat=>('[',']'), :cell1d=>("Any[","]"),
+const expr_parens = Dict(:tuple=>('(',')'), :vcat=>('[',']'),
                          :hcat =>('[',']'), :row =>('[',']'), :vect=>('[',']'))
 
 ## AST decoding helpers ##
@@ -661,7 +661,7 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         end
 
     # list (i.e. "(1,2,3)" or "[1,2,3]")
-    elseif haskey(expr_parens, head)               # :tuple/:vcat/:cell1d
+    elseif haskey(expr_parens, head)               # :tuple/:vcat
         op, cl = expr_parens[head]
         if head === :vcat
             sep = ";"
@@ -697,7 +697,7 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         end
 
         # scalar multiplication (i.e. "100x")
-        if (func == :(*) &&
+        if (func === :* &&
             length(func_args)==2 && isa(func_args[1], Real) && isa(func_args[2], Symbol))
             if func_prec <= prec
                 show_enclosed_list(io, '(', func_args, "", ')', indent, func_prec)
@@ -955,8 +955,8 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
 end
 
 function ismodulecall(ex::Expr)
-    ex.head == :call && (ex.args[1] == GlobalRef(Base,:getfield) ||
-                         ex.args[1] == GlobalRef(Core,:getfield)) &&
+    return ex.head == :call && (ex.args[1] === GlobalRef(Base,:getfield) ||
+                                ex.args[1] === GlobalRef(Core,:getfield)) &&
         isa(ex.args[2], Symbol) &&
         isdefined(current_module(), ex.args[2]) &&
         isa(getfield(current_module(), ex.args[2]), Module)
@@ -1442,24 +1442,46 @@ end
 `print_matrix_repr(io, X)` prints matrix X with opening and closing square brackets.
 """
 function print_matrix_repr(io, X::AbstractArray)
+    limit = get(io, :limit, false)::Bool
     compact, prefix = array_eltype_show_how(X)
     if compact && !haskey(io, :compact)
         io = IOContext(io, :compact => compact)
     end
+    nr, nc = size(X,1), size(X,2)
+    rdots, cdots = false, false
+    rr1, rr2 = 1:nr, 1:0
+    cr1, cr2 = 1:nc, 1:0
+    if limit
+        if nr > 4
+            rr1, rr2 = 1:2, nr-1:nr
+            rdots = true
+        end
+        if nc > 4
+            cr1, cr2 = 1:2, nc-1:nc
+            cdots = true
+        end
+    end
     print(io, prefix, "[")
-    for i=1:size(X,1)
-        for j=1:size(X,2)
-            j > 1 && print(io, " ")
-            if !isassigned(X,i,j)
-                print(io, undef_ref_str)
-            else
-                el = X[i,j]
-                show(io, el)
+    for rr in (rr1, rr2)
+        for i in rr
+            for cr in (cr1, cr2)
+                for j in cr
+                    j > first(cr) && print(io, " ")
+                    if !isassigned(X,i,j)
+                        print(io, undef_ref_str)
+                    else
+                        el = X[i,j]
+                        show(io, el)
+                    end
+                end
+                if last(cr) == nc
+                    i < nr && print(io, "; ")
+                elseif cdots
+                    print(io, " \u2026 ")
+                end
             end
         end
-        if i < size(X,1)
-            print(io, "; ")
-        end
+        last(rr) != nr && rdots && print(io, "\u2026 ; ")
     end
     print(io, "]")
 end
@@ -1520,9 +1542,18 @@ end
 showcompact(x) = showcompact(STDOUT, x)
 function showcompact(io::IO, x)
     if get(io, :compact, false)
-        show(io, x)
+        if !get(io, :multiline, false)
+            show(io, x)
+        else
+            show(IOContext(io, :multiline => false), x)
+        end
     else
-        show(IOContext(io, :compact => true), x)
+        if !get(io, :multiline, false)
+            show(IOContext(io, :compact => true), x)
+        else
+            show(IOContext(IOContext(io, :compact => true),
+                           :multiline => false), x)
+        end
     end
 end
 

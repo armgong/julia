@@ -25,6 +25,7 @@ convert(   ::Type{Nullable   }, ::Void) = Nullable{Union{}}()
 
 promote_rule{S,T}(::Type{Nullable{S}}, ::Type{T}) = Nullable{promote_type(S, T)}
 promote_rule{S,T}(::Type{Nullable{S}}, ::Type{Nullable{T}}) = Nullable{promote_type(S, T)}
+promote_op{S,T}(op::Any, ::Type{Nullable{S}}, ::Type{Nullable{T}}) = Nullable{promote_op(op, S, T)}
 
 function show{T}(io::IO, x::Nullable{T})
     if get(io, :compact, false)
@@ -34,9 +35,11 @@ function show{T}(io::IO, x::Nullable{T})
             show(io, x.value)
         end
     else
-        print(io, "Nullable{", T, "}(")
+        print(io, "Nullable{")
+        showcompact(io, eltype(x))
+        print(io, "}(")
         if !isnull(x)
-            show(io, x.value)
+            showcompact(io, x.value)
         end
         print(io, ')')
     end

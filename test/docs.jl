@@ -29,7 +29,7 @@ macro macro_doctest() end
 @doc "Helps test if macros can be documented with `@doc \"...\" -> @...`." ->
 :@macro_doctest
 
-@test (@doc @macro_doctest) != nothing
+@test (@doc @macro_doctest) !== nothing
 
 # issue #11548
 
@@ -45,7 +45,7 @@ end
 
 # General tests for docstrings.
 
-const LINE_NUMBER = @__LINE__
+const LINE_NUMBER = @__LINE__+1
 "DocsTest"
 module DocsTest
 
@@ -159,6 +159,14 @@ const val = Foo(1.0)
 function multidoc  end,
 function multidoc! end
 
+"returntype-1"
+returntype(x::Float64)::Float64 = x
+
+"returntype-2"
+function returntype(x::Int)::Int
+    x
+end
+
 end
 
 let md = meta(DocsTest)[@var(DocsTest)]
@@ -221,6 +229,11 @@ let IT = @var(DocsTest.IT)
     @test docstrings_equal(d, doc"IT")
     @test d.data[:fields][:x] == "IT.x"
     @test d.data[:fields][:y] == "IT.y"
+end
+
+let rt = @var(DocsTest.returntype)
+    md = meta(DocsTest)[rt]
+    @test md.order == [Tuple{Float64}, Tuple{Int}]
 end
 
 @test docstrings_equal(@doc(DocsTest.TA), doc"TA")

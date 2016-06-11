@@ -8,6 +8,8 @@
 // Build-time options for debugging, tweaking, and selecting alternative
 // implementations of core features.
 
+#define N_CALL_CACHE 4096
+
 // object layout options ------------------------------------------------------
 
 // how much space we're willing to waste if an array outgrows its
@@ -56,8 +58,8 @@
 // MEMPROFILE prints pool summary statistics after every GC
 //#define MEMPROFILE
 
-// GCTIME prints time taken by each phase of GC
-//#define GC_TIME
+// GC_TIME prints time taken by each phase of GC
+// #define GC_TIME
 
 // OBJPROFILE counts objects by type
 // #define OBJPROFILE
@@ -113,9 +115,9 @@
 #  define MEMDEBUG
 #  define KEEP_BODIES
 #  endif
-// Memory sanitizer also needs thread-local storage
+// Memory sanitizer needs TLS, which llvm only supports for the small memory model
 #  if __has_feature(memory_sanitizer)
-#  define CODEGEN_TLS
+   // todo: fix the llvm MemoryManager to work with small memory model
 #  endif
 #endif
 

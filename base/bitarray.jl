@@ -27,7 +27,7 @@ type BitArray{N} <: DenseArray{Bool, N}
 end
 
 BitArray{N}(dims::NTuple{N,Int}) = BitArray{N}(dims...)
-BitArray(dims::Int...) = BitArray(dims)
+BitArray(dims::Integer...) = BitArray(map(Int,dims))
 
 typealias BitVector BitArray{1}
 typealias BitMatrix BitArray{2}
@@ -245,7 +245,7 @@ function copy_to_bitarray_chunks!(Bc::Vector{UInt64}, pos_d::Int, C::Array{Bool}
     nc8 = (nc >>> 3) << 3
     if nc8 > 0
         ind8 = 1
-        C8 = reinterpret(UInt64, pointer_to_array(pointer(C, ind), nc8 << 6))
+        C8 = reinterpret(UInt64, unsafe_wrap(Array, pointer(C, ind), nc8 << 6))
         @inbounds for i = 1:nc8
             c = UInt64(0)
             for j = 0:7
@@ -386,7 +386,7 @@ end
 Create a `BitArray` with all values set to `false`.
 """
 falses(dims::Dims) = fill!(BitArray(dims), false)
-falses(dims::Integer...) = falses(dims)
+falses(dims::Integer...) = falses(map(Int,dims))
 """
     falses(A)
 
@@ -400,7 +400,7 @@ falses(A::AbstractArray) = falses(size(A))
 Create a `BitArray` with all values set to `true`.
 """
 trues(dims::Dims) = fill!(BitArray(dims), true)
-trues(dims::Integer...) = trues(dims)
+trues(dims::Integer...) = trues(map(Int,dims))
 """
     trues(A)
 

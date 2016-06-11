@@ -32,11 +32,6 @@ extern "C" {
 
 // manipulating mark bits
 
-#define GC_CLEAN 0 // freshly allocated
-#define GC_MARKED 1 // reachable and old
-#define GC_QUEUED 2 // if it is reachable it will be marked as old
-#define GC_MARKED_NOESC (GC_MARKED | GC_QUEUED) // reachable and young
-
 #define GC_PAGE_LG2 14 // log2(size of a page)
 #define GC_PAGE_SZ (1 << GC_PAGE_LG2) // 16k
 #define GC_PAGE_OFFSET (JL_SMALL_BYTE_ALIGNMENT - (sizeof_jl_taggedvalue_t % JL_SMALL_BYTE_ALIGNMENT))
@@ -61,7 +56,7 @@ typedef struct {
 } jl_alloc_num_t;
 
 typedef struct {
-    int sweep_mask;
+    int always_full;
     int wait_for_debugger;
     jl_alloc_num_t pool;
     jl_alloc_num_t other;
@@ -138,12 +133,33 @@ typedef struct _mallocarray_t {
 // pool page metadata
 typedef struct {
     struct {
-        uint16_t pool_n : 8; // index (into norm_pool) of pool that owns this page
-        uint16_t allocd : 1; // true if an allocation happened in this page since last sweep
-        uint16_t gc_bits : 2; // this is a bitwise | of all gc_bits in this page
+        // index of pool that owns this page
+        uint16_t pool_n : 8;
+        // Whether any cell in the page is marked
+        // This bit is set before sweeping iff there's live cells in the page.
+        // Note that before marking or after sweeping there can be live
+        // (and young) cells in the page for `!has_marked`.
+        uint16_t has_marked: 1;
+        // Whether any cell was live and young **before sweeping**.
+        // For a normal sweep (quick sweep that is NOT preceded by a
+        // full sweep) this bit is set iff there are young or newly dead
+        // objects in the page and the page needs to be swept.
+        //
+        // For a full sweep, this bit should be ignored.
+        //
+        // For a quick sweep preceded by a full sweep. If this bit is set,
+        // the page needs to be swept. If this bit is not set, there could
+        // still be old dead objects in the page and `nold` and `prev_nold`
+        // should be used to determine if the page needs to be swept.
+        uint16_t has_young: 1;
     };
-    uint16_t nfree; // number of free objects in this page.
-                    // invalid if pool that owns this page is allocating objects from this page.
+    // number of old objects in this page
+    uint16_t nold;
+    // number of old objects in this page during the previous full sweep
+    uint16_t prev_nold;
+    // number of free objects in this page.
+    // invalid if pool that owns this page is allocating objects from this page.
+    uint16_t nfree;
     uint16_t osize; // size of each object in this page
     uint16_t fl_begin_offset; // offset of first free object in this page
     uint16_t fl_end_offset;   // offset of last free object in this page
@@ -183,10 +199,7 @@ extern bigval_t *big_objects_marked;
 extern arraylist_t finalizer_list;
 extern arraylist_t finalizer_list_marked;
 extern arraylist_t to_finalize;
-
-// Counters
-// GC_FINAL_STATS only
-extern size_t max_pg_count;
+extern int64_t lazy_freed_pages;
 
 #define bigval_header(data) container_of((data), bigval_t, header)
 
@@ -240,8 +253,26 @@ STATIC_INLINE jl_gc_pagemeta_t *page_metadata(void *data)
     return &r->meta[pg_idx];
 }
 
+STATIC_INLINE void gc_big_object_unlink(const bigval_t *hdr)
+{
+    *hdr->prev = hdr->next;
+    if (hdr->next) {
+        hdr->next->prev = hdr->prev;
+    }
+}
+
+STATIC_INLINE void gc_big_object_link(bigval_t *hdr, bigval_t **list)
+{
+    hdr->next = *list;
+    hdr->prev = list;
+    if (*list)
+        (*list)->prev = &hdr->next;
+    *list = hdr;
+}
+
 void pre_mark(void);
-void post_mark(arraylist_t *list, int dryrun);
+void gc_mark_object_list(arraylist_t *list, size_t start);
+void visit_mark_stack(void);
 void gc_debug_init(void);
 
 #define jl_thread_heap (jl_get_ptls_states()->heap)
@@ -253,6 +284,66 @@ NOINLINE void *jl_gc_alloc_page(void);
 void jl_gc_free_page(void *p);
 
 // GC debug
+
+#if defined(GC_TIME) || defined(GC_FINAL_STATS)
+void gc_settime_premark_end(void);
+void gc_settime_postmark_end(void);
+#else
+#define gc_settime_premark_end()
+#define gc_settime_postmark_end()
+#endif
+
+#ifdef GC_FINAL_STATS
+void gc_final_count_page(size_t pg_cnt);
+void gc_final_pause_end(int64_t t0, int64_t tend);
+#else
+#define gc_final_count_page(pg_cnt)
+#define gc_final_pause_end(t0, tend)
+#endif
+
+#ifdef GC_TIME
+void gc_time_pool_start(void);
+void gc_time_count_page(int freedall, int pg_skpd);
+void gc_time_pool_end(int sweep_full);
+
+void gc_time_big_start(void);
+void gc_time_count_big(int old_bits, int bits);
+void gc_time_big_end(void);
+
+void gc_time_mallocd_array_start(void);
+void gc_time_count_mallocd_array(int bits);
+void gc_time_mallocd_array_end(void);
+
+void gc_time_mark_pause(int64_t t0, int64_t scanned_bytes,
+                        int64_t perm_scanned_bytes);
+void gc_time_sweep_pause(uint64_t gc_end_t, int64_t actual_allocd,
+                         int64_t live_bytes, int64_t estimate_freed,
+                         int sweep_full);
+#else
+#define gc_time_pool_start()
+STATIC_INLINE void gc_time_count_page(int freedall, int pg_skpd)
+{
+    (void)freedall;
+    (void)pg_skpd;
+}
+#define gc_time_pool_end(sweep_full)
+#define gc_time_big_start()
+STATIC_INLINE void gc_time_count_big(int old_bits, int bits)
+{
+    (void)old_bits;
+    (void)bits;
+}
+#define gc_time_big_end()
+#define gc_time_mallocd_array_start()
+STATIC_INLINE void gc_time_count_mallocd_array(int bits)
+{
+    (void)bits;
+}
+#define gc_time_mallocd_array_end()
+#define gc_time_mark_pause(t0, scanned_bytes, perm_scanned_bytes)
+#define gc_time_sweep_pause(gc_end_t, actual_allocd, live_bytes,        \
+                            estimate_freed, sweep_full)
+#endif
 
 #ifdef GC_VERIFY
 extern jl_value_t *lostval;
@@ -296,13 +387,13 @@ extern int gc_verifying;
 
 #ifdef GC_DEBUG_ENV
 JL_DLLEXPORT extern jl_gc_debug_env_t jl_gc_debug_env;
-#define gc_quick_sweep_mask jl_gc_debug_env.sweep_mask
+#define gc_sweep_always_full jl_gc_debug_env.always_full
 int gc_debug_check_other(void);
 int gc_debug_check_pool(void);
 void gc_debug_print(void);
 void gc_scrub(char *stack_hi);
 #else
-#define gc_quick_sweep_mask GC_MARKED_NOESC
+#define gc_sweep_always_full 0
 static inline int gc_debug_check_other(void)
 {
     return 0;
@@ -337,6 +428,17 @@ static inline void objprofile_reset(void)
 {
 }
 #endif
+
+#ifdef MEMPROFILE
+static void gc_stats_all_pool(void);
+static void gc_stats_big_obj(void);
+#else
+#define gc_stats_all_pool()
+#define gc_stats_big_obj()
+#endif
+
+// For debugging
+void gc_count_pool(void);
 
 #ifdef __cplusplus
 }

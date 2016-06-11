@@ -40,7 +40,7 @@ USE_SYSTEM_LIBGIT2:=0
 USE_SYSTEM_PATCHELF:=0
 
 # Link to the LLVM shared library
-USE_LLVM_SHLIB := 0
+USE_LLVM_SHLIB := 1
 
 ## Settings for various Intel tools
 # Set to 1 to use MKL
@@ -179,6 +179,7 @@ sysconfdir := $(prefix)/etc
 build_prefix := $(BUILDROOT)/usr
 build_staging := $(build_prefix)-staging
 build_bindir := $(build_prefix)/bin
+build_depsbindir := $(build_prefix)/tools
 build_libdir := $(build_prefix)/lib
 build_libexecdir := $(build_prefix)/libexec
 build_datarootdir := $(build_prefix)/share
@@ -216,7 +217,7 @@ INSTALL_M := $(JULIAHOME)/contrib/install.sh 755
 LLVMROOT := $(build_prefix)
 LLVM_ASSERTIONS := 0
 LLVM_DEBUG := 0
-#LLVM_USE_CMAKE: defined in deps/Makefile as it depends on LLVM_VER_SHORT
+#LLVM_USE_CMAKE: defined in deps/llvm-ver.mk as it depends on LLVM_VER_SHORT
 # set to 1 to get clang and compiler-rt
 BUILD_LLVM_CLANG := 0
 # set to 1 to get lldb (often does not work, no chance with llvm3.2 and earlier)
@@ -263,8 +264,8 @@ endif
 endif
 STD_LIB_PATH ?= $(PATH)
 
-JLDOWNLOAD := $(JULIAHOME)/deps/jldownload
-JLCHECKSUM := $(JULIAHOME)/deps/jlchecksum
+JLDOWNLOAD := $(JULIAHOME)/deps/tools/jldownload
+JLCHECKSUM := $(JULIAHOME)/deps/tools/jlchecksum
 
 # Figure out OS and architecture
 OS := $(BUILD_OS)
@@ -707,7 +708,7 @@ ifeq ($(origin LLVM_CONFIG), undefined)
 ifeq ($(USE_SYSTEM_LLVM), 1)
 LLVM_CONFIG := llvm-config$(EXE)
 else
-LLVM_CONFIG := $(build_bindir)/llvm-config$(EXE)
+LLVM_CONFIG := $(build_depsbindir)/llvm-config$(EXE)
 endif
 endif # LLVM_CONFIG undefined
 
@@ -734,7 +735,7 @@ endif
 ifeq ($(USE_SYSTEM_PCRE), 1)
 PCRE_CONFIG := pcre2-config
 else
-PCRE_CONFIG := $(build_bindir)/pcre2-config
+PCRE_CONFIG := $(build_depsbindir)/pcre2-config
 endif
 
 # Use ILP64 BLAS interface when building openblas from source on 64-bit architectures

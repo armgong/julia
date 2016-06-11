@@ -16,6 +16,11 @@
 extern "C" {
 #endif
 
+#define GC_CLEAN 0 // freshly allocated
+#define GC_MARKED 1 // reachable and old
+#define GC_QUEUED 2 // if it is reachable it will be marked as old
+#define GC_MARKED_NOESC (GC_MARKED | GC_QUEUED) // reachable and young
+
 // useful constants
 extern jl_methtable_t *jl_type_type_mt;
 
@@ -92,11 +97,12 @@ STATIC_INLINE jl_value_t *jl_call_method_internal(jl_lambda_info_t *meth, jl_val
 
 jl_tupletype_t *jl_argtype_with_function(jl_function_t *f, jl_tupletype_t *types);
 
+JL_DLLEXPORT jl_value_t *jl_apply_2va(jl_value_t *f, jl_value_t **args, uint32_t nargs);
+
 #define GC_MAX_SZCLASS (2032-sizeof(void*))
 // MSVC miscalculates sizeof(jl_taggedvalue_t) because
 // empty structs are a GNU extension
 #define sizeof_jl_taggedvalue_t (sizeof(void*))
-void jl_gc_inhibit_finalizers(int state);
 void jl_gc_setmark(jl_value_t *v);
 void jl_gc_sync_total_bytes(void);
 void jl_gc_track_malloced_array(jl_array_t *a);
@@ -124,11 +130,7 @@ STATIC_INLINE void jl_gc_wb_buf(void *parent, void *bufptr) // parent isa jl_val
 
 void gc_debug_print_status(void);
 void gc_debug_critical_error(void);
-#if defined(GC_FINAL_STATS)
 void jl_print_gc_stats(JL_STREAM *s);
-#else
-#define jl_print_gc_stats(s) ((void)s)
-#endif
 int jl_assign_type_uid(void);
 jl_value_t *jl_cache_type_(jl_datatype_t *type);
 int  jl_get_t_uid_ctr(void);
@@ -192,7 +194,7 @@ jl_function_t *jl_new_generic_function(jl_sym_t *name, jl_module_t *module);
 jl_function_t *jl_module_call_func(jl_module_t *m);
 int jl_is_submodule(jl_module_t *child, jl_module_t *parent);
 
-jl_value_t *jl_toplevel_eval_flex(jl_value_t *e, int fast);
+jl_value_t *jl_toplevel_eval_flex(jl_value_t *e, int fast, int expanded);
 jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex,
                                      int delay_warn);
 
@@ -206,7 +208,6 @@ jl_value_t *jl_static_eval(jl_value_t *ex, void *ctx_, jl_module_t *mod,
                            jl_lambda_info_t *li, int sparams, int allow_alloc);
 int jl_is_toplevel_only_expr(jl_value_t *e);
 void jl_type_infer(jl_lambda_info_t *li, int force);
-void jl_lambda_info_set_ast(jl_lambda_info_t *li, jl_value_t *ast);
 jl_value_t *jl_call_scm_on_ast(char *funcname, jl_value_t *expr);
 
 jl_lambda_info_t *jl_method_lookup_by_type(jl_methtable_t *mt, jl_tupletype_t *types,
@@ -214,13 +215,6 @@ jl_lambda_info_t *jl_method_lookup_by_type(jl_methtable_t *mt, jl_tupletype_t *t
 jl_lambda_info_t *jl_method_lookup(jl_methtable_t *mt, jl_value_t **args, size_t nargs, int cache);
 jl_value_t *jl_gf_invoke(jl_tupletype_t *types, jl_value_t **args, size_t nargs);
 
-jl_array_t *jl_lam_args(jl_expr_t *l);
-jl_array_t *jl_lam_vinfo(jl_expr_t *l);
-jl_array_t *jl_lam_capt(jl_expr_t *l);
-jl_value_t *jl_lam_ssavalues(jl_expr_t *l);
-jl_array_t *jl_lam_staticparams(jl_expr_t *l);
-int jl_lam_vars_captured(jl_expr_t *ast);
-jl_expr_t *jl_lam_body(jl_expr_t *l);
 jl_value_t *jl_first_argument_datatype(jl_value_t *argtypes);
 int jl_has_intrinsics(jl_lambda_info_t *li, jl_value_t *v, jl_module_t *m);
 
@@ -322,8 +316,7 @@ static inline void jl_set_gc_and_wait(void)
 }
 #endif
 
-void jl_dump_bitcode(char *fname, const char *sysimg_data, size_t sysimg_len);
-void jl_dump_objfile(char *fname, int jit_model, const char *sysimg_data, size_t sysimg_len);
+void jl_dump_native(const char *bc_fname, const char *obj_fname, const char *sysimg_data, size_t sysimg_len);
 int32_t jl_get_llvm_gv(jl_value_t *p);
 // the first argument to jl_idtable_rehash is used to return a value
 // make sure it is rooted if it is used after the function returns
@@ -658,6 +651,18 @@ int sigs_eq(jl_value_t *a, jl_value_t *b, int useenv);
 jl_value_t *jl_lookup_match(jl_value_t *a, jl_value_t *b, jl_svec_t **penv, jl_svec_t *tvars);
 
 unsigned jl_special_vector_alignment(size_t nfields, jl_value_t *field_type);
+
+STATIC_INLINE void *jl_get_frame_addr(void)
+{
+#ifdef __GNUC__
+    return __builtin_frame_address(0);
+#else
+    void *dummy = NULL;
+    // The mask is to suppress the compiler warning about returning
+    // address of local variable
+    return (void*)((uintptr_t)&dummy & ~(uintptr_t)15);
+#endif
+}
 
 #ifdef __cplusplus
 }

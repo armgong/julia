@@ -101,7 +101,7 @@
 (define operator? (Set operators))
 
 (define initial-reserved-words '(begin while if for try return break continue
-                         stagedfunction function macro quote let local global const
+                         function macro quote let local global const
                          abstract typealias type bitstype immutable ccall do
                          module baremodule using import export importall))
 
@@ -187,7 +187,7 @@
                              str))
                        str))))
         (if (equal? str "--")
-            (syntax-deprecation port str ""))
+            (error "invalid operator \"--\""))
         (string->symbol str))))
 
 (define (accum-digits c pred port lz)
@@ -325,9 +325,10 @@
                r is-float32-literal)))
       (if (and (eqv? #\. (string.char s (string.dec s (length s))))
                (let ((nxt (peek-char port)))
-                 (or (identifier-start-char? nxt)
-                     (memv nxt '(#\( #\[ #\{ #\@ #\` #\~ #\")))))
-          (error (string "invalid numeric constant \"" s (peek-char port) "\"")))
+                 (and (not (eof-object? nxt))
+                      (or (identifier-start-char? nxt)
+                          (memv nxt '(#\( #\[ #\{ #\@ #\` #\~ #\"))))))
+          (error (string "numeric constant \"" s "\" cannot be implicitly multiplied because it ends with \".\"")))
       ;; n is #f for integers > typemax(UInt64)
       (cond (is-hex-float-literal (numchk n s) (double n))
             ((eq? pred char-hex?) (fix-uint-neg neg (sized-uint-literal n s 4)))
@@ -635,7 +636,9 @@
                            (and (eqv? (car ops) #\,)
                                 (eq? (peek-token s) '=)))
                        (loop ex #f (peek-token s))
-                       (if add-linenums
+                       (if (and add-linenums
+                                (not (and (pair? (car ex))
+                                          (eq? (caar ex) 'line))))
                            (let ((loc (line-number-node s)))
                              (loop (list* (down s) loc ex) #f (peek-token s)))
                            (loop (cons (down s) ex) #f (peek-token s))))))))))
@@ -948,11 +951,16 @@
         (parse-resword s ex)
         (parse-call-chain s ex #f))))
 
-(define (parse-def s strict)
+(define (parse-def s is-func)
   (let ((ex (parse-unary-prefix s)))
-    (if (or (and strict (reserved-word? ex)) (initial-reserved-word? ex))
-        (error (string "invalid name \"" ex "\""))
-        (parse-call-chain s ex #f))))
+    (let ((sig (if (or (and is-func (reserved-word? ex)) (initial-reserved-word? ex))
+                   (error (string "invalid name \"" ex "\""))
+                   (parse-call-chain s ex #f))))
+      (if (and is-func
+               (eq? (peek-token s) '|::|))
+          (begin (take-token s)
+                 `(|::| ,sig ,(parse-call s)))
+          sig))))
 
 
 (define (deprecated-dict-replacement ex)
@@ -999,21 +1007,8 @@
              ;; ref(a,i) = x
              (let ((al (with-end-symbol (parse-cat s #\] (dict-literal? ex)))))
                (if (null? al)
-                   (if (dict-literal? ex)
-                       (begin
-                         (syntax-deprecation
-                          s (string #\( (deparse ex) #\) "[]")
-                          (string (deprecated-dict-replacement ex) "()"))
-                         (loop (list 'typed_dict ex)))
-                       (loop (list 'ref ex)))
+                   (loop (list 'ref ex))
                    (case (car al)
-                     ((dict)
-                      (if (dict-literal? ex)
-                          (begin (syntax-deprecation
-                                  s (string #\( (deparse ex) #\) "[a=>b, ...]")
-                                  (string (deprecated-dict-replacement ex) "(a=>b, ...)"))
-                                 (loop (list* 'typed_dict ex (cdr al))))
-                          (loop (list* 'ref ex (cdr al)))))
                      ((vect)  (loop (list* 'ref ex (cdr al))))
                      ((hcat)  (loop (list* 'typed_hcat ex (cdr al))))
                      ((vcat)
@@ -1169,8 +1164,7 @@
           (if const
               `(const ,expr)
               expr)))
-       ((stagedfunction function macro)
-        (if (eq? word 'stagedfunction) (syntax-deprecation s "stagedfunction" "@generated function"))
+       ((function macro)
         (let* ((paren (eqv? (require-token s) #\())
                (sig   (parse-def s (not (eq? word 'macro)))))
           (if (and (eq? word 'function) (not paren) (symbol-or-interpolate? sig))
@@ -1188,7 +1182,10 @@
                                     (error (string "expected \"(\" in " word " definition")))
                                 (if (not (and (pair? sig)
                                               (or (eq? (car sig) 'call)
-                                                  (eq? (car sig) 'tuple))))
+                                                  (eq? (car sig) 'tuple)
+                                                  (and (eq? (car sig) '|::|)
+                                                       (pair? (cadr sig))
+                                                       (eq? (car (cadr sig)) 'call)))))
                                     (error (string "expected \"(\" in " word " definition"))
                                     sig)))
                      (body  (parse-block s)))
@@ -1238,7 +1235,8 @@
                           '(block)
                           #f
                           finalb)
-                    (let* ((var (if nl #f (parse-eq* s)))
+                    (let* ((loc (line-number-node s))
+                           (var (if nl #f (parse-eq* s)))
                            (var? (and (not nl) (or (and (symbol? var) (not (eq? var 'false))
                                                         (not (eq? var 'true)))
                                                    (and (length= var 2) (eq? (car var) '$)))))
@@ -1248,7 +1246,7 @@
                       (loop (require-token s)
                             (if (or var? (not var))
                                 catch-block
-                                `(block ,(cadr catch-block) ,var ,@(cddr catch-block)))
+                                `(block ,loc ,var ,@(cdr catch-block)))
                             (if var? var 'false)
                             finalb)))))
              ((and (eq? nxt 'finally)
@@ -1513,13 +1511,6 @@
             (else
              (error "missing separator in array expression")))))))
 
-(define (parse-dict s first closer)
-  (let ((v (parse-vect s first closer)))
-    (if (any dict-literal? (cdr v))
-        (if (every dict-literal? (cdr v))
-            `(dict ,@(cdr v))
-            (error "invalid dict literal")))))
-
 (define (parse-comprehension s first closer)
   (let ((r (parse-comma-separated-iters s)))
     (if (not (eqv? (require-token s) closer))
@@ -1589,15 +1580,11 @@
                '())
         (let ((first (parse-eq* s)))
           (if (and (dict-literal? first)
-                   (or (null? isdict) (car isdict)))
-              (case (peek-non-newline-token s)
-                ((for)
-                 (take-token s)
-                 (parse-dict-comprehension s first closer))
-                (else
-                 (if (or (null? isdict) (not (car isdict)))
-                     (syntax-deprecation s "[a=>b, ...]" "Dict(a=>b, ...)"))
-                 (parse-dict s first closer)))
+                   (or (null? isdict) (car isdict))
+                   (eq? (peek-non-newline-token s) 'for))
+              (begin
+                (take-token s)
+                (parse-dict-comprehension s first closer))
               (let ((t (peek-token s)))
                 (cond ((or (eqv? t #\,) (eqv? t closer))
                        (parse-vect s first closer))
@@ -1985,59 +1972,31 @@
            (let ((vex (parse-cat s #\])))
              (if (null? vex) '(vect) vex)))
 
-          ;; cell expression
           ((eqv? t #\{ )
            (take-token s)
            (if (eqv? (require-token s) #\})
-               (begin (syntax-deprecation s "{}" "[]")
-                      (take-token s)
+               (begin (take-token s)
                       '(cell1d))
                (let ((vex (parse-cat s #\} #t)))
                  (if (null? vex)
-                     (begin (syntax-deprecation s "{}" "[]")
-                            '(cell1d))
+                     '(cell1d)
                      (case (car vex)
-                       ((vect)
-                        (syntax-deprecation s "{a,b, ...}" "Any[a,b, ...]")
-                        `(cell1d ,@(cdr vex)))
-                       ((comprehension)
-                        (syntax-deprecation s "{a for a in b}" "Any[a for a in b]")
-                        `(typed_comprehension (top Any) ,@(cdr vex)))
-                       ((dict_comprehension)
-                        (syntax-deprecation s "{a=>b for (a,b) in c}" "Dict{Any,Any}(a=>b for (a,b) in c)")
-                        `(typed_dict_comprehension (=> (top Any) (top Any)) ,@(cdr vex)))
-                       ((dict)
-                        (syntax-deprecation s "{a=>b, ...}" "Dict{Any,Any}(a=>b, ...)")
-                        `(typed_dict (=> (top Any) (top Any)) ,@(cdr vex)))
-                       ((hcat)
-                        (syntax-deprecation s "{a b ...}" "Any[a b ...]")
-                        `(cell2d 1 ,(length (cdr vex)) ,@(cdr vex)))
-                       (else  ; (vcat ...)
+                       ((vect) `(cell1d ,@(cdr vex)))
+                       ((hcat) `(cell2d 1 ,(length (cdr vex)) ,@(cdr vex)))
+                       ((comprehension)      (error "{a for a in b} syntax is discontinued"))
+                       ((dict_comprehension) (error "{a=>b for (a,b) in c} syntax is discontinued"))
+                       ((dict) `(cell1d ,@(cdr vec)))
+                       (else
                         (if (and (pair? (cadr vex)) (eq? (caadr vex) 'row))
                             (let ((nr (length (cdr vex)))
                                   (nc (length (cdadr vex))))
-                              ;; make sure all rows are the same length
-                              (if (not (every
-                                        (lambda (x)
-                                          (and (pair? x)
-                                               (eq? (car x) 'row)
-                                               (length= (cdr x) nc)))
-                                        (cddr vex)))
-                                  (error "inconsistent shape in cell expression"))
                               (begin
-                                (syntax-deprecation s "{a b; c d}" "Any[a b; c d]")
                                 `(cell2d ,nr ,nc
                                          ,@(apply append
                                                   ;; transpose to storage order
                                                   (apply map list
                                                          (map cdr (cdr vex)))))))
-                            (if (any (lambda (x) (and (pair? x)
-                                                      (eq? (car x) 'row)))
-                                     (cddr vex))
-                                (error "inconsistent shape in cell expression")
-                                (begin
-                                  (syntax-deprecation s "{a,b, ...}" "Any[a,b, ...]")
-                                  `(cell1d ,@(cdr vex)))))))))))
+                            `(cell1d ,@(cdr vex)))))))))
 
           ;; string literal
           ((eqv? t #\")
@@ -2054,19 +2013,19 @@
           ((eqv? t #\@)
            (take-token s)
            (with-space-sensitive
-            (let* ((head (parse-unary-prefix s))
-                   (t    (peek-token s)))
-              (cond
-               ((eqv? head '__LINE__) (input-port-line (ts:port s)))
-               ((ts:space? s)
-                `(macrocall ,(macroify-name head)
-                            ,@(parse-space-separated-exprs s)))
-               (else
-                (let ((call (parse-call-chain s head #t)))
-                  (if (and (pair? call) (eq? (car call) 'call))
-                      `(macrocall ,(macroify-name (cadr call)) ,@(cddr call))
-                      `(macrocall ,(macroify-name call)
-                                  ,@(parse-space-separated-exprs s)))))))))
+            (let ((head (parse-unary-prefix s)))
+              (if (eq? head '__LINE__)
+                  (input-port-line (ts:port s))
+                  (begin
+                    (peek-token s)
+                    (if (ts:space? s)
+                        `(macrocall ,(macroify-name head)
+                                    ,@(parse-space-separated-exprs s))
+                        (let ((call (parse-call-chain s head #t)))
+                          (if (and (pair? call) (eq? (car call) 'call))
+                              `(macrocall ,(macroify-name (cadr call)) ,@(cddr call))
+                              `(macrocall ,(macroify-name call)
+                                          ,@(parse-space-separated-exprs s))))))))))
 
           ;; command syntax
           ((eqv? t #\`)

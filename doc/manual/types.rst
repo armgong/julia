@@ -145,10 +145,20 @@ The "declaration" behavior only occurs in specific contexts::
 
 and applies to the whole current scope, even before the declaration.
 Currently, type declarations cannot be used in global scope, e.g. in
-the REPL, since Julia does not yet have constant-type globals.  Note
-that in a function return statement, the first two of the above
-expressions compute a value and then ``::`` is a type assertion and
-not a declaration.
+the REPL, since Julia does not yet have constant-type globals.
+
+Declarations can also be attached to function definitions::
+
+    function sinc(x)::Float64
+        if x == 0
+            return 1
+        end
+        return sin(pi*x)/(pi*x)
+    end
+
+Returning from this function behaves just like an assignment to
+a variable with a declared type: the value is always converted to
+``Float64``.
 
 
 .. _man-abstract-types:
@@ -993,9 +1003,14 @@ which denotes any number of trailing elements:
     julia> isa(("1",1,2,3.0), Tuple{AbstractString,Vararg{Int}})
     false
 
-Notice that ``Vararg{T}`` matches zero or more elements of type ``T``.
+Notice that ``Vararg{T}`` corresponds to zero or more elements of type ``T``.
 Vararg tuple types are used to represent the arguments accepted by varargs
 methods (see :ref:`man-varargs-functions`).
+
+The type ``Vararg{T,N}`` corresponds to exactly ``N`` elements of type ``T``.  ``NTuple{N,T}`` is
+a convenient alias for ``Tuple{Vararg{T,N}}``, i.e. a tuple type containing exactly
+``N`` elements of type ``T``.
+
 
 .. _man-singleton-types:
 

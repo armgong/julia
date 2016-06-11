@@ -163,9 +163,6 @@ end
 fill(v, dims::Dims)       = fill!(Array{typeof(v)}(dims), v)
 fill(v, dims::Integer...) = fill!(Array{typeof(v)}(dims...), v)
 
-cell(dims::Integer...)   = Array{Any}(dims...)
-cell(dims::Tuple{Vararg{Integer}}) = Array{Any}(convert(Tuple{Vararg{Int}}, dims))
-
 for (fname, felt) in ((:zeros,:zero), (:ones,:one))
     @eval begin
         ($fname)(T::Type, dims...)       = fill!(Array{T}(dims...), ($felt)(T))
@@ -653,7 +650,7 @@ end
 function lexcmp(a::Array{UInt8,1}, b::Array{UInt8,1})
     c = ccall(:memcmp, Int32, (Ptr{UInt8}, Ptr{UInt8}, UInt),
               a, b, min(length(a),length(b)))
-    c < 0 ? -1 : c > 0 ? +1 : cmp(length(a),length(b))
+    return c < 0 ? -1 : c > 0 ? +1 : cmp(length(a),length(b))
 end
 
 function reverse(A::AbstractVector, s=1, n=length(A))
@@ -667,7 +664,7 @@ function reverse(A::AbstractVector, s=1, n=length(A))
     for i = n+1:length(A)
         B[i] = A[i]
     end
-    B
+    return B
 end
 reverseind(a::AbstractVector, i::Integer) = length(a) + 1 - i
 
@@ -683,7 +680,7 @@ function reverse!(v::AbstractVector, s=1, n=length(v))
         v[i], v[r] = v[r], v[i]
         r -= 1
     end
-    v
+    return v
 end
 
 function vcat{T}(arrays::Vector{T}...)
@@ -715,7 +712,7 @@ function hcat{T}(V::Vector{T}...)
             throw(DimensionMismatch("vectors must have same lengths"))
         end
     end
-    [ V[j][i]::T for i=1:length(V[1]), j=1:length(V) ]
+    return [ V[j][i]::T for i=1:length(V[1]), j=1:length(V) ]
 end
 
 hcat(A::Matrix...) = typed_hcat(promote_eltype(A...), A...)
@@ -723,6 +720,14 @@ hcat{T}(A::Matrix{T}...) = typed_hcat(T, A...)
 
 vcat(A::Matrix...) = typed_vcat(promote_eltype(A...), A...)
 vcat{T}(A::Matrix{T}...) = typed_vcat(T, A...)
+
+hcat(A::Union{Matrix, Vector}...) = typed_hcat(promote_eltype(A...), A...)
+hcat{T}(A::Union{Matrix{T}, Vector{T}}...) = typed_hcat(T, A...)
+
+
+vcat(A::Union{Matrix, Vector}...) = typed_vcat(promote_eltype(A...), A...)
+vcat{T}(A::Union{Matrix{T}, Vector{T}}...) = typed_vcat(T, A...)
+
 
 hvcat(rows::Tuple{Vararg{Int}}, xs::Matrix...) = typed_hvcat(promote_eltype(xs...), rows, xs...)
 hvcat{T}(rows::Tuple{Vararg{Int}}, xs::Matrix{T}...) = typed_hvcat(T, rows, xs...)
@@ -767,7 +772,7 @@ function findprev(A, start::Integer)
     for i = start:-1:1
         A[i] != 0 && return i
     end
-    0
+    return 0
 end
 findlast(A) = findprev(A, length(A))
 
@@ -776,7 +781,7 @@ function findprev(A, v, start::Integer)
     for i = start:-1:1
         A[i] == v && return i
     end
-    0
+    return 0
 end
 findlast(A, v) = findprev(A, v, length(A))
 
@@ -785,7 +790,7 @@ function findprev(testf::Function, A, start::Integer)
     for i = start:-1:1
         testf(A[i]) && return i
     end
-    0
+    return 0
 end
 findlast(testf::Function, A) = findprev(testf, A, length(A))
 
@@ -800,7 +805,7 @@ function find(testf::Function, A)
     end
     I = Array{Int}(length(tmpI))
     copy!(I, tmpI)
-    I
+    return I
 end
 
 function find(A)

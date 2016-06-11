@@ -17,6 +17,7 @@ const LIBGIT2_VER = v"0.23.0"
     z = LibGit2.Oid()
     @test LibGit2.iszero(z)
     @test z == zero(LibGit2.Oid)
+    @test z == LibGit2.Oid(z)
     rs = string(z)
     rr = LibGit2.raw(z)
     @test z == LibGit2.Oid(rr)
@@ -24,6 +25,7 @@ const LIBGIT2_VER = v"0.23.0"
     @test z == LibGit2.Oid(pointer(rr))
     for i in 11:length(rr); rr[i] = 0; end
     @test LibGit2.Oid(rr) == LibGit2.Oid(rs[1:20])
+    @test_throws ArgumentError LibGit2.Oid(Ptr{UInt8}(C_NULL))
 #end
 
 #@testset "StrArrayStruct" begin
@@ -219,6 +221,13 @@ mktempdir() do dir
                 @test LibGit2.iszero(commit_oid2)
                 commit_oid2 = LibGit2.commit(repo, commit_msg2; author=test_sig, committer=test_sig)
                 @test !LibGit2.iszero(commit_oid2)
+                auths = LibGit2.authors(repo)
+                @test length(auths) == 3
+                for auth in auths
+                    @test auth.name == test_sig.name
+                    @test auth.time == test_sig.time
+                    @test auth.email == test_sig.email
+                end
 
                 # lookup commits
                 cmt = LibGit2.get(LibGit2.GitCommit, repo, commit_oid1)
@@ -315,12 +324,20 @@ mktempdir() do dir
                 tags = LibGit2.tag_list(repo)
                 @test length(tags) == 1
                 @test tag1 in tags
+                tag1ref = LibGit2.GitReference(repo, "refs/tags/$tag1")
+                @test isempty(LibGit2.fullname(tag1ref)) #because this is a reference to an OID
+                tag1tag = LibGit2.peel(LibGit2.GitTag,tag1ref)
+                @test LibGit2.name(tag1tag) == tag1
+                @test LibGit2.target(tag1tag) == commit_oid1
 
                 tag_oid2 = LibGit2.tag_create(repo, tag2, commit_oid2)
                 @test !LibGit2.iszero(tag_oid2)
                 tags = LibGit2.tag_list(repo)
                 @test length(tags) == 2
                 @test tag2 in tags
+
+                refs = LibGit2.ref_list(repo)
+                @test refs == ["refs/heads/master","refs/heads/test_branch","refs/tags/tag1","refs/tags/tag2"]
 
                 LibGit2.tag_delete(repo, tag1)
                 tags = LibGit2.tag_list(repo)
@@ -346,6 +363,10 @@ mktempdir() do dir
                 LibGit2.add!(repo, test_file)
                 status = LibGit2.GitStatus(repo)
                 @test length(status) != 0
+                @test_throws BoundsError status[0]
+                @test_throws BoundsError status[length(status)+1]
+                #we've added a file - show that it is new
+                @test status[1].status == LibGit2.Consts.STATUS_WT_NEW
             finally
                 finalize(repo)
                 close(repo_file)

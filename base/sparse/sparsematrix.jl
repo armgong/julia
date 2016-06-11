@@ -2115,7 +2115,7 @@ function permute_rows!{Tv,Ti}(S::SparseMatrixCSC{Tv,Ti}, pI::Vector{Int})
             nzvalTemp[k] = nzvalS[i]
             k += 1
         end
-        sortperm!(pointer_to_array(pointer(rowperm), nr), pointer_to_array(pointer(rowvalTemp), nr))
+        sortperm!(unsafe_wrap(Array, pointer(rowperm), nr), unsafe_wrap(Array, pointer(rowvalTemp), nr))
         k = 1
         for i in rowrange
             kperm = rowperm[k]
@@ -2901,17 +2901,17 @@ end
 
 # Sparse/dense concatenation
 
-function hcat(Xin::Union{Matrix, SparseMatrixCSC}...)
+function hcat(Xin::Union{Vector, Matrix, SparseMatrixCSC}...)
     X = SparseMatrixCSC[issparse(x) ? x : sparse(x) for x in Xin]
     hcat(X...)
 end
 
-function vcat(Xin::Union{Matrix, SparseMatrixCSC}...)
+function vcat(Xin::Union{Vector, Matrix, SparseMatrixCSC}...)
     X = SparseMatrixCSC[issparse(x) ? x : sparse(x) for x in Xin]
     vcat(X...)
 end
 
-function hvcat(rows::Tuple{Vararg{Int}}, X::Union{Matrix, SparseMatrixCSC}...)
+function hvcat(rows::Tuple{Vararg{Int}}, X::Union{Vector, Matrix, SparseMatrixCSC}...)
     nbr = length(rows)  # number of block rows
 
     tmp_rows = Array{SparseMatrixCSC}(nbr)
@@ -3269,8 +3269,8 @@ function sortSparseMatrixCSC!{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}; sortindices::Sym
             jj += 1
         end
 
-        sortperm!(pointer_to_array(pointer(index), numrows),
-                  pointer_to_array(pointer(row), numrows))
+        sortperm!(unsafe_wrap(Array, pointer(index), numrows),
+                  unsafe_wrap(Array, pointer(row), numrows))
 
         jj = 1
         @simd for j = col_start:col_end

@@ -194,15 +194,18 @@ JL_CALLABLE(jl_f_throw)
 
 JL_DLLEXPORT void jl_enter_handler(jl_handler_t *eh)
 {
+    jl_tls_states_t *ptls = jl_get_ptls_states();
+    jl_task_t *current_task = ptls->current_task;
     // Must have no safepoint
-    eh->prev = jl_current_task->eh;
-    eh->gcstack = jl_pgcstack;
+    eh->prev = current_task->eh;
+    eh->gcstack = ptls->pgcstack;
 #ifdef JULIA_ENABLE_THREADING
-    eh->gc_state = jl_gc_state();
-    eh->locks_len = jl_current_task->locks.len;
+    eh->gc_state = ptls->gc_state;
+    eh->locks_len = current_task->locks.len;
 #endif
-    eh->defer_signal = jl_get_ptls_states()->defer_signal;
-    jl_current_task->eh = eh;
+    eh->defer_signal = ptls->defer_signal;
+    eh->finalizers_inhibited = ptls->finalizers_inhibited;
+    current_task->eh = eh;
 }
 
 JL_DLLEXPORT void jl_pop_handler(int n)
@@ -390,6 +393,27 @@ JL_CALLABLE(jl_f_typeassert)
     return args[0];
 }
 
+// perform f(args...) on stack
+JL_DLLEXPORT jl_value_t *jl_apply_2va(jl_value_t *f, jl_value_t **args, uint32_t nargs)
+{
+    nargs++;
+    int onstack = (nargs < jl_page_size/sizeof(jl_value_t*));
+    jl_value_t **newargs;
+    JL_GC_PUSHARGS(newargs, onstack ? nargs : 1);
+    jl_svec_t *arg_heap = NULL;
+    newargs[0] = f;  // make sure f is rooted
+    if (!onstack) {
+        arg_heap = jl_alloc_svec(nargs);
+        newargs[0] = (jl_value_t*)arg_heap;
+        newargs = jl_svec_data(arg_heap);
+        newargs[0] = f;
+    }
+    memcpy(&newargs[1], args, (nargs-1)*sizeof(jl_value_t*));
+    jl_value_t *ret = jl_apply_generic(newargs, nargs);
+    JL_GC_POP();
+    return ret;
+}
+
 static jl_function_t *jl_append_any_func;
 
 JL_CALLABLE(jl_f__apply)
@@ -438,9 +462,9 @@ JL_CALLABLE(jl_f__apply)
             argarr = (jl_array_t*)jl_apply(args, nargs);
             assert(jl_typeis(argarr, jl_array_any_type));
             jl_array_grow_beg(argarr, 1);
-            jl_cellset(argarr, 0, f);
+            jl_array_ptr_set(argarr, 0, f);
             args[0] = f;
-            jl_value_t *result = jl_apply(jl_cell_data(argarr), jl_array_len(argarr));
+            jl_value_t *result = jl_apply(jl_array_ptr_data(argarr), jl_array_len(argarr));
             JL_GC_POP();
             return result;
         }
@@ -457,7 +481,7 @@ JL_CALLABLE(jl_f__apply)
         newargs = jl_svec_data(arg_heap);
     }
     // GC Note: here we assume that the the return value of `jl_svecref`,
-    //          `jl_cellref` will not be young if `arg_heap` becomes old
+    //          `jl_array_ptr_ref` will not be young if `arg_heap` becomes old
     //          since they are allocated before `arg_heap`. Otherwise,
     //          we need to add write barrier for !onstack
     newargs[0] = f;
@@ -485,7 +509,7 @@ JL_CALLABLE(jl_f__apply)
             size_t al = jl_array_len(aai);
             if (aai->flags.ptrarray) {
                 for (j = 0; j < al; j++) {
-                    jl_value_t *arg = jl_cellref(aai, j);
+                    jl_value_t *arg = jl_array_ptr_ref(aai, j);
                     // apply with array splatting may have embedded NULL value
                     // #11772
                     if (__unlikely(arg == NULL))
@@ -1395,7 +1419,7 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v, jl_datatype_t *vt
         if (av->flags.ptrarray) {
             // print arrays with newlines, unless the elements are probably small
             for (j = 0; j < tlen; j++) {
-                jl_value_t *p = jl_cellref(av, j);
+                jl_value_t *p = jl_array_ptr_ref(av, j);
                 if (p != NULL && (uintptr_t)p >= 4096U) {
                     jl_value_t *p_ty = jl_typeof(p);
                     if ((uintptr_t)p_ty >= 4096U) {
@@ -1411,7 +1435,7 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v, jl_datatype_t *vt
             n += jl_printf(out, "\n  ");
         for (j = 0; j < tlen; j++) {
             if (av->flags.ptrarray) {
-                n += jl_static_show_x(out, jl_cellref(v, j), depth);
+                n += jl_static_show_x(out, jl_array_ptr_ref(v, j), depth);
             }
             else {
                 char *ptr = ((char*)av->data) + j * av->elsize;

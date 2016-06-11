@@ -2,9 +2,9 @@
 
 replstr(x) = sprint((io,x) -> show(IOContext(io, multiline=true, limit=true), MIME("text/plain"), x), x)
 
-@test replstr(cell(2)) == "2-element Array{Any,1}:\n #undef\n #undef"
-@test replstr(cell(2,2)) == "2×2 Array{Any,2}:\n #undef  #undef\n #undef  #undef"
-@test replstr(cell(2,2,2)) == "2×2×2 Array{Any,3}:\n[:, :, 1] =\n #undef  #undef\n #undef  #undef\n\n[:, :, 2] =\n #undef  #undef\n #undef  #undef"
+@test replstr(Array{Any}(2)) == "2-element Array{Any,1}:\n #undef\n #undef"
+@test replstr(Array{Any}(2,2)) == "2×2 Array{Any,2}:\n #undef  #undef\n #undef  #undef"
+@test replstr(Array{Any}(2,2,2)) == "2×2×2 Array{Any,3}:\n[:, :, 1] =\n #undef  #undef\n #undef  #undef\n\n[:, :, 2] =\n #undef  #undef\n #undef  #undef"
 
 immutable T5589
     names::Vector{String}
@@ -443,3 +443,20 @@ end
 # parameter names.
 @test string(Array) == "Array{T,N}"
 @test string(Tuple{Array}) == "Tuple{Array}"
+
+# PR #16651
+@test !contains(repr(ones(10,10)), "\u2026")
+@test contains(sprint((io,x)->show(IOContext(io,:limit=>true), x), ones(30,30)), "\u2026")
+
+# showcompact() also sets :multiline=>false (#16817)
+let io = IOBuffer()
+    x = [1, 2]
+    showcompact(io, x)
+    @test takebuf_string(io) == "[1,2]"
+    showcompact(IOContext(io, :multiline=>true), x)
+    @test takebuf_string(io) == "[1,2]"
+    showcompact(IOContext(io, :compact=>true), x)
+    @test takebuf_string(io) == "[1,2]"
+    showcompact(IOContext(IOContext(io, :compact=>true), :multiline=>true), x)
+    @test takebuf_string(io) == "[1,2]"
+end

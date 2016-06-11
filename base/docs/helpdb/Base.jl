@@ -2855,12 +2855,14 @@ Show an expression and result, returning the result.
 """
     showcompact(x)
 
-Show a more compact representation of a value.
+Show a compact representation of a value.
 
-This is used for printing array elements. If a new type has a different compact representation,
-it should test `get(io, :compact, false)` in its normal `show` method.
-A compact representation should skip any type information, which would be redundant
-with that printed once for the whole array.
+This is used for printing array elements without repeating type information (which would
+be redundant with that printed once for the whole array), and without line breaks inside
+the representation of an element.
+
+To offer a compact representation different from its standard one, a custom type should
+test `get(io, :compact, false)` in its normal `show` method.
 """
 showcompact
 
@@ -3637,7 +3639,7 @@ the file is large, and is only read once and not written to.
 If `ignore_invalid_chars` is `true`, bytes in `source` with invalid character encoding will
 be ignored. Otherwise an error is thrown indicating the offending character position.
 
-If `quotes` is `true`, column enclosed within double-quote (") characters are allowed to
+If `quotes` is `true`, column enclosed within double-quote (\") characters are allowed to
 contain new lines and column delimiters. Double-quote characters within a quoted field must
 be escaped with another double-quote.  Specifying `dims` as a tuple of the expected rows and
 columns (including header, if any) may speed up reading of large files.  If `comments` is
@@ -3650,7 +3652,7 @@ readdlm(source, delim, T, eol)
     readdlm(source, delim::Char, eol::Char; options...)
 
 If all data is numeric, the result will be a numeric array. If some elements cannot be
-parsed as numbers, a cell array of numbers and strings is returned.
+parsed as numbers, a heterogeneous array of numbers and strings is returned.
 """
 readdlm(source, delim::Char, eol::Char)
 
@@ -3665,8 +3667,8 @@ readdlm(source, delim::Char, T::Type)
     readdlm(source, delim::Char; options...)
 
 The end of line delimiter is taken as `n`. If all data is numeric, the result will be a
-numeric array. If some elements cannot be parsed as numbers, a cell array of numbers and
-strings is returned.
+numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of
+numbers and strings is returned.
 """
 readdlm(source, delim::Char)
 
@@ -3683,7 +3685,8 @@ readdlm(source, T::Type)
 
 The columns are assumed to be separated by one or more whitespaces. The end of line
 delimiter is taken as `n`. If all data is numeric, the result will be a numeric array. If
-some elements cannot be parsed as numbers, a cell array of numbers and strings is returned.
+some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings
+is returned.
 """
 readdlm(source)
 
@@ -5964,7 +5967,7 @@ besselk
 """
     readchomp(x)
 
-Read the entirety of `x` as a string but remove trailing newlines. Equivalent to `chomp(readstring(x))`.
+Read the entirety of `x` as a string and remove a single trailing newline. Equivalent to `chomp(readstring(x))`.
 """
 readchomp
 
@@ -6621,31 +6624,6 @@ two strings. For example
 join(strings, delim, last)
 
 """
-    linreg(x, y) -> a, b
-
-Perform linear regression. Returns `a` and `b` such that `a + b*x` is the closest straight
-line to the given points `(x, y)`, i.e., such that the squared error between `y` and `a +
-b*x` is minimized.
-
-**Example**:
-
-    using PyPlot
-    x = [1.0:12.0;]
-    y = [5.5, 6.3, 7.6, 8.8, 10.9, 11.79, 13.48, 15.02, 17.77, 20.81, 22.0, 22.99]
-    a, b = linreg(x, y)          # Linear regression
-    plot(x, y, "o")              # Plot (x, y) points
-    plot(x, [a+b*i for i in x])  # Plot line determined by linear regression
-"""
-linreg(x,y)
-
-"""
-    linreg(x, y, w)
-
-Weighted least-squares linear regression.
-"""
-linreg(x,y,w)
-
-"""
     polygamma(m, x)
 
 Compute the polygamma function of order `m` of argument `x` (the `(m+1)th` derivative of the
@@ -7186,15 +7164,6 @@ of a string. A character is classified as uppercase if it belongs to Unicode cat
 Letter: Uppercase, or Lt, Letter: Titlecase.
 """
 isupper
-
-"""
-    pointer_to_array(pointer, dims[, take_ownership::Bool])
-
-Wrap a native pointer as a Julia Array object. The pointer element type determines the array
-element type. `own` optionally specifies whether Julia should take ownership of the memory,
-calling `free` on the pointer when the array is no longer referenced.
-"""
-pointer_to_array
 
 """
     show(x)
@@ -9543,14 +9512,6 @@ Letter: Lowercase.
 islower
 
 """
-    cell(dims)
-
-Construct an uninitialized cell array (heterogeneous array). `dims` can be either a tuple or
-a series of integer arguments.
-"""
-cell
-
-"""
     read(stream::IO, nb=typemax(Int); all=true)
 
 Read at most `nb` bytes from `stream`, returning a `Vector{UInt8}` of the bytes read.
@@ -10027,7 +9988,7 @@ unsafe_pointer_to_objref
 """
     chomp(string)
 
-Remove a trailing newline from a string.
+Remove a single trailing newline from a string.
 """
 chomp
 

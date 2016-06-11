@@ -29,7 +29,7 @@ function shortname(ref::GitReference)
     isempty(ref) && return ""
     name_ptr = ccall((:git_reference_shorthand, :libgit2), Cstring, (Ptr{Void},), ref.ptr)
     name_ptr == C_NULL && return ""
-    return String(name_ptr)
+    return unsafe_string(name_ptr)
 end
 
 function reftype(ref::GitReference)
@@ -41,14 +41,14 @@ function fullname(ref::GitReference)
     reftype(ref) == Consts.REF_OID && return ""
     rname = ccall((:git_reference_symbolic_target, :libgit2), Cstring, (Ptr{Void},), ref.ptr)
     rname == C_NULL && return ""
-    return String(rname)
+    return unsafe_string(rname)
 end
 
 function name(ref::GitReference)
     isempty(ref) && return ""
     name_ptr = ccall((:git_reference_name, :libgit2), Cstring, (Ptr{Void},), ref.ptr)
     name_ptr == C_NULL && return ""
-    return String(name_ptr)
+    return unsafe_string(name_ptr)
 end
 
 function branch(ref::GitReference)
@@ -56,7 +56,7 @@ function branch(ref::GitReference)
     str_ptr_ptr = Ref(LibGit2.Cstring_NULL)
     @check ccall((:git_branch_name, :libgit2), Cint,
                   (Ptr{Cstring}, Ptr{Void},), str_ptr_ptr, ref.ptr)
-    return String(str_ptr_ptr[])
+    return unsafe_string(str_ptr_ptr[])
 end
 
 function ishead(ref::GitReference)
@@ -69,6 +69,13 @@ end
 function isbranch(ref::GitReference)
     isempty(ref) && return false
     err = ccall((:git_reference_is_branch, :libgit2), Cint,
+                  (Ptr{Void},), ref.ptr)
+    return err == 1
+end
+
+function istag(ref::GitReference)
+    isempty(ref) && return false
+    err = ccall((:git_reference_is_tag, :libgit2), Cint,
                   (Ptr{Void},), ref.ptr)
     return err == 1
 end
@@ -94,6 +101,15 @@ function peel{T <: GitObject}(::Type{T}, ref::GitReference)
         throw(Error.GitError(err))
     end
     return T(obj_ptr_ptr[])
+end
+
+function ref_list(repo::GitRepo)
+    with(StrArrayStruct()) do sa
+        sa_ref = Ref(sa)
+        @check ccall((:git_reference_list, :libgit2), Cint,
+                      (Ptr{StrArrayStruct}, Ptr{Void}), sa_ref, repo.ptr)
+        convert(Vector{AbstractString}, sa_ref[])
+    end
 end
 
 function create_branch(repo::GitRepo,

@@ -1020,28 +1020,26 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Concatenate matrices block-diagonally. Currently only implemented for sparse matrices.
 
-.. function:: linreg(x, y) -> a, b
+.. function:: linreg(x, y)
 
    .. Docstring generated from Julia source
 
-   Perform linear regression. Returns ``a`` and ``b`` such that ``a + b*x`` is the closest straight line to the given points ``(x, y)``\ , i.e., such that the squared error between ``y`` and ``a + b*x`` is minimized.
+   Perform simple linear regression using Ordinary Least Squares. Returns ``a`` and ``b`` such that ``a + b*x`` is the closest straight line to the given points ``(x, y)``\ , i.e., such that the squared error between ``y`` and ``a + b*x`` is minimized.
 
-   **Example**:
+   Examples:
 
    .. code-block:: julia
 
        using PyPlot
-       x = [1.0:12.0;]
+       x = 1.0:12.0
        y = [5.5, 6.3, 7.6, 8.8, 10.9, 11.79, 13.48, 15.02, 17.77, 20.81, 22.0, 22.99]
        a, b = linreg(x, y)          # Linear regression
        plot(x, y, "o")              # Plot (x, y) points
-       plot(x, [a+b*i for i in x])  # Plot line determined by linear regression
+       plot(x, a + b*x)             # Plot line determined by linear regression
 
-.. function:: linreg(x, y, w)
+   See also:
 
-   .. Docstring generated from Julia source
-
-   Weighted least-squares linear regression.
+   ``\``\ , ``cov``\ , ``std``\ , ``mean``
 
 .. function:: expm(A)
 
@@ -1985,7 +1983,7 @@ set of functions in future releases.
 
    Computes the (upper if ``uplo = U``\ , lower if ``uplo = L``\ ) pivoted Cholesky decomposition of positive-definite matrix ``A`` with a user-set tolerance ``tol``\ . ``A`` is overwritten by its Cholesky decomposition.
 
-   Returns ``A``\ , the pivots ``piv``\ , the rank of ``A``\ , and an ``info`` code. If ``info = 0``\ , the factorization succeeded. If ``info = i > 0 `, then `A`` is indefinite or rank-deficient.
+   Returns ``A``\ , the pivots ``piv``\ , the rank of ``A``\ , and an ``info`` code. If ``info = 0``\ , the factorization succeeded. If ``info = i > 0``\ , then ``A`` is indefinite or rank-deficient.
 
 .. function:: ptsv!(D, E, B)
 

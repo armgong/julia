@@ -6,10 +6,19 @@ LLVM_GIT_URL_COMPILER_RT ?= $(LLVM_GIT_URL_BASE)/compiler-rt.git
 LLVM_GIT_URL_LLDB ?= $(LLVM_GIT_URL_BASE)/lldb.git
 LLVM_GIT_URL_LIBCXX ?= $(LLVM_GIT_URL_BASE)/libcxx.git
 LLVM_GIT_URL_LIBCXXABI ?= $(LLVM_GIT_URL_BASE)/libcxxabi.git
+LLVM_GIT_URL_POLLY ?= $(LLVM_GIT_URL_BASE)/polly.git
 
 ifeq ($(BUILD_LLDB), 1)
 BUILD_LLVM_CLANG := 1
 # because it's a build requirement
+endif
+
+ifeq ($(USE_POLLY),1)
+ifeq ($(USE_SYSTEM_LLVM),0)
+ifneq ($(LLVM_VER),svn)
+$(error USE_POLLY=1 requires LLVM_VER=svn)
+endif
+endif
 endif
 
 ifeq ($(LLVM_DEBUG),1)
@@ -74,11 +83,12 @@ LLVM_LDFLAGS := $(LDFLAGS)
 LLVM_TARGETS := host
 LLVM_TARGET_FLAGS := --enable-targets=$(LLVM_TARGETS)
 LLVM_CMAKE += -DLLVM_TARGETS_TO_BUILD:STRING="$(LLVM_TARGETS)" -DCMAKE_BUILD_TYPE="$(LLVM_CMAKE_BUILDTYPE)"
+LLVM_CMAKE += -DLLVM_TOOLS_INSTALL_DIR=$(shell $(JULIAHOME)/contrib/relative_path.sh $(build_prefix) $(build_depsbindir))
 LLVM_FLAGS += --disable-profiling --enable-static $(LLVM_TARGET_FLAGS)
 LLVM_FLAGS += --disable-bindings --disable-docs --disable-libedit --disable-terminfo
 # LLVM has weird install prefixes (see llvm-$(LLVM_VER)/build_$(LLVM_BUILDTYPE)/Makefile.config for the full list)
 # We map them here to the "normal" ones, which means just prefixing "PROJ_" to the variable name.
-LLVM_MFLAGS := PROJ_libdir=$(build_libdir) PROJ_bindir=$(build_bindir) PROJ_includedir=$(build_includedir)
+LLVM_MFLAGS := PROJ_libdir=$(build_libdir) PROJ_bindir=$(build_depsbindir) PROJ_includedir=$(build_includedir) DestSharedLibDir=$(build_shlibdir)
 ifeq ($(LLVM_ASSERTIONS), 1)
 LLVM_FLAGS += --enable-assertions
 LLVM_CMAKE += -DLLVM_ENABLE_ASSERTIONS:BOOL=ON
@@ -259,7 +269,7 @@ $(llvm_python_workaround):
 	/usr/bin/python2 -c 'import sys; sys.exit(not sys.version_info < (3, 0))' && \
 	ln -sf /usr/bin/python2 "$@/python" && \
 	ln -sf /usr/bin/python2-config "$@/python-config"
-LLVM_FLAGS += --with-python="$(shell $(SRCDIR)/find_python2)"
+LLVM_FLAGS += --with-python="$(shell $(SRCDIR)/tools/find_python2)"
 
 ifeq ($(BUILD_CUSTOM_LIBCXX),1)
 
@@ -337,6 +347,9 @@ ifneq ($(LLVM_GIT_VER),)
 	(cd $(LLVM_SRC_DIR) && \
 		git checkout $(LLVM_GIT_VER))
 endif # LLVM_GIT_VER
+	# Debug output only. Disable pager and ignore error.
+	(cd $(LLVM_SRC_DIR) && \
+		git show HEAD --stat | cat) || true
 endif # LLVM_VER
 ifneq ($(LLVM_VER),svn)
 ifneq ($(LLVM_CLANG_TAR),)
@@ -376,16 +389,28 @@ ifneq ($(LLVM_GIT_VER_LLDB),)
 		git checkout $(LLVM_GIT_VER_LLDB))
 endif # LLVM_GIT_VER_CLANG
 endif # BUILD_LLDB
+ifeq ($(USE_POLLY),1)
+	([ ! -d $(LLVM_SRC_DIR)/tools/polly ] && \
+		git clone $(LLVM_GIT_URL_POLLY) $(LLVM_SRC_DIR)/tools/polly  ) || \
+		(cd $(LLVM_SRC_DIR)/tools/polly  && \
+		git pull --ff-only)
+ifneq ($(LLVM_GIT_VER_POLLY),)
+	(cd $(LLVM_SRC_DIR)/tools/polly && \
+		git checkout $(LLVM_GIT_VER_POLLY))
+endif # LLVM_GIT_VER_POLLY
+endif # USE_POLLY
 endif # LLVM_VER
 	touch -c $@
 
 # Apply version-specific LLVM patches
+LLVM_PATCH_PREV:=
 LLVM_PATCH_LIST:=
 define LLVM_PATCH
-$$(LLVM_SRC_DIR)/$1.patch-applied: $(LLVM_SRC_DIR)/configure | $$(SRCDIR)/$1.patch
-	cd $$(LLVM_SRC_DIR) && patch -p1 < $$(SRCDIR)/$1.patch
+$$(LLVM_SRC_DIR)/$1.patch-applied: $(LLVM_SRC_DIR)/configure | $$(SRCDIR)/patches/$1.patch $(LLVM_PATCH_PREV)
+	cd $$(LLVM_SRC_DIR) && patch -p1 < $$(SRCDIR)/patches/$1.patch
 	echo 1 > $$@
-LLVM_PATCH_LIST += $$(LLVM_SRC_DIR)/$1.patch-applied
+LLVM_PATCH_PREV := $$(LLVM_SRC_DIR)/$1.patch-applied
+LLVM_PATCH_LIST += $(LLVM_PATCH_PREV)
 endef
 ifeq ($(LLVM_VER),3.3)
 $(eval $(call LLVM_PATCH,llvm-3.3))
@@ -393,33 +418,33 @@ $(eval $(call LLVM_PATCH,instcombine-llvm-3.3))
 $(eval $(call LLVM_PATCH,int128-vector.llvm-3.3))
 $(eval $(call LLVM_PATCH,osx-10.10.llvm-3.3))
 $(eval $(call LLVM_PATCH,win64-int128.llvm-3.3))
-else ifeq ($(LLVM_VER),3.7.0)
+else ifeq ($(LLVM_VER_SHORT),3.7)
+ifeq ($(LLVM_VER),3.7.0)
 $(eval $(call LLVM_PATCH,llvm-3.7.0))
+endif
 $(eval $(call LLVM_PATCH,llvm-3.7.1))
 $(eval $(call LLVM_PATCH,llvm-3.7.1_2))
 $(eval $(call LLVM_PATCH,llvm-3.7.1_3))
+$(eval $(call LLVM_PATCH,llvm-3.7.1_symlinks))
+$(eval $(call LLVM_PATCH,llvm-3.8.0_bindir))
 $(eval $(call LLVM_PATCH,llvm-D14260))
-$(LLVM_SRC_DIR)/llvm-3.7.1_2.patch-applied: $(LLVM_SRC_DIR)/llvm-3.7.1.patch-applied
-else ifeq ($(LLVM_VER),3.7.1)
-$(eval $(call LLVM_PATCH,llvm-3.7.1))
-$(eval $(call LLVM_PATCH,llvm-3.7.1_2))
-$(eval $(call LLVM_PATCH,llvm-3.7.1_3))
-$(eval $(call LLVM_PATCH,llvm-D14260))
-$(LLVM_SRC_DIR)/llvm-3.7.1_2.patch-applied: $(LLVM_SRC_DIR)/llvm-3.7.1.patch-applied
+$(eval $(call LLVM_PATCH,llvm-nodllalias))
 else ifeq ($(LLVM_VER),3.8.0)
 $(eval $(call LLVM_PATCH,llvm-3.7.1_3))
 $(eval $(call LLVM_PATCH,llvm-D14260))
+$(eval $(call LLVM_PATCH,llvm-3.8.0_bindir))
 $(eval $(call LLVM_PATCH,llvm-3.8.0_winshlib))
+$(eval $(call LLVM_PATCH,llvm-nodllalias))
 # Cygwin and openSUSE still use win32-threads mingw, https://llvm.org/bugs/show_bug.cgi?id=26365
 $(eval $(call LLVM_PATCH,llvm-3.8.0_threads))
 # fix replutil test on unix
 $(eval $(call LLVM_PATCH,llvm-D17165-D18583))
 # Segfault for aggregate load
 $(eval $(call LLVM_PATCH,llvm-D17326_unpack_load))
-$(LLVM_SRC_DIR)/llvm-D17326_unpack_load.patch-applied: $(LLVM_SRC_DIR)/llvm-D14260.patch-applied
 $(eval $(call LLVM_PATCH,llvm-D17712))
 $(eval $(call LLVM_PATCH,llvm-PR26180))
 $(eval $(call LLVM_PATCH,llvm-PR27046))
+$(eval $(call LLVM_PATCH,llvm-3.8.0_ppc64_SUBFC8))
 endif # LLVM_VER
 
 ifeq ($(LLVM_VER),3.7.1)
@@ -491,7 +516,7 @@ reinstall-llvm:
 
 clean-llvm:
 	-$(MAKE) -C $(LLVM_BUILDDIR_withtype) clean
-	-rm -f $(build_bindir)/llvm-config
+	-rm -f $(build_depsbindir)/llvm-config
 distclean-llvm:
 	-rm -rf $(LLVM_TAR) $(LLVM_CLANG_TAR) \
 		$(LLVM_COMPILER_RT_TAR) $(LLVM_LIBCXX_TAR) $(LLVM_LLDB_TAR) \
@@ -518,4 +543,7 @@ update-llvm:
 	([ -d "$(LLVM_SRC_DIR)/tools/clang"  ] || exit 0;          cd $(LLVM_SRC_DIR)/tools/clang; git pull --ff-only)
 	([ -d "$(LLVM_SRC_DIR)/projects/compiler-rt" ] || exit 0;  cd $(LLVM_SRC_DIR)/projects/compiler-rt; git pull --ff-only)
 	([ -d "$(LLVM_SRC_DIR)/tools/lldb" ] || exit 0;            cd $(LLVM_SRC_DIR)/tools/lldb; git pull --ff-only)
+ifeq ($(USE_POLLY),1)
+	([ -d "$(LLVM_SRC_DIR)/tools/polly" ] || exit 0;           cd $(LLVM_SRC_DIR)/tools/polly; git pull --ff-only)
+endif
 endif

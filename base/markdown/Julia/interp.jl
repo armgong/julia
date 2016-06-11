@@ -39,7 +39,7 @@ end
 
 toexpr(x) = x
 
-toexpr(xs::Vector{Any}) = Expr(:cell1d, map(toexpr, xs)...)
+toexpr(xs::Vector{Any}) = Expr(:call, GlobalRef(Base,:vector_any), map(toexpr, xs)...)
 
 function deftoexpr(T)
     @eval function toexpr(md::$T)
