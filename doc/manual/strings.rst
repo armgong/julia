@@ -230,12 +230,10 @@ a normal value:
 Using an index less than 1 or greater than ``end`` raises an error::
 
     julia> str[0]
-    ERROR: BoundsError()
-     in getindex at /Users/sabae/src/julia/usr/lib/julia/sys.dylib (repeats 2 times)
+    ERROR: BoundsError: attempt to access 14-element Array{UInt8,1} at index [0]
 
     julia> str[end+1]
-    ERROR: BoundsError()
-     in getindex at /Users/sabae/src/julia/usr/lib/julia/sys.dylib (repeats 2 times)
+    ERROR: BoundsError: attempt to access 14-element Array{UInt8,1} at index [15]
 
 You can also extract a substring using range indexing:
 
@@ -551,7 +549,7 @@ contained in a string:
     false
 
     julia> contains("Xylophon", 'o')
-    ERROR: MethodError: `contains` has no method matching contains(::ASCIIString, ::Char)
+    ERROR: MethodError: `contains` has no method matching contains(::String, ::Char)
     Closest candidates are:
       contains(!Matched::Function, ::Any, !Matched::Any)
       contains(::AbstractString, !Matched::AbstractString)
@@ -707,7 +705,7 @@ a string is invalid). Here is a pair of somewhat contrived examples:
     "acd"
 
     julia> m.captures
-    3-element Array{Union{SubString{UTF8String},Void},1}:
+    3-element Array{Union{SubString{String},Void},1}:
      "a"
      "c"
      "d"
@@ -728,7 +726,7 @@ a string is invalid). Here is a pair of somewhat contrived examples:
     "ad"
 
     julia> m.captures
-    3-element Array{Union{SubString{UTF8String},Void},1}:
+    3-element Array{Union{SubString{String},Void},1}:
      "a"
      nothing
      "d"

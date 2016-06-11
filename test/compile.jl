@@ -127,7 +127,6 @@ finally
 end
 
 # test --compilecache=no command line option
-dir = mktempdir()
 let dir = mktempdir(),
     Time_module = :Time4b3a94a1a081a8cb
 
@@ -178,7 +177,7 @@ let module_name = string("a",randstring())
     code = """module $(module_name)\nend\n"""
     write(file_name, code)
     reload(module_name)
-    @test typeof(eval(symbol(module_name))) == Module
+    @test typeof(eval(Symbol(module_name))) == Module
     deleteat!(LOAD_PATH,1)
     rm(file_name)
 end

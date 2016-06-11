@@ -216,6 +216,7 @@ end
 Adds a new docstring `str` to the docsystem for `binding` and signature `sig`.
 """
 function doc!(b::Binding, str::DocStr, sig::ANY = Union{})
+    initmeta()
     m = get!(meta(), b, MultiDoc())
     if haskey(m.docs, sig)
         # We allow for docstrings to be updated, but print a warning since it is possible
@@ -238,7 +239,7 @@ end
 
 Returns all documentation that matches both `binding` and `sig`.
 """
-function doc(binding::Binding, sig::Type = Union)
+function doc(binding::Binding, sig::Type = Union{})
     results, groups = DocStr[], MultiDoc[]
     # Lookup `binding` and `sig` for matches in all modules of the docsystem.
     for mod in modules
@@ -279,8 +280,8 @@ function doc(binding::Binding, sig::Type = Union)
 end
 
 # Some additional convenience `doc` methods that take objects rather than `Binding`s.
-doc(object, sig::Type = Union) = doc(aliasof(object, typeof(object)), sig)
-doc(object, sig...)            = doc(object, Tuple{sig...})
+doc(object, sig::Type = Union{}) = doc(aliasof(object, typeof(object)), sig)
+doc(object, sig...)              = doc(object, Tuple{sig...})
 
 """
     Docs.fielddoc(binding, field)
@@ -391,7 +392,7 @@ const keywords = Dict{Symbol, DocStr}()
 isdoc(s::AbstractString) = true
 
 isdoc(x) = isexpr(x, :string) ||
-    (isexpr(x, :macrocall) && x.args[1] == symbol("@doc_str")) ||
+    (isexpr(x, :macrocall) && x.args[1] == Symbol("@doc_str")) ||
     (isexpr(x, :call) && x.args[1] == Base.Markdown.doc_str)
 
 function unblock(ex)
@@ -417,7 +418,7 @@ nameof(q::QuoteNode, ismacro) = nameof(q.value, ismacro)
 nameof(s::Symbol, ismacro)    = ismacro ? macroname(s) : s
 nameof(other, ismacro)        = other
 
-macroname(s::Symbol) = symbol('@', s)
+macroname(s::Symbol) = Symbol('@', s)
 macroname(x::Expr)   = Expr(x.head, x.args[1], macroname(x.args[end].value))
 
 isfield(x) = isexpr(x, :.) &&
@@ -481,9 +482,21 @@ function objectdoc(str, def, expr, sig = :(Union{}))
     end
 end
 
+function calldoc(str, def)
+    args = def.args[2:end]
+    if isempty(args) || all(validcall, args)
+        objectdoc(str, nothing, def, signature(def))
+    else
+        docerror(def)
+    end
+end
+validcall(x) = isa(x, Symbol) || isexpr(x, [:(::), :..., :kw, :parameters])
+
 function moduledoc(meta, def, def′)
     name  = namify(def′)
-    docex = :(@doc $meta $name)
+    docex = Expr(:call, doc!, bindingexpr(name),
+        docexpr(lazy_iterpolate(meta), metadata(name))
+    )
     if def == nothing
         esc(:(eval($name, $(quot(docex)))))
     else
@@ -538,7 +551,7 @@ function __doc__!(meta, def, define)
         # the Base image). We just need to convert each `@__doc__` marker to an `@doc`.
         finddoc(def) do each
             each.head = :macrocall
-            each.args = [symbol("@doc"), meta, each.args[end], define]
+            each.args = [Symbol("@doc"), meta, each.args[end], define]
         end
     else
         # `def` has already been defined during Base image gen so we just need to find and
@@ -593,9 +606,6 @@ function docm(meta, ex, define = true)
     # otherwise calling `loaddocs` would redefine all documented functions and types.
     def = define ? x : nothing
 
-    # Initalise the module's docstring storage.
-    initmeta()
-
     # Keywords using the `@kw_str` macro in `base/docs/basedocs.jl`.
     #
     #   "..."
@@ -613,7 +623,7 @@ function docm(meta, ex, define = true)
     #
     isexpr(x, FUNC_HEADS) &&  isexpr(x.args[1], :call) ? objectdoc(meta, def, x, signature(x)) :
     isexpr(x, :function)  && !isexpr(x.args[1], :call) ? objectdoc(meta, def, x) :
-    isexpr(x, :call)                                   ? objectdoc(meta, nothing, x, signature(x)) :
+    isexpr(x, :call)                                   ? calldoc(meta, x) :
 
     # Type definitions.
     #
@@ -653,9 +663,9 @@ end
 
 function docerror(ex)
     txt = """
-    invalid doc expression:
+    cannot document the following expression:
 
-    @doc "..." $(isa(ex, AbstractString) ? repr(ex) : ex)"""
+    $(isa(ex, AbstractString) ? repr(ex) : ex)"""
     if isexpr(ex, :macrocall)
         txt *= "\n\n'$(ex.args[1])' not documentable. See 'Base.@__doc__' docs for details."
     end

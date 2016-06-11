@@ -5,7 +5,7 @@ module BaseDocs
 immutable Keyword
     name :: Symbol
 end
-macro kw_str(text) Keyword(symbol(text)) end
+macro kw_str(text) Keyword(Symbol(text)) end
 
 "Hello, Human."
 kw"hello", kw"hi"
@@ -587,7 +587,7 @@ functions for further details). In most cases, this simply results in a call to
 
 See `test/llvmcall.jl` for usage examples.
 """
-kw"llvmcall"
+Core.Intrinsics.llvmcall
 
 """
 `begin...end` denotes a block of code.
@@ -656,5 +656,21 @@ kw"immutable"
 `@__LINE__` expands to the line number of the call-site.
 """
 kw"@__LINE__"
+
+"""
+    nothing
+
+The singleton instance of type `Void`, used by convention when there is no value to return
+(as in a C `void` function). Can be converted to an empty `Nullable` value.
+"""
+nothing
+
+"""
+    ANY
+
+Equivalent to `Any` for dispatch purposes, but signals the compiler to skip code
+generation specialization for that field.
+"""
+ANY
 
 end

@@ -29,8 +29,7 @@ jl_value_t *jl_array_uint8_type;
 jl_value_t *jl_array_any_type=NULL;
 jl_value_t *jl_array_symbol_type;
 jl_datatype_t *jl_weakref_type;
-jl_datatype_t *jl_ascii_string_type;
-jl_datatype_t *jl_utf8_string_type;
+jl_datatype_t *jl_string_type;
 jl_datatype_t *jl_expr_type;
 jl_datatype_t *jl_globalref_type;
 jl_datatype_t *jl_linenumbernode_type;
@@ -38,7 +37,6 @@ jl_datatype_t *jl_labelnode_type;
 jl_datatype_t *jl_gotonode_type;
 jl_datatype_t *jl_quotenode_type;
 jl_datatype_t *jl_newvarnode_type;
-jl_datatype_t *jl_topnode_type;
 jl_datatype_t *jl_intrinsic_type;
 jl_datatype_t *jl_method_type;
 jl_datatype_t *jl_methtable_type;
@@ -75,6 +73,7 @@ union jl_typemap_t jl_cfunction_list;
 
 jl_sym_t *call_sym;    jl_sym_t *dots_sym;
 jl_sym_t *module_sym;  jl_sym_t *slot_sym;
+jl_sym_t *empty_sym;
 jl_sym_t *export_sym;  jl_sym_t *import_sym;
 jl_sym_t *importall_sym; jl_sym_t *toplevel_sym;
 jl_sym_t *quote_sym;   jl_sym_t *amp_sym;
@@ -85,10 +84,11 @@ jl_sym_t *goto_sym;    jl_sym_t *goto_ifnot_sym;
 jl_sym_t *label_sym;   jl_sym_t *return_sym;
 jl_sym_t *lambda_sym;  jl_sym_t *assign_sym;
 jl_sym_t *null_sym;    jl_sym_t *body_sym;
-jl_sym_t *method_sym;
+jl_sym_t *method_sym;  jl_sym_t *core_sym;
 jl_sym_t *enter_sym;   jl_sym_t *leave_sym;
 jl_sym_t *exc_sym;     jl_sym_t *error_sym;
 jl_sym_t *static_typeof_sym;
+jl_sym_t *globalref_sym;
 jl_sym_t *new_sym;     jl_sym_t *using_sym;
 jl_sym_t *const_sym;   jl_sym_t *thunk_sym;
 jl_sym_t *anonymous_sym;  jl_sym_t *underscore_sym;
@@ -102,6 +102,7 @@ jl_sym_t *pure_sym; jl_sym_t *simdloop_sym;
 jl_sym_t *meta_sym; jl_sym_t *compiler_temp_sym;
 jl_sym_t *inert_sym; jl_sym_t *vararg_sym;
 jl_sym_t *unused_sym; jl_sym_t *static_parameter_sym;
+jl_sym_t *polly_sym;
 
 typedef struct {
     int64_t a;
@@ -111,20 +112,6 @@ typedef struct {
 // Note that this function updates len
 static jl_value_t *jl_new_bits_internal(jl_value_t *dt, void *data, size_t *len)
 {
-    if (jl_is_ntuple_type(dt)) {
-        jl_value_t *lenvar = jl_tparam0(dt);
-        jl_value_t *elty = jl_tparam1(dt);
-        assert(jl_is_datatype(elty));
-        size_t alignment = ((jl_datatype_t*)elty)->alignment;
-        *len = LLT_ALIGN((*len), alignment);
-        assert(jl_is_long(lenvar));
-        size_t l = jl_unbox_long(lenvar);
-        size_t nb = l*LLT_ALIGN(jl_datatype_size(elty), alignment);
-        jl_value_t *v = (jl_value_t*)newobj(dt, NWORDS(nb));
-        memcpy(jl_data_ptr(v), data, nb);
-        return v;
-    }
-
     assert(jl_is_datatype(dt));
     jl_datatype_t *bt = (jl_datatype_t*)dt;
     size_t nb = jl_datatype_size(bt);
@@ -295,11 +282,11 @@ jl_value_t *jl_resolve_globals(jl_value_t *expr, jl_lambda_info_t *lam)
                 // replace getfield(module_expr, :sym) with GlobalRef
                 jl_value_t *s = jl_fieldref(jl_exprarg(e,2),0);
                 jl_value_t *fe = jl_exprarg(e,0);
-                if (jl_is_symbol(s) && jl_is_topnode(fe)) {
+                if (jl_is_symbol(s) && jl_is_globalref(fe)) {
                     jl_value_t *f = jl_static_eval(fe, NULL, lam->def->module, lam, 0, 0);
                     if (f == jl_builtin_getfield) {
                         jl_value_t *me = jl_exprarg(e,1);
-                        if (jl_is_topnode(me) ||
+                        if (jl_is_globalref(me) ||
                             (jl_is_symbol(me) && jl_binding_resolved_p(lam->def->module, (jl_sym_t*)me))) {
                             jl_value_t *m = jl_static_eval(me, NULL, lam->def->module, lam, 0, 0);
                             if (m && jl_is_module(m))
@@ -329,15 +316,16 @@ void jl_lambda_info_set_ast(jl_lambda_info_t *li, jl_value_t *ast)
         li->pure = 1;
     jl_array_t *vis = jl_lam_vinfo((jl_expr_t*)ast);
     size_t nslots = jl_array_len(vis);
-    jl_value_t *gensym_types = jl_lam_gensyms((jl_expr_t*)ast);
-    size_t ngensym = (jl_is_array(gensym_types) ? jl_array_len(gensym_types) : jl_unbox_long(gensym_types));
+    jl_value_t *ssavalue_types = jl_lam_ssavalues((jl_expr_t*)ast);
+    assert(jl_is_long(ssavalue_types));
+    size_t nssavalue = jl_unbox_long(ssavalue_types);
     li->slotnames = jl_alloc_cell_1d(nslots);
     jl_gc_wb(li, li->slotnames);
     li->slottypes = jl_nothing;
     li->slotflags = jl_alloc_array_1d(jl_array_uint8_type, nslots);
     jl_gc_wb(li, li->slotflags);
-    li->gensymtypes = jl_box_long(ngensym);
-    jl_gc_wb(li, li->gensymtypes);
+    li->ssavaluetypes = jl_box_long(nssavalue);
+    jl_gc_wb(li, li->ssavaluetypes);
     int i;
     for(i=0; i < nslots; i++) {
         jl_value_t *vi = jl_cellref(vis, i);
@@ -370,7 +358,7 @@ JL_DLLEXPORT jl_lambda_info_t *jl_new_lambda_info_uninit(jl_svec_t *sparam_syms)
                                   NWORDS(sizeof(jl_lambda_info_t)));
     li->code = NULL;
     li->slotnames = li->slotflags = NULL;
-    li->slottypes = li->gensymtypes = NULL;
+    li->slottypes = li->ssavaluetypes = NULL;
     li->rettype = (jl_value_t*)jl_any_type;
     li->sparam_syms = sparam_syms;
     li->sparam_vals = jl_emptysvec;
@@ -388,7 +376,23 @@ JL_DLLEXPORT jl_lambda_info_t *jl_new_lambda_info_uninit(jl_svec_t *sparam_syms)
     li->inCompile = 0;
     li->def = NULL;
     li->pure = 0;
+    li->inlineable = 0;
     return li;
+}
+
+// invoke (compiling if necessary) the jlcall function pointer for a method template
+STATIC_INLINE jl_value_t *jl_call_staged(jl_svec_t *sparam_vals, jl_lambda_info_t *meth,
+                                         jl_value_t **args, uint32_t nargs)
+{
+    if (__unlikely(meth->fptr == NULL)) {
+        jl_compile_linfo(meth);
+        jl_generate_fptr(meth);
+    }
+    assert(jl_svec_len(meth->sparam_syms) == jl_svec_len(sparam_vals));
+    if (__likely(meth->jlcall_api == 0))
+        return meth->fptr(args[0], &args[1], nargs-1);
+    else
+        return ((jl_fptr_sparam_t)meth->fptr)(sparam_vals, args[0], &args[1], nargs-1);
 }
 
 static jl_lambda_info_t *jl_instantiate_staged(jl_method_t *generator, jl_tupletype_t *tt, jl_svec_t *env)
@@ -416,14 +420,14 @@ static jl_lambda_info_t *jl_instantiate_staged(jl_method_t *generator, jl_tuplet
         jl_expr_t *body = jl_exprn(jl_symbol("block"), 2);
         jl_cellset(((jl_expr_t*)jl_exprarg(ex,1))->args, 0, body);
         linenum = jl_box_long(generator->line);
-        jl_value_t *linenode = jl_new_struct(jl_linenumbernode_type, generator->file, linenum);
+        jl_value_t *linenode = jl_new_struct(jl_linenumbernode_type, linenum);
         jl_cellset(body->args, 0, linenode);
 
         // invoke code generator
         assert(jl_nparams(tt) == jl_array_len(argnames) ||
                (func->isva && (jl_nparams(tt) >= jl_array_len(argnames) - 1)));
         jl_cellset(body->args, 1,
-                jl_call_unspecialized(sparam_vals, func, jl_svec_data(tt->parameters), jl_nparams(tt)));
+                jl_call_staged(sparam_vals, func, jl_svec_data(tt->parameters), jl_nparams(tt)));
 
         if (func->sparam_syms != jl_emptysvec) {
             // mark this function as having the same static parameters as the generator
@@ -470,12 +474,14 @@ static jl_lambda_info_t *jl_copy_lambda(jl_lambda_info_t *linfo)
     new_linfo->slotnames = linfo->slotnames;
     new_linfo->slottypes = linfo->slottypes;
     new_linfo->slotflags = linfo->slotflags;
-    new_linfo->gensymtypes = linfo->gensymtypes;
+    new_linfo->ssavaluetypes = linfo->ssavaluetypes;
     new_linfo->sparam_vals = linfo->sparam_vals;
     new_linfo->pure = linfo->pure;
+    new_linfo->inlineable = linfo->inlineable;
     new_linfo->nargs = linfo->nargs;
     new_linfo->isva = linfo->isva;
     new_linfo->rettype = linfo->rettype;
+    new_linfo->def = linfo->def;
     return new_linfo;
 }
 
@@ -515,7 +521,6 @@ JL_DLLEXPORT void jl_method_init_properties(jl_method_t *m)
     jl_lambda_info_t *li = m->lambda_template;
     jl_value_t *body1 = skip_meta(li->code);
     if (jl_is_linenode(body1)) {
-        m->file = jl_linenode_file(body1);
         m->line = jl_linenode_line(body1);
     }
     else if (jl_is_expr(body1) && ((jl_expr_t*)body1)->head == line_sym) {
@@ -540,6 +545,9 @@ JL_DLLEXPORT jl_method_t *jl_new_method_uninit(void)
         (jl_method_t*)newobj((jl_value_t*)jl_method_type,
                              NWORDS(sizeof(jl_method_t)));
     m->tfunc.unknown = jl_nothing;
+    m->sig = NULL;
+    m->tvars = NULL;
+    m->ambig = NULL;
     m->roots = NULL;
     m->module = jl_current_module;
     m->lambda_template = NULL;
@@ -555,12 +563,17 @@ JL_DLLEXPORT jl_method_t *jl_new_method_uninit(void)
     return m;
 }
 
-jl_method_t *jl_new_method(jl_lambda_info_t *definition, jl_sym_t *name, jl_tupletype_t *sig, int isstaged)
+jl_method_t *jl_new_method(jl_lambda_info_t *definition, jl_sym_t *name, jl_tupletype_t *sig, jl_svec_t *tvars, int isstaged)
 {
     assert(definition->code);
     jl_method_t *m = jl_new_method_uninit();
     m->isstaged = isstaged;
     m->name = name;
+    m->sig = sig;
+    if (jl_svec_len(tvars) == 1)
+        tvars = (jl_svec_t*)jl_svecref(tvars, 0);
+    m->tvars = tvars;
+    m->ambig = jl_nothing;
     JL_GC_PUSH1(&m);
     // the front end may add this lambda to multiple methods; make a copy if so
     jl_method_t *oldm = definition->def;
@@ -568,7 +581,7 @@ jl_method_t *jl_new_method(jl_lambda_info_t *definition, jl_sym_t *name, jl_tupl
     if (reused)
         definition = jl_copy_lambda(definition);
 
-    definition->specTypes = sig;
+    definition->specTypes = isstaged ? jl_anytuple_type : sig;
     m->lambda_template = definition;
     jl_gc_wb(m, definition);
     definition->def = m;
@@ -611,10 +624,6 @@ static size_t symbol_nbytes(size_t len)
 
 static jl_sym_t *mk_symbol(const char *str, size_t len)
 {
-#ifndef MEMDEBUG
-    static char *sym_pool = NULL;
-    static char *pool_ptr = NULL;
-#endif
     jl_sym_t *sym;
     size_t nb = symbol_nbytes(len);
 
@@ -625,6 +634,8 @@ static jl_sym_t *mk_symbol(const char *str, size_t len)
 #ifdef MEMDEBUG
     sym = (jl_sym_t*)jl_valueof(malloc(nb));
 #else
+    static char *sym_pool = NULL;
+    static char *pool_ptr = NULL;
     if (sym_pool == NULL || pool_ptr+nb > sym_pool+SYM_POOL_SIZE) {
         sym_pool = (char*)malloc(SYM_POOL_SIZE);
         pool_ptr = sym_pool;
@@ -714,7 +725,7 @@ void jl_set_gs_ctr(uint32_t ctr) { gs_ctr = ctr; }
 
 JL_DLLEXPORT jl_sym_t *jl_gensym(void)
 {
-    static char name[16];
+    char name[16];
     char *n;
     n = uint2str(&name[2], sizeof(name)-2, gs_ctr, 10);
     *(--n) = '#'; *(--n) = '#';
@@ -724,7 +735,7 @@ JL_DLLEXPORT jl_sym_t *jl_gensym(void)
 
 JL_DLLEXPORT jl_sym_t *jl_tagged_gensym(const char *str, int32_t len)
 {
-    static char gs_name[14];
+    char gs_name[14];
     if (symbol_nbytes(len) >= SYM_POOL_SIZE)
         jl_exceptionf(jl_argumenterror_type, "Symbol length exceeds maximum");
     if (memchr(str, 0, len))
@@ -819,6 +830,9 @@ JL_DLLEXPORT jl_datatype_t *jl_new_uninitialized_datatype(size_t nfields, int8_t
     t->haspadding = 0;
     t->pointerfree = 0;
     t->depth = 0;
+    t->hastypevars = 0;
+    t->haswildcard = 0;
+    t->isleaftype = 1;
     return t;
 }
 
@@ -829,14 +843,23 @@ JL_DLLEXPORT jl_datatype_t *jl_new_uninitialized_datatype(size_t nfields, int8_t
 // For sake of Ahead-Of-Time (AOT) compilation, this routine has to work
 // without LLVM being available.
 unsigned jl_special_vector_alignment(size_t nfields, jl_value_t *t) {
-    if (!is_vecelement_type(t))
+    if (!jl_is_vecelement_type(t))
         return 0;
-    if (nfields>16 || (1<<nfields & 0x1157C) == 0)
-        // Number of fields is not 2, 3, 4, 5, 6, 8, 10, 12, or 16.
-        return 0;
+    // LLVM 3.7 and 3.8 either crash or generate wrong code for many
+    // SIMD vector sizes N. It seems the rule is that N can have at
+    // most 2 non-zero bits. (This is true at least for N<=100.) See
+    // also <https://llvm.org/bugs/show_bug.cgi?id=27708>.
+    size_t mask = nfields;
+    // See e.g.
+    // <https://graphics.stanford.edu/%7Eseander/bithacks.html> for an
+    // explanation of this bit-counting algorithm.
+    mask &= mask-1;             // clear least-significant 1 if present
+    mask &= mask-1;             // clear another 1
+    if (mask)
+        return 0;               // nfields has more than two 1s
     assert(jl_datatype_nfields(t)==1);
     jl_value_t *ty = jl_field_type(t, 0);
-    if( !jl_is_bitstype(ty) )
+    if (!jl_is_bitstype(ty))
         // LLVM requires that a vector element be a primitive type.
         // LLVM allows pointer types as vector elements, but until a
         // motivating use case comes up for Julia, we reject pointers.
@@ -986,6 +1009,7 @@ JL_DLLEXPORT jl_datatype_t *jl_new_datatype(jl_sym_t *name, jl_datatype_t *super
         t->name->primary = (jl_value_t*)t;
         jl_gc_wb(t->name, t);
     }
+    jl_precompute_memoized_dt(t);
 
     if (abstract || jl_svec_len(parameters) > 0) {
         t->uid = 0;
@@ -1014,13 +1038,21 @@ JL_DLLEXPORT jl_datatype_t *jl_new_bitstype(jl_value_t *name, jl_datatype_t *sup
 
 // type constructor -----------------------------------------------------------
 
-jl_typector_t *jl_new_type_ctor(jl_svec_t *params, jl_value_t *body)
+JL_DLLEXPORT jl_value_t *jl_new_type_constructor(jl_svec_t *p, jl_value_t *body)
 {
-    jl_typector_t *tc = (jl_typector_t*)newobj((jl_value_t*)jl_typector_type,NWORDS(sizeof(jl_typector_t)));
-    tc->parameters = params;
+#ifndef NDEBUG
+    size_t i, np = jl_svec_len(p);
+    for (i = 0; i < np; i++) {
+        jl_tvar_t *tv = (jl_tvar_t*)jl_svecref(p, i);
+        assert(jl_is_typevar(tv) && !tv->bound);
+    }
+#endif
+    jl_typector_t *tc = (jl_typector_t*)newobj((jl_value_t*)jl_typector_type, NWORDS(sizeof(jl_typector_t)));
+    tc->parameters = p;
     tc->body = body;
-    return (jl_typector_t*)tc;
+    return (jl_value_t*)tc;
 }
+
 
 // bits constructors ----------------------------------------------------------
 
@@ -1062,7 +1094,6 @@ UNBOX_FUNC(bool,   int8_t)
 UNBOX_FUNC(float32, float)
 UNBOX_FUNC(float64, double)
 UNBOX_FUNC(voidpointer, void*)
-UNBOX_FUNC(gensym, ssize_t)
 
 #define BOX_FUNC(typ,c_type,pfx,nw)                         \
     JL_DLLEXPORT jl_value_t *pfx##_##typ(c_type x)          \
@@ -1110,7 +1141,7 @@ SIBOX_FUNC(int32,  int32_t, 1)
 UIBOX_FUNC(uint16, uint16_t, 1)
 UIBOX_FUNC(uint32, uint32_t, 1)
 UIBOX_FUNC(char,   uint32_t, 1)
-UIBOX_FUNC(gensym, size_t, 1)
+UIBOX_FUNC(ssavalue, size_t, 1)
 UIBOX_FUNC(slotnumber, size_t, 1)
 #ifdef _P64
 SIBOX_FUNC(int64,  int64_t, 1)
@@ -1138,10 +1169,10 @@ void jl_init_int32_int64_cache(void)
         boxed_int32_cache[i]  = jl_box32(jl_int32_type, i-NBOX_C/2);
         boxed_int64_cache[i]  = jl_box64(jl_int64_type, i-NBOX_C/2);
 #ifdef _P64
-        boxed_gensym_cache[i] = jl_box64(jl_gensym_type, i);
+        boxed_ssavalue_cache[i] = jl_box64(jl_ssavalue_type, i);
         boxed_slotnumber_cache[i] = jl_box64(jl_slotnumber_type, i);
 #else
-        boxed_gensym_cache[i] = jl_box32(jl_gensym_type, i);
+        boxed_ssavalue_cache[i] = jl_box32(jl_ssavalue_type, i);
         boxed_slotnumber_cache[i] = jl_box32(jl_slotnumber_type, i);
 #endif
     }
@@ -1180,7 +1211,7 @@ void jl_mark_box_caches(void)
         jl_gc_setmark(boxed_uint32_cache[i]);
         jl_gc_setmark(boxed_char_cache[i]);
         jl_gc_setmark(boxed_uint64_cache[i]);
-        jl_gc_setmark(boxed_gensym_cache[i]);
+        jl_gc_setmark(boxed_ssavalue_cache[i]);
         jl_gc_setmark(boxed_slotnumber_cache[i]);
     }
 }

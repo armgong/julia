@@ -45,6 +45,9 @@ r = 5:-1:1
 @test isempty((1:4)[5:4])
 @test_throws BoundsError (1:10)[8:-1:-2]
 
+r = typemax(Int)-5:typemax(Int)-1
+@test_throws BoundsError r[7]
+
 @test findin([5.2, 3.3], 3:20) == findin([5.2, 3.3], collect(3:20))
 
 let
@@ -115,6 +118,9 @@ end
 
 @test sort(UnitRange(1,2)) == UnitRange(1,2)
 @test sort!(UnitRange(1,2)) == UnitRange(1,2)
+@test sort(1:10, rev=true) == collect(10:-1:1)
+@test sort(-3:3, by=abs) == [0,-1,1,-2,2,-3,3]
+@test select(1:10, 4) == 4
 
 @test 0 in UInt(0):100:typemax(UInt)
 @test last(UInt(0):100:typemax(UInt)) in UInt(0):100:typemax(UInt)
@@ -228,7 +234,7 @@ end
 @test sum(0:2:100) == 2550
 
 # overflowing sums (see #5798)
-if WORD_SIZE == 64
+if Sys.WORD_SIZE == 64
     @test sum(Int128(1):10^18) == div(10^18 * (Int128(10^18)+1), 2)
     @test sum(Int128(1):10^18-1) == div(10^18 * (Int128(10^18)-1), 2)
 else
@@ -561,11 +567,13 @@ for x in r
 end
 @test i == 7
 
-# stringmime/writemime should display the range or linspace nicely
+# stringmime/show should display the range or linspace nicely
 # to test print_range in range.jl
-replstrmime(x) = stringmime("text/plain", x)
+replstrmime(x) = sprint((io,x) -> show(IOContext(io, multiline=true, limit=true), MIME("text/plain"), x), x)
 @test replstrmime(1:4) == "1:4"
-@test replstrmime(linspace(1,5,7)) == "7-element LinSpace{Float64}:\n 1.0,1.66667,2.33333,3.0,3.66667,4.33333,5.0"
+@test stringmime("text/plain", 1:4) == "1:4"
+@test stringmime("text/plain", linspace(1,5,7)) == "7-element LinSpace{Float64}:\n 1.0,1.66667,2.33333,3.0,3.66667,4.33333,5.0"
+@test repr(linspace(1,5,7)) == "linspace(1.0,5.0,7)"
 @test replstrmime(0:100.) == "0.0:1.0:100.0"
 # next is to test a very large range, which should be fast because print_range
 # only examines spacing of the left and right edges of the range, sufficient
@@ -704,4 +712,27 @@ for r in (big(1):big(2), UInt128(1):UInt128(2), 0x1:0x2)
     @test r[r] == r
     # these calls to similar must not throw:
     @test size(similar(r, size(r))) == size(similar(r, length(r)))
+end
+
+# sign, conj, ~ (Issue #16067)
+let A = -1:1, B = -1.0:1.0
+    @test sign(A) == [-1,0,1]
+    @test sign(B) == [-1,0,1]
+    @test typeof(sign(A)) === Vector{Int}
+    @test typeof(sign(B)) === Vector{Float64}
+
+    @test conj(A) === A
+    @test conj(B) === B
+
+    @test ~A == [0,-1,-2]
+    @test typeof(~A) == Vector{Int}
+end
+
+# conversion to Array
+let r = 1:3, a = [1,2,3]
+    @test convert(Array, r) == a
+    @test convert(Array{Int}, r) == a
+    @test convert(Array{Float64}, r) == a
+    @test convert(Array{Int,1}, r) == a
+    @test convert(Array{Float64,1}, r) == a
 end

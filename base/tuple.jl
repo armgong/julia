@@ -34,6 +34,10 @@ indexed_next(t::Tuple, i::Int, state) = (t[i], i+1)
 indexed_next(a::Array, i::Int, state) = (a[i], i+1)
 indexed_next(I, i, state) = done(I,state) ? throw(BoundsError()) : next(I, state)
 
+# Use dispatch to avoid a branch in first
+first(::Tuple{}) = throw(ArgumentError("tuple must be non-empty"))
+first(t::Tuple) = t[1]
+
 # eltype
 
 eltype(::Type{Tuple{}}) = Bottom
@@ -82,6 +86,16 @@ map(f, t::Tuple{Any,})          = (f(t[1]),)
 map(f, t::Tuple{Any, Any})      = (f(t[1]), f(t[2]))
 map(f, t::Tuple{Any, Any, Any}) = (f(t[1]), f(t[2]), f(t[3]))
 map(f, t::Tuple)                = (f(t[1]), map(f,tail(t))...)
+# stop inlining after some number of arguments to avoid code blowup
+function map(f, t::Tuple{Any,Any,Any,Any,Any,Any,Any,Any,
+                         Any,Any,Any,Any,Any,Any,Any,Any,Vararg{Any}})
+    n = length(t)
+    A = Array{Any}(n)
+    for i=1:n
+        A[i] = f(t[i])
+    end
+    (A...,)
+end
 # 2 argument function
 map(f, t::Tuple{},        s::Tuple{})        = ()
 map(f, t::Tuple{Any,},    s::Tuple{Any,})    = (f(t[1],s[1]),)
@@ -92,7 +106,7 @@ heads(t::Tuple, ts::Tuple...) = (t[1], heads(ts...)...)
 tails() = ()
 tails(t::Tuple, ts::Tuple...) = (tail(t), tails(ts...)...)
 map(f, ::Tuple{}, ts::Tuple...) = ()
-map(f, t::Tuple, ts::Tuple...) = (f(heads(t, ts...)...), map(f, tails(t, ts...)...)...)
+map(f, t1::Tuple, t2::Tuple, ts::Tuple...) = (f(heads(t1, t2, ts...)...), map(f, tails(t1, t2, ts...)...)...)
 
 # type-stable padding
 fill_to_length{N}(t::Tuple, val, ::Type{Val{N}}) = _ftl((), val, Val{N}, t...)

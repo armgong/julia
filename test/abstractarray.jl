@@ -198,6 +198,26 @@ function test_vector_indexing{T}(::Type{T}, shape, ::Type{TestAbstractArray})
     # Test with containers that aren't Int[]
     @test B[[]] == A[[]] == []
     @test B[convert(Array{Any}, idxs)] == A[convert(Array{Any}, idxs)] == idxs
+
+    # Test adding dimensions with matrices
+    idx1 = rand(1:size(A, 1), 3)
+    idx2 = rand(1:Base.trailingsize(A, 2), 4, 5)
+    @test B[idx1, idx2] == A[idx1, idx2] == reshape(A[idx1, vec(idx2)], 3, 4, 5) == reshape(B[idx1, vec(idx2)], 3, 4, 5)
+    @test B[1, idx2] == A[1, idx2] == reshape(A[1, vec(idx2)], 4, 5) == reshape(B[1, vec(idx2)], 4, 5)
+
+    # test removing dimensions with 0-d arrays
+    idx0 = reshape([rand(1:size(A, 1))])
+    @test B[idx0, idx2] == A[idx0, idx2] == reshape(A[idx0[], vec(idx2)], 4, 5) == reshape(B[idx0[], vec(idx2)], 4, 5)
+    @test B[reshape([end]), reshape([end])] == A[reshape([end]), reshape([end])] == reshape([A[end,end]]) == reshape([B[end,end]])
+
+    # test logical indexing
+    mask = bitrand(shape)
+    @test B[mask] == A[mask] == B[find(mask)] == A[find(mask)] == find(mask)
+    @test B[vec(mask)] == A[vec(mask)] == find(mask)
+    mask1 = bitrand(size(A, 1))
+    mask2 = bitrand(Base.trailingsize(A, 2))
+    @test B[mask1, mask2] == A[mask1, mask2] == B[find(mask1), find(mask2)]
+    @test B[mask1, 1] == A[mask1, 1] == find(mask1)
 end
 
 function test_primitives{T}(::Type{T}, shape, ::Type{TestAbstractArray})
@@ -225,7 +245,7 @@ function test_primitives{T}(::Type{T}, shape, ::Type{TestAbstractArray})
     @test_throws DimensionMismatch reshape(B, (0, 1))
 
     # copy!(dest::AbstractArray, src::AbstractArray)
-    @test_throws BoundsError copy!(Array(Int, 10), [1:11...])
+    @test_throws BoundsError copy!(Array{Int}(10), [1:11...])
 
     # convert{T, N}(::Type{Array}, A::AbstractArray{T, N})
     X = [1:10...]
@@ -282,9 +302,10 @@ end
 function test_setindex!_internals(::Type{TestAbstractArray})
     U = UnimplementedFastArray{Int, 2}()
     V = UnimplementedSlowArray{Int, 2}()
-    @test_throws ErrorException setindex!(U, 1)
-    @test_throws ErrorException Base.unsafe_setindex!(U, 1)
-    @test_throws ErrorException Base.unsafe_setindex!(U, 1, 1)
+    @test_throws ErrorException setindex!(U, 0, 1)
+    @test_throws ErrorException Base.unsafe_setindex!(U, 0, 1)
+    @test_throws ErrorException setindex!(V, 0, 1, 1)
+    @test_throws ErrorException Base.unsafe_setindex!(V, 0, 1, 1)
 end
 
 function test_get(::Type{TestAbstractArray})
@@ -299,14 +320,14 @@ function test_cat(::Type{TestAbstractArray})
     A = T24Linear([1:24...])
     b_int = reshape([1:27...], 3, 3, 3)
     b_float = reshape(Float64[1:27...], 3, 3, 3)
-    b2hcat = Array(Float64, 3, 6, 3)
+    b2hcat = Array{Float64}(3, 6, 3)
     b1 = reshape([1:9...], 3, 3)
     b2 = reshape([10:18...], 3, 3)
     b3 = reshape([19:27...], 3, 3)
     b2hcat[:, :, 1] = hcat(b1, b1)
     b2hcat[:, :, 2] = hcat(b2, b2)
     b2hcat[:, :, 3] = hcat(b3, b3)
-    b3hcat = Array(Float64, 3, 9, 3)
+    b3hcat = Array{Float64}(3, 9, 3)
     b3hcat[:, :, 1] = hcat(b1, b1, b1)
     b3hcat[:, :, 2] = hcat(b2, b2, b2)
     b3hcat[:, :, 3] = hcat(b3, b3, b3)
@@ -421,7 +442,7 @@ function test_map(::Type{TestAbstractArray})
         end
 
         # AbstractArray map for N-arg case
-        A = Array(Int, 10)
+        A = Array{Int}(10)
         f(x, y, z) = x + y + z
         D = Float64[1:10...]
 
@@ -500,3 +521,7 @@ A = TSlowNIndexes(rand(2,2))
 @test_throws ErrorException A[1]
 @test A[1,1] == A.data[1]
 @test first(A) == A.data[1]
+
+#16381
+@inferred size(rand(3,2,1), 2, 1)
+@inferred size(rand(3,2,1), 2, 1, 3)

@@ -1,18 +1,18 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-replstr(x) = sprint((io,x) -> writemime(io,MIME("text/plain"),x), x)
+replstr(x) = sprint((io,x) -> show(IOContext(io, multiline=true, limit=true), MIME("text/plain"), x), x)
 
 @test replstr(cell(2)) == "2-element Array{Any,1}:\n #undef\n #undef"
 @test replstr(cell(2,2)) == "2×2 Array{Any,2}:\n #undef  #undef\n #undef  #undef"
 @test replstr(cell(2,2,2)) == "2×2×2 Array{Any,3}:\n[:, :, 1] =\n #undef  #undef\n #undef  #undef\n\n[:, :, 2] =\n #undef  #undef\n #undef  #undef"
 
 immutable T5589
-    names::Vector{UTF8String}
+    names::Vector{String}
 end
-@test replstr(T5589(Array(UTF8String,100))) == "T5589(UTF8String[#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef  …  #undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef])"
+@test replstr(T5589(Array(String,100))) == "T5589(String[#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef  …  #undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef])"
 
-@test replstr(parse("type X end")) == ":(type X\n    end)"
-@test replstr(parse("immutable X end")) == ":(immutable X\n    end)"
+@test replstr(parse("type X end")) == ":(type X # none, line 1:\n    end)"
+@test replstr(parse("immutable X end")) == ":(immutable X # none, line 1:\n    end)"
 s = "ccall(:f,Int,(Ptr{Void},),&x)"
 @test replstr(parse(s)) == ":($s)"
 
@@ -163,8 +163,8 @@ end"""
 
 # issue #7188
 @test sprint(show, :foo) == ":foo"
-@test sprint(show, symbol("foo bar")) == "symbol(\"foo bar\")"
-@test sprint(show, symbol("foo \"bar")) == "symbol(\"foo \\\"bar\")"
+@test sprint(show, Symbol("foo bar")) == "Symbol(\"foo bar\")"
+@test sprint(show, Symbol("foo \"bar")) == "Symbol(\"foo \\\"bar\")"
 @test sprint(show, :+) == ":+"
 @test sprint(show, :end) == ":end"
 
@@ -316,29 +316,29 @@ end
 @test Base.inbase(LinAlg)
 @test !Base.inbase(Core)
 
-let repr = sprint(io -> writemime(io,"text/plain", methods(Base.inbase)))
+let repr = sprint(io -> show(io,"text/plain", methods(Base.inbase)))
     @test contains(repr, "inbase(m::Module)")
 end
-let repr = sprint(io -> writemime(io,"text/html", methods(Base.inbase)))
+let repr = sprint(io -> show(io,"text/html", methods(Base.inbase)))
     @test contains(repr, "inbase(m::<b>Module</b>)")
 end
 
 f5971(x, y...; z=1, w...) = nothing
-let repr = sprint(io -> writemime(io,"text/plain", methods(f5971)))
+let repr = sprint(io -> show(io,"text/plain", methods(f5971)))
     @test contains(repr, "f5971(x, y...; z)")
 end
-let repr = sprint(io -> writemime(io,"text/html", methods(f5971)))
+let repr = sprint(io -> show(io,"text/html", methods(f5971)))
     @test contains(repr, "f5971(x, y...; <i>z</i>)")
 end
 
 if isempty(Base.GIT_VERSION_INFO.commit)
-    @test contains(Base.url(methods(eigs).defs),"https://github.com/JuliaLang/julia/tree/v$VERSION/base/linalg/arnoldi.jl#L")
+    @test contains(Base.url(first(methods(eigs))),"https://github.com/JuliaLang/julia/tree/v$VERSION/base/linalg/arnoldi.jl#L")
 else
-    @test contains(Base.url(methods(eigs).defs),"https://github.com/JuliaLang/julia/tree/$(Base.GIT_VERSION_INFO.commit)/base/linalg/arnoldi.jl#L")
+    @test contains(Base.url(first(methods(eigs))),"https://github.com/JuliaLang/julia/tree/$(Base.GIT_VERSION_INFO.commit)/base/linalg/arnoldi.jl#L")
 end
 
 # print_matrix should be able to handle small and large objects easily, test by
-# calling writemime. This also indirectly tests print_matrix_row, which
+# calling show. This also indirectly tests print_matrix_row, which
 # is used repeatedly by print_matrix.
 # This fits on screen:
 @test replstr(eye(10)) == "10×10 Array{Float64,2}:\n 1.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0\n 0.0  1.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0\n 0.0  0.0  1.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0\n 0.0  0.0  0.0  1.0  0.0  0.0  0.0  0.0  0.0  0.0\n 0.0  0.0  0.0  0.0  1.0  0.0  0.0  0.0  0.0  0.0\n 0.0  0.0  0.0  0.0  0.0  1.0  0.0  0.0  0.0  0.0\n 0.0  0.0  0.0  0.0  0.0  0.0  1.0  0.0  0.0  0.0\n 0.0  0.0  0.0  0.0  0.0  0.0  0.0  1.0  0.0  0.0\n 0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  1.0  0.0\n 0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  0.0  1.0"
@@ -361,15 +361,15 @@ end
 
 
 # issue #15309
-l1, l2, l2n = Expr(:line,42), Expr(:line,42,:myfile), LineNumberNode(:myfile,42)
-@test string(l2n) == " # myfile, line 42:"
-@test string(l2)  == string(l2n)
-@test string(l1)  == replace(string(l2n),"myfile, ","",1)
+l1, l2, l2n = Expr(:line,42), Expr(:line,42,:myfile), LineNumberNode(42)
+@test string(l2n) == " # line 42:"
+@test string(l2)  == " # myfile, line 42:"
+@test string(l1)  == string(l2n)
 ex = Expr(:block, l1, :x, l2, :y, l2n, :z)
 @test replace(string(ex)," ","") == replace("""
 begin  # line 42:
     x # myfile, line 42:
-    y # myfile, line 42:
+    y # line 42:
     z
 end""", " ", "")
 # Test the printing of whatever form of line number representation
@@ -392,6 +392,28 @@ A = reshape(1:16,4,4)
 @test replstr(UpperTriangular(copy(A))) == "4×4 UpperTriangular{$Int,Array{$Int,2}}:\n 1  5   9  13\n ⋅  6  10  14\n ⋅  ⋅  11  15\n ⋅  ⋅   ⋅  16"
 @test replstr(LowerTriangular(copy(A))) == "4×4 LowerTriangular{$Int,Array{$Int,2}}:\n 1  ⋅   ⋅   ⋅\n 2  6   ⋅   ⋅\n 3  7  11   ⋅\n 4  8  12  16"
 
+# Vararg methods in method tables
+function test_mt(f, str)
+    mt = methods(f)
+    @test length(mt) == 1
+    defs = first(mt)
+    io = IOBuffer()
+    show(io, defs)
+    strio = takebuf_string(io)
+    strio = split(strio, " at")[1]
+    @test strio[1:length(str)] == str
+end
+show_f1(x...) = [x...]
+show_f2(x::Vararg{Any}) = [x...]
+show_f3(x::Vararg) = [x...]
+show_f4(x::Vararg{Any,3}) = [x...]
+show_f5{T,N}(A::AbstractArray{T,N}, indexes::Vararg{Int,N}) = [indexes...]
+test_mt(show_f1, "show_f1(x...)")
+test_mt(show_f2, "show_f2(x...)")
+test_mt(show_f3, "show_f3(x...)")
+test_mt(show_f4, "show_f4(x::Vararg{Any,3})")
+test_mt(show_f5, "show_f5{T,N}(A::AbstractArray{T,N}, indexes::Vararg{$Int,N})")
+
 # Issue #15525, printing of vcat
 @test sprint(show, :([a;])) == ":([a;])"
 @test sprint(show, :([a;b])) == ":([a;b])"
@@ -413,3 +435,11 @@ let x = [], y = []
     push!(y, x)
     @test replstr(x) == "1-element Array{Any,1}:\n Any[Any[Any[#= circular reference @-2 =#]]]"
 end
+
+# PR 16221
+# Printing of upper and lower bound of a TypeVar
+@test string(TypeVar(:V, Signed, Real, false)) == "Signed<:V<:Real"
+# Printing of primary type in type parameter place should not show the type
+# parameter names.
+@test string(Array) == "Array{T,N}"
+@test string(Tuple{Array}) == "Tuple{Array}"

@@ -24,14 +24,14 @@ complexfloat{T<:AbstractFloat}(x::AbstractArray{Complex{T}}) = x
 
 # return an Array, rather than similar(x), to avoid an extra copy for FFTW
 # (which only works on StridedArray types).
-complexfloat{T<:Complex}(x::AbstractArray{T}) = copy!(Array(typeof(float(one(T))), size(x)), x)
-complexfloat{T<:AbstractFloat}(x::AbstractArray{T}) = copy!(Array(typeof(complex(one(T))), size(x)), x)
-complexfloat{T<:Real}(x::AbstractArray{T}) = copy!(Array(typeof(complex(float(one(T)))), size(x)), x)
+complexfloat{T<:Complex}(x::AbstractArray{T}) = copy!(Array{typeof(float(one(T)))}(size(x)), x)
+complexfloat{T<:AbstractFloat}(x::AbstractArray{T}) = copy!(Array{typeof(complex(one(T)))}(size(x)), x)
+complexfloat{T<:Real}(x::AbstractArray{T}) = copy!(Array{typeof(complex(float(one(T))))}(size(x)), x)
 
 # implementations only need to provide plan_X(x, region)
 # for X in (:fft, :bfft, ...):
 for f in (:fft, :bfft, :ifft, :fft!, :bfft!, :ifft!, :rfft)
-    pf = symbol(string("plan_", f))
+    pf = Symbol("plan_", f)
     @eval begin
         $f(x::AbstractArray) = $pf(x) * x
         $f(x::AbstractArray, region) = $pf(x, region) * x
@@ -179,7 +179,7 @@ bfft!
 # promote to a complex floating-point type (out-of-place only),
 # so implementations only need Complex{Float} methods
 for f in (:fft, :bfft, :ifft)
-    pf = symbol(string("plan_", f))
+    pf = Symbol("plan_", f)
     @eval begin
         $f{T<:Real}(x::AbstractArray{T}, region=1:ndims(x)) = $f(complexfloat(x), region)
         $pf{T<:Real}(x::AbstractArray{T}, region; kws...) = $pf(complexfloat(x), region; kws...)
@@ -191,7 +191,7 @@ rfft{T<:Union{Integer,Rational}}(x::AbstractArray{T}, region=1:ndims(x)) = rfft(
 plan_rfft{T<:Union{Integer,Rational}}(x::AbstractArray{T}, region; kws...) = plan_rfft(float(x), region; kws...)
 
 # only require implementation to provide *(::Plan{T}, ::Array{T})
-*{T}(p::Plan{T}, x::AbstractArray) = p * copy!(Array(T, size(x)), x)
+*{T}(p::Plan{T}, x::AbstractArray) = p * copy!(Array{T}(size(x)), x)
 
 # Implementations should also implement A_mul_B!(Y, plan, X) so as to support
 # pre-allocated output arrays.  We don't define * in terms of A_mul_B!
@@ -264,7 +264,7 @@ A_mul_B!(y::AbstractArray, p::ScaledPlan, x::AbstractArray) =
 # or odd).
 
 for f in (:brfft, :irfft)
-    pf = symbol(string("plan_", f))
+    pf = Symbol("plan_", f)
     @eval begin
         $f(x::AbstractArray, d::Integer) = $pf(x, d) * x
         $f(x::AbstractArray, d::Integer, region) = $pf(x, d, region) * x

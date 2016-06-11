@@ -100,7 +100,7 @@ to verify that `p` is a permutation.
 To return a new permutation, use `v[p]`. Note that this is generally faster than
 `permute!(v,p)` for large vectors.
 """
-permute!(a, p::AbstractVector) = permute!!(a, copy!(similar(p), p))
+permute!(a, p::AbstractVector) = permute!!(a, copymutable(p))
 
 function ipermute!!{T<:Integer}(a, p::AbstractVector{T})
     count = 0
@@ -130,7 +130,7 @@ end
 
 Like `permute!`, but the inverse of the given permutation is applied.
 """
-ipermute!(a, p::AbstractVector) = ipermute!!(a, copy!(similar(p), p))
+ipermute!(a, p::AbstractVector) = ipermute!!(a, copymutable(p))
 
 """
     invperm(v)
@@ -197,16 +197,4 @@ function nextprod(a::Vector{Int}, x)
     end
     # might overflow, but want predictable return type
     return mx[end] < best ? Int(mx[end]) : Int(best)
-end
-
-
-# Functions that have been moved out of base in Julia 0.5
-# Note: only the two-argument form of factorial has been moved
-for deprecatedfunc in [:combinations, :factorial, :prevprod, :levicivita,
-        :nthperm!, :nthperm, :parity, :partitions, :permutations]
-    @eval begin
-        $deprecatedfunc(args...) = error(string($deprecatedfunc, args,
-            " has been moved to the package Combinatorics.jl.\n",
-            "Run Pkg.add(\"Combinatorics\") to install Combinatorics on Julia v0.5-"))
-    end
 end

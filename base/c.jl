@@ -16,7 +16,7 @@ typealias Cshort Int16
 typealias Cushort UInt16
 typealias Cint Int32
 typealias Cuint UInt32
-if OS_NAME === :Windows
+if is_windows()
     typealias Clong Int32
     typealias Culong UInt32
     typealias Cwchar_t UInt16
@@ -35,7 +35,7 @@ typealias Culonglong UInt64
 typealias Cfloat Float32
 typealias Cdouble Float64
 
-if OS_NAME !== :Windows
+if !is_windows()
     const sizeof_mode_t = ccall(:jl_sizeof_mode_t, Cint, ())
     if sizeof_mode_t == 2
         typealias Cmode_t Int16
@@ -76,12 +76,12 @@ pointer(p::Cwstring) = convert(Ptr{Cwchar_t}, p)
 # here, not in pointer.jl, to avoid bootstrapping problems in coreimg.jl
 pointer_to_string(p::Cstring, own::Bool=false) = pointer_to_string(convert(Ptr{UInt8}, p), own)
 
-# convert strings to ByteString etc. to pass as pointers
-cconvert(::Type{Cstring}, s::AbstractString) = bytestring(s)
+# convert strings to String etc. to pass as pointers
+cconvert(::Type{Cstring}, s::AbstractString) = String(s)
 cconvert(::Type{Cwstring}, s::AbstractString) = wstring(s)
 
 containsnul(p::Ptr, len) = C_NULL != ccall(:memchr, Ptr{Cchar}, (Ptr{Cchar}, Cint, Csize_t), p, 0, len)
-function unsafe_convert(::Type{Cstring}, s::ByteString)
+function unsafe_convert(::Type{Cstring}, s::String)
     p = unsafe_convert(Ptr{Cchar}, s)
     if containsnul(p, sizeof(s))
         throw(ArgumentError("embedded NULs are not allowed in C strings: $(repr(s))"))
@@ -95,10 +95,12 @@ convert(::Type{Cstring}, s::Symbol) = Cstring(unsafe_convert(Ptr{Cchar}, s))
 # in string.jl: unsafe_convert(::Type{Cwstring}, s::WString)
 
 # FIXME: this should be handled by implicit conversion to Cwstring, but good luck with that
-@windows_only function cwstring(s::AbstractString)
-    bytes = bytestring(s).data
+if is_windows()
+function cwstring(s::AbstractString)
+    bytes = String(s).data
     0 in bytes && throw(ArgumentError("embedded NULs are not allowed in C strings: $(repr(s))"))
     return push!(utf8to16(bytes), 0)
+end
 end
 
 # conversions between UTF-8 and UTF-16 for Windows APIs
@@ -202,18 +204,51 @@ end
 # within a long-running C routine.
 sigatomic_begin() = ccall(:jl_sigatomic_begin, Void, ())
 sigatomic_end() = ccall(:jl_sigatomic_end, Void, ())
-disable_sigint(f::Function) = try sigatomic_begin(); f(); finally sigatomic_end(); end
-reenable_sigint(f::Function) = try sigatomic_end(); f(); finally sigatomic_begin(); end
+
+"""
+    disable_sigint(f::Function)
+
+Disable Ctrl-C handler during execution of a function on the current task,
+for calling external code that may call julia code that is not interrupt safe.
+Intended to be called using `do` block syntax as follows:
+
+    disable_sigint() do
+        # interrupt-unsafe code
+        ...
+    end
+
+This is not needed on worker threads (`Threads.threadid() != 1`) since the
+`InterruptException` will only be delivered to the master thread.
+External functions that do not call julia code or julia runtime
+automatically disable sigint during their execution.
+"""
+function disable_sigint(f::Function)
+    sigatomic_begin()
+    res = f()
+    # Exception unwind sigatomic automatically
+    sigatomic_end()
+    res
+end
+
+"""
+    reenable_sigint(f::Function)
+
+Re-enable Ctrl-C handler during execution of a function.
+Temporarily reverses the effect of `disable_sigint`.
+"""
+function reenable_sigint(f::Function)
+    sigatomic_end()
+    res = f()
+    # Exception unwind sigatomic automatically
+    sigatomic_begin()
+    res
+end
 
 function ccallable(f::Function, rt::Type, argt::Type, name::Union{AbstractString,Symbol}=string(f))
     ccall(:jl_extern_c, Void, (Any, Any, Any, Cstring), f, rt, argt, name)
 end
 
-function ccallable(f::Function, argt::Type, name::Union{AbstractString,Symbol}=string(f))
-    ccall(:jl_extern_c, Void, (Any, Ptr{Void}, Any, Cstring), f, C_NULL, argt, name)
-end
-
-macro ccallable(def)
+macro ccallable(rt, def)
     if isa(def,Expr) && (def.head === :(=) || def.head === :function)
         sig = def.args[1]
         if sig.head === :call
@@ -227,7 +262,7 @@ macro ccallable(def)
             end
             return quote
                 $(esc(def))
-                ccallable($(esc(name)), $(Expr(:curly, :Tuple, map(esc, at)...)))
+                ccallable($(esc(name)), $(esc(rt)), $(Expr(:curly, :Tuple, map(esc, at)...)), $(string(name)))
             end
         end
     end

@@ -6,8 +6,8 @@ import Base.Docs: meta, @var, DocStr, parsedoc
 function docstrings_equal(d1, d2)
     io1 = IOBuffer()
     io2 = IOBuffer()
-    writemime(io1, MIME"text/markdown"(), d1)
-    writemime(io2, MIME"text/markdown"(), d2)
+    show(io1, MIME"text/markdown"(), d1)
+    show(io2, MIME"text/markdown"(), d2)
     takebuf_string(io1) == takebuf_string(io2)
 end
 docstrings_equal(d1::DocStr, d2) = docstrings_equal(parsedoc(d1), d2)
@@ -15,8 +15,8 @@ docstrings_equal(d1::DocStr, d2) = docstrings_equal(parsedoc(d1), d2)
 function docstring_startswith(d1, d2)
     io1 = IOBuffer()
     io2 = IOBuffer()
-    writemime(io1, MIME"text/markdown"(), d1)
-    writemime(io2, MIME"text/markdown"(), d2)
+    show(io1, MIME"text/markdown"(), d1)
+    show(io2, MIME"text/markdown"(), d2)
     startswith(takebuf_string(io1), takebuf_string(io2))
 end
 docstring_startswith(d1::DocStr, d2) = docstring_startswith(parsedoc(d1), d2)
@@ -45,10 +45,9 @@ end
 
 # General tests for docstrings.
 
-module DocsTest
-
+const LINE_NUMBER = @__LINE__
 "DocsTest"
-DocsTest
+module DocsTest
 
 "f-1"
 function f(x)
@@ -162,11 +161,13 @@ function multidoc! end
 
 end
 
-@test docstrings_equal(@doc(DocsTest), doc"DocsTest")
-
-# Check that plain docstrings store a module reference.
-# https://github.com/JuliaLang/julia/pull/13017#issuecomment-138618663
-@test meta(DocsTest)[@var(DocsTest)].docs[Union{}].data[:module] == DocsTest
+let md = meta(DocsTest)[@var(DocsTest)]
+    @test docstrings_equal(md.docs[Union{}], doc"DocsTest")
+    # Check that plain docstrings store a module reference.
+    # https://github.com/JuliaLang/julia/pull/13017#issuecomment-138618663
+    @test md.docs[Union{}].data[:module] == DocsTest
+    @test md.docs[Union{}].data[:linenumber] == LINE_NUMBER
+end
 
 let f = @var(DocsTest.f)
     md = meta(DocsTest)[f]
@@ -455,6 +456,28 @@ end
 # Issues.
 # =======
 
+# Issue #16359. Error message for invalid doc syntax.
+
+for each in [ # valid syntax
+        :(f()),
+        :(f(x)),
+        :(f(x::Int)),
+        :(f(x...)),
+        :(f(x = 1)),
+        :(f(; x = 1))
+    ]
+    @test Meta.isexpr(Docs.docm("...", each), :block)
+end
+for each in [ # invalid syntax
+        :(f("...")),
+        :(f(1, 2)),
+        :(f(() -> ()))
+    ]
+    result = Docs.docm("...", each)
+    @test Meta.isexpr(result, :call)
+    @test result.args[1] === error
+end
+
 # Issue #15424. Non-markdown docstrings.
 
 module I15424
@@ -463,16 +486,16 @@ immutable LazyHelp
     text
 end
 
-function Base.writemime(io::IO, ::MIME"text/plain", h::LazyHelp)
+function Base.show(io::IO, ::MIME"text/plain", h::LazyHelp)
     print(io, h.text)
 end
 
-Base.show(io::IO, h::LazyHelp) = writemime(io, "text/plain", h)
+Base.show(io::IO, h::LazyHelp) = show(io, "text/plain", h)
 
 function Base.Docs.catdoc(hs::LazyHelp...)
     Base.Docs.Text() do io
         for h in hs
-            writemime(io, MIME"text/plain"(), h)
+            show(io, MIME"text/plain"(), h)
         end
     end
 end
@@ -500,7 +523,7 @@ macro m1_11993()
 end
 
 macro m2_11993()
-    symbol("@m1_11993")
+    Symbol("@m1_11993")
 end
 
 @doc "This should document @m1... since its the result of expansion" @m2_11993
@@ -642,7 +665,7 @@ end
 )
 
 # Issue #13905.
-@test macroexpand(:(@doc "" f() = @x)) == Expr(:error, UndefVarError(symbol("@x")))
+@test macroexpand(:(@doc "" f() = @x)) == Expr(:error, UndefVarError(Symbol("@x")))
 
 # Undocumented DataType Summaries.
 
@@ -655,7 +678,7 @@ type C <: A end
 
 immutable D <: B
     one
-    two::UTF8String
+    two::String
     three::Float64
 end
 
@@ -722,14 +745,14 @@ immutable Undocumented.D <: Undocumented.B
 **Fields:**
 ```
 one   :: Any
-two   :: UTF8String
+two   :: String
 three :: Float64
 ```
 """)
 
 let d = @doc Undocumented.f
     io = IOBuffer()
-    writemime(io, MIME"text/markdown"(), d)
+    show(io, MIME"text/markdown"(), d)
     @test startswith(takebuf_string(io),"""
     No documentation found.
 
@@ -739,7 +762,7 @@ end
 
 let d = @doc Undocumented.undocumented
     io = IOBuffer()
-    writemime(io, MIME"text/markdown"(), d)
+    show(io, MIME"text/markdown"(), d)
     @test startswith(takebuf_string(io), """
     No documentation found.
 
@@ -753,7 +776,7 @@ let m = @doc(DocsTest).meta
     @test length(m[:results]) == 1
     @test m[:results][1] === Docs.meta(DocsTest)[@var(DocsTest)].docs[Union{}]
     @test m[:binding] == @var(DocsTest)
-    @test m[:typesig] == Union
+    @test m[:typesig] === Union{}
 end
 
 let m = @doc(DocsTest.f).meta
@@ -761,7 +784,7 @@ let m = @doc(DocsTest.f).meta
     @test m[:results][1] === Docs.meta(DocsTest)[@var(DocsTest.f)].docs[Tuple{Any}]
     @test m[:results][2] === Docs.meta(DocsTest)[@var(DocsTest.f)].docs[Tuple{Any, Any}]
     @test m[:binding] == @var(DocsTest.f)
-    @test m[:typesig] == Union
+    @test m[:typesig] === Union{}
 end
 
 let m = @doc(DocsTest.f(x)).meta
@@ -774,14 +797,14 @@ end
 let m = @doc(Undocumented.f).meta
     @test isempty(m[:results])
     @test m[:binding] == @var(Undocumented.f)
-    @test m[:typesig] == Union
+    @test m[:typesig] === Union{}
 end
 
 # Bindings.
 
 import Base.Docs: @var, Binding, defined
 
-let x = Binding(Base, symbol("@time"))
+let x = Binding(Base, Symbol("@time"))
     @test defined(x) == true
     @test @var(@time) == x
     @test @var(Base.@time) == x

@@ -333,10 +333,10 @@ end
 @test var(sparse(Int[])) === NaN
 
 for f in (sum, prod, minimum, maximum, var)
-    @test isequal(f(spzeros(0, 1), 1), f(Array(Int, 0, 1), 1))
-    @test isequal(f(spzeros(0, 1), 2), f(Array(Int, 0, 1), 2))
-    @test isequal(f(spzeros(0, 1), (1, 2)), f(Array(Int, 0, 1), (1, 2)))
-    @test isequal(f(spzeros(0, 1), 3), f(Array(Int, 0, 1), 3))
+    @test isequal(f(spzeros(0, 1), 1), f(Array{Int}(0, 1), 1))
+    @test isequal(f(spzeros(0, 1), 2), f(Array{Int}(0, 1), 2))
+    @test isequal(f(spzeros(0, 1), (1, 2)), f(Array{Int}(0, 1), (1, 2)))
+    @test isequal(f(spzeros(0, 1), 3), f(Array{Int}(0, 1), 3))
 end
 
 # spdiagm
@@ -547,6 +547,40 @@ let a = spzeros(Int, 10, 10)
     @test a[1,:] == sparse([1:10;])
     a[:,2] = 1:10
     @test a[:,2] == sparse([1:10;])
+
+    a[1,1:0] = []
+    @test a[1,:] == sparse([1; 1; 3:10])
+    a[1:0,2] = []
+    @test a[:,2] == sparse([1:10;])
+    a[1,1:0] = 0
+    @test a[1,:] == sparse([1; 1; 3:10])
+    a[1:0,2] = 0
+    @test a[:,2] == sparse([1:10;])
+    a[1,1:0] = 1
+    @test a[1,:] == sparse([1; 1; 3:10])
+    a[1:0,2] = 1
+    @test a[:,2] == sparse([1:10;])
+
+    @test_throws BoundsError a[:,11] = spzeros(10,1)
+    @test_throws BoundsError a[11,:] = spzeros(1,10)
+    @test_throws BoundsError a[:,-1] = spzeros(10,1)
+    @test_throws BoundsError a[-1,:] = spzeros(1,10)
+    @test_throws BoundsError a[0:9] = spzeros(1,10)
+    @test_throws BoundsError a[:,11] = 0
+    @test_throws BoundsError a[11,:] = 0
+    @test_throws BoundsError a[:,-1] = 0
+    @test_throws BoundsError a[-1,:] = 0
+    @test_throws BoundsError a[0:9] = 0
+    @test_throws BoundsError a[:,11] = 1
+    @test_throws BoundsError a[11,:] = 1
+    @test_throws BoundsError a[:,-1] = 1
+    @test_throws BoundsError a[-1,:] = 1
+    @test_throws BoundsError a[0:9] = 1
+
+    @test_throws DimensionMismatch a[1:2,1:2] = 1:3
+    @test_throws DimensionMismatch a[1:2,1] = 1:3
+    @test_throws DimensionMismatch a[1,1:2] = 1:3
+    @test_throws DimensionMismatch a[1:2] = 1:3
 end
 
 let A = spzeros(Int, 10, 20)
@@ -670,7 +704,7 @@ let S = spzeros(10,8), A = full(S)
     @test indmin(S) == indmin(A) == 1
 end
 
-let A = Array(Int,0,0), S = sparse(A)
+let A = Array{Int}(0,0), S = sparse(A)
     iA = try indmax(A) end
     iS = try indmax(S) end
     @test iA === iS === nothing
@@ -1112,6 +1146,7 @@ let
     @test ishermitian(A) == true
     @test issymmetric(A) == true
 
+    # 15504
     m = n = 5
     colptr = [1, 5, 9, 13, 13, 17]
     rowval = [1, 2, 3, 5, 1, 2, 3, 5, 1, 2, 3, 5, 1, 2, 3, 5]
@@ -1120,6 +1155,14 @@ let
     @test issymmetric(A) == true
     A.nzval[end - 3]  = 2.0
     @test issymmetric(A) == false
+
+    # 16521
+    @test issymmetric(sparse([0 0; 1 0])) == false
+    @test issymmetric(sparse([0 1; 0 0])) == false
+    @test issymmetric(sparse([0 0; 1 1])) == false
+    @test issymmetric(sparse([1 0; 1 0])) == false
+    @test issymmetric(sparse([0 1; 1 0])) == true
+    @test issymmetric(sparse([1 1; 1 0])) == true
 end
 
 # equality ==
@@ -1328,3 +1371,21 @@ let
     m = sprand(Int32, 10, 10, 0.1)
     @test eltype(m) == Int32
 end
+
+# 16073
+@inferred sprand(1, 1, 1.0)
+@inferred sprand(1, 1, 1.0, rand, Float64)
+@inferred sprand(1, 1, 1.0, x->round(Int,rand(x)*100))
+
+# dense sparse concatenation -> sparse return type
+@test issparse([sprand(10,10,.1) rand(10,10)])
+@test issparse([sprand(10,10,.1); rand(10,10)])
+@test issparse([sprand(10,10,.1) rand(10,10); rand(10,10) rand(10,10)])
+#---
+# Matrix vector cat not supported for sparse #13130
+#@test issparse([sprand(10,10,.1) rand(10)])
+#@test issparse([sprand(10,10,.1) sprand(10,.1)])
+# ---
+@test !issparse([rand(10,10)  rand(10,10)])
+@test !issparse([rand(10,10); rand(10,10)])
+@test !issparse([rand(10,10)  rand(10,10); rand(10,10) rand(10,10)])

@@ -155,7 +155,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   ``lufact!`` is the same as :func:`lufact`\ , but saves space by overwriting the input ``A``\ , instead of creating a copy.  For sparse ``A`` the ``nzval`` field is not overwritten but the index fields, ``colptr`` and ``rowval`` are decremented in place, converting from 1-based indices to 0-based indices.
+   ``lufact!`` is the same as :func:`lufact`\ , but saves space by overwriting the input ``A``\ , instead of creating a copy. An ``InexactError`` exception is thrown if the factorisation produces a number not representable by the element type of ``A``\ , e.g. for integer types.
 
 .. function:: chol(A::AbstractMatrix) -> U
 
@@ -209,13 +209,13 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   The same as ``cholfact``\ , but saves space by overwriting the input ``A``\ , instead of creating a copy.
+   The same as ``cholfact``\ , but saves space by overwriting the input ``A``\ , instead of creating a copy. An ``InexactError`` exception is thrown if the factorisation produces a number not representable by the element type of ``A``\ , e.g. for integer types.
 
 .. function:: cholfact!(A::StridedMatrix, uplo::Symbol, Val{true}) -> PivotedCholesky
 
    .. Docstring generated from Julia source
 
-   The same as ``cholfact``\ , but saves space by overwriting the input ``A``\ , instead of creating a copy.
+   The same as ``cholfact``\ , but saves space by overwriting the input ``A``\ , instead of creating a copy. An ``InexactError`` exception is thrown if the factorisation produces a number not representable by the element type of ``A``\ , e.g. for integer types.
 
 .. currentmodule:: Base.LinAlg
 
@@ -395,7 +395,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   ``qrfact!`` is the same as :func:`qrfact` when ``A`` is a subtype of ``StridedMatrix``\ , but saves space by overwriting the input ``A``\ , instead of creating a copy.
+   ``qrfact!`` is the same as :func:`qrfact` when ``A`` is a subtype of ``StridedMatrix``\ , but saves space by overwriting the input ``A``\ , instead of creating a copy. An ``InexactError`` exception is thrown if the factorisation produces a number not representable by the element type of ``A``\ , e.g. for integer types.
 
 .. function:: full(QRCompactWYQ[, thin=true]) -> Matrix
 
@@ -816,7 +816,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Scale an array ``A`` by a scalar ``b`` overwriting ``A`` in-place.
 
-   If ``A`` is a matrix and ``b`` is a vector, then ``scale!(A,b)`` scales each column ``i`` of ``A`` by ``b[i]`` (similar to ``A*Diagonal(b)``\ ), while ``scale!(b,A)`` scales each row ``i`` of ``A`` by ``b[i]`` (similar to ``Diagonal(b)*A``\ ), again operating in-place on ``A``\ .
+   If ``A`` is a matrix and ``b`` is a vector, then ``scale!(A,b)`` scales each column ``i`` of ``A`` by ``b[i]`` (similar to ``A*Diagonal(b)``\ ), while ``scale!(b,A)`` scales each row ``i`` of ``A`` by ``b[i]`` (similar to ``Diagonal(b)*A``\ ), again operating in-place on ``A``\ . An ``InexactError`` exception is thrown if the scaling produces a number not representable by the element type of ``A``\ , e.g. for integer types.
 
 .. function:: Tridiagonal(dl, d, du)
 
@@ -979,11 +979,34 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Construct a matrix by repeating the given matrix ``n`` times in dimension 1 and ``m`` times in dimension 2.
 
-.. function:: repeat(A, inner = Int[], outer = Int[])
+.. function:: repeat(A::AbstractArray; inner=ntuple(x->1, ndims(A)), outer=ntuple(x->1, ndims(A)))
 
    .. Docstring generated from Julia source
 
-   Construct an array by repeating the entries of ``A``\ . The i-th element of ``inner`` specifies the number of times that the individual entries of the i-th dimension of ``A`` should be repeated. The i-th element of ``outer`` specifies the number of times that a slice along the i-th dimension of ``A`` should be repeated.
+   Construct an array by repeating the entries of ``A``\ . The i-th element of ``inner`` specifies the number of times that the individual entries of the i-th dimension of ``A`` should be repeated. The i-th element of ``outer`` specifies the number of times that a slice along the i-th dimension of ``A`` should be repeated. If ``inner`` or ``outer`` are omitted, no repetition is performed.
+
+   .. doctest::
+
+       julia> repeat(1:2, inner=2)
+       4-element Array{Int64,1}:
+        1
+        1
+        2
+        2
+
+       julia> repeat(1:2, outer=2)
+       4-element Array{Int64,1}:
+        1
+        2
+        1
+        2
+
+       julia> repeat([1 2; 3 4], inner=(2, 1), outer=(1, 3))
+       4×6 Array{Int64,2}:
+        1  2  1  2  1  2
+        1  2  1  2  1  2
+        3  4  3  4  3  4
+        3  4  3  4  3  4
 
 .. function:: kron(A, B)
 
@@ -1244,7 +1267,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    | real or complex | inverse with level shift ``sigma`` | :math:`(A - \sigma B )^{-1}B = v\nu` |
    +-----------------+------------------------------------+--------------------------------------+
 
-.. function:: svds(A; nsv=6, ritzvec=true, tol=0.0, maxiter=1000) -> ([left_sv,] s, [right_sv,] nconv, niter, nmult, resid)
+.. function:: svds(A; nsv=6, ritzvec=true, tol=0.0, maxiter=1000, ncv=2*nsv, u0=zeros((0,)), v0=zeros((0,))) -> (SVD([left_sv,] s, [right_sv,]), nconv, niter, nmult, resid)
 
    .. Docstring generated from Julia source
 
@@ -1253,16 +1276,17 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    **Inputs**
 
    * ``A``\ : Linear operator whose singular values are desired. ``A`` may be represented   as a subtype of ``AbstractArray``\ , e.g., a sparse matrix, or any other type   supporting the four methods ``size(A)``\ , ``eltype(A)``\ , ``A * vector``\ , and   ``A' * vector``\ .
-   * ``nsv``\ : Number of singular values.
+   * ``nsv``\ : Number of singular values. Default: 6.
    * ``ritzvec``\ : If ``true``\ , return the left and right singular vectors ``left_sv`` and ``right_sv``\ .    If ``false``\ , omit the singular vectors. Default: ``true``\ .
    * ``tol``\ : tolerance, see :func:`eigs`\ .
-   * ``maxiter``\ : Maximum number of iterations, see :func:`eigs`\ .
+   * ``maxiter``\ : Maximum number of iterations, see :func:`eigs`\ . Default: 1000.
+   * ``ncv``\ : Maximum size of the Krylov subspace, see :func:`eigs` (there called ``nev``\ ). Default: ``2*nsv``\ .
+   * ``u0``\ : Initial guess for the first left Krylov vector. It may have length ``m`` (the first dimension of ``A``\ ), or 0.
+   * ``v0``\ : Initial guess for the first right Krylov vector. It may have length ``n`` (the second dimension of ``A``\ ), or 0.
 
    **Outputs**
 
-   * ``left_sv``\ : Left singular vectors (only if ``ritzvec = true``\ ).
-   * ``s``\ : A vector of length ``nsv`` containing the requested singular values.
-   * ``right_sv``\ : Right singular vectors (only if ``ritzvec = true``\ ).
+   * ``svd``\ : An ``SVD`` object containing the left singular vectors, the requested values, and the right singular vectors. If ``ritzvec = false``\ , the left and right singular vectors will be empty.
    * ``nconv``\ : Number of converged singular values.
    * ``niter``\ : Number of iterations.
    * ``nmult``\ : Number of matrix–vector products used.
@@ -1283,7 +1307,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   ``peakflops`` computes the peak flop rate of the computer by using double precision :func:`Base.LinAlg.BLAS.gemm!`\ . By default, if no arguments are specified, it multiplies a matrix of size ``n x n``\ , where ``n = 2000``\ . If the underlying BLAS is using multiple threads, higher flop rates are realized. The number of BLAS threads can be set with ``blas_set_num_threads(n)``\ .
+   ``peakflops`` computes the peak flop rate of the computer by using double precision :func:`Base.LinAlg.BLAS.gemm!`\ . By default, if no arguments are specified, it multiplies a matrix of size ``n x n``\ , where ``n = 2000``\ . If the underlying BLAS is using multiple threads, higher flop rates are realized. The number of BLAS threads can be set with ``BLAS.set_num_threads(n)``\ .
 
    If the keyword argument ``parallel`` is set to ``true``\ , ``peakflops`` is run in parallel on all the worker processors. The flop rate of the entire parallel computer is returned. When running in parallel, only 1 BLAS thread is used. The argument ``n`` still refers to the size of the problem that is solved on each processor.
 
@@ -1555,7 +1579,7 @@ Usually a function has 4 methods defined, one each for ``Float64``,
 
    Returns the solution to ``A*x = b`` or one of the other two variants determined by ``tA`` (transpose ``A``\ ) and ``ul`` (triangle of ``A`` is used.) ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones).
 
-.. function:: blas_set_num_threads(n)
+.. function:: set_num_threads(n)
 
    .. Docstring generated from Julia source
 

@@ -28,6 +28,10 @@ r_promote(::typeof(scalarmax), x::WidenReduceResult) = x
 r_promote(::typeof(scalarmin), x::WidenReduceResult) = x
 r_promote(::typeof(scalarmax), x) = x
 r_promote(::typeof(scalarmin), x) = x
+r_promote(::typeof(max), x::WidenReduceResult) = r_promote(scalarmax, x)
+r_promote(::typeof(min), x::WidenReduceResult) = r_promote(scalarmin, x)
+r_promote(::typeof(max), x) = r_promote(scalarmax, x)
+r_promote(::typeof(min), x) = r_promote(scalarmin, x)
 
 
 ## foldl && mapfoldl
@@ -126,6 +130,8 @@ mr_empty(::typeof(abs2), op::typeof(+), T) = r_promote(op, abs2(zero(T)::T))
 mr_empty(::typeof(identity), op::typeof(*), T) = r_promote(op, one(T)::T)
 mr_empty(::typeof(abs), op::typeof(scalarmax), T) = abs(zero(T)::T)
 mr_empty(::typeof(abs2), op::typeof(scalarmax), T) = abs2(zero(T)::T)
+mr_empty(::typeof(abs), op::typeof(max), T) = mr_empty(abs, scalarmax, T)
+mr_empty(::typeof(abs2), op::typeof(max), T) = mr_empty(abs2, scalarmax, T)
 mr_empty(f, op::typeof(&), T) = true
 mr_empty(f, op::typeof(|), T) = false
 
@@ -277,7 +283,11 @@ prod(a) = mapreduce(identity, *, a)
 
 ## maximum & minimum
 
-function mapreduce_impl(f, op::typeof(scalarmax), A::AbstractArray, first::Int, last::Int)
+function mapreduce_impl(f, op::Union{typeof(scalarmax),
+                                     typeof(scalarmin),
+                                     typeof(max),
+                                     typeof(min)},
+                        A::AbstractArray, first::Int, last::Int)
     # locate the first non NaN number
     v = f(A[first])
     i = first + 1
@@ -289,29 +299,7 @@ function mapreduce_impl(f, op::typeof(scalarmax), A::AbstractArray, first::Int, 
     while i <= last
         @inbounds Ai = A[i]
         x = f(Ai)
-        if x > v
-            v = x
-        end
-        i += 1
-    end
-    v
-end
-
-function mapreduce_impl(f, op::typeof(scalarmin), A::AbstractArray, first::Int, last::Int)
-    # locate the first non NaN number
-    v = f(A[first])
-    i = first + 1
-    while v != v && i <= last
-        @inbounds Ai = A[i]
-        v = f(Ai)
-        i += 1
-    end
-    while i <= last
-        @inbounds Ai = A[i]
-        x = f(Ai)
-        if x < v
-            v = x
-        end
+        v = op(v, x)
         i += 1
     end
     v
@@ -399,16 +387,26 @@ end
 any(itr) = any(identity, itr)
 all(itr) = all(identity, itr)
 
-any(f::Any,       itr) = any(Predicate(f), itr)
+nonboolean_error(f, op) = throw(ArgumentError("""
+    Using non-boolean collections with $f(itr) is not allowed, use
+    reduce($op, itr) instead. If you are using $f(map(f, itr)) or
+    $f([f(x) for x in itr]), use $f(f, itr) instead.
+"""))
+or_bool_only(a, b) = nonboolean_error(:any, :|)
+or_bool_only(a::Bool, b::Bool) = a|b
+and_bool_only(a, b) = nonboolean_error(:all, :&)
+and_bool_only(a::Bool, b::Bool) = a&b
+
+any(f::Any, itr) = any(Predicate(f), itr)
 any(f::Predicate, itr) = mapreduce_sc_impl(f, |, itr)
-any(f::typeof(identity),     itr) =
+any(f::typeof(identity), itr) =
     eltype(itr) <: Bool ?
         mapreduce_sc_impl(f, |, itr) :
         reduce(or_bool_only, itr)
 
-all(f::Any,       itr) = all(Predicate(f), itr)
+all(f::Any, itr) = all(Predicate(f), itr)
 all(f::Predicate, itr) = mapreduce_sc_impl(f, &, itr)
-all(f::typeof(identity),     itr) =
+all(f::typeof(identity), itr) =
     eltype(itr) <: Bool ?
         mapreduce_sc_impl(f, &, itr) :
         reduce(and_bool_only, itr)

@@ -19,7 +19,7 @@ Basic functions
 
    .. Docstring generated from Julia source
 
-   Returns a tuple containing the dimensions of ``A``\ . Optionally you can specify the dimension(s) you want the length of, and get the length of that dimension, or a tuple of the lengths of dimensions you asked for.:
+   Returns a tuple containing the dimensions of ``A``\ . Optionally you can specify the dimension(s) you want the length of, and get the length of that dimension, or a tuple of the lengths of dimensions you asked for.
 
    .. code-block:: julia
 
@@ -30,12 +30,6 @@ Basic functions
 
        julia> size(A,3,2)
        (4,3)
-
-.. function:: iseltype(A,T)
-
-   .. Docstring generated from Julia source
-
-   Tests whether ``A`` or its elements are of type ``T``\ .
 
 .. function:: length(A) -> Integer
 
@@ -235,7 +229,7 @@ Constructors
 
    Create an uninitialized mutable array with the given element type and size, based upon the given source array. The second and third arguments are both optional, defaulting to the given array's ``eltype`` and ``size``\ . The dimensions may be specified either as a single tuple argument or as a series of integer arguments.
 
-   Custom AbstractArray subtypes may choose which specific array type is best-suited to return for the given element type and dimensionality. If they do not specialize this method, the default is an ``Array(element_type, dims...)``\ .
+   Custom AbstractArray subtypes may choose which specific array type is best-suited to return for the given element type and dimensionality. If they do not specialize this method, the default is an ``Array{element_type}(dims...)``\ .
 
    For example, ``similar(1:10, 1, 4)`` returns an uninitialized ``Array{Int,2}`` since ranges are neither mutable nor support 2 dimensions:
 
@@ -321,18 +315,6 @@ All mathematical operations and functions are supported for arrays
    .. Docstring generated from Julia source
 
    Like ``broadcast``\ , but allocates a ``BitArray`` to store the result, rather then an ``Array``\ .
-
-.. function:: broadcast_function(f)
-
-   .. Docstring generated from Julia source
-
-   Returns a function ``broadcast_f`` such that ``broadcast_function(f)(As...) === broadcast(f, As...)``\ . Most useful in the form ``const broadcast_f = broadcast_function(f)``\ .
-
-.. function:: broadcast!_function(f)
-
-   .. Docstring generated from Julia source
-
-   Like ``broadcast_function``\ , but for ``broadcast!``\ .
 
 Indexing, Assignment, and Concatenation
 ---------------------------------------
@@ -738,7 +720,7 @@ Combinatorics
 
    .. Docstring generated from Julia source
 
-   Construct a random permutation of length ``n``\ . The optional ``rng`` argument specifies a random number generator, see :ref:`Random Numbers <random-numbers>`\ .
+   Construct a random permutation of length ``n``\ . The optional ``rng`` argument specifies a random number generator (see :ref:`Random Numbers <random-numbers>`\ ). To randomly permute a arbitrary vector, see :func:`shuffle` or :func:`shuffle!`\ .
 
 .. function:: invperm(v)
 
@@ -776,13 +758,13 @@ Combinatorics
 
    .. Docstring generated from Julia source
 
-   Return a randomly permuted copy of ``v``\ . The optional ``rng`` argument specifies a random number generator, see :ref:`Random Numbers <random-numbers>`\ .
+   Return a randomly permuted copy of ``v``\ . The optional ``rng`` argument specifies a random number generator (see :ref:`Random Numbers <random-numbers>`\ ). To permute ``v`` in-place, see :func:`shuffle!`\ .  To obtain randomly permuted indices, see :func:`randperm`\ .
 
 .. function:: shuffle!([rng,] v)
 
    .. Docstring generated from Julia source
 
-   In-place version of :func:`shuffle`\ .
+   In-place version of :func:`shuffle`\ : randomly permute the array ``v`` in-place, optionally supplying the random-number generator ``rng``\ .
 
 .. function:: reverse(v [, start=1 [, stop=length(v) ]] )
 

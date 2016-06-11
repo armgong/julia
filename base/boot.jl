@@ -82,7 +82,6 @@
 #end
 
 #immutable LineNumberNode
-#    file::Symbol
 #    line::Int
 #end
 
@@ -96,10 +95,6 @@
 
 #immutable QuoteNode
 #    value
-#end
-
-#immutable TopNode
-#    name::Symbol
 #end
 
 #immutable GlobalRef
@@ -132,14 +127,14 @@ export
     Signed, Int, Int8, Int16, Int32, Int64, Int128,
     Unsigned, UInt, UInt8, UInt16, UInt32, UInt64, UInt128,
     # string types
-    Char, ASCIIString, ByteString, DirectIndexString, AbstractString, UTF8String,
+    Char, DirectIndexString, AbstractString, String,
     # errors
     BoundsError, DivideError, DomainError, Exception, InexactError,
     InterruptException, OutOfMemoryError, ReadOnlyMemoryError, OverflowError,
     StackOverflowError, SegmentationFault, UndefRefError, UndefVarError, TypeError,
     # AST representation
-    Expr, GotoNode, LabelNode, LineNumberNode, QuoteNode, TopNode,
-    GlobalRef, NewvarNode, GenSym, Slot, SlotNumber, TypedSlot,
+    Expr, GotoNode, LabelNode, LineNumberNode, QuoteNode,
+    GlobalRef, NewvarNode, SSAValue, Slot, SlotNumber, TypedSlot,
     # object model functions
     fieldtype, getfield, setfield!, nfields, throw, tuple, is, ===, isdefined, eval,
     # sizeof    # not exported, to avoid conflicting with Base.sizeof
@@ -218,19 +213,13 @@ end
 
 abstract DirectIndexString <: AbstractString
 
-immutable ASCIIString <: DirectIndexString
+immutable String <: AbstractString
     data::Array{UInt8,1}
-    ASCIIString(d::Array{UInt8,1}) = new(d)
+    # required to make String("foo") work (#15120):
+    String(d::Array{UInt8,1}) = new(d)
 end
 
-immutable UTF8String <: AbstractString
-    data::Array{UInt8,1}
-    UTF8String(d::Array{UInt8,1}) = new(d)
-end
-
-typealias ByteString Union{ASCIIString,UTF8String}
-
-include(fname::ByteString) = ccall(:jl_load_, Any, (Any,), fname)
+include(fname::String) = ccall(:jl_load_, Any, (Any,), fname)
 
 eval(e::ANY) = eval(Main, e)
 eval(m::Module, e::ANY) = ccall(:jl_toplevel_eval_in, Any, (Any, Any), m, e)
@@ -277,14 +266,16 @@ end
 
 Expr(args::ANY...) = _expr(args...)
 
+# used by lowering of splicing unquote
+splicedexpr(hd::Symbol, args::Array{Any,1}) = (e=Expr(hd); e.args=args; e)
+
 _new(typ::Symbol, argty::Symbol) = eval(:((::Type{$typ})(n::$argty) = $(Expr(:new, typ, :n))))
 _new(:LabelNode, :Int)
 _new(:GotoNode, :Int)
-_new(:TopNode, :Symbol)
 _new(:NewvarNode, :SlotNumber)
 _new(:QuoteNode, :ANY)
-_new(:GenSym, :Int)
-eval(:((::Type{LineNumberNode})(f::Symbol, l::Int) = $(Expr(:new, :LineNumberNode, :f, :l))))
+_new(:SSAValue, :Int)
+eval(:((::Type{LineNumberNode})(l::Int) = $(Expr(:new, :LineNumberNode, :l))))
 eval(:((::Type{GlobalRef})(m::Module, s::Symbol) = $(Expr(:new, :GlobalRef, :m, :s))))
 eval(:((::Type{SlotNumber})(n::Int) = $(Expr(:new, :SlotNumber, :n))))
 eval(:((::Type{TypedSlot})(n::Int, t::ANY) = $(Expr(:new, :TypedSlot, :n, :t))))
@@ -300,6 +291,8 @@ convert(::Type{Any}, x::ANY) = x
 convert{T}(::Type{T}, x::T) = x
 cconvert{T}(::Type{T}, x) = convert(T, x)
 unsafe_convert{T}(::Type{T}, x::T) = x
+
+typealias NTuple{N,T} Tuple{Vararg{T,N}}
 
 # primitive array constructors
 (::Type{Array{T,N}}){T,N}(d::NTuple{N,Int}) =

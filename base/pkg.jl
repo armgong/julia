@@ -11,6 +11,23 @@ const META_BRANCH = "metadata-v2"
 
 type PkgError <: Exception
     msg::AbstractString
+    ex::Nullable{Exception}
+end
+PkgError(msg::AbstractString) = PkgError(msg, Nullable{Exception}())
+function Base.showerror(io::IO, pkgerr::PkgError)
+    print(io, pkgerr.msg)
+    if !isnull(pkgerr.ex)
+        pkgex = get(pkgerr.ex)
+        if isa(pkgex, CompositeException)
+            for cex in pkgex
+                print(io, "\n=> ")
+                showerror(io, cex)
+            end
+        else
+            print(io, "\n")
+            showerror(io, pkgex)
+        end
+    end
 end
 
 for file in split("dir types reqs cache read query resolve write entry git")
@@ -83,7 +100,7 @@ intervals for `pkg`.
 add(pkg::AbstractString, vers::VersionNumber...) = cd(Entry.add,pkg,vers...)
 
 """
-    available() -> Vector{ASCIIString}
+    available() -> Vector{String}
 
 Returns the names of available packages.
 """
@@ -97,7 +114,7 @@ Returns the version numbers available for package `pkg`.
 available(pkg::AbstractString) = cd(Entry.available,pkg)
 
 """
-    installed() -> Dict{ASCIIString,VersionNumber}
+    installed() -> Dict{String,VersionNumber}
 
 Returns a dictionary mapping installed package names to the installed version number of each
 package.

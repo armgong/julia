@@ -12,10 +12,10 @@ using Base.Test
 @test ones(0,0)*ones(0,4) == zeros(0,4)
 @test ones(3,0)*ones(0,0) == zeros(3,0)
 @test ones(0,0)*ones(0,0) == zeros(0,0)
-@test Array(Float64, 5, 0) |> t -> t't == zeros(0,0)
-@test Array(Float64, 5, 0) |> t -> t*t' == zeros(5,5)
-@test Array(Complex128, 5, 0) |> t -> t't == zeros(0,0)
-@test Array(Complex128, 5, 0) |> t -> t*t' == zeros(5,5)
+@test Array{Float64}(5, 0) |> t -> t't == zeros(0,0)
+@test Array{Float64}(5, 0) |> t -> t*t' == zeros(5,5)
+@test Array{Complex128}(5, 0) |> t -> t't == zeros(0,0)
+@test Array{Complex128}(5, 0) |> t -> t*t' == zeros(5,5)
 
 # 2x2
 let
@@ -97,7 +97,7 @@ let
     end
     AA = rand(1:20, 5, 5) .- 10
     BB = rand(1:20, 5, 5) .- 10
-    CC = Array(Int, size(AA, 1), size(BB, 2))
+    CC = Array{Int}(size(AA, 1), size(BB, 2))
     for Atype = ["Array", "SubArray"], Btype = ["Array", "SubArray"], Ctype = ["Array", "SubArray"]
         A = Atype == "Array" ? AA : sub(AA, 1:5, 1:5)
         B = Btype == "Array" ? BB : sub(BB, 1:5, 1:5)
@@ -116,7 +116,7 @@ let
         @test_throws DimensionMismatch Base.LinAlg.Ac_mul_Bt!(C,ones(Int,4,4),B)
     end
     vv = [1,2]
-    CC = Array(Int, 2, 2)
+    CC = Array{Int}(2, 2)
     for vtype = ["Array", "SubArray"], Ctype = ["Array", "SubArray"]
         v = vtype == "Array" ? vv : sub(vv, 1:2)
         C = Ctype == "Array" ? CC : sub(CC, 1:2, 1:2)
@@ -135,14 +135,14 @@ let
         @test_throws DimensionMismatch Base.LinAlg.generic_matvecmul!(B,'N',A,zeros(6))
     end
     vv = [1,2,3]
-    CC = Array(Int, 3, 3)
+    CC = Array{Int}(3, 3)
     for vtype = ["Array", "SubArray"], Ctype = ["Array", "SubArray"]
         v = vtype == "Array" ? vv : sub(vv, 1:3)
         C = Ctype == "Array" ? CC : sub(CC, 1:3, 1:3)
         @test A_mul_Bt!(C, v, v) == v*v'
     end
     vvf = map(Float64,vv)
-    CC = Array(Float64, 3, 3)
+    CC = Array{Float64}(3, 3)
     for vtype = ["Array", "SubArray"], Ctype = ["Array", "SubArray"]
         vf = vtype == "Array" ? vvf : sub(vvf, 1:3)
         C = Ctype == "Array" ? CC : sub(CC, 1:3, 1:3)
@@ -276,12 +276,12 @@ end
 
 # Issue 11978
 let
-    A = Array(Matrix{Float64}, 2, 2)
+    A = Array{Matrix{Float64}}(2, 2)
     A[1,1] = eye(3)
     A[1,2] = eye(3,2)
     A[2,1] = eye(2,3)
     A[2,2] = eye(2)
-    b = Array(Vector{Float64}, 2)
+    b = Array{Vector{Float64}}(2)
     b[1] = ones(3)
     b[2] = ones(2)
     @test A*b == Vector{Float64}[[2,2,1], [2,2]]
@@ -332,3 +332,59 @@ a = [RootInt(2),RootInt(10)]
 @test a*a' == [4 20; 20 100]
 A = [RootInt(3) RootInt(5)]
 @test A*a == [56]
+
+function test_mul(C, A, B)
+    A_mul_B!(C, A, B)
+    @test full(A) * full(B) ≈ C
+    @test A*B ≈ C
+end
+
+let
+    eltypes = [Float32, Float64, Int64]
+    for k in [3, 4, 10]
+        T = rand(eltypes)
+        bi1 = Bidiagonal(rand(T, k), rand(T, k-1), rand(Bool))
+        bi2 = Bidiagonal(rand(T, k), rand(T, k-1), rand(Bool))
+        tri1 = Tridiagonal(rand(T,k-1), rand(T, k), rand(T, k-1))
+        tri2 = Tridiagonal(rand(T,k-1), rand(T, k), rand(T, k-1))
+        stri1 = SymTridiagonal(rand(T, k), rand(T, k-1))
+        stri2 = SymTridiagonal(rand(T, k), rand(T, k-1))
+        C = rand(T, k, k)
+        specialmatrices = (bi1, bi2, tri1, tri2, stri1, stri2)
+        for A in specialmatrices
+            B = specialmatrices[rand(1:length(specialmatrices))]
+            test_mul(C, A, B)
+        end
+        for S in specialmatrices
+            l = rand(1:6)
+            B = randn(k, l)
+            C = randn(k, l)
+            test_mul(C, S, B)
+            A = randn(l, k)
+            C = randn(l, k)
+            test_mul(C, A, S)
+        end
+    end
+    for T in eltypes
+        A = Bidiagonal(rand(T, 2), rand(T, 1), rand(Bool))
+        B = Bidiagonal(rand(T, 2), rand(T, 1), rand(Bool))
+        C = randn(2,2)
+        test_mul(C, A, B)
+        B = randn(2, 9)
+        C = randn(2, 9)
+        test_mul(C, A, B)
+    end
+    let
+        tri44 = Tridiagonal(randn(3), randn(4), randn(3))
+        tri33 = Tridiagonal(randn(2), randn(3), randn(2))
+        full43 = randn(4, 3)
+        full24 = randn(2, 4)
+        full33 = randn(3, 3)
+        full44 = randn(4, 4)
+        @test_throws DimensionMismatch A_mul_B!(full43, tri44, tri33)
+        @test_throws DimensionMismatch A_mul_B!(full44, tri44, tri33)
+        @test_throws DimensionMismatch A_mul_B!(full44, tri44, full43)
+        @test_throws DimensionMismatch A_mul_B!(full43, tri33, full43)
+        @test_throws DimensionMismatch A_mul_B!(full43, full43, tri44)
+    end
+end

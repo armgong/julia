@@ -19,14 +19,14 @@ const TAGS = Any[
     #LongSymbol, LongTuple, LongExpr,
     Symbol, Tuple, Expr,  # dummy entries, intentionally shadowed by earlier ones
     LineNumberNode, Slot, LabelNode, GotoNode,
-    QuoteNode, TopNode, TypeVar, Core.Box, LambdaInfo,
-    Module, #=UndefRefTag=#Symbol, Task, ASCIIString, UTF8String,
+    QuoteNode, :reserved23 #=was TopNode=#, TypeVar, Core.Box, LambdaInfo,
+    Module, #=UndefRefTag=#Symbol, Task, String,
     UTF16String, UTF32String, Float16,
-    SimpleVector, #=BackrefTag=#Symbol, Method, :reserved12,
+    SimpleVector, #=BackrefTag=#Symbol, Method, GlobalRef,
 
     (), Bool, Any, :Any, Bottom, :reserved21, :reserved22, Type,
     :Array, :TypeVar, :Box,
-    :lambda, :body, :return, :call, symbol("::"),
+    :lambda, :body, :return, :call, Symbol("::"),
     :(=), :null, :gotoifnot, :A, :B, :C, :M, :N, :T, :S, :X, :Y,
     :a, :b, :c, :d, :e, :f, :g, :h, :i, :j, :k, :l, :m, :n, :o,
     :p, :q, :r, :s, :t, :u, :v, :w, :x, :y, :z,
@@ -72,12 +72,13 @@ const BACKREF_TAG = Int32(sertag(SimpleVector)+1)
 const EXPR_TAG = sertag(Expr)
 const LONGEXPR_TAG = Int32(sertag(Expr)+3)
 const MODULE_TAG = sertag(Module)
-const LAMBDASTATICDATA_TAG = sertag(LambdaInfo)
+const LAMBDAINFO_TAG = sertag(LambdaInfo)
 const METHOD_TAG = sertag(Method)
 const TASK_TAG = sertag(Task)
 const DATATYPE_TAG = sertag(DataType)
 const TYPENAME_TAG = sertag(TypeName)
 const INT_TAG = sertag(Int)
+const GLOBALREF_TAG = sertag(GlobalRef)
 
 writetag(s::IO, tag) = write(s, UInt8(tag))
 
@@ -212,7 +213,7 @@ function serialize{T,N,A<:Array}(s::SerializationState, a::SubArray{T,N,A})
 end
 
 function trimmedsubarray{T,N,A<:Array}(V::SubArray{T,N,A})
-    dest = Array(eltype(V), trimmedsize(V))
+    dest = Array{eltype(V)}(trimmedsize(V))
     copy!(dest, V)
     _trimmedsubarray(dest, V, (), V.indexes...)
 end
@@ -314,6 +315,9 @@ function serialize(s::SerializationState, meth::Method)
     serialize(s, meth.name)
     serialize(s, meth.file)
     serialize(s, meth.line)
+    serialize(s, meth.sig)
+    serialize(s, meth.tvars)
+    serialize(s, meth.ambig)
     serialize(s, meth.isstaged)
     serialize(s, meth.lambda_template)
     if isdefined(meth, :roots)
@@ -326,12 +330,12 @@ end
 
 function serialize(s::SerializationState, linfo::LambdaInfo)
     serialize_cycle(s, linfo) && return
-    writetag(s.io, LAMBDASTATICDATA_TAG)
+    writetag(s.io, LAMBDAINFO_TAG)
     serialize(s, uncompressed_ast(linfo))
     serialize(s, linfo.slotnames)
     serialize(s, linfo.slottypes)
     serialize(s, linfo.slotflags)
-    serialize(s, linfo.gensymtypes)
+    serialize(s, linfo.ssavaluetypes)
     serialize(s, linfo.sparam_syms)
     serialize(s, linfo.sparam_vals)
     serialize(s, linfo.rettype)
@@ -361,6 +365,23 @@ function serialize(s::SerializationState, t::Task)
     for fld in state
         serialize(s, fld)
     end
+end
+
+function serialize(s::SerializationState, g::GlobalRef)
+    writetag(s.io, GLOBALREF_TAG)
+    if g.mod === Main && isdefined(g.mod, g.name) && isconst(g.mod, g.name)
+        v = eval(g)
+        if isa(v, DataType) && v === v.name.primary && should_send_whole_type(s, v)
+            # handle references to types in Main by sending the whole type.
+            # needed to be able to send nested functions (#15451).
+            write(s.io, UInt8(1))
+            serialize(s, v)
+            return
+        end
+    end
+    write(s.io, UInt8(0))
+    serialize(s, g.mod)
+    serialize(s, g.name)
 end
 
 function serialize(s::SerializationState, t::TypeName)
@@ -527,9 +548,9 @@ function handle_deserialize(s::SerializationState, b::Int32)
     elseif b == DATATYPE_TAG
         return deserialize_datatype(s)
     elseif b == SYMBOL_TAG
-        return symbol(read(s.io, UInt8, Int(read(s.io, UInt8)::UInt8)))
+        return Symbol(read(s.io, UInt8, Int(read(s.io, UInt8)::UInt8)))
     elseif b == LONGSYMBOL_TAG
-        return symbol(read(s.io, UInt8, Int(read(s.io, Int32)::Int32)))
+        return Symbol(read(s.io, UInt8, Int(read(s.io, Int32)::Int32)))
     elseif b == EXPR_TAG
         return deserialize_expr(s, Int(read(s.io, UInt8)::UInt8))
     elseif b == LONGEXPR_TAG
@@ -585,6 +606,9 @@ function deserialize(s::SerializationState, ::Type{Method})
     name = deserialize(s)::Symbol
     file = deserialize(s)::Symbol
     line = deserialize(s)
+    sig = deserialize(s)
+    tvars = deserialize(s)
+    ambig = deserialize(s)
     isstaged = deserialize(s)::Bool
     template = deserialize(s)::LambdaInfo
     tag = Int32(read(s.io, UInt8)::UInt8)
@@ -598,6 +622,9 @@ function deserialize(s::SerializationState, ::Type{Method})
         meth.name = name
         meth.file = file
         meth.line = line
+        meth.sig = sig
+        meth.tvars = tvars
+        meth.ambig = ambig
         meth.isstaged = isstaged
         meth.lambda_template = template
         roots === nothing || (meth.roots = roots)
@@ -614,7 +641,7 @@ function deserialize(s::SerializationState, ::Type{LambdaInfo})
     linfo.slotnames = deserialize(s)::Array{Any, 1}
     linfo.slottypes = deserialize(s)
     linfo.slotflags = deserialize(s)
-    linfo.gensymtypes = deserialize(s)
+    linfo.ssavaluetypes = deserialize(s)
     linfo.sparam_syms = deserialize(s)::SimpleVector
     linfo.sparam_vals = deserialize(s)::SimpleVector
     linfo.rettype = deserialize(s)
@@ -640,7 +667,7 @@ function deserialize_array(s::SerializationState)
     end
     if isa(d1,Integer)
         if elty !== Bool && isbits(elty)
-            return read!(s.io, Array(elty, d1))
+            return read!(s.io, Array{elty}(d1))
         end
         dims = (Int(d1),)
     else
@@ -649,7 +676,7 @@ function deserialize_array(s::SerializationState)
     if isbits(elty)
         n = prod(dims)::Int
         if elty === Bool && n>0
-            A = Array(Bool, dims)
+            A = Array{Bool}(dims)
             i = 1
             while i <= n
                 b = read(s.io, UInt8)::UInt8
@@ -665,7 +692,7 @@ function deserialize_array(s::SerializationState)
         end
         return A
     end
-    A = Array(elty, dims)
+    A = Array{elty}(dims)
     deserialize_cycle(s, A)
     for i = eachindex(A)
         tag = Int32(read(s.io, UInt8)::UInt8)
@@ -684,6 +711,16 @@ function deserialize_expr(s::SerializationState, len)
     e.args = Any[ deserialize(s) for i=1:len ]
     e.typ = ty
     e
+end
+
+function deserialize(s::SerializationState, ::Type{GlobalRef})
+    kind = read(s.io, UInt8)
+    if kind == 0
+        return GlobalRef(deserialize(s)::Module, deserialize(s)::Symbol)
+    else
+        ty = deserialize(s)
+        return GlobalRef(ty.name.module, ty.name.name)
+    end
 end
 
 function deserialize(s::SerializationState, ::Type{Union})

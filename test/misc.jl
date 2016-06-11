@@ -130,12 +130,6 @@ func4union(::Union{Type4Union,Int}) = ()
 let
     redir_err = "redirect_stderr(STDOUT)"
     exename = Base.julia_cmd()
-    script = "$redir_err; f(a::Number, b...) = 1;f(a, b::Number) = 1"
-    warning_str = readstring(`$exename -f -e $script`)
-    @test contains(warning_str, "f(Any, Number)")
-    @test contains(warning_str, "f(Number, Any...)")
-    @test contains(warning_str, "f(Number, Number)")
-
     script = "$redir_err; module A; f() = 1; end; A.f() = 1"
     warning_str = readstring(`$exename -f -e $script`)
     @test contains(warning_str, "f()")
@@ -200,7 +194,11 @@ end
 @test Base.is_unix(:Darwin)
 @test Base.is_unix(:FreeBSD)
 @test_throws ArgumentError Base.is_unix(:BeOS)
-@unix_only @test Base.windows_version() == (0,0)
+if !is_windows()
+    @test Sys.windows_version() === (0, 0)
+else
+    @test (Sys.windows_version()::Tuple{Int,Int})[1] > 0
+end
 
 # Issue 14173
 module Tmp14173
@@ -379,11 +377,13 @@ for (X,Y,Z) in ((V16,V16,V16), (I16,V16,I16), (V16,I16,V16), (V16,V16,I16), (I16
 end
 
 # clipboard functionality
-@windows_only for str in ("Hello, world.","∀ x ∃ y","")
-    clipboard(str)
-    @test clipboard() == str
+if is_windows()
+    for str in ("Hello, world.", "∀ x ∃ y", "")
+        clipboard(str)
+        @test clipboard() == str
+    end
 end
 
-optstring = sprint(show,Base.JLOptions())
-@test startswith(optstring,"JLOptions(")
-@test endswith(optstring,")")
+optstring = sprint(show, Base.JLOptions())
+@test startswith(optstring, "JLOptions(")
+@test endswith(optstring, ")")

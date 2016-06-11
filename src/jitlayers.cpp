@@ -69,6 +69,10 @@ static void addOptimizationPasses(T *PM)
 
     PM->add(createEarlyCSEPass()); //// ****
 
+#ifdef USE_POLLY
+    polly::registerPollyPasses(*PM);
+#endif
+
     PM->add(createLoopIdiomPass()); //// ****
     PM->add(createLoopRotatePass());           // Rotate loops.
     // LoopRotate strips metadata from terminator, so run LowerSIMD afterwards
@@ -202,7 +206,7 @@ extern RTDyldMemoryManager *createRTDyldMemoryManagerUnix();
 // This is the library that provides support for c11/c++11 atomic operations.
 static uint64_t resolve_atomic(const char *name)
 {
-    static void *atomic_hdl = jl_load_dynamic_library_e("libatomic.so",
+    static void *atomic_hdl = jl_load_dynamic_library_e("libatomic",
                                                         JL_RTLD_LOCAL);
     static const char *const atomic_prefix = "__atomic_";
     if (!atomic_hdl)
@@ -269,13 +273,15 @@ class JuliaOJIT {
                         continue;
                     if (!(Flags & object::BasicSymbolRef::SF_Exported))
                         continue;
-                    auto Name = Symbol.getName();
-                    orc::JITSymbol Sym = JIT.CompileLayer.findSymbolIn(H, *Name, true);
+                    auto NameOrError = Symbol.getName();
+                    assert(NameOrError);
+                    auto Name = NameOrError.get();
+                    orc::JITSymbol Sym = JIT.CompileLayer.findSymbolIn(H, Name, true);
                     assert(Sym);
                     // note: calling getAddress here eagerly finalizes H
                     // as an alternative, we could store the JITSymbol instead
                     // (which would present a lazy-initializer functor interface instead)
-                    JIT.LocalSymbolTable[*Name] = (void*)(uintptr_t)Sym.getAddress();
+                    JIT.LocalSymbolTable[Name] = (void*)(uintptr_t)Sym.getAddress();
                 }
             }
         }
@@ -812,11 +818,11 @@ static void* jl_emit_and_add_to_shadow(GlobalVariable *gv, void *gvarinit = NULL
 #endif
 }
 
-#ifdef JULIA_ENABLE_THREADING // only used in the threading build
+#ifdef JULIA_ENABLE_THREADING
 // Emit a slot in the system image to be filled at sysimg init time.
 // Returns the global var. Fill `idx` with 1-base index in the sysimg gv.
 // Use as an optimization for runtime constant addresses to have one less
-// load.
+// load. (Used only by threading).
 static GlobalVariable *jl_emit_sysimg_slot(Module *m, Type *typ, const char *name,
                                            uintptr_t init, size_t &idx)
 {
@@ -915,12 +921,6 @@ static void jl_gen_llvm_globaldata(llvm::Module *mod, ValueToValueMapTy &VMap,
                                  GlobalVariable::ExternalLinkage,
                                  ConstantInt::get(T_size, jltls_states_func_idx),
                                  "jl_ptls_states_getter_idx"));
-    addComdat(new GlobalVariable(*mod,
-                                 T_size,
-                                 true,
-                                 GlobalVariable::ExternalLinkage,
-                                 ConstantInt::get(T_size, jl_gc_signal_page_idx),
-                                 "jl_gc_signal_page_idx"));
 #endif
 
     Constant *feature_string = ConstantDataArray::getString(jl_LLVMContext, jl_options.cpu_target);
@@ -1009,6 +1009,8 @@ static void jl_dump_shadow(char *fname, int jit_model, const char *sysimg_data, 
         jl_TargetMachine->Options,
 #if defined(_OS_LINUX_) || defined(_OS_FREEBSD_)
         Reloc::PIC_,
+#elif defined(LLVM39)
+        jit_model ? Reloc::PIC_ : Optional<Reloc::Model>(),
 #else
         jit_model ? Reloc::PIC_ : Reloc::Default,
 #endif

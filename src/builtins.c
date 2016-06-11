@@ -194,25 +194,25 @@ JL_CALLABLE(jl_f_throw)
 
 JL_DLLEXPORT void jl_enter_handler(jl_handler_t *eh)
 {
-    JL_SIGATOMIC_BEGIN();
+    // Must have no safepoint
     eh->prev = jl_current_task->eh;
     eh->gcstack = jl_pgcstack;
 #ifdef JULIA_ENABLE_THREADING
     eh->gc_state = jl_gc_state();
     eh->locks_len = jl_current_task->locks.len;
 #endif
+    eh->defer_signal = jl_get_ptls_states()->defer_signal;
     jl_current_task->eh = eh;
-    // TODO: this should really go after setjmp(). see comment in
-    // ctx_switch in task.c.
-    JL_SIGATOMIC_END();
 }
 
 JL_DLLEXPORT void jl_pop_handler(int n)
 {
-    while (n > 0) {
-        jl_eh_restore_state(jl_current_task->eh);
-        n--;
-    }
+    if (__unlikely(n <= 0))
+        return;
+    jl_handler_t *eh = jl_current_task->eh;
+    while (--n > 0)
+        eh = eh->prev;
+    jl_eh_restore_state(eh);
 }
 
 // primitives -----------------------------------------------------------------
@@ -928,15 +928,6 @@ JL_CALLABLE(jl_f_apply_type)
     return jl_apply_type_(args[0], &args[1], nargs-1);
 }
 
-JL_DLLEXPORT jl_value_t *jl_new_type_constructor(jl_svec_t *p, jl_value_t *t)
-{
-    jl_value_t *tc = (jl_value_t*)jl_new_type_ctor(p, t);
-    int i;
-    for(i=0; i < jl_svec_len(p); i++)
-        ((jl_tvar_t*)jl_svecref(p,i))->bound = 0;
-    return tc;
-}
-
 // generic function reflection ------------------------------------------------
 
 static void jl_check_type_tuple(jl_value_t *t, jl_sym_t *name, const char *ctx)
@@ -1128,7 +1119,6 @@ void jl_init_primitives(void)
     add_builtin("TypeName", (jl_value_t*)jl_typename_type);
     add_builtin("TypeConstructor", (jl_value_t*)jl_typector_type);
     add_builtin("Tuple", (jl_value_t*)jl_anytuple_type);
-    add_builtin("NTuple", (jl_value_t*)jl_ntuple_type);
     add_builtin("Vararg", (jl_value_t*)jl_vararg_type);
     add_builtin("Type", (jl_value_t*)jl_type_type);
     add_builtin("DataType", (jl_value_t*)jl_datatype_type);
@@ -1141,7 +1131,7 @@ void jl_init_primitives(void)
     add_builtin("TypeMapEntry", (jl_value_t*)jl_typemap_entry_type);
     add_builtin("TypeMapLevel", (jl_value_t*)jl_typemap_level_type);
     add_builtin("Symbol", (jl_value_t*)jl_sym_type);
-    add_builtin("GenSym", (jl_value_t*)jl_gensym_type);
+    add_builtin("SSAValue", (jl_value_t*)jl_ssavalue_type);
     add_builtin("Slot", (jl_value_t*)jl_abstractslot_type);
     add_builtin("SlotNumber", (jl_value_t*)jl_slotnumber_type);
     add_builtin("TypedSlot", (jl_value_t*)jl_typedslot_type);
@@ -1162,7 +1152,6 @@ void jl_init_primitives(void)
     add_builtin("LabelNode", (jl_value_t*)jl_labelnode_type);
     add_builtin("GotoNode", (jl_value_t*)jl_gotonode_type);
     add_builtin("QuoteNode", (jl_value_t*)jl_quotenode_type);
-    add_builtin("TopNode", (jl_value_t*)jl_topnode_type);
     add_builtin("NewvarNode", (jl_value_t*)jl_newvarnode_type);
     add_builtin("GlobalRef", (jl_value_t*)jl_globalref_type);
 
@@ -1314,7 +1303,7 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v, jl_datatype_t *vt
     else if ((jl_value_t*)vt == jl_typeof(jl_nothing)) {
         n += jl_printf(out, "nothing");
     }
-    else if (vt == jl_ascii_string_type || vt == jl_utf8_string_type) {
+    else if (vt == jl_string_type) {
         n += jl_printf(out, "\"%s\"", jl_iostr_data(v));
     }
     else if (vt == jl_uniontype_type) {
@@ -1343,9 +1332,9 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v, jl_datatype_t *vt
     else if (vt == jl_sym_type) {
         n += jl_printf(out, ":%s", jl_symbol_name((jl_sym_t*)v));
     }
-    else if (vt == jl_gensym_type) {
-        n += jl_printf(out, "GenSym(%" PRIuPTR ")",
-                       (uintptr_t)((jl_gensym_t*)v)->id);
+    else if (vt == jl_ssavalue_type) {
+        n += jl_printf(out, "SSAValue(%" PRIuPTR ")",
+                       (uintptr_t)((jl_ssavalue_t*)v)->id);
     }
     else if (vt == jl_globalref_type) {
         n += jl_static_show_x(out, (jl_value_t*)jl_globalref_mod(v), depth);
@@ -1372,14 +1361,8 @@ static size_t jl_static_show_x_(JL_STREAM *out, jl_value_t *v, jl_datatype_t *vt
         n += jl_static_show_x(out, *(jl_value_t**)v, depth);
         n += jl_printf(out, ">");
     }
-    else if (vt == jl_topnode_type) {
-        n += jl_printf(out, "top(");
-        n += jl_static_show_x(out, *(jl_value_t**)v, depth);
-        n += jl_printf(out, ")");
-    }
     else if (vt == jl_linenumbernode_type) {
-        n += jl_printf(out, "# line %" PRIuPTR " %s",
-                       jl_linenode_line(v), jl_symbol_name(jl_linenode_file(v)));
+        n += jl_printf(out, "# line %" PRIuPTR, jl_linenode_line(v));
     }
     else if (vt == jl_expr_type) {
         jl_expr_t *e = (jl_expr_t*)v;
@@ -1579,7 +1562,7 @@ JL_DLLEXPORT void jl_(void *jl_value)
 
 JL_DLLEXPORT void jl_breakpoint(jl_value_t *v)
 {
-    // put a breakpoint in you debugger here
+    // put a breakpoint in your debugger here
 }
 
 #ifdef __cplusplus

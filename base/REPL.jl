@@ -15,7 +15,7 @@ export
 import Base:
     Display,
     display,
-    writemime,
+    show,
     AnyDict,
     ==
 
@@ -111,7 +111,7 @@ end
 function display(d::REPLDisplay, ::MIME"text/plain", x)
     io = outstream(d.repl)
     Base.have_color && write(io, answer_color(d.repl))
-    writemime(io, MIME("text/plain"), x)
+    show(IOContext(io, multiline=true, limit=true), MIME("text/plain"), x)
     println(io)
 end
 display(d::REPLDisplay, x) = display(d, MIME("text/plain"), x)
@@ -230,11 +230,11 @@ end
 type LineEditREPL <: AbstractREPL
     t::TextTerminal
     hascolor::Bool
-    prompt_color::AbstractString
-    input_color::AbstractString
-    answer_color::AbstractString
-    shell_color::AbstractString
-    help_color::AbstractString
+    prompt_color::String
+    input_color::String
+    answer_color::String
+    shell_color::String
+    help_color::String
     history_file::Bool
     in_shell::Bool
     in_help::Bool
@@ -271,10 +271,10 @@ end
 
 immutable LatexCompletions <: CompletionProvider; end
 
-bytestring_beforecursor(buf::IOBuffer) = bytestring(buf.data[1:buf.ptr-1])
+beforecursor(buf::IOBuffer) = String(buf.data[1:buf.ptr-1])
 
 function complete_line(c::REPLCompletionProvider, s)
-    partial = bytestring_beforecursor(s.input_buffer)
+    partial = beforecursor(s.input_buffer)
     full = LineEdit.input_string(s)
     ret, range, should_complete = completions(full, endof(partial))
     return ret, partial[range], should_complete
@@ -282,14 +282,14 @@ end
 
 function complete_line(c::ShellCompletionProvider, s)
     # First parse everything up to the current position
-    partial = bytestring_beforecursor(s.input_buffer)
+    partial = beforecursor(s.input_buffer)
     full = LineEdit.input_string(s)
     ret, range, should_complete = shell_completions(full, endof(partial))
     return ret, partial[range], should_complete
 end
 
 function complete_line(c::LatexCompletions, s)
-    partial = bytestring_beforecursor(LineEdit.buffer(s))
+    partial = beforecursor(LineEdit.buffer(s))
     full = LineEdit.input_string(s)
     ret, range, should_complete = bslash_completions(full, endof(partial))[2]
     return ret, partial[range], should_complete
@@ -297,7 +297,7 @@ end
 
 
 type REPLHistoryProvider <: HistoryProvider
-    history::Array{AbstractString,1}
+    history::Array{String,1}
     history_file
     start_idx::Int
     cur_idx::Int
@@ -308,7 +308,7 @@ type REPLHistoryProvider <: HistoryProvider
     modes::Array{Symbol,1}
 end
 REPLHistoryProvider(mode_mapping) =
-    REPLHistoryProvider(AbstractString[], nothing, 0, 0, -1, IOBuffer(),
+    REPLHistoryProvider(String[], nothing, 0, 0, -1, IOBuffer(),
                         nothing, mode_mapping, UInt8[])
 
 const invalid_history_message = """
@@ -323,11 +323,11 @@ An editor may have converted tabs to spaces at line """
 
 function hist_getline(file)
     while !eof(file)
-        line = utf8(readline(file))
+        line = readline(file)
         isempty(line) && return line
         line[1] in "\r\n" || return line
     end
-    return utf8("")
+    return ""
 end
 
 function hist_from_file(hp, file)
@@ -345,7 +345,7 @@ function hist_from_file(hp, file)
             m = match(r"^#\s*(\w+)\s*:\s*(.*?)\s*$", line)
             m === nothing && break
             if m.captures[1] == "mode"
-                mode = symbol(m.captures[2])
+                mode = Symbol(m.captures[2])
             end
             line = hist_getline(file)
             countlines += 1
@@ -356,11 +356,11 @@ function hist_from_file(hp, file)
             error(munged_history_message, countlines)
         line[1] != '\t' &&
             error(invalid_history_message, repr(line[1]), " at line ", countlines)
-        lines = UTF8String[]
+        lines = String[]
         while !isempty(line)
             push!(lines, chomp(line[2:end]))
             eof(file) && break
-            ch = Base.peek(file)
+            ch = Char(Base.peek(file))
             ch == ' '  && error(munged_history_message, countlines)
             ch != '\t' && break
             line = hist_getline(file)
@@ -383,7 +383,7 @@ function mode_idx(hist::REPLHistoryProvider, mode)
 end
 
 function add_history(hist::REPLHistoryProvider, s)
-    str = rstrip(bytestring(s.input_buffer))
+    str = rstrip(String(s.input_buffer))
     isempty(strip(str)) && return
     mode = mode_idx(hist, LineEdit.mode(s))
     !isempty(hist.history) &&
@@ -497,7 +497,7 @@ function history_move_prefix(s::LineEdit.PrefixSearchState,
                              prefix::AbstractString,
                              backwards::Bool,
                              cur_idx = hist.cur_idx)
-    cur_response = bytestring(LineEdit.buffer(s))
+    cur_response = String(LineEdit.buffer(s))
     # when searching forward, start at last_idx
     if !backwards && hist.last_idx > 0
         cur_idx = hist.last_idx
@@ -537,8 +537,8 @@ function history_search(hist::REPLHistoryProvider, query_buffer::IOBuffer, respo
 
     qpos = position(query_buffer)
     qpos > 0 || return true
-    searchdata = bytestring_beforecursor(query_buffer)
-    response_str = bytestring(response_buffer)
+    searchdata = beforecursor(query_buffer)
+    response_str = String(response_buffer)
 
     # Alright, first try to see if the current match still works
     a = position(response_buffer) + 1
@@ -568,7 +568,7 @@ function history_search(hist::REPLHistoryProvider, query_buffer::IOBuffer, respo
         if match != 0:-1 && h != response_str && haskey(hist.mode_mapping, hist.modes[idx])
             truncate(response_buffer, 0)
             write(response_buffer, h)
-            seek(response_buffer, prevind(response_str, first(match)))
+            seek(response_buffer, prevind(h, first(match)))
             hist.cur_idx = idx
             return true
         end
@@ -589,7 +589,7 @@ const julia_green = "\033[1m\033[32m"
 
 function return_callback(s)
     ast = Base.syntax_deprecation_warnings(false) do
-        Base.parse_input_line(bytestring(LineEdit.buffer(s)))
+        Base.parse_input_line(String(LineEdit.buffer(s)))
     end
     if  !isa(ast, Expr) || (ast.head != :continue && ast.head != :incomplete)
         return true
@@ -731,7 +731,7 @@ function setup_interface(repl::LineEditREPL; hascolor = repl.hascolor, extra_rep
         # and pass into Base.repl_cmd for processing (handles `ls` and `cd`
         # special)
         on_done = respond(repl, julia_prompt) do line
-            Expr(:call, :(Base.repl_cmd), macroexpand(Expr(:macrocall, symbol("@cmd"),line)), outstream(repl))
+            Expr(:call, :(Base.repl_cmd), macroexpand(Expr(:macrocall, Symbol("@cmd"),line)), outstream(repl))
         end)
 
 
@@ -893,9 +893,9 @@ end
 
 type StreamREPL <: AbstractREPL
     stream::IO
-    prompt_color::AbstractString
-    input_color::AbstractString
-    answer_color::AbstractString
+    prompt_color::String
+    input_color::String
+    answer_color::String
     waserror::Bool
     StreamREPL(stream,pc,ic,ac) = new(stream,pc,ic,ac,false)
 end

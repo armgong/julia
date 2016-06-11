@@ -15,11 +15,11 @@ Upon return, `tests` is a vector of fully-expanded test names, and
 """ ->
 function choosetests(choices = [])
     testnames = [
-        "linalg", "core", "inference", "keywordargs", "numbers", "printf",
-        "char", "string", "triplequote", "unicode",
+        "linalg", "subarray", "core", "inference", "keywordargs", "numbers",
+        "printf", "char", "string", "triplequote", "unicode",
         "dates", "dict", "hashing", "remote", "iobuffer", "staged",
-        "arrayops", "tuple", "subarray", "reduce", "reducedim", "random",
-        "abstractarray", "intfuncs", "simdloop", "vecelement", "blas", "sparse",
+        "arrayops", "tuple", "reduce", "reducedim", "random", "abstractarray",
+        "intfuncs", "simdloop", "vecelement", "blas", "sparse",
         "bitarray", "copy", "math", "fastmath", "functional",
         "operators", "path", "ccall", "parse", "loading", "bigint",
         "bigfloat", "sorting", "statistics", "spawn", "backtrace",
@@ -33,7 +33,7 @@ function choosetests(choices = [])
         "markdown", "base64", "serialize", "misc", "threads",
         "enums", "cmdlineargs", "i18n", "workspace", "libdl", "int",
         "checked", "intset", "floatfuncs", "compile", "parallel", "inline",
-        "boundscheck", "error"
+        "boundscheck", "error", "ambiguous"
     ]
 
     if Base.USE_GPL_LIBS
@@ -66,7 +66,8 @@ function choosetests(choices = [])
                    "linalg/lapack", "linalg/tridiag", "linalg/bidiag",
                    "linalg/diagonal", "linalg/pinv", "linalg/givens",
                    "linalg/cholesky", "linalg/lu", "linalg/symmetric",
-                   "linalg/generic", "linalg/uniformscaling", "linalg/lq"]
+                   "linalg/generic", "linalg/uniformscaling", "linalg/lq",
+                   "linalg/hessenberg"]
     if Base.USE_GPL_LIBS
         push!(linalgtests, "linalg/arnoldi")
     end

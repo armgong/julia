@@ -57,6 +57,7 @@ end
 Get the name of field `i` of a `DataType`.
 """
 fieldname(t::DataType, i::Integer) = t.name.names[i]::Symbol
+fieldname{T<:Tuple}(t::Type{T}, i::Integer) = i < 1 || i > nfields(t) ? throw(BoundsError(t, i)) : Int(i)
 
 """
     fieldnames(x::DataType)
@@ -71,6 +72,7 @@ function fieldnames(v)
     return fieldnames(t)
 end
 fieldnames(t::DataType) = Symbol[fieldname(t, n) for n in 1:nfields(t)]
+fieldnames{T<:Tuple}(t::Type{T}) = Int[n for n in 1:nfields(t)]
 
 isconst(s::Symbol) = ccall(:jl_is_const, Int32, (Ptr{Void}, Any), C_NULL, s) != 0
 
@@ -170,40 +172,37 @@ end
 
 tt_cons(t::ANY, tup::ANY) = (@_pure_meta; Tuple{t, (isa(tup, Type) ? tup.parameters : tup)...})
 
-code_lowered(f, t::ANY=Tuple) = map(m -> (m.func::Method).lambda_template, methods(f, t))
+code_lowered(f, t::ANY=Tuple) = map(m -> (m::Method).lambda_template, methods(f, t))
 
-function methods(f::ANY, t::ANY)
-    if isa(f,Builtin)
-        throw(ArgumentError("argument is not a generic function"))
-    end
-    t = to_tuple_type(t)
-    return Any[m[3] for m in _methods(f,t,-1)]
-end
+# low-level method lookup functions used by the compiler
+
 function _methods(f::ANY,t::ANY,lim)
     ft = isa(f,Type) ? Type{f} : typeof(f)
-    if isa(t,Type)
-        return _methods_by_ftype(Tuple{ft, t.parameters...}, lim)
-    else
-        return _methods_by_ftype(Tuple{ft, t...}, lim)
-    end
+    tt = isa(t,Type) ? Tuple{ft, t.parameters...} : Tuple{ft, t...}
+    return _methods_by_ftype(tt, lim)
+end
+function methods_including_ambiguous(f::ANY, t::ANY)
+    ft = isa(f,Type) ? Type{f} : typeof(f)
+    tt = isa(t,Type) ? Tuple{ft, t.parameters...} : Tuple{ft, t...}
+    return ccall(:jl_matching_methods, Any, (Any,Cint,Cint), tt, -1, 1)
 end
 function _methods_by_ftype(t::ANY, lim)
-    tp = t.parameters
+    tp = t.parameters::SimpleVector
     nu = 1
     for ti in tp
         if isa(ti, Union)
-            nu *= length(ti.types)
+            nu *= length((ti::Union).types)
         end
     end
     if 1 < nu <= 64
         return _methods(Any[tp...], length(tp), lim, [])
     end
     # TODO: the following can return incorrect answers that the above branch would have corrected
-    return ccall(:jl_matching_methods, Any, (Any,Int32), t, lim)
+    return ccall(:jl_matching_methods, Any, (Any,Cint,Cint), t, lim, 0)
 end
 function _methods(t::Array,i,lim::Integer,matching::Array{Any,1})
     if i == 0
-        new = ccall(:jl_matching_methods, Any, (Any,Int32), Tuple{t...}, lim)
+        new = ccall(:jl_matching_methods, Any, (Any,Cint,Cint), Tuple{t...}, lim, 0)
         new === false && return false
         append!(matching, new::Array{Any,1})
     else
@@ -224,15 +223,41 @@ function _methods(t::Array,i,lim::Integer,matching::Array{Any,1})
     return matching
 end
 
-function methods(f::ANY)
-    ft = typeof(f)
-    if ft <: Type || !isempty(ft.parameters)
-        # for these types of `f`, not every method in the table will necessarily
-        # match, so we need to filter based on its type.
-        return methods(f, Tuple{Vararg{Any}})
-    else
-        return ft.name.mt
+# high-level, more convenient method lookup functions
+
+# type for reflecting and pretty-printing a subset of methods
+type MethodList
+    ms::Array{Method,1}
+    mt::MethodTable
+end
+
+length(m::MethodList) = length(m.ms)
+isempty(m::MethodList) = isempty(m.ms)
+start(m::MethodList) = start(m.ms)
+done(m::MethodList, s) = done(m.ms, s)
+next(m::MethodList, s) = next(m.ms, s)
+
+function MethodList(mt::MethodTable)
+    ms = Method[]
+    visit(mt) do m
+        push!(ms, m)
     end
+    MethodList(ms, mt)
+end
+
+function methods(f::ANY, t::ANY)
+    if isa(f,Builtin)
+        throw(ArgumentError("argument is not a generic function"))
+    end
+    t = to_tuple_type(t)
+    return MethodList(Method[m[3] for m in _methods(f,t,-1)], typeof(f).name.mt)
+end
+
+methods(f::Builtin) = MethodList(Method[], typeof(f).name.mt)
+
+function methods(f::ANY)
+    # return all matches
+    return methods(f, Tuple{Vararg{Any}})
 end
 
 function visit(f, mt::MethodTable)
@@ -253,11 +278,12 @@ function visit(f, mc::TypeMapLevel)
         end
     end
     mc.list !== nothing && visit(f, mc.list)
+    mc.any !== nothing && visit(f, mc.any)
     nothing
 end
 function visit(f, d::TypeMapEntry)
     while !is(d, nothing)
-        f(d)
+        f(d.func)
         d = d.next
     end
     nothing
@@ -283,13 +309,13 @@ function _dump_function(f, t::ANY, native, wrapper, strip_ir_metadata, dump_modu
     llvmf = ccall(:jl_get_llvmf, Ptr{Void}, (Any, Bool, Bool), t, wrapper, native)
 
     if llvmf == C_NULL
-        error("no method found for the specified argument types")
+        error("did not find a unique method for the specified argument types")
     end
 
     if native
-        str = ccall(:jl_dump_function_asm, Ref{ByteString}, (Ptr{Void},Cint), llvmf, 0)
+        str = ccall(:jl_dump_function_asm, Ref{String}, (Ptr{Void},Cint), llvmf, 0)
     else
-        str = ccall(:jl_dump_function_ir, Ref{ByteString},
+        str = ccall(:jl_dump_function_ir, Ref{String},
                     (Ptr{Void}, Bool, Bool), llvmf, strip_ir_metadata, dump_module)
     end
 
@@ -320,7 +346,7 @@ function code_typed(f::ANY, types::ANY=Tuple; optimize=true)
     types = to_tuple_type(types)
     asts = []
     for x in _methods(f,types,-1)
-        linfo = func_for_method_checked(x[3].func, types)
+        linfo = func_for_method_checked(x[3], types)
         if optimize
             (li, ty, inf) = Core.Inference.typeinf(linfo, x[1], x[2], true)
         else
@@ -337,7 +363,7 @@ function return_types(f::ANY, types::ANY=Tuple)
     types = to_tuple_type(types)
     rt = []
     for x in _methods(f,types,-1)
-        linfo = func_for_method_checked(x[3].func,types)
+        linfo = func_for_method_checked(x[3], types)
         (_li, ty, inf) = Core.Inference.typeinf(linfo, x[1], x[2])
         inf || error("inference not successful") # Inference disabled
         push!(rt, ty)
@@ -354,14 +380,14 @@ function which(f::ANY, t::ANY)
         ms = methods(f, t)
         isempty(ms) && error("no method found for the specified argument types")
         length(ms)!=1 && error("no unique matching method for the specified argument types")
-        ms[1]
+        return first(ms)
     else
         ft = isa(f,Type) ? Type{f} : typeof(f)
         m = ccall(:jl_gf_invoke_lookup, Any, (Any,), Tuple{ft, t.parameters...})
         if m === nothing
             error("no method found for the specified argument types")
         end
-        return m::TypeMapEntry
+        return m.func::Method
     end
 end
 
@@ -374,7 +400,6 @@ function which_module(m::Module, s::Symbol)
     binding_module(m, s)
 end
 
-functionloc(m::TypeMapEntry) = functionloc(m.func)
 functionloc(m::LambdaInfo) = functionloc(m.def)
 function functionloc(m::Method)
     ln = m.line
@@ -388,21 +413,17 @@ functionloc(f::ANY, types::ANY) = functionloc(which(f,types))
 
 function functionloc(f)
     mt = methods(f)
-    local thef = nothing
-    visit(mt) do f
-        if thef !== nothing
-            error("function has multiple methods; please specify a type signature")
-        end
-        thef = f
-    end
-    if thef === nothing
+    if isempty(mt)
         if isa(f,Function)
             error("function has no definitions")
         else
             error("object is not callable")
         end
     end
-    functionloc(thef)
+    if length(mt) > 1
+        error("function has multiple methods; please specify a type signature")
+    end
+    functionloc(first(mt))
 end
 
 function function_module(f, types::ANY)
@@ -410,11 +431,24 @@ function function_module(f, types::ANY)
     if isempty(m)
         error("no matching methods")
     end
-    m[1].func.module
+    first(m).module
 end
 
 function method_exists(f::ANY, t::ANY)
     t = to_tuple_type(t)
     t = Tuple{isa(f,Type) ? Type{f} : typeof(f), t.parameters...}
     return ccall(:jl_method_exists, Cint, (Any, Any), typeof(f).name.mt, t) != 0
+end
+
+function isambiguous(m1::Method, m2::Method)
+    ti = typeintersect(m1.sig, m2.sig)
+    ti === Bottom && return false
+    ml = _methods_by_ftype(ti, -1)
+    isempty(ml) && return true
+    for m in ml
+        if ti <: m[3].sig
+            return false
+        end
+    end
+    return true
 end
