@@ -216,8 +216,8 @@ u1 = uuid1()
 u4 = uuid4()
 @test uuid_version(u1) == 1
 @test uuid_version(u4) == 4
-@test u1 == UUID(string(u1)) == UUID(utf16(string(u1))) == UUID(utf32(string(u1)))
-@test u4 == UUID(string(u4)) == UUID(utf16(string(u4))) == UUID(utf32(string(u4)))
+@test u1 == UUID(string(u1)) == UUID(GenericString(string(u1)))
+@test u4 == UUID(string(u4)) == UUID(GenericString(string(u4)))
 @test u1 == UUID(UInt128(u1))
 @test u4 == UUID(UInt128(u4))
 @test uuid4(MersenneTwister()) == uuid4(MersenneTwister())
@@ -409,4 +409,38 @@ let mta = MersenneTwister(seed), mtb = MersenneTwister(seed)
     for j in 1:(size * step)
         @test rand(mtb, Float64) == tmp[j]
     end
+end
+
+# test that the following is not an error (#16925)
+srand(typemax(UInt))
+srand(typemax(UInt128))
+
+# copy and ==
+let seed = rand(UInt32, 10)
+    r = MersenneTwister(seed)
+    @test r == MersenneTwister(seed) # r.vals should be all zeros
+    s = copy(r)
+    @test s == r && s !== r
+    skip, len = rand(0:2000, 2)
+    for j=1:skip
+        rand(r)
+        rand(s)
+    end
+    @test rand(r, len) == rand(s, len)
+    @test s == r
+end
+
+# MersenneTwister initialization with invalid values
+@test_throws DomainError Base.dSFMT.DSFMT_state(zeros(Int32, rand(0:Base.dSFMT.JN32-1)))
+@test_throws DomainError MersenneTwister(zeros(UInt32, 1), Base.dSFMT.DSFMT_state(),
+                                         zeros(Float64, 10), 0)
+@test_throws DomainError MersenneTwister(zeros(UInt32, 1), Base.dSFMT.DSFMT_state(),
+                                         zeros(Float64, Base.Random.MTCacheLength), -1)
+
+# seed is private to MersenneTwister
+let seed = rand(UInt32, 10)
+    r = MersenneTwister(seed)
+    @test r.seed == seed && r.seed !== seed
+    resize!(seed, 4)
+    @test r.seed != seed
 end

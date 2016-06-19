@@ -24,9 +24,6 @@ end
 
 println(io::IO, xs...) = print(io, xs..., '\n')
 
-print(xs...)   = print(STDOUT, xs...)
-println(xs...) = println(STDOUT, xs...)
-
 ## conversion of general objects to strings ##
 
 function sprint(size::Integer, f::Function, args...; env=nothing)
@@ -93,7 +90,7 @@ end
 
 # IOBuffer views of a (byte)string:
 IOBuffer(str::String) = IOBuffer(str.data)
-IOBuffer(s::SubString{String}) = IOBuffer(sub(s.string.data, s.offset + 1 : s.offset + sizeof(s)))
+IOBuffer(s::SubString{String}) = IOBuffer(view(s.string.data, s.offset + 1 : s.offset + sizeof(s)))
 
 # join is implemented using IO
 function join(io::IO, strings, delim, last)

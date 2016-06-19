@@ -132,7 +132,14 @@ The following keyword arguments are supported:
 iterations `niter` and the number of matrix vector multiplications `nmult`, as well as the
 final residual vector `resid`.
 
-**note**
+**Example**
+
+```julia
+X = sprand(10, 5, 0.2)
+eigs(X, nsv = 2, tol = 1e-3)
+```
+
+**Note**
 
 The `sigma` and `which` keywords interact: the description of eigenvalues searched for by
 `which` do _not_ necessarily refer to the eigenvalue problem ``Av = Bv\\lambda``, but rather
@@ -296,8 +303,8 @@ end
 
 function A_mul_B!{T,S}(u::StridedVector{T}, s::SVDOperator{T,S}, v::StridedVector{T})
     a, b = s.m, length(v)
-    A_mul_B!(sub(u,1:a), s.X, sub(v,a+1:b)) # left singular vector
-    Ac_mul_B!(sub(u,a+1:b), s.X, sub(v,1:a)) # right singular vector
+    A_mul_B!(view(u,1:a), s.X, view(v,a+1:b)) # left singular vector
+    Ac_mul_B!(view(u,a+1:b), s.X, view(v,1:a)) # right singular vector
     u
 end
 size(s::SVDOperator)  = s.m + s.n, s.m + s.n

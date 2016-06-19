@@ -77,8 +77,8 @@ convenient iterating over a sparse matrix :
 nzrange(S::SparseMatrixCSC, col::Integer) = S.colptr[col]:(S.colptr[col+1]-1)
 
 function Base.show(io::IO, S::SparseMatrixCSC)
-    if get(io, :multiline, false)
-        print(io, S.m, "×", S.n, " sparse matrix with ", nnz(S), " ", eltype(S), " nonzero entries:")
+    if get(io, :multiline, false) || (nnz(S) == 0)
+        print(io, S.m, "×", S.n, " sparse matrix with ", nnz(S), " ", eltype(S), " nonzero entries", nnz(S) == 0 ? "" : ":")
     end
 
     limit::Bool = get(io, :limit, false)
@@ -795,7 +795,24 @@ end
 droptol!(A::SparseMatrixCSC, tol, trim::Bool = true) =
     fkeep!(A, (i, j, x) -> abs(x) > tol, trim)
 
+"""
+    dropzeros!(A::SparseMatrixCSC, trim::Bool = true)
+
+Removes stored numerical zeros from `A`, optionally trimming resulting excess space from
+`A.rowval` and `A.nzval` when `trim` is `true`.
+
+For an out-of-place version, see [`dropzeros`](:func:`Base.SparseArrays.dropzeros`). For
+algorithmic information, see [`Base.SparseArrays.fkeep!`](:func:`Base.SparseArrays.fkeep!`).
+"""
 dropzeros!(A::SparseMatrixCSC, trim::Bool = true) = fkeep!(A, (i, j, x) -> x != 0, trim)
+"""
+    dropzeros(A::SparseMatrixCSC, trim::Bool = true)
+
+Generates a copy of `A` and removes stored numerical zeros from that copy, optionally
+trimming excess space from the result's `rowval` and `nzval` arrays when `trim` is `true`.
+
+For an in-place version and algorithmic information, see [`dropzeros!`](:func:`Base.SparseArrays.dropzeros!`).
+"""
 dropzeros(A::SparseMatrixCSC, trim::Bool = true) = dropzeros!(copy(A), trim)
 
 
@@ -3110,7 +3127,7 @@ function spdiagm_internal(B, d)
         range = 1+i:numel+i
         I[range] = row+1:row+numel
         J[range] = col+1:col+numel
-        copy!(sub(V, range), vec)
+        copy!(view(V, range), vec)
         i += numel
     end
 

@@ -480,7 +480,7 @@ JL_CALLABLE(jl_f__apply)
         newargs[0] = (jl_value_t*)arg_heap;
         newargs = jl_svec_data(arg_heap);
     }
-    // GC Note: here we assume that the the return value of `jl_svecref`,
+    // GC Note: here we assume that the return value of `jl_svecref`,
     //          `jl_array_ptr_ref` will not be young if `arg_heap` becomes old
     //          since they are allocated before `arg_heap`. Otherwise,
     //          we need to add write barrier for !onstack
@@ -911,16 +911,14 @@ JL_DLLEXPORT jl_value_t *jl_stdout_obj(void)
 {
     if (jl_base_module == NULL) return NULL;
     jl_value_t *stdout_obj = jl_get_global(jl_base_module, jl_symbol("STDOUT"));
-    if (stdout_obj != NULL) return stdout_obj;
-    return jl_get_global(jl_base_module, jl_symbol("OUTPUT_STREAM"));
+    return stdout_obj;
 }
 
 JL_DLLEXPORT jl_value_t *jl_stderr_obj(void)
 {
     if (jl_base_module == NULL) return NULL;
     jl_value_t *stderr_obj = jl_get_global(jl_base_module, jl_symbol("STDERR"));
-    if (stderr_obj != NULL) return stderr_obj;
-    return jl_get_global(jl_base_module, jl_symbol("OUTPUT_STREAM"));
+    return stderr_obj;
 }
 
 static jl_function_t *jl_show_gf=NULL;
@@ -1534,7 +1532,7 @@ JL_DLLEXPORT size_t jl_static_show(JL_STREAM *out, jl_value_t *v)
 
 JL_DLLEXPORT size_t jl_static_show_func_sig(JL_STREAM *s, jl_value_t *type)
 {
-    jl_value_t *ftype = jl_first_argument_datatype(type);
+    jl_value_t *ftype = (jl_value_t*)jl_first_argument_datatype(type);
     if (ftype == NULL)
         return jl_static_show(s, type);
     size_t n = 0;

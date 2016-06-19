@@ -355,7 +355,7 @@
   (or (number? x) (string? x) (char? x) (and (pair? x) (memq (car x) '(quote inert)))
       (eq? x 'true) (eq? x 'false)))
 
-(define empty-vector-any '(call (core Array) (core Any) 0))
+(define empty-vector-any '(call (core AnyVector) 0))
 
 (define (keywords-method-def-expr name sparams argl body isstaged rett)
   (let* ((kargl (cdar argl))  ;; keyword expressions (= k v)
@@ -461,7 +461,7 @@
           `((|::|
              ;; if there are optional positional args, we need to be able to reference the function name
              ,(if (any kwarg? pargl) (gensy) UNUSED)
-             (call (core kwftype) ,ftype)) (:: ,kw (core Array)) ,@pargl ,@vararg)
+             (call (core kwftype) ,ftype)) (:: ,kw (core AnyVector)) ,@pargl ,@vararg)
           `(block
             ;; initialize keyword args to their defaults, or set a flag telling
             ;; whether this keyword needs to be set.
@@ -2345,7 +2345,7 @@
                 (map (lambda (decl) (make-var-info (decl-var decl)))
                      args)
                 (map make-var-info locl)))
-         (capt-sp (filter (lambda (v) (and (memq v fv) (not (memq v glo))))
+         (capt-sp (filter (lambda (v) (and (memq v fv) (not (memq v glo)) (not (memq v new-sp))))
                           sp))
          ;; captured vars: vars from the environment that occur
          ;; in our set of free variables (fv).
@@ -2812,11 +2812,11 @@ f(x) = yt(x)
                         (typedef  ;; expression to define the type
                          (let* ((fieldtypes (map (lambda (v)
                                                    (if (is-var-boxed? v lam)
-                                                       'Any ;; TODO
+                                                       '(core Box)
                                                        (gensy)))
                                                  capt-vars))
                                 (para (append capt-sp
-                                              (filter (lambda (v) (not (eq? v 'Any))) fieldtypes))))
+                                              (filter (lambda (v) (symbol? v)) fieldtypes))))
                            (if (null? para)
                                (type-for-closure tname capt-vars '(core Function))
                                (type-for-closure-parameterized tname para capt-vars fieldtypes '(core Function)))))

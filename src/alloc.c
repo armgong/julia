@@ -71,7 +71,8 @@ jl_value_t *jl_memory_exception;
 jl_value_t *jl_readonlymemory_exception;
 union jl_typemap_t jl_cfunction_list;
 
-jl_sym_t *call_sym;    jl_sym_t *dots_sym;
+jl_sym_t *call_sym;    jl_sym_t *invoke_sym;
+jl_sym_t *dots_sym;
 jl_sym_t *module_sym;  jl_sym_t *slot_sym;
 jl_sym_t *empty_sym;
 jl_sym_t *export_sym;  jl_sym_t *import_sym;
@@ -308,13 +309,13 @@ jl_value_t *jl_resolve_globals(jl_value_t *expr, jl_lambda_info_t *lam)
 }
 
 // copy a :lambda Expr into its LambdaInfo representation
-void jl_lambda_info_set_ast(jl_lambda_info_t *li, jl_expr_t *ast)
+static void jl_lambda_info_set_ast(jl_lambda_info_t *li, jl_expr_t *ast)
 {
     assert(jl_is_expr(ast));
     jl_expr_t *bodyex = (jl_expr_t*)jl_exprarg(ast, 2);
     assert(jl_is_expr(bodyex));
     jl_array_t *body = bodyex->args;
-    li->code = body; jl_gc_wb(li, li->code);
+    li->code = (jl_value_t*)body; jl_gc_wb(li, li->code);
     if (has_meta(body, pure_sym))
         li->pure = 1;
     jl_array_t *vinfo = (jl_array_t*)jl_exprarg(ast, 1);
@@ -473,7 +474,7 @@ static jl_lambda_info_t *jl_instantiate_staged(jl_method_t *generator, jl_tuplet
         func->specTypes = tt;
         jl_gc_wb(func, tt);
 
-        jl_array_t *stmts = func->code;
+        jl_array_t *stmts = (jl_array_t*)func->code;
         for(i = 0, l = jl_array_len(stmts); i < l; i++) {
             jl_array_ptr_set(stmts, i, jl_resolve_globals(jl_array_ptr_ref(stmts, i), func));
         }
@@ -541,7 +542,7 @@ JL_DLLEXPORT jl_lambda_info_t *jl_get_specialized(jl_method_t *m, jl_tupletype_t
 JL_DLLEXPORT void jl_method_init_properties(jl_method_t *m)
 {
     jl_lambda_info_t *li = m->lambda_template;
-    jl_value_t *body1 = skip_meta(li->code);
+    jl_value_t *body1 = skip_meta((jl_array_t*)li->code);
     if (jl_is_linenode(body1)) {
         m->line = jl_linenode_line(body1);
     }
@@ -566,14 +567,13 @@ JL_DLLEXPORT jl_method_t *jl_new_method_uninit(void)
     jl_method_t *m =
         (jl_method_t*)newobj((jl_value_t*)jl_method_type,
                              NWORDS(sizeof(jl_method_t)));
-    m->tfunc.unknown = jl_nothing;
+    m->specializations.unknown = jl_nothing;
     m->sig = NULL;
     m->tvars = NULL;
     m->ambig = NULL;
     m->roots = NULL;
     m->module = jl_current_module;
     m->lambda_template = NULL;
-    m->specializations = NULL;
     m->name = NULL;
     m->file = null_sym;
     m->line = 0;
@@ -615,7 +615,7 @@ jl_method_t *jl_new_method(jl_lambda_info_t *definition, jl_sym_t *name, jl_tupl
         m->called = oldm->called;
     }
     else {
-        jl_array_t *stmts = definition->code;
+        jl_array_t *stmts = (jl_array_t*)definition->code;
         int i, l;
         for(i = 0, l = jl_array_len(stmts); i < l; i++) {
             jl_array_ptr_set(stmts, i, jl_resolve_globals(jl_array_ptr_ref(stmts, i), definition));
@@ -641,7 +641,7 @@ static uintptr_t hash_symbol(const char *str, size_t len)
 
 static size_t symbol_nbytes(size_t len)
 {
-    return (sizeof_jl_taggedvalue_t + sizeof(jl_sym_t) + len + 1 + 7) & -8;
+    return (sizeof(jl_taggedvalue_t) + sizeof(jl_sym_t) + len + 1 + 7) & -8;
 }
 
 static jl_sym_t *mk_symbol(const char *str, size_t len)
@@ -668,7 +668,7 @@ static jl_sym_t *mk_symbol(const char *str, size_t len)
 #endif
     sym = (jl_sym_t*)jl_valueof(tag);
     // set to old marked since we don't need write barrier on it.
-    tag->type_bits = ((uintptr_t)jl_sym_type) | GC_MARKED;
+    tag->header = ((uintptr_t)jl_sym_type) | GC_OLD_MARKED;
     sym->left = sym->right = NULL;
     sym->hash = hash_symbol(str, len);
     memcpy(jl_symbol_name(sym), str, len);

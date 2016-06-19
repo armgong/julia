@@ -16,10 +16,10 @@
 extern "C" {
 #endif
 
-#define GC_CLEAN 0 // freshly allocated
-#define GC_MARKED 1 // reachable and old
-#define GC_QUEUED 2 // if it is reachable it will be marked as old
-#define GC_MARKED_NOESC (GC_MARKED | GC_QUEUED) // reachable and young
+#define GC_CLEAN  0 // freshly allocated
+#define GC_MARKED 1 // reachable and young
+#define GC_OLD    2 // if it is reachable it will be marked as old
+#define GC_OLD_MARKED (GC_OLD | GC_MARKED) // reachable and old
 
 // useful constants
 extern jl_methtable_t *jl_type_type_mt;
@@ -69,26 +69,19 @@ STATIC_INLINE jl_value_t *newstruct(jl_datatype_t *type)
     return jv;
 }
 
+jl_lambda_info_t *jl_type_infer(jl_lambda_info_t *li, int force);
 void jl_generate_fptr(jl_lambda_info_t *li);
 void jl_compile_linfo(jl_lambda_info_t *li);
+JL_DLLEXPORT int jl_compile_hint(jl_tupletype_t *types);
+jl_lambda_info_t *jl_compile_for_dispatch(jl_lambda_info_t *li);
 
 // invoke (compiling if necessary) the jlcall function pointer for a method
 jl_lambda_info_t *jl_get_unspecialized(jl_lambda_info_t *method);
 STATIC_INLINE jl_value_t *jl_call_method_internal(jl_lambda_info_t *meth, jl_value_t **args, uint32_t nargs)
 {
     jl_lambda_info_t *mfptr = meth;
-    if (__unlikely(meth->fptr == NULL)) {
-        if (meth->inInference || meth->inCompile) {
-            // if inference is running on this function, get a copy
-            // of the function to be compiled without inference and run.
-            assert(meth->def != NULL);
-            mfptr = jl_get_unspecialized(meth);
-        }
-        if (mfptr->fptr == NULL) {
-            jl_compile_linfo(mfptr);
-            jl_generate_fptr(mfptr);
-        }
-    }
+    if (__unlikely(mfptr->fptr == NULL))
+        mfptr = jl_compile_for_dispatch(mfptr);
     if (mfptr->jlcall_api == 0)
         return mfptr->fptr(args[0], &args[1], nargs-1);
     else
@@ -100,9 +93,6 @@ jl_tupletype_t *jl_argtype_with_function(jl_function_t *f, jl_tupletype_t *types
 JL_DLLEXPORT jl_value_t *jl_apply_2va(jl_value_t *f, jl_value_t **args, uint32_t nargs);
 
 #define GC_MAX_SZCLASS (2032-sizeof(void*))
-// MSVC miscalculates sizeof(jl_taggedvalue_t) because
-// empty structs are a GNU extension
-#define sizeof_jl_taggedvalue_t (sizeof(void*))
 void jl_gc_setmark(jl_value_t *v);
 void jl_gc_sync_total_bytes(void);
 void jl_gc_track_malloced_array(jl_array_t *a);
@@ -111,21 +101,21 @@ void jl_gc_run_all_finalizers(void);
 void *allocb(size_t sz);
 
 void gc_queue_binding(jl_binding_t *bnd);
-void gc_setmark_buf(void *buf, int);
+void gc_setmark_buf(void *buf, int, size_t);
 
 STATIC_INLINE void jl_gc_wb_binding(jl_binding_t *bnd, void *val) // val isa jl_value_t*
 {
-    if (__unlikely((jl_astaggedvalue(bnd)->gc_bits & 1) == 1 &&
-                   (jl_astaggedvalue(val)->gc_bits & 1) == 0))
+    if (__unlikely(jl_astaggedvalue(bnd)->bits.gc == 3 &&
+                   (jl_astaggedvalue(val)->bits.gc & 1) == 0))
         gc_queue_binding(bnd);
 }
 
-STATIC_INLINE void jl_gc_wb_buf(void *parent, void *bufptr) // parent isa jl_value_t*
+STATIC_INLINE void jl_gc_wb_buf(void *parent, void *bufptr, size_t minsz) // parent isa jl_value_t*
 {
     // if parent is marked and buf is not
-    if (__unlikely((jl_astaggedvalue(parent)->gc_bits & 1) == 1))
-        //            (jl_astaggedvalue(bufptr)->gc_bits) != 1))
-        gc_setmark_buf(bufptr, jl_astaggedvalue(parent)->gc_bits);
+    if (__unlikely(jl_astaggedvalue(parent)->bits.gc & 1)) {
+        gc_setmark_buf(bufptr, 3, minsz);
+    }
 }
 
 void gc_debug_print_status(void);
@@ -207,7 +197,6 @@ jl_value_t *jl_interpret_toplevel_expr(jl_value_t *e);
 jl_value_t *jl_static_eval(jl_value_t *ex, void *ctx_, jl_module_t *mod,
                            jl_lambda_info_t *li, int sparams, int allow_alloc);
 int jl_is_toplevel_only_expr(jl_value_t *e);
-void jl_type_infer(jl_lambda_info_t *li, int force);
 jl_value_t *jl_call_scm_on_ast(char *funcname, jl_value_t *expr);
 
 jl_lambda_info_t *jl_method_lookup_by_type(jl_methtable_t *mt, jl_tupletype_t *types,
@@ -215,7 +204,7 @@ jl_lambda_info_t *jl_method_lookup_by_type(jl_methtable_t *mt, jl_tupletype_t *t
 jl_lambda_info_t *jl_method_lookup(jl_methtable_t *mt, jl_value_t **args, size_t nargs, int cache);
 jl_value_t *jl_gf_invoke(jl_tupletype_t *types, jl_value_t **args, size_t nargs);
 
-jl_value_t *jl_first_argument_datatype(jl_value_t *argtypes);
+jl_datatype_t *jl_first_argument_datatype(jl_value_t *argtypes);
 int jl_has_intrinsics(jl_lambda_info_t *li, jl_value_t *v, jl_module_t *m);
 
 jl_value_t *jl_nth_slot_type(jl_tupletype_t *sig, size_t i);
@@ -651,6 +640,9 @@ int sigs_eq(jl_value_t *a, jl_value_t *b, int useenv);
 jl_value_t *jl_lookup_match(jl_value_t *a, jl_value_t *b, jl_svec_t **penv, jl_svec_t *tvars);
 
 unsigned jl_special_vector_alignment(size_t nfields, jl_value_t *field_type);
+
+void register_eh_frames(uint8_t *Addr, size_t Size);
+void deregister_eh_frames(uint8_t *Addr, size_t Size);
 
 STATIC_INLINE void *jl_get_frame_addr(void)
 {

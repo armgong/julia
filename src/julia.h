@@ -54,6 +54,8 @@
 #define container_of(ptr, type, member) \
     ((type *) ((char *)(ptr) - offsetof(type, member)))
 
+typedef struct _jl_taggedvalue_t jl_taggedvalue_t;
+
 #include <julia_threads.h>
 
 #ifdef __cplusplus
@@ -68,21 +70,26 @@ extern "C" {
 
 typedef struct _jl_value_t jl_value_t;
 
-typedef struct {
+struct _jl_taggedvalue_bits {
+    uintptr_t gc:2;
+};
+
+struct _jl_taggedvalue_t {
     union {
+        uintptr_t header;
+        jl_taggedvalue_t *next;
         jl_value_t *type; // 16-byte aligned
-        uintptr_t type_bits;
-        uintptr_t gc_bits:2;
+        struct _jl_taggedvalue_bits bits;
     };
     // jl_value_t value;
-} jl_taggedvalue_t;
+};
 
 #define jl_astaggedvalue(v)                                             \
     ((jl_taggedvalue_t*)((char*)(v) - sizeof(jl_taggedvalue_t)))
 #define jl_valueof(v)                                           \
     ((jl_value_t*)((char*)(v) + sizeof(jl_taggedvalue_t)))
 #define jl_typeof(v)                                                    \
-    ((jl_value_t*)(jl_astaggedvalue(v)->type_bits & ~(uintptr_t)15))
+    ((jl_value_t*)(jl_astaggedvalue(v)->header & ~(uintptr_t)15))
 static inline void jl_set_typeof(void *v, void *t)
 {
     // Do not call this on a value that is already initialized.
@@ -202,10 +209,8 @@ typedef struct _jl_method_t {
     // list of potentially-ambiguous methods (nothing = none, Vector{Any} of Methods otherwise)
     jl_value_t *ambig;
 
-    // array of all lambda infos with code generated from this one
-    jl_array_t *specializations;
-    // table of all argument types for which we've inferred this code
-    union jl_typemap_t tfunc;
+    // table of all argument types for which we've inferred or compiled this code
+    union jl_typemap_t specializations;
 
     // the AST template (or, for isstaged, code for the generator)
     struct _jl_lambda_info_t *lambda_template;
@@ -230,15 +235,15 @@ typedef struct _jl_method_t {
 // a function pointer.
 typedef struct _jl_lambda_info_t {
     JL_DATA_TYPE
-    jl_array_t *code;  // compressed uint8 array, or Any array of statements
-    jl_array_t *slotnames; // names of local variables
-    jl_value_t *slottypes;
-    jl_array_t *slotflags;  // local var bit flags
-    jl_value_t *ssavaluetypes;  // types of ssa values
     jl_value_t *rettype;
     jl_svec_t *sparam_syms; // sparams is a vector of values indexed by symbols
     jl_svec_t *sparam_vals;
     jl_tupletype_t *specTypes;  // argument types this was specialized for
+    jl_value_t *code;  // compressed uint8 array, or Any array of statements
+    jl_value_t *slottypes;
+    jl_value_t *ssavaluetypes;  // types of ssa values
+    jl_array_t *slotnames; // names of local variables
+    jl_array_t *slotflags;  // local var bit flags
     struct _jl_lambda_info_t *unspecialized_ducttape; // if template can't be compiled due to intrinsics, an un-inferred executable copy may get stored here
     jl_method_t *def; // method this is specialized from, (null if this is a toplevel thunk)
     int32_t nargs;
@@ -540,7 +545,8 @@ extern JL_DLLEXPORT jl_value_t *jl_false;
 extern JL_DLLEXPORT jl_value_t *jl_nothing;
 
 // some important symbols
-extern jl_sym_t *call_sym;    extern jl_sym_t *empty_sym;
+extern jl_sym_t *call_sym;    extern jl_sym_t *invoke_sym;
+extern jl_sym_t *empty_sym;
 extern jl_sym_t *dots_sym;    extern jl_sym_t *vararg_sym;
 extern jl_sym_t *quote_sym;   extern jl_sym_t *newvar_sym;
 extern jl_sym_t *top_sym;     extern jl_sym_t *dot_sym;
@@ -645,15 +651,15 @@ JL_DLLEXPORT void jl_gc_queue_root(jl_value_t *root); // root isa jl_value_t*
 STATIC_INLINE void jl_gc_wb(void *parent, void *ptr)
 {
     // parent and ptr isa jl_value_t*
-    if (__unlikely((jl_astaggedvalue(parent)->gc_bits & 1) == 1 &&
-                   (jl_astaggedvalue(ptr)->gc_bits & 1) == 0))
+    if (__unlikely(jl_astaggedvalue(parent)->bits.gc == 3 &&
+                   (jl_astaggedvalue(ptr)->bits.gc & 1) == 0))
         jl_gc_queue_root((jl_value_t*)parent);
 }
 
 STATIC_INLINE void jl_gc_wb_back(void *ptr) // ptr isa jl_value_t*
 {
-    // if ptr is marked
-    if (__unlikely((jl_astaggedvalue(ptr)->gc_bits & 1) == 1)) {
+    // if ptr is old
+    if (__unlikely(jl_astaggedvalue(ptr)->bits.gc == 3)) {
         jl_gc_queue_root((jl_value_t*)ptr);
     }
 }
@@ -1374,6 +1380,7 @@ STATIC_INLINE int jl_vinfo_usedundef(uint8_t vi)
 // calling into julia ---------------------------------------------------------
 
 JL_DLLEXPORT jl_value_t *jl_apply_generic(jl_value_t **args, uint32_t nargs);
+JL_DLLEXPORT jl_value_t *jl_invoke(jl_lambda_info_t *meth, jl_value_t **args, uint32_t nargs);
 
 STATIC_INLINE
 jl_value_t *jl_apply(jl_value_t **args, uint32_t nargs)

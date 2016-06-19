@@ -319,6 +319,10 @@ type Foo_{T} x::Foo_{Int} end
 type Circ_{T} x::Circ_{T} end
 @test is(Circ_{Int}, Circ_{Int}.types[1])
 
+abstract Sup2a_
+abstract Sup2b_{A <: Sup2a_, B} <: Sup2a_
+@test_throws ErrorException eval(:(abstract Qux2_{T} <: Sup2b_{Qux2_{Int}, T})) # wrapped in eval to avoid #16793
+
 # issue #3890
 type A3890{T1}
     x::Matrix{Complex{T1}}
@@ -1734,10 +1738,8 @@ let
 end
 
 # make sure front end can correctly print values to error messages
-let
-    ex = expand(parse("\"a\"=1"))
-    @test ex == Expr(:error, "invalid assignment location \"\"a\"\"") ||
-          ex == Expr(:error, "invalid assignment location \"#<julia_value>\"")
+let ex = expand(parse("\"a\"=1"))
+    @test ex == Expr(:error, "invalid assignment location \"\"a\"\"")
 end
 
 # make sure that incomplete tags are detected correctly
@@ -2059,7 +2061,7 @@ function issue7897!(data, arr)
 end
 
 a = ones(UInt8, 10)
-sa = sub(a,4:6)
+sa = view(a,4:6)
 # This can throw an error, but shouldn't segfault
 try
     issue7897!(sa, zeros(10))
@@ -4288,3 +4290,27 @@ function f16783()
     bar() = x+1
 end
 @test f16783()() == 1
+
+# issue #16767
+type A16767{T}
+    a::Base.RefValue{T}
+end
+type B16767{T}
+    b::A16767{B16767{T}}
+end
+type C16767{T}
+    b::A16767{C16767{:a}}
+end
+@test B16767.types[1].types[1].parameters[1].types === Base.svec(A16767{B16767})
+@test C16767.types[1].types[1].parameters[1].types === Base.svec(A16767{C16767{:a}})
+
+# issue #16340
+function f16340{T}(x::T)
+    function g{T}(y::T)
+        return (T,T)
+    end
+    return g
+end
+let g = f16340(1)
+    @test isa(typeof(g).name.mt.defs.tvars, TypeVar)
+end

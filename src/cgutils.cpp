@@ -956,6 +956,8 @@ static jl_value_t *expr_type(jl_value_t *e, jl_codectx_t *ctx)
             if (idx >= jl_svec_len(ctx->linfo->sparam_vals))
                 return (jl_value_t*)jl_any_type;
             e = jl_svecref(ctx->linfo->sparam_vals, idx);
+            if (jl_is_typevar(e))
+                return (jl_value_t*)jl_any_type;
             goto type_of_constant;
         }
         jl_value_t *typ = ((jl_expr_t*)e)->etype;
@@ -1355,12 +1357,12 @@ static Value *init_bits_value(Value *newv, Value *jt, Value *v, MDNode *tbaa)
     return newv;
 }
 static Value *as_value(Type *t, const jl_cgval_t&);
-static Value *init_bits_cgval(Value *newv, const jl_cgval_t& v, MDNode *tbaa, Type *t, jl_codectx_t *ctx)
+static Value *init_bits_cgval(Value *newv, const jl_cgval_t& v, MDNode *tbaa, jl_codectx_t *ctx)
 {
     Value *jt = literal_pointer_val(v.typ);
     if (v.ispointer()) {
         init_tag(newv, jt);
-        builder.CreateMemCpy(newv, data_pointer(v,ctx,PointerType::get(t,0)), jl_datatype_size(v.typ), sizeof(void*));
+        builder.CreateMemCpy(newv, data_pointer(v, ctx, T_pint8), jl_datatype_size(v.typ), sizeof(void*));
         return newv;
     }
     else {
@@ -1530,7 +1532,7 @@ static Value *boxed(const jl_cgval_t &vinfo, jl_codectx_t *ctx, bool gcrooted)
         return literal_pointer_val(jb->instance);
     }
     else {
-        box = init_bits_cgval(emit_allocobj(jl_datatype_size(jt)), vinfo, jb->mutabl ? tbaa_mutab : tbaa_immut, t, ctx);
+        box = init_bits_cgval(emit_allocobj(jl_datatype_size(jt)), vinfo, jb->mutabl ? tbaa_mutab : tbaa_immut, ctx);
     }
 
     if (gcrooted) {
@@ -1594,16 +1596,16 @@ static void emit_write_barrier(jl_codectx_t *ctx, Value *parent, Value *ptr)
 {
     Value *parenttag = builder.CreateBitCast(emit_typeptr_addr(parent), T_psize);
     Value *parent_type = tbaa_decorate(tbaa_tag, builder.CreateLoad(parenttag));
-    Value *parent_mark_bits = builder.CreateAnd(parent_type, 1);
+    Value *parent_bits = builder.CreateAnd(parent_type, 3);
 
     // the branch hint does not seem to make it to the generated code
-    //builder.CreateCall(expect_func, {parent_marked, ConstantInt::get(T_int1, 0)});
-    Value *parent_marked = builder.CreateICmpEQ(parent_mark_bits, ConstantInt::get(T_size, 1));
+    Value *parent_old_marked = builder.CreateICmpEQ(parent_bits,
+                                                    ConstantInt::get(T_size, 3));
 
     BasicBlock *cont = BasicBlock::Create(jl_LLVMContext, "cont");
     BasicBlock *barrier_may_trigger = BasicBlock::Create(jl_LLVMContext, "wb_may_trigger", ctx->f);
     BasicBlock *barrier_trigger = BasicBlock::Create(jl_LLVMContext, "wb_trigger", ctx->f);
-    builder.CreateCondBr(parent_marked, barrier_may_trigger, cont);
+    builder.CreateCondBr(parent_old_marked, barrier_may_trigger, cont);
 
     builder.SetInsertPoint(barrier_may_trigger);
     Value *ptr_mark_bit = builder.CreateAnd(tbaa_decorate(tbaa_tag, builder.CreateLoad(builder.CreateBitCast(emit_typeptr_addr(ptr), T_psize))), 1);

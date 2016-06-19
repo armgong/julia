@@ -43,7 +43,7 @@ for eltya in (Float32, Float64, Complex64, Complex128)
 debug && println("\ntype of a: ", eltya, " type of b: ", eltyb, "\n")
 debug && println("LQ decomposition")
         for i = 1:2
-            let a = i == 1 ? a : sub(a, 1:n - 1, 1:n - 1), b = i == 1 ? b : sub(b, 1:n - 1), n = i == 1 ? n : n - 1
+            let a = i == 1 ? a : view(a, 1:n - 1, 1:n - 1), b = i == 1 ? b : view(b, 1:n - 1), n = i == 1 ? n : n - 1
                 lqa   = lqfact(a)
                 l,q   = lqa[:L], lqa[:Q]
                 qra   = qrfact(a)
@@ -66,7 +66,11 @@ debug && println("LQ decomposition")
                     @test eye(eltyb,n)*q ≈ convert(AbstractMatrix{tab},q)
                 end
                 @test_approx_eq_eps q*b full(q, thin=false)*b 100ε
+                @test_approx_eq_eps q.'*b full(q, thin=false).'*b 100ε
                 @test_approx_eq_eps q'*b full(q, thin=false)'*b 100ε
+                @test_approx_eq_eps a*q a*full(q, thin=false) 100ε
+                @test_approx_eq_eps a*q.' a*full(q, thin=false).' 100ε
+                @test_approx_eq_eps a*q' a*full(q, thin=false)' 100ε
                 @test_throws DimensionMismatch q*b[1:n1 + 1]
                 @test_throws DimensionMismatch Ac_mul_B(q,ones(eltya,n+2,n+2))
                 @test_throws DimensionMismatch ones(eltyb,n+2,n+2)*q

@@ -67,6 +67,20 @@ static jl_value_t *do_call(jl_value_t **args, size_t nargs, interpreter_state *s
     return result;
 }
 
+static jl_value_t *do_invoke(jl_value_t **args, size_t nargs, interpreter_state *s)
+{
+    jl_value_t **argv;
+    JL_GC_PUSHARGS(argv, nargs - 1);
+    size_t i;
+    for (i = 1; i < nargs; i++)
+        argv[i - 1] = eval(args[i], s);
+    jl_lambda_info_t *meth = (jl_lambda_info_t*)args[0];
+    assert(jl_is_lambda_info(meth) && !meth->inInference);
+    jl_value_t *result = jl_call_method_internal(meth, argv, nargs - 1);
+    JL_GC_POP();
+    return result;
+}
+
 jl_value_t *jl_eval_global_var(jl_module_t *m, jl_sym_t *e)
 {
     jl_value_t *v = jl_get_global(m, e);
@@ -103,6 +117,7 @@ static void check_can_assign_type(jl_binding_t *b)
 }
 
 void jl_reinstantiate_inner_types(jl_datatype_t *t);
+void jl_reset_instantiate_inner_types(jl_datatype_t *t);
 
 void jl_set_datatype_super(jl_datatype_t *tt, jl_value_t *super)
 {
@@ -172,6 +187,9 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
     if (ex->head == call_sym) {
         return do_call(args, nargs, s);
     }
+    else if (ex->head == invoke_sym) {
+        return do_invoke(args, nargs, s);
+    }
     else if (ex->head == new_sym) {
         jl_value_t *thetype = eval(args[0], s);
         jl_value_t *v=NULL;
@@ -191,11 +209,14 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
         ssize_t n = jl_unbox_long(args[0]);
         assert(n > 0);
         if (s->sparam_vals)
-            return jl_svecref(s->sparam_vals, n-1);
+            return jl_svecref(s->sparam_vals, n - 1);
+        if (n <= jl_svec_len(lam->sparam_vals)) {
+            jl_value_t *sp = jl_svecref(lam->sparam_vals, n - 1);
+            if (!jl_is_typevar(sp))
+                return sp;
+        }
         // static parameter val unknown needs to be an error for ccall
-        if (n > jl_svec_len(lam->sparam_vals))
-            jl_error("could not determine static parameter value");
-        return jl_svecref(lam->sparam_vals, n-1);
+        jl_error("could not determine static parameter value");
     }
     else if (ex->head == inert_sym) {
         return args[0];
@@ -252,6 +273,8 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
         return (jl_value_t*)jl_nothing;
     }
     else if (ex->head == abstracttype_sym) {
+        if (inside_typedef)
+            jl_error("cannot eval a new abstract type definition while defining another type");
         jl_value_t *name = args[0];
         jl_value_t *para = eval(args[1], s);
         jl_value_t *super = NULL;
@@ -260,15 +283,23 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
         JL_GC_PUSH4(&para, &super, &temp, &dt);
         assert(jl_is_svec(para));
         assert(jl_is_symbol(name));
-        dt = jl_new_abstracttype(name, jl_any_type, (jl_svec_t*)para);
+        dt = jl_new_abstracttype(name, NULL, (jl_svec_t*)para);
         jl_binding_t *b = jl_get_binding_wr(modu, (jl_sym_t*)name);
         temp = b->value;
         check_can_assign_type(b);
         b->value = (jl_value_t*)dt;
         jl_gc_wb_binding(b, dt);
-        super = eval(args[2], s);
-        jl_set_datatype_super(dt, super);
-        jl_reinstantiate_inner_types(dt);
+        JL_TRY {
+            inside_typedef = 1;
+            super = eval(args[2], s);
+            jl_set_datatype_super(dt, super);
+            jl_reinstantiate_inner_types(dt);
+        }
+        JL_CATCH {
+            jl_reset_instantiate_inner_types(dt);
+            b->value = temp;
+            jl_rethrow();
+        }
         b->value = temp;
         if (temp==NULL || !equiv_type(dt, (jl_datatype_t*)temp)) {
             jl_checked_assignment(b, (jl_value_t*)dt);
@@ -277,6 +308,8 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
         return (jl_value_t*)jl_nothing;
     }
     else if (ex->head == bitstype_sym) {
+        if (inside_typedef)
+            jl_error("cannot eval a new bits type definition while defining another type");
         jl_value_t *name = args[0];
         jl_value_t *super = NULL, *para = NULL, *vnb = NULL, *temp = NULL;
         jl_datatype_t *dt = NULL;
@@ -292,15 +325,23 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
         if (nb < 1 || nb>=(1<<23) || (nb&7) != 0)
             jl_errorf("invalid number of bits in type %s",
                       jl_symbol_name((jl_sym_t*)name));
-        dt = jl_new_bitstype(name, jl_any_type, (jl_svec_t*)para, nb);
+        dt = jl_new_bitstype(name, NULL, (jl_svec_t*)para, nb);
         jl_binding_t *b = jl_get_binding_wr(modu, (jl_sym_t*)name);
         temp = b->value;
         check_can_assign_type(b);
         b->value = (jl_value_t*)dt;
         jl_gc_wb_binding(b, dt);
-        super = eval(args[3], s);
-        jl_set_datatype_super(dt, super);
-        jl_reinstantiate_inner_types(dt);
+        JL_TRY {
+            inside_typedef = 1;
+            super = eval(args[3], s);
+            jl_set_datatype_super(dt, super);
+            jl_reinstantiate_inner_types(dt);
+        }
+        JL_CATCH {
+            jl_reset_instantiate_inner_types(dt);
+            b->value = temp;
+            jl_rethrow();
+        }
         b->value = temp;
         if (temp==NULL || !equiv_type(dt, (jl_datatype_t*)temp)) {
             jl_checked_assignment(b, (jl_value_t*)dt);
@@ -309,6 +350,8 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
         return (jl_value_t*)jl_nothing;
     }
     else if (ex->head == compositetype_sym) {
+        if (inside_typedef)
+            jl_error("cannot eval a new data type definition while defining another type");
         jl_value_t *name = args[0];
         assert(jl_is_symbol(name));
         jl_value_t *para = eval(args[1], s);
@@ -324,7 +367,7 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
             assert(!((jl_tvar_t*)jl_svecref(para, i))->bound);
         }
 #endif
-        dt = jl_new_datatype((jl_sym_t*)name, jl_any_type, (jl_svec_t*)para,
+        dt = jl_new_datatype((jl_sym_t*)name, NULL, (jl_svec_t*)para,
                              (jl_svec_t*)temp, NULL,
                              0, args[5]==jl_true ? 1 : 0, jl_unbox_long(args[6]));
 
@@ -336,13 +379,12 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
         jl_gc_wb_binding(b,dt);
 
         JL_TRY {
+            inside_typedef = 1;
+            // operations that can fail
             super = eval(args[3], s);
             jl_set_datatype_super(dt, super);
-            // operations that can fail
-            inside_typedef = 1;
             dt->types = (jl_svec_t*)eval(args[4], s);
             jl_gc_wb(dt, dt->types);
-            inside_typedef = 0;
             for(size_t i=0; i < jl_svec_len(dt->types); i++) {
                 jl_value_t *elt = jl_svecref(dt->types, i);
                 if (!jl_is_type(elt) && !jl_is_typevar(elt))
@@ -353,6 +395,7 @@ static jl_value_t *eval(jl_value_t *e, interpreter_state *s)
             jl_reinstantiate_inner_types(dt);
         }
         JL_CATCH {
+            jl_reset_instantiate_inner_types(dt);
             b->value = temp;
             jl_rethrow();
         }
@@ -514,7 +557,7 @@ static jl_value_t *eval_body(jl_array_t *stmts, interpreter_state *s, int start,
 
 jl_value_t *jl_interpret_call(jl_lambda_info_t *lam, jl_value_t **args, uint32_t nargs, jl_svec_t *sparam_vals)
 {
-    jl_array_t *stmts = lam->code;
+    jl_array_t *stmts = (jl_array_t*)lam->code;
     assert(jl_typeis(stmts, jl_array_any_type));
     jl_value_t **locals;
     JL_GC_PUSHARGS(locals, jl_linfo_nslots(lam) + jl_linfo_nssavalues(lam));

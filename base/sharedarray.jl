@@ -1,4 +1,5 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
+import .Serializer: serialize_cycle, serialize_type, writetag, UNDEFREF_TAG
 
 type SharedArray{T,N} <: DenseArray{T,N}
     dims::NTuple{N,Int}
@@ -226,7 +227,6 @@ function finalize_refs{T,N}(S::SharedArray{T,N})
         empty!(S.pids)
         empty!(S.refs)
         init_loc_flds(S)
-        finalize(S.s)
         S.s = Array{T}(ntuple(d->0,N))
     end
     S
@@ -327,7 +327,7 @@ function range_1dim(S::SharedArray, pidx)
     end
 end
 
-sub_1dim(S::SharedArray, pidx) = sub(S.s, range_1dim(S, pidx))
+sub_1dim(S::SharedArray, pidx) = view(S.s, range_1dim(S, pidx))
 
 function init_loc_flds{T,N}(S::SharedArray{T,N})
     if myid() in S.pids
@@ -342,19 +342,19 @@ function init_loc_flds{T,N}(S::SharedArray{T,N})
         S.loc_subarr_1d = sub_1dim(S, S.pidx)
     else
         S.pidx = 0
-        S.loc_subarr_1d = sub(Array{T}(ntuple(d->0,N)), 1:0)
+        S.loc_subarr_1d = view(Array{T}(ntuple(d->0,N)), 1:0)
     end
 end
 
 
 # Don't serialize s (it is the complete array) and
 # pidx, which is relevant to the current process only
-function serialize(s::SerializationState, S::SharedArray)
-    Serializer.serialize_cycle(s, S) && return
-    Serializer.serialize_type(s, typeof(S))
+function serialize(s::AbstractSerializer, S::SharedArray)
+    serialize_cycle(s, S) && return
+    serialize_type(s, typeof(S))
     for n in SharedArray.name.names
         if n in [:s, :pidx, :loc_subarr_1d]
-            Serializer.writetag(s.io, Serializer.UNDEFREF_TAG)
+            writetag(s.io, UNDEFREF_TAG)
         elseif n == :refs
             v = getfield(S, n)
             if isa(v[1], Future)
@@ -370,8 +370,8 @@ function serialize(s::SerializationState, S::SharedArray)
     end
 end
 
-function deserialize{T,N}(s::SerializationState, t::Type{SharedArray{T,N}})
-    S = invoke(deserialize, Tuple{SerializationState, DataType}, s, t)
+function deserialize{T,N}(s::AbstractSerializer, t::Type{SharedArray{T,N}})
+    S = invoke(deserialize, Tuple{AbstractSerializer, DataType}, s, t)
     init_loc_flds(S)
     S
 end

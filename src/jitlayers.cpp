@@ -1,5 +1,8 @@
 // This file is a part of Julia. License is MIT: http://julialang.org/license
 
+#include <iostream>
+#include <llvm/ExecutionEngine/SectionMemoryManager.h>
+
 // Except for parts of this file which were copied from LLVM, under the UIUC license (marked below).
 
 // this defines the set of optimization passes defined for Julia at various optimization levels
@@ -22,7 +25,7 @@ static void addOptimizationPasses(T *PM)
     PM->add(llvm::createMemorySanitizerPass(true));
 #   endif
 #endif
-    if (jl_options.opt_level <= 1) {
+    if (jl_options.opt_level == 0) {
         return;
     }
 #ifdef LLVM37
@@ -99,7 +102,7 @@ static void addOptimizationPasses(T *PM)
     PM->add(createInstructionCombiningPass()); // Clean up after the unroller
 #endif
     PM->add(createGVNPass());                  // Remove redundancies
-    //PM->add(createMemCpyOptPass());            // Remove memcpy / form memset
+    PM->add(createMemCpyOptPass());            // Remove memcpy / form memset
     PM->add(createSCCPPass());                 // Constant prop with SCCP
 
     // Run instcombine after redundancy elimination to exploit opportunities
@@ -130,6 +133,11 @@ static void addOptimizationPasses(T *PM)
 }
 
 #ifdef USE_ORCJIT
+
+#ifndef LLVM38
+void notifyObjectLoaded(RTDyldMemoryManager *memmgr,
+                        llvm::orc::ObjectLinkingLayerBase::ObjSetHandleT H);
+#endif
 
 // ------------------------ TEMPORARILY COPIED FROM LLVM -----------------
 // This must be kept in sync with gdb/gdb/jit.h .
@@ -190,17 +198,6 @@ void NotifyDebugger(jit_code_entry *JITCodeEntry)
 }
 // ------------------------ END OF TEMPORARY COPY FROM LLVM -----------------
 
-#if defined(_OS_DARWIN_) && defined(LLVM37) && defined(LLVM_SHLIB)
-#define CUSTOM_MEMORY_MANAGER createRTDyldMemoryManagerOSX
-extern RTDyldMemoryManager *createRTDyldMemoryManagerOSX();
-#elif defined(_OS_LINUX_) && defined(LLVM37) && defined(JL_UNW_HAS_FORMAT_IP)
-#define CUSTOM_MEMORY_MANAGER createRTDyldMemoryManagerUnix
-extern RTDyldMemoryManager *createRTDyldMemoryManagerUnix();
-#endif
-#ifndef CUSTOM_MEMORY_MANAGER
-#define CUSTOM_MEMORY_MANAGER() new SectionMemoryManager
-#endif
-
 #ifdef _OS_LINUX_
 // Resolve non-lock free atomic functions in the libatomic library.
 // This is the library that provides support for c11/c++11 atomic operations.
@@ -232,6 +229,9 @@ class JuliaOJIT {
         void operator()(ObjectLinkingLayerBase::ObjSetHandleT H, const ObjSetT &Objects,
                         const LoadResult &LOS)
         {
+#ifndef LLVM38
+            notifyObjectLoaded(JIT.MemMgr, H);
+#endif
             auto oit = Objects.begin();
             auto lit = LOS.begin();
             for (; oit != Objects.end(); ++oit, ++lit) {
@@ -263,7 +263,7 @@ class JuliaOJIT {
                 ORCNotifyObjectEmitted(JuliaListener.get(),
                         *Object,
                         *SavedObjects.back().getBinary(),
-                        *LO);
+                        *LO, JIT.MemMgr);
 
                 // record all of the exported symbols defined in this object
                 // in the primary hash table for the enclosing JIT
@@ -322,7 +322,7 @@ public:
       : TM(TM),
         DL(TM.createDataLayout()),
         ObjStream(ObjBufferSV),
-        MemMgr(CUSTOM_MEMORY_MANAGER()),
+        MemMgr(createRTDyldMemoryManager()),
         ObjectLayer(DebugObjectRegistrar(*this)),
         CompileLayer(
                 ObjectLayer,
@@ -389,7 +389,7 @@ public:
     }
 
 
-    ModuleHandleT addModule(std::unique_ptr<Module> M)
+    void addModule(std::unique_ptr<Module> M)
     {
 #ifndef NDEBUG
         // validate the relocations for M
@@ -399,9 +399,15 @@ public:
             if (F->isDeclaration()) {
                 if (F->use_empty())
                     F->eraseFromParent();
-                else
-                    assert(F->isIntrinsic() || findUnmangledSymbol(F->getName()) ||
-                            SectionMemoryManager::getSymbolAddressInProcess(F->getName()));
+                else if (!(F->isIntrinsic() ||
+                           findUnmangledSymbol(F->getName()) ||
+                           SectionMemoryManager::getSymbolAddressInProcess(
+                               F->getName()))) {
+                    std::cerr << "FATAL ERROR: "
+                              << "Symbol \"" << F->getName().str() << "\""
+                              << "not found";
+                    abort();
+                }
             }
         }
 #endif
@@ -434,7 +440,6 @@ public:
         // Force LLVM to emit the module so that we can register the symbols
         // in our lookup table.
         CompileLayer.emitAndFinalize(modset);
-        return modset;
     }
 
     void removeModule(ModuleHandleT H)

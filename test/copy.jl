@@ -37,7 +37,7 @@ for (dest, src, bigsrc, emptysrc, res) in [
         @test_throws exc copy!(dest, 1, x, idx, 1)
     end
 
-    @test_throws BoundsError copy!(dest, 1, src(), 1, -1)
+    @test_throws ArgumentError copy!(dest, 1, src(), 1, -1)
 
     @test_throws BoundsError copy!(dest, bigsrc())
 
@@ -81,4 +81,30 @@ let a1 = Base.svec(1, 2, 3, []), a2 = Base.svec(1, 2, 3)
     @test a3 == b3
     @test a3 !== b3
     @test a3[1] === a3[2]
+end
+
+# issue #16667
+let x = BigInt[1:1000;], y = deepcopy(x), v
+    # Finalize the original values to make sure the deep copy is indeed
+    # independent
+    for v in x
+        finalize(v)
+    end
+    # Allocate some memory to make it more likely to trigger an error
+    # if `deepcopy` went wrong
+    x = BigInt[1:1000;]
+    @test y == x
+end
+let x = BigFloat[1:1000;], y, z, v
+    y, z = setprecision(2) do
+        deepcopy(x), BigFloat[1:1000;]
+    end
+    for v in x
+        finalize(v)
+    end
+    x = BigFloat[1:1000;]
+    # Make sure the difference in precision doesn't affect deep copy
+    @test y == x
+    # Check that the setprecision indeed does something
+    @test z != x
 end

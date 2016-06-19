@@ -25,6 +25,7 @@ for eltya in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
     a = eltya == Int ? rand(1:7, n, n) : convert(Matrix{eltya}, eltya <: Complex ? complex(areal, aimg) : areal)
     a2 = eltya == Int ? rand(1:7, n, n) : convert(Matrix{eltya}, eltya <: Complex ? complex(a2real, a2img) : a2real)
     apd  = a'*a                  # symmetric positive-definite
+    apds = Symmetric(apd)
     ε = εa = eps(abs(float(one(eltya))))
 
     @inferred cholfact(apd)
@@ -57,6 +58,12 @@ for eltya in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
     @test_approx_eq cholfact(apos).factors √apos
     @test_throws ArgumentError chol(-one(eltya))
 
+    if eltya <: Real
+        capds = cholfact(apds)
+        @test_approx_eq inv(capds)*apds eye(n)
+        @test abs((det(capds) - det(apd))/det(capds)) <= ε*κ*n
+    end
+
     # test chol of 2x2 Strang matrix
     S = convert(AbstractMatrix{eltya},full(SymTridiagonal([2,2],[-1])))
     U = Bidiagonal([2,sqrt(eltya(3))],[-1],true) / sqrt(eltya(2))
@@ -69,6 +76,14 @@ for eltya in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
     @test_approx_eq l*l' apd
     @test triu(capd.factors) ≈ lapd[:U]
     @test tril(lapd.factors) ≈ capd[:L]
+    if eltya <: Real
+        capds = cholfact(apds)
+        lapds = cholfact(apds, :L)
+        ls = lapds[:L]
+        @test_approx_eq ls*ls' apd
+        @test triu(capds.factors) ≈ lapds[:U]
+        @test tril(lapds.factors) ≈ capds[:L]
+    end
 
     #pivoted upper Cholesky
     if eltya != BigFloat
@@ -101,7 +116,7 @@ debug && println("\ntype of a: ", eltya, " type of b: ", eltyb, "\n")
                 if atype == "Array"
                     b = Bs
                 else
-                    b = sub(Bs, 1:n, 1)
+                    b = view(Bs, 1:n, 1)
                 end
 
                 # Test error bound on linear solver: LAWNS 14, Theorem 2.1
@@ -117,8 +132,8 @@ debug && println("\ntype of a: ", eltya, " type of b: ", eltyb, "\n")
                     @test norm(apd * (lapd\b[1:n]) - b[1:n])/norm(b[1:n]) <= ε*κ*n
                 end
 
-debug && println("pivoted Choleksy decomposition")
-                if eltya != BigFloat && eltyb != BigFloat # Note! Need to implement pivoted cholesky decomposition in julia
+debug && println("pivoted Cholesky decomposition")
+                if eltya != BigFloat && eltyb != BigFloat # Note! Need to implement pivoted Cholesky decomposition in julia
 
                     @test norm(apd * (cpapd\b) - b)/norm(b) <= ε*κ*n # Ad hoc, revisit
                     @test norm(apd * (cpapd\b[1:n]) - b[1:n])/norm(b[1:n]) <= ε*κ*n
@@ -136,8 +151,8 @@ begin
     # Cholesky factor of Matrix with non-commutative elements, here 2x2-matrices
 
     X = Matrix{Float64}[0.1*rand(2,2) for i in 1:3, j = 1:3]
-    L = full(Base.LinAlg.chol!(X*X', LowerTriangular))
-    U = full(Base.LinAlg.chol!(X*X', UpperTriangular))
+    L = full(Base.LinAlg._chol!(X*X', LowerTriangular))
+    U = full(Base.LinAlg._chol!(X*X', UpperTriangular))
     XX = full(X*X')
 
     @test sum(sum(norm, L*L' - XX)) < eps()
@@ -152,8 +167,8 @@ for elty in (Float32, Float64, Complex{Float32}, Complex{Float64})
         A = randn(5,5)
     end
     A = convert(Matrix{elty}, A'A)
-    @test_approx_eq full(cholfact(A)[:L]) full(invoke(Base.LinAlg.chol!, Tuple{AbstractMatrix, Type{LowerTriangular}}, copy(A), LowerTriangular))
-    @test_approx_eq full(cholfact(A)[:U]) full(invoke(Base.LinAlg.chol!, Tuple{AbstractMatrix, Type{UpperTriangular}}, copy(A), UpperTriangular))
+    @test_approx_eq full(cholfact(A)[:L]) full(invoke(Base.LinAlg._chol!, Tuple{AbstractMatrix, Type{LowerTriangular}}, copy(A), LowerTriangular))
+    @test_approx_eq full(cholfact(A)[:U]) full(invoke(Base.LinAlg._chol!, Tuple{AbstractMatrix, Type{UpperTriangular}}, copy(A), UpperTriangular))
 end
 
 # Test up- and downdates
@@ -196,3 +211,10 @@ let apd = [5.8525753f0 + 0.0f0im -0.79540455f0 + 0.7066077f0im 0.98274714f0 + 1.
         @test E[i,j] <= (n+1)ε/(1-(n+1)ε)*real(sqrt(apd[i,i]*apd[j,j]))
     end
 end
+
+# Fail if non-Hermitian
+@test_throws ArgumentError cholfact(randn(5,5))
+@test_throws ArgumentError cholfact(complex(randn(5,5), randn(5,5)))
+@test_throws ArgumentError Base.LinAlg.chol!(randn(5,5))
+@test_throws ArgumentError Base.LinAlg.cholfact!(randn(5,5),:U,Val{false})
+@test_throws ArgumentError cholfact(randn(5,5),:U,Val{false})

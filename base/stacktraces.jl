@@ -63,7 +63,7 @@ end
 # provide a custom serializer that skips attempting to serialize the `outer_linfo`
 # which is likely to contain complex references, types, and module references
 # that may not exist on the receiver end
-function serialize(s::SerializationState, frame::StackFrame)
+function serialize(s::AbstractSerializer, frame::StackFrame)
     Serializer.serialize_type(s, typeof(frame))
     serialize(s, frame.func)
     serialize(s, frame.file)
@@ -73,7 +73,7 @@ function serialize(s::SerializationState, frame::StackFrame)
     write(s.io, frame.pointer)
 end
 
-function deserialize(s::SerializationState, ::Type{StackFrame})
+function deserialize(s::AbstractSerializer, ::Type{StackFrame})
     func = deserialize(s)
     file = deserialize(s)
     line = read(s.io, Int)
@@ -162,32 +162,8 @@ function show_spec_linfo(io::IO, frame::StackFrame)
         end
     else
         linfo = get(frame.linfo)
-        params =
-            if isdefined(linfo, :specTypes)
-                linfo.specTypes.parameters
-            else
-                nothing
-            end
-        if params !== nothing
-            ft = params[1]
-            if ft <: Function && isempty(ft.parameters) &&
-                    isdefined(ft.name.module, ft.name.mt.name) &&
-                    ft == typeof(getfield(ft.name.module, ft.name.mt.name))
-                print(io, ft.name.mt.name)
-            elseif isa(ft, DataType) && is(ft.name, Type.name) && isleaftype(ft)
-                f = ft.parameters[1]
-                print(io, f)
-            else
-                print(io, "(::", ft, ")")
-            end
-            first = true
-            print(io, '(')
-            for i = 2:length(params)  # fixme (iter): `eachindex` with offset?
-                first || print(io, ", ")
-                first = false
-                print(io, "::", params[i])
-            end
-            print(io, ')')
+        if isdefined(linfo, :specTypes)
+            Base.show_lambda_types(io, linfo.specTypes.parameters)
         else
             print(io, linfo.name)
         end

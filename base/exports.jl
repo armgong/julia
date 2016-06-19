@@ -67,7 +67,6 @@ export
     UniformScaling,
     InsertionSort,
     IntSet,
-    IO,
     IOBuffer,
     IOStream,
     LinSpace,
@@ -101,6 +100,7 @@ export
     RoundNearestTiesUp,
     RoundToZero,
     RoundUp,
+    AbstractSerializer,
     SerializationState,
     Set,
     SharedArray,
@@ -127,7 +127,6 @@ export
     VersionNumber,
     WeakKeyDict,
     WorkerConfig,
-    WString,
     Zip,
 
 # Ccall types
@@ -484,6 +483,7 @@ export
     zeta,
 
 # arrays
+    allocate_for,
     bitbroadcast,
     broadcast!,
     broadcast,
@@ -491,6 +491,7 @@ export
     broadcast_setindex!,
     cat,
     checkbounds,
+    checkindex,
     circshift,
     clamp!,
     colon,
@@ -526,6 +527,7 @@ export
     hvcat,
     ind2sub,
     indexin,
+    indices,
     indmax,
     indmin,
     invperm,
@@ -535,6 +537,7 @@ export
     isperm,
     issorted,
     last,
+    linearindices,
     linspace,
     logspace,
     mapslices,
@@ -579,10 +582,10 @@ export
     searchsortedlast,
     select!,
     select,
+    shape,
     shuffle,
     shuffle!,
     size,
-    slice,
     slicedim,
     sort!,
     sort,
@@ -596,7 +599,6 @@ export
     step,
     stride,
     strides,
-    sub,
     sub2ind,
     sum!,
     sum,
@@ -607,6 +609,7 @@ export
     sum_kbn,
     vcat,
     vec,
+    view,
     zeros,
 
 # linear algebra
@@ -702,6 +705,8 @@ export
 
 # sparse
     full,
+    dropzeros,
+    dropzeros!,
 
 # bitarrays
     falses,
@@ -875,7 +880,6 @@ export
     utf16,
     utf32,
     warn,
-    wstring,
 
 # random numbers
     AbstractRNG,

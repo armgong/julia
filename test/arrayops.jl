@@ -90,7 +90,7 @@ a = reshape(b, (2, 2, 2, 2, 2))
 
 a = collect(reshape(1:5, 1, 5))
 # reshaping linearfast SubArrays
-s = sub(a, :, 2:4)
+s = view(a, :, 2:4)
 r = reshape(s, (length(s),))
 @test length(r) == 3
 @test r[1] == 2
@@ -105,7 +105,7 @@ r = reshape(s, (length(s),))
 @test Base.unsafe_convert(Ptr{Int}, r) == Base.unsafe_convert(Ptr{Int}, s)
 
 # reshaping linearslow SubArrays
-s = sub(a, :, [2,3,5])
+s = view(a, :, [2,3,5])
 r = reshape(s, length(s))
 @test length(r) == 3
 @test r[1] == 2
@@ -121,7 +121,7 @@ r = reshape(s, length(s))
 r[2] = -1
 @test a[3] == -1
 a = zeros(0, 5)  # an empty linearslow array
-s = sub(a, :, [2,3,5])
+s = view(a, :, [2,3,5])
 @test length(reshape(s, length(s))) == 0
 
 @test reshape(1:5, (5,)) === 1:5
@@ -435,14 +435,14 @@ end
 
 # of a subarray
 a = rand(5,5)
-s = sub(a,2:3,2:3)
+s = view(a,2:3,2:3)
 p = permutedims(s, [2,1])
 @test p[1,1]==a[2,2] && p[1,2]==a[3,2]
 @test p[2,1]==a[2,3] && p[2,2]==a[3,3]
 
 # of a non-strided subarray
 a = reshape(1:60, 3, 4, 5)
-s = sub(a,:,[1,2,4],[1,5])
+s = view(a,:,[1,2,4],[1,5])
 c = convert(Array, s)
 for p in ([1,2,3], [1,3,2], [2,1,3], [2,3,1], [3,1,2], [3,2,1])
     @test permutedims(s, p) == permutedims(c, p)
@@ -700,7 +700,7 @@ let
     @test R == [1, 1, 1, 2, 2, 2, 1, 1, 1, 2, 2, 2]
 
     A = rand(4,4)
-    for s in Any[A[1:2:4, 1:2:4], sub(A, 1:2:4, 1:2:4)]
+    for s in Any[A[1:2:4, 1:2:4], view(A, 1:2:4, 1:2:4)]
         c = cumsum(s, 1)
         @test c[1,1] == A[1,1]
         @test c[2,1] == A[1,1]+A[3,1]
@@ -932,9 +932,9 @@ end
 # fill
 @test fill!(Array{Float64}(1),-0.0)[1] === -0.0
 A = ones(3,3)
-S = sub(A, 2, 1:3)
+S = view(A, 2, 1:3)
 fill!(S, 2)
-S = sub(A, 1:2, 3)
+S = view(A, 1:2, 3)
 fill!(S, 3)
 @test A == [1 1 3; 2 2 3; 1 1 1]
 rt = Base.return_types(fill!, Tuple{Array{Int32, 3}, UInt8})
@@ -1104,18 +1104,6 @@ function i7197()
     ind2sub(size(S), 5)
 end
 @test i7197() == (2,2)
-A = reshape(collect(1:9), (3,3))
-@test ind2sub(size(A), 6) == (3,2)
-@test sub2ind(size(A), 3, 2) == 6
-@test ind2sub(A, 6) == (3,2)
-@test sub2ind(A, 3, 2) == 6
-
-# PR #9256
-function pr9256()
-    m = [1 2 3; 4 5 6; 7 8 9]
-    ind2sub(m, 6)
-end
-@test pr9256() == (3,2)
 
 # PR #8622 and general indexin test
 function pr8622()
@@ -1178,7 +1166,7 @@ end
 
 a = [1:5;]
 @test isa(Base.linearindexing(a), Base.LinearFast)
-b = sub(a, :)
+b = view(a, :)
 @test isa(Base.linearindexing(b), Base.LinearFast)
 @test isa(Base.linearindexing(trues(2)), Base.LinearFast)
 @test isa(Base.linearindexing(BitArray{2}), Base.LinearFast)
@@ -1190,7 +1178,7 @@ for i = 1:10
     @test mdsum(A) == 15
     @test mdsum2(A) == 15
     AA = reshape(aa, tuple(2, shp...))
-    B = sub(AA, 1:1, ntuple(i->Colon(), i)...)
+    B = view(AA, 1:1, ntuple(i->Colon(), i)...)
     @test isa(Base.linearindexing(B), Base.IteratorsMD.LinearSlow)
     @test mdsum(B) == 15
     @test mdsum2(B) == 15
@@ -1203,7 +1191,7 @@ for i = 2:10
     A = reshape(a, tuple(shp...))
     @test mdsum(A) == 55
     @test mdsum2(A) == 55
-    B = sub(A, ntuple(i->Colon(), i)...)
+    B = view(A, ntuple(i->Colon(), i)...)
     @test mdsum(B) == 55
     @test mdsum2(B) == 55
     insert!(shp, 2, 1)
@@ -1214,10 +1202,10 @@ a = reshape([2])
 @test mdsum2(a) == 2
 
 a = ones(0,5)
-b = sub(a, :, :)
+b = view(a, :, :)
 @test mdsum(b) == 0
 a = ones(5,0)
-b = sub(a, :, :)
+b = view(a, :, :)
 @test mdsum(b) == 0
 
 a = copy(reshape(1:60, 3, 4, 5))
@@ -1231,7 +1219,7 @@ a[1,CartesianIndex{2}(3,4)] = -2
 a[CartesianIndex{1}(2),3,CartesianIndex{1}(3)] = -3
 @test a[CartesianIndex{1}(2),3,CartesianIndex{1}(3)] == -3
 
-a = sub(zeros(3, 4, 5), :, :, :)
+a = view(zeros(3, 4, 5), :, :, :)
 a[CartesianIndex{3}(2,3,3)] = -1
 @test a[CartesianIndex{3}(2,3,3)] == -1
 a[1,CartesianIndex{2}(3,4)] = -2
@@ -1262,8 +1250,8 @@ I2 = CartesianIndex((-1,5,2))
 @test length(CartesianIndex{3}((1,2))) == 3
 @test length(CartesianIndex{3}(1,2,3)) == 3
 @test length(CartesianIndex{3}((1,2,3))) == 3
-@test_throws DimensionMismatch CartesianIndex{3}(1,2,3,4)
-@test_throws DimensionMismatch CartesianIndex{3}((1,2,3,4))
+@test_throws ArgumentError CartesianIndex{3}(1,2,3,4)
+@test_throws ArgumentError CartesianIndex{3}((1,2,3,4))
 
 @test length(I1) == 3
 
@@ -1276,7 +1264,7 @@ a = spzeros(2,3)
 @test CartesianRange(size(a)) == eachindex(a)
 a[CartesianIndex{2}(2,3)] = 5
 @test a[2,3] == 5
-b = sub(a, 1:2, 2:3)
+b = view(a, 1:2, 2:3)
 b[CartesianIndex{2}(1,1)] = 7
 @test a[1,2] == 7
 @test 2*CartesianIndex{3}(1,2,3) == CartesianIndex{3}(2,4,6)
@@ -1326,7 +1314,7 @@ R = CartesianRange((3,0))
 
 @test @inferred(eachindex(Base.LinearSlow(),zeros(3),zeros(2,2),zeros(2,2,2),zeros(2,2))) == CartesianRange((3,2,2))
 @test @inferred(eachindex(Base.LinearFast(),zeros(3),zeros(2,2),zeros(2,2,2),zeros(2,2))) == 1:8
-@test @inferred(eachindex(zeros(3),sub(zeros(3,3),1:2,1:2),zeros(2,2,2),zeros(2,2))) == CartesianRange((3,2,2))
+@test @inferred(eachindex(zeros(3),view(zeros(3,3),1:2,1:2),zeros(2,2,2),zeros(2,2))) == CartesianRange((3,2,2))
 @test @inferred(eachindex(zeros(3),zeros(2,2),zeros(2,2,2),zeros(2,2))) == 1:8
 
 
@@ -1473,7 +1461,7 @@ Base.setindex!(A::LinSlowMatrix, v, i::Integer, j::Integer) = A.data[i,j] = v
 
 A = rand(3,5)
 B = LinSlowMatrix(A)
-S = sub(A, :, :)
+S = view(A, :, :)
 
 @test A == B
 @test B == A

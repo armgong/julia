@@ -74,7 +74,7 @@ function arg_decl_parts(m::Method)
 end
 
 function kwarg_decl(sig::ANY, kwtype::DataType)
-    sig = Tuple{kwtype, Array, sig.parameters...}
+    sig = Tuple{kwtype, Core.AnyVector, sig.parameters...}
     kwli = ccall(:jl_methtable_lookup, Any, (Any, Any), kwtype.name.mt, sig)
     if kwli !== nothing
         kwli = kwli::Method
@@ -174,6 +174,7 @@ function url(m::Method)
     file = string(m.file)
     line = m.line
     line <= 0 || ismatch(r"In\[[0-9]+\]", file) && return ""
+    is_windows() && (file = replace(file, '\\', '/'))
     if inbase(M)
         if isempty(Base.GIT_VERSION_INFO.commit)
             # this url will only work if we're on a tagged release
@@ -190,7 +191,7 @@ function url(m::Method)
                     u = match(LibGit2.GITHUB_REGEX,u).captures[1]
                     commit = string(LibGit2.head_oid(repo))
                     root = LibGit2.path(repo)
-                    if startswith(file, root)
+                    if startswith(file, root) || startswith(realpath(file), root)
                         "https://github.com/$u/tree/$commit/"*file[length(root)+1:end]*"#L$line"
                     else
                         fileurl(file)

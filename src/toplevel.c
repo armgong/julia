@@ -29,7 +29,6 @@ JL_DLLEXPORT int jl_lineno = 0; // need to update jl_critical_error if this is T
 // current file name
 JL_DLLEXPORT const char *jl_filename = "no file"; // need to update jl_critical_error if this is TLS
 
-jl_module_t *jl_old_base_module = NULL;
 // the Main we started with, in case it is switched
 jl_module_t *jl_internal_main_module = NULL;
 
@@ -80,7 +79,7 @@ static void jl_module_load_time_initialize(jl_module_t *m)
             jl_value_t *tt = jl_is_type(f) ? (jl_value_t*)jl_wrap_Type(f) : jl_typeof(f);
             JL_GC_PUSH1(&tt);
             tt = (jl_value_t*)jl_apply_tuple_type_v(&tt, 1);
-            jl_get_specialization1((jl_tupletype_t*)tt);
+            jl_compile_hint((jl_tupletype_t*)tt);
             JL_GC_POP();
         }
     }
@@ -131,16 +130,7 @@ jl_value_t *jl_eval_module_expr(jl_expr_t *ex)
 
     if (parent_module == jl_main_module && name == jl_symbol("Base")) {
         // pick up Base module during bootstrap
-        jl_old_base_module = jl_base_module;
         jl_base_module = newm;
-        // reinitialize global variables
-        // to pick up new types from Base
-        jl_errorexception_type = NULL;
-        jl_argumenterror_type = NULL;
-        jl_methoderror_type = NULL;
-        jl_loaderror_type = NULL;
-        jl_initerror_type = NULL;
-        jl_current_task->tls = jl_nothing; // may contain an entry for :SOURCE_FILE that is not valid in the new base
     }
     // export all modules from Main
     if (parent_module == jl_main_module)
@@ -521,7 +511,7 @@ jl_value_t *jl_toplevel_eval_flex(jl_value_t *e, int fast, int expanded)
         thk = (jl_lambda_info_t*)jl_exprarg(ex,0);
         assert(jl_is_lambda_info(thk));
         assert(jl_typeis(thk->code, jl_array_any_type));
-        ewc = jl_eval_with_compiler_p(thk, thk->code, fast, jl_current_module);
+        ewc = jl_eval_with_compiler_p(thk, (jl_array_t*)thk->code, fast, jl_current_module);
     }
     else {
         if (head && jl_eval_expr_with_compiler_p((jl_value_t*)ex, fast, jl_current_module)) {
@@ -661,7 +651,7 @@ JL_DLLEXPORT jl_value_t *jl_generic_function_def(jl_sym_t *name, jl_value_t **bp
     return gf;
 }
 
-jl_datatype_t *first_arg_datatype(jl_value_t *a, int got_tuple1)
+static jl_datatype_t *first_arg_datatype(jl_value_t *a, int got_tuple1)
 {
     if (jl_is_datatype(a)) {
         if (got_tuple1)
@@ -696,9 +686,9 @@ jl_datatype_t *first_arg_datatype(jl_value_t *a, int got_tuple1)
 }
 
 // get DataType of first tuple element, or NULL if cannot be determined
-jl_value_t *jl_first_argument_datatype(jl_value_t *argtypes)
+jl_datatype_t *jl_first_argument_datatype(jl_value_t *argtypes)
 {
-    return (jl_value_t*)first_arg_datatype(argtypes, 0);
+    return first_arg_datatype(argtypes, 0);
 }
 
 extern tracer_cb jl_newmeth_tracer;
@@ -726,17 +716,17 @@ JL_DLLEXPORT void jl_method_def(jl_svec_t *argdata, jl_lambda_info_t *f, jl_valu
 
     if (jl_is_tuple_type(argtypes) && jl_nparams(argtypes) > 0 && !jl_is_type(jl_tparam0(argtypes)))
         jl_error("function type in method definition is not a type");
-    jl_value_t *ftype = jl_first_argument_datatype((jl_value_t*)argtypes);
+    jl_datatype_t *ftype = jl_first_argument_datatype((jl_value_t*)argtypes);
     if (ftype == NULL ||
-        !(jl_is_type_type(ftype) ||
+        !(jl_is_type_type((jl_value_t*)ftype) ||
           (jl_is_datatype(ftype) &&
-           (!((jl_datatype_t*)ftype)->abstract || jl_is_leaf_type(ftype)) &&
-           ((jl_datatype_t*)ftype)->name->mt != NULL)))
+           (!ftype->abstract || jl_is_leaf_type((jl_value_t*)ftype)) &&
+           ftype->name->mt != NULL)))
         jl_error("cannot add methods to an abstract type");
-    mt = ((jl_datatype_t*)ftype)->name->mt;
+    mt = ftype->name->mt;
     name = mt->name;
 
-    if (jl_subtype(ftype, (jl_value_t*)jl_builtin_type, 0))
+    if (jl_subtype((jl_value_t*)ftype, (jl_value_t*)jl_builtin_type, 0))
         jl_error("cannot add methods to a builtin function");
 
     m = jl_new_method(f, name, argtypes, tvars, isstaged == jl_true);
@@ -774,7 +764,7 @@ JL_DLLEXPORT void jl_method_def(jl_svec_t *argdata, jl_lambda_info_t *f, jl_valu
         jl_call_tracer(jl_newmeth_tracer, (jl_value_t*)m);
 
     if (jl_boot_file_loaded && f->code && jl_typeis(f->code, jl_array_any_type)) {
-        f->code = jl_compress_ast(f, f->code);
+        f->code = (jl_value_t*)jl_compress_ast(f, (jl_array_t*)f->code);
         jl_gc_wb(f, f->code);
     }
     JL_GC_POP();

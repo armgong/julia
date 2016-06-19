@@ -830,7 +830,7 @@ function (::Type{Sparse}){Tv<:VTypes}(m::Integer, n::Integer,
     # check if columns are sorted
     iss = true
     for i = 2:length(colptr)
-        if !issorted(sub(rowval, colptr[i - 1] + 1:colptr[i]))
+        if !issorted(view(rowval, colptr[i - 1] + 1:colptr[i]))
             iss = false
             break
         end
@@ -959,7 +959,11 @@ function convert{T}(::Type{Matrix{T}}, D::Dense{T})
     a = Array{T}(s.nrow, s.ncol)
     copy!(a, D)
 end
-function Base.copy!(dest::AbstractArray, D::Dense)
+
+Base.copy!(dest::Base.PermutedDimsArrays.PermutedDimsArray, src::Dense) = _copy!(dest, src) # ambig
+Base.copy!(dest::AbstractArray, D::Dense) = _copy!(dest, D)
+
+function _copy!(dest::AbstractArray, D::Dense)
     s = unsafe_load(D.p)
     n = s.nrow*s.ncol
     n <= length(dest) || throw(BoundsError(dest, n))

@@ -1212,13 +1212,6 @@ Returns a tuple `(filename,line)` giving the location of a `Method` definition.
 functionloc(m)
 
 """
-    stride(A, k)
-
-Returns the distance in memory (in number of elements) between adjacent elements in dimension `k`.
-"""
-stride
-
-"""
     last(coll)
 
 Get the last element of an ordered collection, if it can be computed in O(1) time. This is
@@ -2783,15 +2776,6 @@ Equivalent to `writedlm` with `delim` set to comma.
 writecsv
 
 """
-    wstring(s)
-
-This is a synonym for either `utf32(s)` or `utf16(s)`, depending on whether `Cwchar_t` is 32
-or 16 bits, respectively. The synonym `WString` for `UTF32String` or `UTF16String` is also
-provided.
-"""
-wstring
-
-"""
     withenv(f::Function, kv::Pair...)
 
 Execute `f()` in an environment that is temporarily modified (not replaced as in `setenv`)
@@ -3909,15 +3893,6 @@ Compute the logarithm of `x` to base 2. Throws `DomainError` for negative `Real`
 log2
 
 """
-    SymTridiagonal(d, du)
-
-Construct a real symmetric tridiagonal matrix from the diagonal and upper diagonal,
-respectively. The result is of type `SymTridiagonal` and provides efficient specialized
-eigensolvers, but may be converted into a regular matrix with [`full`](:func:`full`).
-"""
-SymTridiagonal
-
-"""
     colon(start, [step], stop)
 
 Called by `:` syntax for constructing ranges.
@@ -4065,24 +4040,6 @@ Element-wise less-than-or-equals comparison operator.
 Base.:(.<=)
 
 """
-    checkbounds(array, indexes...)
-
-Throw an error if the specified indexes are not in bounds for the given array. Subtypes of
-`AbstractArray` should specialize this method if they need to provide custom bounds checking
-behaviors.
-"""
-checkbounds(array, indexes...)
-
-"""
-    checkbounds(::Type{Bool}, dimlength::Integer, index)
-
-Return a `Bool` describing if the given index is within the bounds of the given dimension
-length. Custom types that would like to behave as indices for all arrays can extend this
-method in order to provide a specialized bounds checking implementation.
-"""
-checkbounds(::Type{Bool}, ::Integer, index)
-
-"""
     asec(x)
 
 Compute the inverse secant of `x`, where the output is in radians.
@@ -4187,13 +4144,6 @@ broadcast!
 Compute the cross product of two 3-vectors.
 """
 cross
-
-"""
-    strides(A)
-
-Returns a tuple of the memory strides in each dimension.
-"""
-strides
 
 """
     keys(collection)
@@ -4401,7 +4351,7 @@ position
 """
     selectperm(v, k, [alg=<algorithm>,] [by=<transform>,] [lt=<comparison>,] [rev=false])
 
-Return a partial permutation of the the vector `v`, according to the order specified by
+Return a partial permutation of the vector `v`, according to the order specified by
 `by`, `lt` and `rev`, so that `v[output]` returns the first `k` (or range of adjacent values
 if `k` is a range) values of a fully sorted version of `v`. If `k` is a single index
 (Integer), an array of the first `k` indices is returned; if `k` is a range, an array of
@@ -5415,16 +5365,6 @@ All metadata and dbg.* calls are removed from the printed bitcode. Use code_llvm
 code_llvm
 
 """
-    Bidiagonal(dv, ev, isupper)
-
-Constructs an upper (`isupper=true`) or lower (`isupper=false`) bidiagonal matrix using the
-given diagonal (`dv`) and off-diagonal (`ev`) vectors.  The result is of type `Bidiagonal`
-and provides efficient specialized linear solvers, but may be converted into a regular
-matrix with [`full`](:func:`full`).
-"""
-Bidiagonal
-
-"""
     notify(condition, val=nothing; all=true, error=false)
 
 Wake up tasks waiting for a condition, passing them `val`. If `all` is `true` (the default),
@@ -5434,14 +5374,14 @@ is raised as an exception in the woken tasks.
 notify
 
 """
-    sub(A, inds...)
+    view(A, inds...)
 
 Like [`getindex`](:func:`getindex`), but returns a view into the parent array `A` with the
 given indices instead of making a copy.  Calling [`getindex`](:func:`getindex`) or
 [`setindex!`](:func:`setindex!`) on the returned [`SubArray`](:obj:`SubArray`) computes the
 indices to the parent array on the fly without checking bounds.
 """
-sub
+view
 
 """
     expanduser(path::AbstractString) -> AbstractString
@@ -5463,22 +5403,6 @@ haskey
 Compute the cotangent of `x`, where `x` is in radians.
 """
 cot
-
-"""
-    get(x)
-
-Attempt to access the value of the `Nullable` object, `x`. Returns the value if it is
-present; otherwise, throws a `NullException`.
-"""
-get(x)
-
-"""
-    get(x, y)
-
-Attempt to access the value of the `Nullable{T}` object, `x`. Returns
-the value if it is present; otherwise, returns `convert(T, y)`.
-"""
-get(x,y)
 
 """
     get(collection, key, default)
@@ -6090,43 +6014,6 @@ A character is classified as numeric if it belongs to the Unicode general catego
 i.e. a character whose category code begins with 'N'.
 """
 isnumber
-
-"""
-    similar(array, [element_type=eltype(array)], [dims=size(array)])
-
-Create an uninitialized mutable array with the given element type and size, based upon the
-given source array. The second and third arguments are both optional, defaulting to the
-given array's `eltype` and `size`. The dimensions may be specified either as a single tuple
-argument or as a series of integer arguments.
-
-Custom AbstractArray subtypes may choose which specific array type is best-suited to return
-for the given element type and dimensionality. If they do not specialize this method, the
-default is an `Array{element_type}(dims...)`.
-
-For example, `similar(1:10, 1, 4)` returns an uninitialized `Array{Int,2}` since ranges are
-neither mutable nor support 2 dimensions:
-
-    julia> similar(1:10, 1, 4)
-    1×4 Array{Int64,2}:
-     4419743872  4374413872  4419743888  0
-
-Conversely, `similar(trues(10,10), 2)` returns an uninitialized `BitVector` with two
-elements since `BitArray`s are both mutable and can support 1-dimensional arrays:
-
-    julia> similar(trues(10,10), 2)
-    2-element BitArray{1}:
-     false
-     false
-
-Since `BitArray`s can only store elements of type `Bool`, however, if you request a
-different element type it will create a regular `Array` instead:
-
-    julia> similar(falses(10), Float64, 2, 4)
-    2×4 Array{Float64,2}:
-     2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
-     2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
-"""
-similar
 
 """
     copy(x)
@@ -7513,14 +7400,6 @@ julia> "Hello " * "world"
 Base.:(*)(s::AbstractString, t::AbstractString)
 
 """
-    slice(A, inds...)
-
-Returns a view of array `A` with the given indices like [`sub`](:func:`sub`), but drops all
-dimensions indexed with scalars.
-"""
-slice
-
-"""
     time()
 
 Get the system time in seconds since the epoch, with fairly high (typically, microsecond) resolution.
@@ -7608,15 +7487,6 @@ getpid
 Return ``x^{1/3}``.  The prefix operator `∛` is equivalent to `cbrt`.
 """
 cbrt
-
-"""
-    Tridiagonal(dl, d, du)
-
-Construct a tridiagonal matrix from the lower diagonal, diagonal, and upper diagonal,
-respectively.  The result is of type `Tridiagonal` and provides efficient specialized linear
-solvers, but may be converted into a regular matrix with [`full`](:func:`full`).
-"""
-Tridiagonal
 
 """
     findprev(A, i)
