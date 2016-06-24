@@ -206,6 +206,18 @@ let T = TypeVar(:T, Tuple{Vararg{RangeIndex}}, true)
     @test  args_morespecific(t2, t1)
 end
 
+let T = TypeVar(:T, Any, true), N = TypeVar(:N, Any, true)
+    a = Tuple{Array{T,N}, Vararg{Int,N}}
+    b = Tuple{Array,Int}
+    @test  args_morespecific(a, b)
+    @test !args_morespecific(b, a)
+    a = Tuple{Array, Vararg{Int,N}}
+    @test !args_morespecific(a, b)
+    @test  args_morespecific(b, a)
+end
+
+# with bound varargs
+
 # issue #11840
 typealias TT11840{T} Tuple{T,T}
 f11840(::Type) = "Type"
@@ -2124,6 +2136,12 @@ c99991{T}(::Type{UnitRange{T}},x::Range{T}) = 2
 @test c99991(UnitRange{Float64}, 1.0:2.0) == 1
 @test c99991(UnitRange{Int}, 1:2) == 2
 
+# issue #17016, method specificity involving vararg tuples
+typealias T_17016{N} Tuple{Any,Any,Vararg{Any,N}}
+f17016(f, t::T_17016) = 0
+f17016(f, t1::Tuple) = 1
+@test f17016(0, (1,2,3)) == 0
+
 # issue #8798
 let
     const npy_typestrs = Dict("b1"=>Bool,
@@ -3874,7 +3892,7 @@ end
 
 # issue #15370
 @test isdefined(Core, :Box)
-@test isdefined(Base, :Box)
+@test !isdefined(Base, :Box)
 @test !isdefined(Main, :Box)
 
 # issue #1784
@@ -4301,8 +4319,8 @@ end
 type C16767{T}
     b::A16767{C16767{:a}}
 end
-@test B16767.types[1].types[1].parameters[1].types === Base.svec(A16767{B16767})
-@test C16767.types[1].types[1].parameters[1].types === Base.svec(A16767{C16767{:a}})
+@test B16767.types[1].types[1].parameters[1].types === Core.svec(A16767{B16767})
+@test C16767.types[1].types[1].parameters[1].types === Core.svec(A16767{C16767{:a}})
 
 # issue #16340
 function f16340{T}(x::T)

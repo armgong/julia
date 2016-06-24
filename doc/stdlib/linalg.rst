@@ -71,23 +71,49 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Constructs a matrix with ``V`` as its diagonal.
 
-.. function:: Bidiagonal(dv, ev, isupper)
+.. function:: Bidiagonal(dv, ev, isupper::Bool)
 
    .. Docstring generated from Julia source
 
    Constructs an upper (``isupper=true``\ ) or lower (``isupper=false``\ ) bidiagonal matrix using the given diagonal (``dv``\ ) and off-diagonal (``ev``\ ) vectors.  The result is of type ``Bidiagonal`` and provides efficient specialized linear solvers, but may be converted into a regular matrix with :func:`full`\ . ``ev``\ 's length must be one less than the length of ``dv``\ .
 
-.. function:: Bidiagonal(dv, ev, uplo)
+   **Example**
+
+   .. code-block:: julia
+
+       dv = rand(5)
+       ev = rand(4)
+       Bu = Bidiagonal(dv, ev, true) #e is on the first superdiagonal
+       Bl = Bidiagonal(dv, ev, false) #e is on the first subdiagonal
+
+.. function:: Bidiagonal(dv, ev, uplo::Char)
 
    .. Docstring generated from Julia source
 
    Constructs an upper (``uplo='U'``\ ) or lower (``uplo='L'``\ ) bidiagonal matrix using the given diagonal (``dv``\ ) and off-diagonal (``ev``\ ) vectors.  The result is of type ``Bidiagonal`` and provides efficient specialized linear solvers, but may be converted into a regular matrix with :func:`full`\ . ``ev``\ 's length must be one less than the length of ``dv``\ .
 
-.. function:: Bidiagonal(A, uplo)
+   **Example**
+
+   .. code-block:: julia
+
+       dv = rand(5)
+       ev = rand(4)
+       Bu = Bidiagonal(dv, ev, 'U') #e is on the first superdiagonal
+       Bl = Bidiagonal(dv, ev, 'L') #e is on the first subdiagonal
+
+.. function:: Bidiagonal(A, isupper::Bool)
 
    .. Docstring generated from Julia source
 
    Construct a ``Bidiagonal`` matrix from the main diagonal of ``A`` and its first super- (if ``isupper=true``\ ) or sub-diagonal (if ``isupper=false``\ ).
+
+   **Example**
+
+   .. code-block:: julia
+
+       A = rand(5,5)
+       Bu = Bidiagonal(A, true) #contains the main diagonal and first superdiagonal of A
+       Bl = Bidiagonal(A, false) #contains the main diagonal and first subdiagonal of A
 
 .. function:: SymTridiagonal(dv, ev)
 
@@ -480,6 +506,24 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    Converts an orthogonal or unitary matrix stored as a ``QRCompactWYQ`` object, i.e. in the compact WY format [Bischof1987]_, to a dense matrix.
 
    Optionally takes a ``thin`` Boolean argument, which if ``true`` omits the columns that span the rows of ``R`` in the QR factorization that are zero. The resulting matrix is the ``Q`` in a thin QR factorization (sometimes called the reduced QR factorization). If ``false``\ , returns a ``Q`` that spans all rows of ``R`` in its corresponding QR factorization.
+
+.. function:: lqfact!(A) -> LQ
+
+   .. Docstring generated from Julia source
+
+   Compute the LQ factorization of ``A``\ , using the input matrix as a workspace. See also :func:`lq\ .
+
+.. function:: lqfact(A) -> LQ
+
+   .. Docstring generated from Julia source
+
+   Compute the LQ factorization of ``A``\ . See also :func:`lq\ .
+
+.. function:: lq(A; [thin=true]) -> L, Q
+
+   .. Docstring generated from Julia source
+
+   Perform an LQ factorization of ``A`` such that ``A = L*Q``\ . The default is to compute a thin factorization. The LQ factorization is the QR factorization of ``A.'``\ . ``L`` is not extended with zeros if the full ``Q`` is requested.
 
 .. function:: bkfact(A) -> BunchKaufman
 
@@ -899,12 +943,6 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    .. Docstring generated from Julia source
 
    Construct a tridiagonal matrix from the first subdiagonal, diagonal, and first superdiagonal, respectively.  The result is of type ``Tridiagonal`` and provides efficient specialized linear solvers, but may be converted into a regular matrix with :func:`full`\ . The lengths of ``dl`` and ``du`` must be one less than the length of ``d``\ .
-
-.. function:: Bidiagonal(dv, ev, isupper)
-
-   .. Docstring generated from Julia source
-
-   Constructs an upper (``isupper=true``\ ) or lower (``isupper=false``\ ) bidiagonal matrix using the given diagonal (``dv``\ ) and off-diagonal (``ev``\ ) vectors.  The result is of type ``Bidiagonal`` and provides efficient specialized linear solvers, but may be converted into a regular matrix with :func:`full`\ . ``ev``\ 's length must be one less than the length of ``dv``\ .
 
 .. function:: rank(M)
 
@@ -1630,17 +1668,17 @@ Usually a function has 4 methods defined, one each for ``Float64``,
 
    Returns the solution to ``A*X = alpha*B`` or one of the other three variants determined by ``side`` (``A`` on left or right of ``X``\ ) and ``tA`` (transpose ``A``\ ). Only the ``ul`` triangle of ``A`` is used. ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones).
 
-.. function:: trmv!(side, ul, tA, dA, alpha, A, b)
+.. function:: trmv!(ul, tA, dA, A, b)
 
    .. Docstring generated from Julia source
 
-   Update ``b`` as ``alpha*A*b`` or one of the other three variants determined by ``side`` (``A`` on left or right) and ``tA`` (transpose ``A``\ ). Only the ``ul`` triangle of ``A`` is used. ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones). Returns the updated ``b``\ .
+   Returns ``op(A)*b``\ , where ``op`` is determined by ``tA`` (``N`` for identity, ``T`` for transpose ``A``\ , and ``C`` for conjugate transpose ``A``\ ). Only the ``ul`` triangle (``U`` for upper, ``L`` for lower) of ``A`` is used. ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones if ``U``\ , or non-unit if ``N``\ ). The multiplication occurs in-place on ``b``\ .
 
-.. function:: trmv(side, ul, tA, dA, alpha, A, b)
+.. function:: trmv(ul, tA, dA, A, b)
 
    .. Docstring generated from Julia source
 
-   Returns ``alpha*A*b`` or one of the other three variants determined by ``side`` (``A`` on left or right) and ``tA`` (transpose ``A``\ ). Only the ``ul`` triangle of ``A`` is used. ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones).
+   Returns ``op(A)*b``\ , where ``op`` is determined by ``tA`` (``N`` for identity, ``T`` for transpose ``A``\ , and ``C`` for conjugate transpose ``A``\ ). Only the ``ul`` triangle (``U`` for upper, ``L`` for lower) of ``A`` is used. ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones if ``U``\ , or non-unit if ``N``\ ).
 
 .. function:: trsv!(ul, tA, dA, A, b)
 

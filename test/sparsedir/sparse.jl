@@ -343,20 +343,6 @@ end
 @test full(spdiagm((ones(2), ones(2)), (0, -1), 3, 3)) ==
                        [1.0  0.0  0.0; 1.0  1.0  0.0;  0.0  1.0  0.0]
 
-# elimination tree
-## upper triangle of the pattern test matrix from Figure 4.2 of
-## "Direct Methods for Sparse Linear Systems" by Tim Davis, SIAM, 2006
-rowval = Int32[1,2,2,3,4,5,1,4,6,1,7,2,5,8,6,9,3,4,6,8,10,3,5,7,8,10,11]
-colval = Int32[1,2,3,3,4,5,6,6,6,7,7,8,8,8,9,9,10,10,10,10,10,11,11,11,11,11,11]
-A = sparse(rowval, colval, ones(length(rowval)))
-p = etree(A)
-P,post = etree(A, true)
-@test P == p
-@test P == Int32[6,3,8,6,8,7,9,10,10,11,0]
-@test post == Int32[2,3,5,8,1,4,6,7,9,10,11]
-@test isperm(post)
-
-
 # issue #4986, reinterpret
 sfe22 = speye(Float64, 2)
 mfe22 = eye(Float64, 2)
@@ -1043,13 +1029,9 @@ A = sparse(tril(rand(5,5)))
 @test istril(A)
 @test !istril(sparse(ones(5,5)))
 
-# symperm
-srand(1234321)
-A = triu(sprand(10,10,0.2))       # symperm operates on upper triangle
-perm = randperm(10)
-@test symperm(A,perm).colptr == [1,1,2,4,5,5,6,8,8,9,10]
-
 # droptol
+srand(1234321)
+A = triu(sprand(10,10,0.2))
 @test Base.droptol!(A,0.01).colptr == [1,1,1,2,2,3,4,6,6,7,9]
 @test isequal(Base.droptol!(sparse([1], [1], [1]), 1), SparseMatrixCSC(1,1,Int[1,1],Int[],Int[]))
 
@@ -1068,28 +1050,28 @@ let smalldim = 5, largedim = 10, nzprob = 0.4, targetnumposzeros = 5, targetnumn
         map!(x -> x == 2 ? 0.0 : x == -2 ? -0.0 : x, Abothsigns.nzval)
         for Awithzeros in (Aposzeros, Anegzeros, Abothsigns)
             # Basic functionality / dropzeros!
-            @test Base.dropzeros!(copy(Awithzeros)) == A
-            @test Base.dropzeros!(copy(Awithzeros), false) == A
+            @test dropzeros!(copy(Awithzeros)) == A
+            @test dropzeros!(copy(Awithzeros), false) == A
             # Basic functionality / dropzeros
-            @test Base.SparseArrays.dropzeros(Awithzeros) == A
-            @test Base.SparseArrays.dropzeros(Awithzeros, false) == A
+            @test dropzeros(Awithzeros) == A
+            @test dropzeros(Awithzeros, false) == A
             # Check trimming works as expected
-            @test length(Base.dropzeros!(copy(Awithzeros)).nzval) == length(A.nzval)
-            @test length(Base.dropzeros!(copy(Awithzeros)).rowval) == length(A.rowval)
-            @test length(Base.dropzeros!(copy(Awithzeros), false).nzval) == length(Awithzeros.nzval)
-            @test length(Base.dropzeros!(copy(Awithzeros), false).rowval) == length(Awithzeros.rowval)
+            @test length(dropzeros!(copy(Awithzeros)).nzval) == length(A.nzval)
+            @test length(dropzeros!(copy(Awithzeros)).rowval) == length(A.rowval)
+            @test length(dropzeros!(copy(Awithzeros), false).nzval) == length(Awithzeros.nzval)
+            @test length(dropzeros!(copy(Awithzeros), false).rowval) == length(Awithzeros.rowval)
         end
     end
     # original lone dropzeros test
     A = sparse([1 2 3; 4 5 6; 7 8 9])
     A.nzval[2] = A.nzval[6] = A.nzval[7] = 0
-    @test Base.dropzeros!(A).colptr == [1, 3, 5, 7]
+    @test dropzeros!(A).colptr == [1, 3, 5, 7]
     # test for issue #5169, modified for new behavior following #15242/#14798
     @test nnz(sparse([1, 1], [1, 2], [0.0, -0.0])) == 2
-    @test nnz(Base.SparseArrays.dropzeros!(sparse([1, 1], [1, 2], [0.0, -0.0]))) == 0
+    @test nnz(dropzeros!(sparse([1, 1], [1, 2], [0.0, -0.0]))) == 0
     # test for issue #5437, modified for new behavior following #15242/#14798
     @test nnz(sparse([1, 2, 3], [1, 2, 3], [0.0, 1.0, 2.0])) == 3
-    @test nnz(Base.SparseArrays.dropzeros!(sparse([1, 2, 3],[1, 2, 3],[0.0, 1.0, 2.0]))) == 2
+    @test nnz(dropzeros!(sparse([1, 2, 3],[1, 2, 3],[0.0, 1.0, 2.0]))) == 2
 end
 
 #trace
@@ -1291,12 +1273,6 @@ if Base.USE_GPL_LIBS
 end
 @test_throws DimensionMismatch Base.SparseArrays.normestinv(sprand(3,5,.9))
 
-# csc_permute
-A = sprand(10,10,0.2)
-p = randperm(10)
-q = randperm(10)
-@test Base.SparseArrays.csc_permute(A, invperm(p), q) == full(A)[p, q]
-
 # issue #13008
 @test_throws ArgumentError sparse(collect(1:100), collect(1:100), fill(5,100), 5, 5)
 @test_throws ArgumentError sparse(Int[], collect(1:5), collect(1:5))
@@ -1416,3 +1392,6 @@ let m = 5
     ltintmat = LowerTriangular(rand(1:5, m, m))
     @test isapprox(At_ldiv_B(ltintmat, sparse(intmat)), At_ldiv_B(ltintmat, intmat))
 end
+
+# Test temporary fix for issue #16548 in PR #16979. Brittle. Expect to remove with `\` revisions.
+@test which(\, (SparseMatrixCSC, AbstractVecOrMat)).module == Base.SparseArrays
