@@ -43,6 +43,11 @@ extern unsigned sig_stack_size;
 JL_DLLEXPORT extern int jl_lineno;
 JL_DLLEXPORT extern const char *jl_filename;
 
+JL_DLLEXPORT void *jl_gc_pool_alloc(jl_tls_states_t *ptls, jl_gc_pool_t *p,
+                                    int osize, int end_offset);
+JL_DLLEXPORT jl_value_t *jl_gc_big_alloc(jl_tls_states_t *ptls, size_t allocsz);
+int jl_gc_classify_pools(size_t sz, int *osize, int *end_offset);
+
 STATIC_INLINE jl_value_t *newobj(jl_value_t *type, size_t nfields)
 {
     jl_value_t *jv = NULL;
@@ -81,12 +86,17 @@ jl_lambda_info_t *jl_get_unspecialized(jl_lambda_info_t *method);
 STATIC_INLINE jl_value_t *jl_call_method_internal(jl_lambda_info_t *meth, jl_value_t **args, uint32_t nargs)
 {
     jl_lambda_info_t *mfptr = meth;
-    if (__unlikely(mfptr->fptr == NULL))
+    if (__unlikely(mfptr->fptr == NULL)) {
         mfptr = jl_compile_for_dispatch(mfptr);
+        if (!mfptr->fptr)
+            jl_generate_fptr(mfptr);
+    }
     if (mfptr->jlcall_api == 0)
         return mfptr->fptr(args[0], &args[1], nargs-1);
-    else
+    else if (mfptr->jlcall_api == 1)
         return ((jl_fptr_sparam_t)mfptr->fptr)(meth->sparam_vals, args[0], &args[1], nargs-1);
+    else
+        return meth->constval;
 }
 
 jl_tupletype_t *jl_argtype_with_function(jl_function_t *f, jl_tupletype_t *types);
@@ -122,8 +132,10 @@ STATIC_INLINE void jl_gc_wb_buf(void *parent, void *bufptr, size_t minsz) // par
 void gc_debug_print_status(void);
 void gc_debug_critical_error(void);
 void jl_print_gc_stats(JL_STREAM *s);
+void jl_gc_reset_alloc_count(void);
 int jl_assign_type_uid(void);
 jl_value_t *jl_cache_type_(jl_datatype_t *type);
+void jl_resort_type_cache(jl_svec_t *c);
 int  jl_get_t_uid_ctr(void);
 void jl_set_t_uid_ctr(int i);
 uint32_t jl_get_gs_ctr(void);
@@ -191,7 +203,7 @@ jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex,
 
 jl_lambda_info_t *jl_wrap_expr(jl_value_t *expr);
 jl_value_t *jl_eval_global_var(jl_module_t *m, jl_sym_t *e);
-jl_value_t *jl_parse_eval_all(const char *fname, size_t len,
+jl_value_t *jl_parse_eval_all(const char *fname,
                               const char *content, size_t contentlen);
 jl_value_t *jl_interpret_toplevel_thunk(jl_lambda_info_t *lam);
 jl_value_t *jl_interpret_toplevel_expr(jl_value_t *e);
@@ -238,12 +250,13 @@ void jl_init_restored_modules(jl_array_t *init_order);
 void jl_init_signal_async(void);
 void jl_init_debuginfo(void);
 void jl_init_runtime_ccall(void);
-void jl_mk_thread_heap(jl_thread_heap_t *heap);
+void jl_mk_thread_heap(jl_tls_states_t *ptls);
 
 void _julia_init(JL_IMAGE_SEARCH rel);
 
 void jl_set_base_ctx(char *__stk);
 
+extern ssize_t jl_tls_offset;
 void jl_init_threading(void);
 void jl_start_threads(void);
 void jl_shutdown_threading(void);
@@ -296,13 +309,13 @@ void jl_wake_libuv(void);
 jl_get_ptls_states_func jl_get_ptls_states_getter(void);
 static inline void jl_set_gc_and_wait(void)
 {
+    jl_tls_states_t *ptls = jl_get_ptls_states();
     // reading own gc state doesn't need atomic ops since no one else
     // should store to it.
-    int8_t state = jl_gc_state();
-    jl_atomic_store_release(&jl_get_ptls_states()->gc_state,
-                            JL_GC_STATE_WAITING);
+    int8_t state = jl_gc_state(ptls);
+    jl_atomic_store_release(&ptls->gc_state, JL_GC_STATE_WAITING);
     jl_safepoint_wait_gc();
-    jl_atomic_store_release(&jl_get_ptls_states()->gc_state, state);
+    jl_atomic_store_release(&ptls->gc_state, state);
 }
 #endif
 
@@ -321,8 +334,7 @@ uint32_t jl_module_next_counter(jl_module_t *m);
 void jl_fptr_to_llvm(jl_fptr_t fptr, jl_lambda_info_t *lam, int specsig);
 jl_tupletype_t *arg_type_tuple(jl_value_t **args, size_t nargs);
 
-jl_value_t *skip_meta(jl_array_t *body);
-int has_meta(jl_array_t *body, jl_sym_t *sym);
+int jl_has_meta(jl_array_t *body, jl_sym_t *sym);
 
 // backtraces
 typedef struct {
@@ -338,6 +350,8 @@ typedef struct {
 uint64_t jl_getUnwindInfo(uint64_t dwBase);
 #ifdef _OS_WINDOWS_
 #include <dbghelp.h>
+JL_DLLEXPORT EXCEPTION_DISPOSITION __julia_personality(
+        PEXCEPTION_RECORD ExceptionRecord, void *EstablisherFrame, PCONTEXT ContextRecord, void *DispatcherContext);
 extern HANDLE hMainThread;
 typedef CONTEXT bt_context_t;
 #if defined(_CPU_X86_64_)
@@ -656,6 +670,8 @@ STATIC_INLINE void *jl_get_frame_addr(void)
     return (void*)((uintptr_t)&dummy & ~(uintptr_t)15);
 #endif
 }
+
+JL_DLLEXPORT jl_array_t *jl_array_cconvert_cstring(jl_array_t *a);
 
 #ifdef __cplusplus
 }

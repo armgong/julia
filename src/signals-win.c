@@ -126,7 +126,7 @@ HANDLE hMainThread = INVALID_HANDLE_VALUE;
 // Try to throw the exception in the master thread.
 static void jl_try_deliver_sigint(void)
 {
-    jl_tls_states_t *ptls = jl_all_tls_states[0];
+    jl_tls_states_t *ptls2 = jl_all_tls_states[0];
     jl_safepoint_enable_sigint();
     jl_wake_libuv();
     if ((DWORD)-1 == SuspendThread(hMainThread)) {
@@ -135,7 +135,7 @@ static void jl_try_deliver_sigint(void)
         return;
     }
     int force = jl_check_force_sigint();
-    if (force || (!ptls->defer_signal && ptls->io_wait)) {
+    if (force || (!ptls2->defer_signal && ptls2->io_wait)) {
         jl_safepoint_consume_sigint();
         if (force)
             jl_safe_printf("WARNING: Force throwing a SIGINT\n");
@@ -278,8 +278,7 @@ static LONG WINAPI exception_handler(struct _EXCEPTION_POINTERS *ExceptionInfo)
 }
 
 #if defined(_CPU_X86_64_)
-EXCEPTION_DISPOSITION _seh_exception_handler(PEXCEPTION_RECORD ExceptionRecord, void *EstablisherFrame, PCONTEXT ContextRecord, void *DispatcherContext)
-{
+JL_DLLEXPORT EXCEPTION_DISPOSITION __julia_personality(PEXCEPTION_RECORD ExceptionRecord, void *EstablisherFrame, PCONTEXT ContextRecord, void *DispatcherContext) {
     EXCEPTION_POINTERS ExceptionInfo;
     ExceptionInfo.ExceptionRecord = ExceptionRecord;
     ExceptionInfo.ContextRecord = ContextRecord;

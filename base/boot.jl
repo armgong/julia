@@ -225,6 +225,9 @@ immutable String <: AbstractString
     String(d::Array{UInt8,1}) = new(d)
 end
 
+# This should always be inlined
+getptls() = ccall(:jl_get_ptls_states, Ptr{Void}, ())
+
 include(fname::String) = ccall(:jl_load_, Any, (Any,), fname)
 
 eval(e::ANY) = eval(Main, e)
@@ -268,7 +271,9 @@ Void() = nothing
 
 immutable VecElement{T}
     value::T
+    VecElement(value::T) = new(value) # disable converting constructor in Core
 end
+VecElement{T}(arg::T) = VecElement{T}(arg)
 
 Expr(args::ANY...) = _expr(args...)
 

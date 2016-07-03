@@ -6,7 +6,6 @@ using Base.Test
 using Base.LinAlg: BlasComplex, BlasFloat, BlasReal, QRPivoted
 
 let n = 10
-
     srand(1234321)
 
     Areal  = randn(n,n)/2
@@ -19,7 +18,7 @@ let n = 10
                     complex(Areal, Aimg) :
                     Areal)
 
-    debug && println("\ntype of a: ", eltya, " type of b: ", eltyb, "\n")
+debug && println("\ntype of a: ", eltya, " type of b: ", eltyb, "\n")
 
         if eltya != BigFloat
             H = hessfact(A)
@@ -27,11 +26,11 @@ let n = 10
             @test size(H[:Q], 2) == size(A, 2)
             @test size(H[:Q]) == size(A)
             @test_throws KeyError H[:Z]
-            @test_approx_eq full(H) A
-            @test_approx_eq (H[:Q] * H[:H]) * H[:Q]' A
-            @test_approx_eq (H[:Q]' * A) * H[:Q]     H[:H]
+            @test full(H) ≈ A
+            @test (H[:Q] * H[:H]) * H[:Q]' ≈ A
+            @test (H[:Q]' *A) * H[:Q] ≈ H[:H]
             #getindex for HessenbergQ
-            @test_approx_eq H[:Q][1,1] full(H[:Q])[1,1]
+            @test H[:Q][1,1] ≈ full(H[:Q])[1,1]
         end
     end
 end

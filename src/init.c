@@ -73,12 +73,7 @@ jl_options_t jl_options = { 0,    // quiet
                             JL_OPTIONS_FAST_MATH_DEFAULT,
                             0,    // worker
                             JL_OPTIONS_HANDLE_SIGNALS_ON,
-#ifdef _OS_WINDOWS_
-// TODO remove this when using LLVM 3.5+
-                            JL_OPTIONS_USE_PRECOMPILED_NO,
-#else
                             JL_OPTIONS_USE_PRECOMPILED_YES,
-#endif
                             JL_OPTIONS_USE_COMPILECACHE_YES,
                             NULL, // bindto
                             NULL, // outputbc
@@ -653,7 +648,7 @@ void _julia_init(JL_IMAGE_SEARCH rel)
             jl_all_tls_states[t]->root_task->current_module = jl_current_module;
         }
 
-        jl_load("boot.jl", sizeof("boot.jl")-1);
+        jl_load("boot.jl");
         jl_get_builtin_hooks();
         jl_boot_file_loaded = 1;
         jl_init_box_caches();
@@ -798,12 +793,12 @@ void jl_get_builtin_hooks(void)
 {
     int t;
     for (t = 0; t < jl_n_threads; t++) {
-        jl_tls_states_t *ptls = jl_all_tls_states[t];
-        ptls->root_task->tls = jl_nothing;
-        ptls->root_task->consumers = jl_nothing;
-        ptls->root_task->donenotify = jl_nothing;
-        ptls->root_task->exception = jl_nothing;
-        ptls->root_task->result = jl_nothing;
+        jl_tls_states_t *ptls2 = jl_all_tls_states[t];
+        ptls2->root_task->tls = jl_nothing;
+        ptls2->root_task->consumers = jl_nothing;
+        ptls2->root_task->donenotify = jl_nothing;
+        ptls2->root_task->exception = jl_nothing;
+        ptls2->root_task->result = jl_nothing;
     }
 
     jl_char_type    = (jl_datatype_t*)core("Char");

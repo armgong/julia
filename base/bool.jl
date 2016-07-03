@@ -20,6 +20,18 @@ typemax(::Type{Bool}) = true
 (|)(x::Bool, y::Bool) = box(Bool,or_int(unbox(Bool,x),unbox(Bool,y)))
 ($)(x::Bool, y::Bool) = (x!=y)
 
+>>(x::Bool, c::Unsigned) = Int(x) >> c
+<<(x::Bool, c::Unsigned) = Int(x) << c
+>>>(x::Bool, c::Unsigned) = Int(x) >>> c
+
+>>(x::Bool, c::Int) = Int(x) >> c
+<<(x::Bool, c::Int) = Int(x) << c
+>>>(x::Bool, c::Int) = Int(x) >>> c
+
+>>(x::Bool, c::Integer) = Int(x) >> c
+<<(x::Bool, c::Integer) = Int(x) << c
+>>>(x::Bool, c::Integer) = Int(x) >>> c
+
 signbit(x::Bool) = false
 sign(x::Bool) = x
 abs(x::Bool) = x
@@ -59,7 +71,3 @@ fld(x::Bool, y::Bool) = div(x,y)
 cld(x::Bool, y::Bool) = div(x,y)
 rem(x::Bool, y::Bool) = y ? false : throw(DivideError())
 mod(x::Bool, y::Bool) = rem(x,y)
-
-promote_op(op, ::Type{Bool}, ::Type{Bool}) = typeof(op(true, true))
-promote_op(::typeof(^), ::Type{Bool}, ::Type{Bool}) = Bool
-promote_op{T<:Integer}(::typeof(^), ::Type{Bool}, ::Type{T}) = Bool

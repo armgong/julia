@@ -159,7 +159,7 @@ JL_DLLEXPORT int jl_has_typevars(jl_value_t *v)
     return jl_has_typevars__(v, 0, NULL, 0);
 }
 
-JL_DLLEXPORT int jl_is_leaf_type(jl_value_t *v)
+JL_DLLEXPORT int (jl_is_leaf_type)(jl_value_t *v)
 {
     if (jl_is_datatype(v)) {
         int isleaf = ((jl_datatype_t*)v)->isleaftype;
@@ -1901,6 +1901,21 @@ static int typekey_compare(jl_datatype_t *tt, jl_value_t **key, size_t n)
     return 0;
 }
 
+static int dt_compare(const void *ap, const void *bp)
+{
+    jl_datatype_t *a = *(jl_datatype_t**)ap;
+    jl_datatype_t *b = *(jl_datatype_t**)bp;
+    if (a == b) return 0;
+    if (b == NULL) return -1;
+    if (a == NULL) return 1;
+    return typekey_compare(b, jl_svec_data(a->parameters), jl_svec_len(a->parameters));
+}
+
+void jl_resort_type_cache(jl_svec_t *c)
+{
+    qsort(jl_svec_data(c), jl_svec_len(c), sizeof(jl_value_t*), dt_compare);
+}
+
 static int typekey_eq(jl_datatype_t *tt, jl_value_t **key, size_t n)
 {
     size_t j;
@@ -2100,7 +2115,7 @@ void jl_precompute_memoized_dt(jl_datatype_t *dt)
         if (d > dt->depth)
             dt->depth = d;
         if (!dt->hastypevars)
-           dt->hastypevars = jl_has_typevars__(p, 0, NULL, 0);
+            dt->hastypevars = jl_has_typevars__(p, 0, NULL, 0);
         if (!dt->haswildcard)
             dt->haswildcard = jl_has_typevars__(p, 1, NULL, 0);
         if (dt->isleaftype)
@@ -2341,7 +2356,7 @@ static jl_value_t *inst_tuple_w_(jl_value_t *t, jl_value_t **env, size_t n,
     // Instantiate NTuple{3,Int}
     // Note this does not instantiate Tuple{Vararg{Int,3}}; that's done in
     // jl_apply_tuple_type_v_
-    if (jl_is_va_tuple(tt) && ntp == 1 && n == 2) {
+    if (jl_is_va_tuple(tt) && ntp == 1) {
         // If this is a Tuple{Vararg{T,N}} with known N, expand it to
         // a fixed-length tuple
         jl_value_t *T=NULL, *N=NULL;
@@ -2380,10 +2395,12 @@ static jl_value_t *inst_tuple_w_(jl_value_t *t, jl_value_t **env, size_t n,
     int i;
     for(i=0; i < ntp; i++) {
         jl_value_t *elt = jl_svecref(tp, i);
-        iparams[i] = (jl_value_t*)inst_type_w_(elt, env, n, stack, 0);
+        jl_value_t *pi = (jl_value_t*)inst_type_w_(elt, env, n, stack, 0);
+        if (jl_is_typevar(pi) && !((jl_tvar_t*)pi)->bound)
+            pi = ((jl_tvar_t*)pi)->ub;
+        iparams[i] = pi;
         if (ip_heap)
-            jl_gc_wb(ip_heap, iparams[i]);
-        jl_value_t *pi = iparams[i];
+            jl_gc_wb(ip_heap, pi);
         check_tuple_parameter(pi, i, ntp);
         if (cacheable && !jl_is_leaf_type(pi)) {
             cacheable = 0;
@@ -2787,7 +2804,7 @@ jl_datatype_t *jl_fix_vararg_bound(jl_datatype_t *tt, int nfix)
     JL_GC_PUSH2(&env[0], &env[1]);
     env[0] = jl_tparam1(jl_tparam(tt, ntp-1));
     env[1] = jl_box_long(nfix);
-    jl_datatype_t *ret = (jl_datatype_t*)jl_instantiate_type_with((jl_value_t*)tt, env, 2);
+    jl_datatype_t *ret = (jl_datatype_t*)jl_instantiate_type_with((jl_value_t*)tt, env, 1);
     JL_GC_POP();
     return ret;
 }
@@ -3801,7 +3818,7 @@ void jl_init_types(void)
     jl_lambda_info_type =
         jl_new_datatype(jl_symbol("LambdaInfo"),
                         jl_any_type, jl_emptysvec,
-                        jl_svec(25,
+                        jl_svec(26,
                                 jl_symbol("rettype"),
                                 jl_symbol("sparam_syms"),
                                 jl_symbol("sparam_vals"),
@@ -3813,6 +3830,7 @@ void jl_init_types(void)
                                 jl_symbol("slotflags"),
                                 jl_symbol("unspecialized_ducttape"),
                                 jl_symbol("def"),
+                                jl_symbol("constval"),
                                 jl_symbol("nargs"),
                                 jl_symbol("isva"),
                                 jl_symbol("inferred"),
@@ -3825,7 +3843,7 @@ void jl_init_types(void)
                                 jl_symbol("fptr"),
                                 jl_symbol(""), jl_symbol(""),
                                 jl_symbol(""), jl_symbol("")),
-                        jl_svec(25,
+                        jl_svec(26,
                                 jl_any_type,
                                 jl_simplevector_type,
                                 jl_simplevector_type,
@@ -3837,6 +3855,7 @@ void jl_init_types(void)
                                 jl_array_uint8_type,
                                 jl_any_type,
                                 jl_method_type,
+                                jl_any_type,
                                 jl_int32_type,
                                 jl_bool_type,
                                 jl_bool_type,
@@ -3844,7 +3863,7 @@ void jl_init_types(void)
                                 jl_bool_type,
                                 jl_bool_type,
                                 jl_bool_type,
-                                jl_bool_type,
+                                jl_uint8_type,
                                 jl_bool_type,
                                 jl_any_type,
                                 jl_any_type, jl_any_type,
@@ -3900,9 +3919,9 @@ void jl_init_types(void)
     jl_svecset(jl_simplevector_type->types, 0, jl_long_type);
     jl_svecset(jl_typename_type->types, 6, jl_long_type);
     jl_svecset(jl_methtable_type->types, 3, jl_long_type);
-    jl_svecset(jl_lambda_info_type->types, 20, jl_voidpointer_type);
     jl_svecset(jl_lambda_info_type->types, 21, jl_voidpointer_type);
     jl_svecset(jl_lambda_info_type->types, 22, jl_voidpointer_type);
+    jl_svecset(jl_lambda_info_type->types, 23, jl_voidpointer_type);
 
     jl_compute_field_offsets(jl_datatype_type);
     jl_compute_field_offsets(jl_typename_type);
@@ -3942,7 +3961,6 @@ void jl_init_types(void)
     using_sym = jl_symbol("using");
     importall_sym = jl_symbol("importall");
     assign_sym = jl_symbol("=");
-    null_sym = jl_symbol("null");
     body_sym = jl_symbol("body");
     colons_sym = jl_symbol("::");
     method_sym = jl_symbol("method");
@@ -3978,6 +3996,7 @@ void jl_init_types(void)
     static_parameter_sym = jl_symbol("static_parameter");
     compiler_temp_sym = jl_symbol("#temp#");
     polly_sym = jl_symbol("polly");
+    inline_sym = jl_symbol("inline");
 
     tttvar = jl_new_typevar(jl_symbol("T"),
                                   (jl_value_t*)jl_bottom_type,

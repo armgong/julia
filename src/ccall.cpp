@@ -854,7 +854,7 @@ static jl_cgval_t mark_or_box_ccall_result(Value *result, bool isboxed, jl_value
         int nb = sizeof(void*);
         // TODO: can this be tighter than tbaa_value?
         return mark_julia_type(
-            init_bits_value(emit_allocobj(nb), runtime_bt, result, tbaa_value),
+            init_bits_value(emit_allocobj(ctx, nb), runtime_bt, result, tbaa_value),
             true, (jl_value_t*)jl_pointer_type, ctx);
     }
     return mark_julia_type(result, isboxed, rt, ctx);
@@ -1234,6 +1234,25 @@ static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
         builder.CreateLoad(ctx->signalPage, true);
         emit_signal_fence();
         return ghostValue(jl_void_type);
+    }
+#ifdef _OS_LINUX_
+    // directly access the address of a ifunc can cause linker issue on
+    // some configurations (e.g. AArch64 + -Bsymbolic-functions).
+    static const auto ptls_getter = jl_dlsym_e(jl_dlopen(nullptr, 0),
+                                               "jl_get_ptls_states");
+#else
+    static const auto ptls_getter = &jl_get_ptls_states;
+#endif
+    if (fptr == (void(*)(void))(uintptr_t)ptls_getter ||
+        ((!f_lib || (intptr_t)f_lib == 2) && f_name &&
+         strcmp(f_name, "jl_get_ptls_states") == 0)) {
+        assert(lrt == T_pint8);
+        assert(!isVa);
+        assert(nargt == 0);
+        JL_GC_POP();
+        return mark_or_box_ccall_result(
+            builder.CreateBitCast(ctx->ptlsStates, lrt),
+            retboxed, args[2], rt, static_rt, ctx);
     }
     if (fptr == &jl_sigatomic_begin ||
         ((!f_lib || (intptr_t)f_lib == 2) && f_name &&

@@ -406,11 +406,11 @@ endif # LLVM_VER
 LLVM_PATCH_PREV:=
 LLVM_PATCH_LIST:=
 define LLVM_PATCH
-$$(LLVM_SRC_DIR)/$1.patch-applied: $(LLVM_SRC_DIR)/configure | $$(SRCDIR)/patches/$1.patch $(LLVM_PATCH_PREV)
+$$(LLVM_SRC_DIR)/$1.patch-applied: $$(LLVM_SRC_DIR)/configure | $$(SRCDIR)/patches/$1.patch $$(LLVM_PATCH_PREV)
 	cd $$(LLVM_SRC_DIR) && patch -p1 < $$(SRCDIR)/patches/$1.patch
 	echo 1 > $$@
 LLVM_PATCH_PREV := $$(LLVM_SRC_DIR)/$1.patch-applied
-LLVM_PATCH_LIST += $(LLVM_PATCH_PREV)
+LLVM_PATCH_LIST += $$(LLVM_PATCH_PREV)
 endef
 ifeq ($(LLVM_VER),3.3)
 $(eval $(call LLVM_PATCH,llvm-3.3))
@@ -430,6 +430,7 @@ $(eval $(call LLVM_PATCH,llvm-3.8.0_bindir))
 $(eval $(call LLVM_PATCH,llvm-D14260))
 $(eval $(call LLVM_PATCH,llvm-nodllalias))
 $(eval $(call LLVM_PATCH,llvm-D21271-instcombine-tbaa-3.7))
+$(eval $(call LLVM_PATCH,llvm-win64-reloc-dwarf))
 else ifeq ($(LLVM_VER),3.8.0)
 $(eval $(call LLVM_PATCH,llvm-3.7.1_3))
 $(eval $(call LLVM_PATCH,llvm-D14260))
@@ -447,6 +448,7 @@ $(eval $(call LLVM_PATCH,llvm-PR26180))
 $(eval $(call LLVM_PATCH,llvm-PR27046))
 $(eval $(call LLVM_PATCH,llvm-3.8.0_ppc64_SUBFC8))
 $(eval $(call LLVM_PATCH,llvm-D21271-instcombine-tbaa-3.8))
+$(eval $(call LLVM_PATCH,llvm-win64-reloc-dwarf))
 endif # LLVM_VER
 
 ifeq ($(LLVM_VER),3.7.1)

@@ -59,7 +59,11 @@ static Value *stringConstPtr(const std::string &txt)
                                                            (const unsigned char*)pooledtxt.data(),
                                                            pooledtxt.size())),
                                     ssno.str());
+#ifdef LLVM39
+            gv->setUnnamedAddr(GlobalValue::UnnamedAddr::Global);
+#else
             gv->setUnnamedAddr(true);
+#endif
             pooledval->second = gv;
             jl_ExecutionEngine->addGlobalMapping(gv, (void*)(uintptr_t)pooledtxt.data());
         }
@@ -109,7 +113,7 @@ static DIType julia_type_to_di(jl_value_t *jt, DIBuilder *dbuilder, bool isboxed
 #endif
     }
     if (jl_is_bitstype(jt)) {
-        uint64_t SizeInBits = jdt == jl_bool_type ? 1 : 8*jdt->size;
+        uint64_t SizeInBits = 8*jdt->size;
     #ifdef LLVM37
         llvm::DIType *t = dbuilder->createBasicType(jl_symbol_name(jdt->name->name),SizeInBits,8*jdt->alignment,llvm::dwarf::DW_ATE_unsigned);
         jdt->ditype = t;
@@ -297,7 +301,7 @@ JL_DLLEXPORT Type *julia_type_to_llvm(jl_value_t *jt, bool *isboxed)
 {
     // this function converts a Julia Type into the equivalent LLVM type
     if (isboxed) *isboxed = false;
-    if (jt == (jl_value_t*)jl_bool_type) return T_int1;
+    if (jt == (jl_value_t*)jl_bool_type) return T_int8;
     if (jt == (jl_value_t*)jl_bottom_type) return T_void;
     if (!jl_is_leaf_type(jt)) {
         if (isboxed) *isboxed = true;
@@ -511,7 +515,7 @@ static jl_cgval_t emit_typeof(const jl_cgval_t &p, jl_codectx_t *ctx)
 {
     // given p, compute its type
     if (!p.constant && p.isboxed && !jl_is_leaf_type(p.typ)) {
-        return mark_julia_type(emit_typeof(p.V), true, jl_datatype_type, ctx);
+        return mark_julia_type(emit_typeof(p.V), true, jl_datatype_type, ctx, /*needsroot*/false);
     }
     jl_value_t *aty = p.typ;
     if (jl_is_type_type(aty)) // convert Int::Type{Int} ==> typeof(Int) ==> DataType
@@ -845,11 +849,6 @@ static jl_cgval_t typed_load(Value *ptr, Value *idx_0based, jl_value_t *jltype,
     assert(elty != NULL);
     if (type_is_ghost(elty))
         return ghostValue(jltype);
-    bool isbool=false;
-    if (elty == T_int1) {
-        elty = T_int8;
-        isbool = true;
-    }
     Value *data;
     if (ptr->getType()->getContainedType(0) != elty)
         data = builder.CreatePointerCast(ptr, PointerType::get(elty, 0));
@@ -874,8 +873,6 @@ static jl_cgval_t typed_load(Value *ptr, Value *idx_0based, jl_value_t *jltype,
             null_pointer_check(elt, ctx);
         }
     //}
-    if (isbool)
-        return mark_julia_type(builder.CreateTrunc(elt, T_int1), false, jltype, ctx);
     return mark_julia_type(elt, isboxed, jltype, ctx);
 }
 
@@ -888,9 +885,6 @@ static void typed_store(Value *ptr, Value *idx_0based, const jl_cgval_t &rhs,
     assert(elty != NULL);
     if (type_is_ghost(elty))
         return;
-    if (elty == T_int1) {
-        elty = T_int8;
-    }
     Value *r;
     if (jl_isbits(jltype) && ((jl_datatype_t*)jltype)->size > 0) {
         r = emit_unbox(elty, rhs, jltype);
@@ -1061,9 +1055,6 @@ static bool emit_getfield_unknownidx(jl_cgval_t *ret, const jl_cgval_t &strct, V
         if (sizeof(void*) != sizeof(int))
             idx0 = builder.CreateTrunc(idx0, T_int32); // llvm3.3 requires this, harmless elsewhere
         Value *fld = builder.CreateExtractElement(strct.V, idx0);
-        if (jt == (jl_value_t*)jl_bool_type) {
-            fld = builder.CreateTrunc(fld, T_int1);
-        }
         *ret = mark_julia_type(fld, false, jt, ctx);
         return true;
     }
@@ -1123,9 +1114,6 @@ static jl_cgval_t emit_getfield_knownidx(const jl_cgval_t &strct, unsigned idx, 
             // VecElement types are unwrapped in LLVM.
             assert( strct.V->getType()->isSingleValueType() );
             fldv = strct.V;
-        }
-        if (jfty == (jl_value_t*)jl_bool_type) {
-            fldv = builder.CreateTrunc(fldv, T_int1);
         }
         assert(!jl_field_isptr(jt, idx));
         return mark_julia_type(fldv, false, jfty, ctx);
@@ -1345,7 +1333,7 @@ static Value *emit_array_nd_index(const jl_cgval_t &ainfo, jl_value_t *ex, size_
 
 // --- boxing ---
 
-static Value *emit_allocobj(size_t static_size);
+static Value *emit_allocobj(jl_codectx_t *ctx, size_t static_size);
 static void init_tag(Value *v, Value *jt)
 {
     tbaa_decorate(tbaa_tag, builder.CreateStore(jt, emit_typeptr_addr(v)));
@@ -1476,7 +1464,8 @@ static Value *boxed(const jl_cgval_t &vinfo, jl_codectx_t *ctx, bool gcrooted)
     Type *t = julia_type_to_llvm(vinfo.typ);
     assert(!type_is_ghost(t)); // should have been handled by isghost above!
 
-
+    if (jt == (jl_value_t*)jl_bool_type)
+        return julia_bool(builder.CreateTrunc(as_value(t,vinfo), T_int1));
     if (t == T_int1)
         return julia_bool(as_value(t,vinfo));
 
@@ -1532,7 +1521,7 @@ static Value *boxed(const jl_cgval_t &vinfo, jl_codectx_t *ctx, bool gcrooted)
         return literal_pointer_val(jb->instance);
     }
     else {
-        box = init_bits_cgval(emit_allocobj(jl_datatype_size(jt)), vinfo, jb->mutabl ? tbaa_mutab : tbaa_immut, ctx);
+        box = init_bits_cgval(emit_allocobj(ctx, jl_datatype_size(jt)), vinfo, jb->mutabl ? tbaa_mutab : tbaa_immut, ctx);
     }
 
     if (gcrooted) {
@@ -1566,29 +1555,23 @@ static void emit_cpointercheck(const jl_cgval_t &x, const std::string &msg, jl_c
 }
 
 // allocation for known size object
-static Value *emit_allocobj(size_t static_size)
+static Value *emit_allocobj(jl_codectx_t *ctx, size_t static_size)
 {
-    if (static_size == sizeof(void*)*1)
-        return builder.CreateCall(prepare_call(jlalloc1w_func)
-#ifdef LLVM37
-                                  , {}
-#endif
-                                  );
-    else if (static_size == sizeof(void*)*2)
-        return builder.CreateCall(prepare_call(jlalloc2w_func)
-#ifdef LLVM37
-                                  , {}
-#endif
-                                  );
-    else if (static_size == sizeof(void*)*3)
-        return builder.CreateCall(prepare_call(jlalloc3w_func)
-#ifdef LLVM37
-                                  , {}
-#endif
-                                  );
-    else
-        return builder.CreateCall(prepare_call(jlallocobj_func),
-                                  ConstantInt::get(T_size, static_size));
+    int osize;
+    int end_offset;
+    int offset = jl_gc_classify_pools(static_size, &osize, &end_offset);
+    Value *ptls_ptr = builder.CreateBitCast(ctx->ptlsStates, T_pint8);
+    if (offset < 0) {
+        Value *args[] = {ptls_ptr,
+                         ConstantInt::get(T_size, static_size + sizeof(void*))};
+        return builder.CreateCall(prepare_call(jlalloc_big_func),
+                                  ArrayRef<Value*>(args, 2));
+    }
+    Value *pool_ptr = builder.CreateConstGEP1_32(ptls_ptr, offset);
+    Value *args[] = {ptls_ptr, pool_ptr, ConstantInt::get(T_int32, osize),
+                     ConstantInt::get(T_int32, end_offset)};
+    return builder.CreateCall(prepare_call(jlalloc_pool_func),
+                              ArrayRef<Value*>(args, 4));
 }
 
 // if ptr is NULL this emits a write barrier _back_
@@ -1705,8 +1688,6 @@ static jl_cgval_t emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **arg
                         // and use memcpy instead
                         dest = builder.CreateConstInBoundsGEP2_32(LLVM37_param(lt) strct, 0, i);
                     }
-                    if (fty == T_int1)
-                        fty = T_int8;
                     fval = emit_unbox(fty, fval_info, jtype, dest);
 
                     if (init_as_value) {
@@ -1739,7 +1720,7 @@ static jl_cgval_t emit_new_struct(jl_value_t *ty, size_t nargs, jl_value_t **arg
             f1 = boxed(fval_info, ctx);
             j++;
         }
-        Value *strct = emit_allocobj(sty->size);
+        Value *strct = emit_allocobj(ctx, sty->size);
         jl_cgval_t strctinfo = mark_julia_type(strct, true, ty, ctx);
         tbaa_decorate(tbaa_tag, builder.CreateStore(literal_pointer_val((jl_value_t*)ty),
                                                     emit_typeptr_addr(strct)));

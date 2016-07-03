@@ -641,7 +641,7 @@ JL_DLLEXPORT jl_value_t *jl_parse_string(const char *str, size_t len,
 }
 
 // parse and eval a whole file, possibly reading from a string (`content`)
-jl_value_t *jl_parse_eval_all(const char *fname, size_t len,
+jl_value_t *jl_parse_eval_all(const char *fname,
                               const char *content, size_t contentlen)
 {
     if (in_pure_callback)
@@ -649,6 +649,7 @@ jl_value_t *jl_parse_eval_all(const char *fname, size_t len,
     jl_ast_context_t *ctx = jl_ast_ctx_enter();
     fl_context_t *fl_ctx = &ctx->fl;
     value_t f, ast;
+    size_t len = strlen(fname);
     f = cvalue_static_cstrn(fl_ctx, fname, len);
     fl_gc_handle(fl_ctx, &f);
     if (content != NULL) {
@@ -723,9 +724,9 @@ jl_value_t *jl_parse_eval_all(const char *fname, size_t len,
 }
 
 JL_DLLEXPORT jl_value_t *jl_load_file_string(const char *text, size_t len,
-                                             char *filename, size_t namelen)
+                                             char *filename)
 {
-    return jl_parse_eval_all(filename, namelen, text, len);
+    return jl_parse_eval_all(filename, text, len);
 }
 
 JL_DLLEXPORT int jl_parse_depwarn(int warn)
@@ -873,16 +874,7 @@ JL_DLLEXPORT int jl_operator_precedence(char *sym)
     return res;
 }
 
-jl_value_t *skip_meta(jl_array_t *body)
-{
-    jl_value_t *body1 = jl_array_ptr_ref(body,0);
-    if (jl_is_expr(body1) && ((jl_expr_t*)body1)->head == meta_sym
-        && jl_array_len(body) > 1)
-        body1 = jl_array_ptr_ref(body,1);
-    return body1;
-}
-
-int has_meta(jl_array_t *body, jl_sym_t *sym)
+int jl_has_meta(jl_array_t *body, jl_sym_t *sym)
 {
     size_t i, l = jl_array_len(body);
     for (i = 0; i < l; i++) {

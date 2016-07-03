@@ -227,41 +227,60 @@ static int jl_unw_init(bt_cursor_t *cursor, bt_context_t *Context)
 #endif
 }
 
+static int readable_pointer(LPCVOID pointer) {
+    // Check whether the pointer is valid and executable before dereferencing
+    // to avoid segfault while recording. See #10638.
+    MEMORY_BASIC_INFORMATION mInfo;
+    if (VirtualQuery(pointer, &mInfo, sizeof(MEMORY_BASIC_INFORMATION)) == 0)
+        return 0;
+    DWORD X = mInfo.AllocationProtect;
+    if (!((X&PAGE_READONLY) || (X&PAGE_READWRITE) || (X&PAGE_WRITECOPY) || (X&PAGE_EXECUTE_READ)) ||
+          (X&PAGE_GUARD) || (X&PAGE_NOACCESS))
+        return 0;
+    return 1;
+}
+
 static int jl_unw_step(bt_cursor_t *cursor, uintptr_t *ip, uintptr_t *sp)
 {
     // Might be called from unmanaged thread.
 #ifndef _CPU_X86_64_
     *ip = (uintptr_t)cursor->stackframe.AddrPC.Offset;
     *sp = (uintptr_t)cursor->stackframe.AddrStack.Offset;
+    if (*ip == 0 || *ip == ((uintptr_t)0)-1) {
+        if (!readable_pointer((LPCVOID)*sp))
+            return 0;
+        cursor->stackframe.AddrPC.Offset = *(DWORD32*)*sp;      // POP EIP (aka RET)
+        cursor->stackframe.AddrStack.Offset += sizeof(void*);
+        return cursor->stackframe.AddrPC.Offset != 0;
+    }
+
     BOOL result = StackWalk64(IMAGE_FILE_MACHINE_I386, GetCurrentProcess(), hMainThread,
         &cursor->stackframe, &cursor->context, NULL, JuliaFunctionTableAccess64, JuliaGetModuleBase64, NULL);
     return result;
 #else
     *ip = (uintptr_t)cursor->Rip;
     *sp = (uintptr_t)cursor->Rsp;
+    if (*ip == 0 || *ip == ((uintptr_t)0)-1) {
+        if (!readable_pointer((LPCVOID)*sp))
+            return 0;
+        cursor->Rip = *(DWORD64*)*sp;      // POP RIP (aka RET)
+        cursor->Rsp += sizeof(void*);
+        return cursor->Rip != 0;
+    }
+
     DWORD64 ImageBase = JuliaGetModuleBase64(GetCurrentProcess(), cursor->Rip);
     if (!ImageBase)
         return 0;
 
     PRUNTIME_FUNCTION FunctionEntry = (PRUNTIME_FUNCTION)JuliaFunctionTableAccess64(GetCurrentProcess(), cursor->Rip);
     if (!FunctionEntry) { // assume this is a NO_FPO RBP-based function
-        MEMORY_BASIC_INFORMATION mInfo;
-
         cursor->Rsp = cursor->Rbp;                 // MOV RSP, RBP
-
-        // Check whether the pointer is valid and executable before dereferencing
-        // to avoid segfault while recording. See #10638.
-        if (VirtualQuery((LPCVOID)cursor->Rsp, &mInfo, sizeof(MEMORY_BASIC_INFORMATION)) == 0)
+        if (!readable_pointer((LPCVOID)cursor->Rsp))
             return 0;
-        DWORD X = mInfo.AllocationProtect;
-        if (!((X&PAGE_READONLY) || (X&PAGE_READWRITE) || (X&PAGE_WRITECOPY) || (X&PAGE_EXECUTE_READ)) ||
-              (X&PAGE_GUARD) || (X&PAGE_NOACCESS))
-            return 0;
-
         cursor->Rbp = *(DWORD64*)cursor->Rsp;      // POP RBP
-        cursor->Rsp = cursor->Rsp + sizeof(void*);
+        cursor->Rsp += sizeof(void*);
         cursor->Rip = *(DWORD64*)cursor->Rsp;      // POP RIP (aka RET)
-        cursor->Rsp = cursor->Rsp + sizeof(void*);
+        cursor->Rsp += sizeof(void*);
     }
     else {
         PVOID HandlerData;
@@ -350,10 +369,11 @@ size_t rec_backtrace_ctx_dwarf(uintptr_t *data, size_t maxsize,
 
 JL_DLLEXPORT jl_value_t *jl_lookup_code_address(void *ip, int skipC)
 {
+    jl_tls_states_t *ptls = jl_get_ptls_states();
     jl_frame_t *frames = NULL;
-    int8_t gc_state = jl_gc_safe_enter();
+    int8_t gc_state = jl_gc_safe_enter(ptls);
     int n = jl_getFunctionInfo(&frames, (uintptr_t)ip, skipC, 0);
-    jl_gc_safe_leave(gc_state);
+    jl_gc_safe_leave(ptls, gc_state);
     jl_value_t *rs = (jl_value_t*)jl_alloc_svec(n);
     JL_GC_PUSH1(&rs);
     for (int i = 0; i < n; i++) {

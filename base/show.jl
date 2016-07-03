@@ -101,7 +101,7 @@ function show_default(io::IO, x::ANY)
     nf = nfields(t)
     if nf != 0 || t.size==0
         if !show_circular(io, x)
-            recur_io = IOContext(IOContext(io, :SHOWN_SET=>x), :multiline=>false)
+            recur_io = IOContext(io, :SHOWN_SET => x)
             for i=1:nf
                 f = fieldname(t, i)
                 if !isdefined(x, f)
@@ -127,39 +127,25 @@ end
 
 # Check if a particular symbol is exported from a standard library module
 function is_exported_from_stdlib(name::Symbol, mod::Module)
-    if (mod === Base || mod === Core) && isexported(mod, name)
-        return true
+    !isdefined(mod, name) && return false
+    orig = getfield(mod, name)
+    while !(mod === Base || mod === Core)
+        parent = module_parent(mod)
+        if mod === Main || mod === parent || parent === Main
+            return false
+        end
+        mod = parent
     end
-    parent = module_parent(mod)
-    if parent !== mod && isdefined(mod, name) && isdefined(parent, name) &&
-       getfield(mod, name) === getfield(parent, name)
-        return is_exported_from_stdlib(name, parent)
-    end
-    return false
+    return isexported(mod, name) && isdefined(mod, name) && getfield(mod, name) === orig
 end
 
 function show(io::IO, f::Function)
     ft = typeof(f)
     mt = ft.name.mt
-    if get(io, :multiline, false)
-        if isa(f, Core.Builtin)
-            print(io, mt.name, " (built-in function)")
-        else
-            name = mt.name
-            isself = isdefined(ft.name.module, name) &&
-                     ft == typeof(getfield(ft.name.module, name))
-            n = length(mt)
-            m = n==1 ? "method" : "methods"
-            ns = isself ? string(name) : string("(::", name, ")")
-            what = startswith(ns, '@') ? "macro" : "generic function"
-            print(io, ns, " (", what, " with $n $m)")
-        end
+    if !isdefined(mt, :module) || is_exported_from_stdlib(mt.name, mt.module) || mt.module === Main
+        print(io, mt.name)
     else
-        if !isdefined(mt, :module) || is_exported_from_stdlib(mt.name, mt.module) || mt.module === Main
-            print(io, mt.name)
-        else
-            print(io, mt.module, ".", mt.name)
-        end
+        print(io, mt.module, ".", mt.name)
     end
 end
 
@@ -301,9 +287,9 @@ function show_delim_array(io::IO, itr::Union{AbstractArray,SimpleVector}, op, de
                           delim_one, i1=first(linearindices(itr)), l=last(linearindices(itr)))
     print(io, op)
     if !show_circular(io, itr)
-        recur_io = IOContext(io, SHOWN_SET=itr, multiline=false)
+        recur_io = IOContext(io, :SHOWN_SET => itr)
         if !haskey(io, :compact)
-            recur_io = IOContext(recur_io, compact=true)
+            recur_io = IOContext(recur_io, :compact => true)
         end
         newline = true
         first = true
@@ -574,6 +560,15 @@ show_unquoted(io::IO, ex::LineNumberNode, ::Int, ::Int) = show_linenumber(io, ex
 show_unquoted(io::IO, ex::LabelNode, ::Int, ::Int)      = print(io, ex.label, ": ")
 show_unquoted(io::IO, ex::GotoNode, ::Int, ::Int)       = print(io, "goto ", ex.label)
 show_unquoted(io::IO, ex::GlobalRef, ::Int, ::Int)      = print(io, ex.mod, '.', ex.name)
+
+function show_unquoted(io::IO, ex::LambdaInfo, ::Int, ::Int)
+    if isdefined(ex, :specTypes)
+        print(io, "LambdaInfo for ")
+        show_lambda_types(io, ex.specTypes.parameters)
+    else
+        show(io, ex)
+    end
+end
 
 function show_unquoted(io::IO, ex::Slot, ::Int, ::Int)
     typ = isa(ex,TypedSlot) ? ex.typ : Any
@@ -1534,10 +1529,9 @@ function print_matrix_repr(io, X::AbstractArray)
     print(io, "]")
 end
 
-show(io::IO, X::AbstractArray) = showarray(io, X)
+show(io::IO, X::AbstractArray) = showarray(io, X, true)
 
-function showarray(io::IO, X::AbstractArray)
-    repr = !get(io, :multiline, false)
+function showarray(io::IO, X::AbstractArray, repr::Bool = true; header = true)
     if repr && ndims(X) == 1
         return show_vector(io, X, "[", "]")
     end
@@ -1549,9 +1543,9 @@ function showarray(io::IO, X::AbstractArray)
         # override usual show method for Vector{Method}: don't abbreviate long lists
         io = IOContext(io, :limit => false)
     end
-    !repr && print(io, summary(X))
+    (!repr && header) && print(io, summary(X))
     if !isempty(X)
-        !repr && println(io, ":")
+        (!repr && header) && println(io, ":")
         if ndims(X) == 0
             if isassigned(X)
                 return show(io, X[])
@@ -1590,18 +1584,9 @@ end
 showcompact(x) = showcompact(STDOUT, x)
 function showcompact(io::IO, x)
     if get(io, :compact, false)
-        if !get(io, :multiline, false)
-            show(io, x)
-        else
-            show(IOContext(io, :multiline => false), x)
-        end
+        show(io, x)
     else
-        if !get(io, :multiline, false)
-            show(IOContext(io, :compact => true), x)
-        else
-            show(IOContext(IOContext(io, :compact => true),
-                           :multiline => false), x)
-        end
+        show(IOContext(io, :compact => true), x)
     end
 end
 

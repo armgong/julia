@@ -128,9 +128,6 @@ void jl_add_linfo_in_flight(StringRef name, jl_lambda_info_t *linfo, const DataL
 }
 
 #if defined(_OS_WINDOWS_)
-#if defined(_CPU_X86_64_)
-extern "C" EXCEPTION_DISPOSITION _seh_exception_handler(PEXCEPTION_RECORD ExceptionRecord,void *EstablisherFrame, PCONTEXT ContextRecord, void *DispatcherContext);
-#endif
 static void create_PRUNTIME_FUNCTION(uint8_t *Code, size_t Size, StringRef fnname,
         uint8_t *Section, size_t Allocated, uint8_t *UnwindData)
 {
@@ -143,7 +140,7 @@ static void create_PRUNTIME_FUNCTION(uint8_t *Code, size_t Size, StringRef fnnam
     if (!catchjmp[0]) {
         catchjmp[0] = 0x48;
         catchjmp[1] = 0xb8; // mov RAX, QWORD PTR [...]
-        *(uint64_t*)(&catchjmp[2]) = (uint64_t)&_seh_exception_handler;
+        *(uint64_t*)(&catchjmp[2]) = (uint64_t)&__julia_personality;
         catchjmp[10] = 0xff;
         catchjmp[11] = 0xe0; // jmp RAX
         UnwindData[0] = 0x09; // version info, UNW_FLAG_EHANDLER
@@ -251,9 +248,10 @@ public:
     virtual void NotifyFunctionEmitted(const Function &F, void *Code,
                                        size_t Size, const EmittedFunctionDetails &Details)
     {
+        jl_tls_states_t *ptls = jl_get_ptls_states();
         // This function modify linfo->fptr in GC safe region.
         // This should be fine since the GC won't scan this field.
-        int8_t gc_state = jl_gc_safe_enter();
+        int8_t gc_state = jl_gc_safe_enter(ptls);
         uv_rwlock_wrlock(&threadsafe);
         StringRef sName = F.getName();
         StringMap<jl_lambda_info_t*>::iterator linfo_it = linfo_in_flight.find(sName);
@@ -274,7 +272,7 @@ public:
             const_cast<Function*>(&F)->deleteBody();
 #endif
         uv_rwlock_wrunlock(&threadsafe);
-        jl_gc_safe_leave(gc_state);
+        jl_gc_safe_leave(ptls, gc_state);
     }
 
     std::map<size_t, FuncInfo, revcomp>& getMap()
@@ -309,9 +307,10 @@ public:
     virtual void NotifyObjectEmitted(const ObjectImage &obj)
 #endif
     {
+        jl_tls_states_t *ptls = jl_get_ptls_states();
         // This function modify linfo->fptr in GC safe region.
         // This should be fine since the GC won't scan this field.
-        int8_t gc_state = jl_gc_safe_enter();
+        int8_t gc_state = jl_gc_safe_enter(ptls);
         uv_rwlock_wrlock(&threadsafe);
 #ifdef LLVM36
         object::section_iterator Section = debugObj.section_begin();
@@ -419,9 +418,9 @@ public:
         assert(SectionAddrCheck);
         assert(SectionLoadOffset != 1);
         catchjmp[SectionLoadOffset] = 0x48;
-        catchjmp[SectionLoadOffset + 1] = 0xb8; // mov RAX, QWORD PTR [&_seh_exception_handle]
+        catchjmp[SectionLoadOffset + 1] = 0xb8; // mov RAX, QWORD PTR [&__julia_personality]
         *(uint64_t*)(&catchjmp[SectionLoadOffset + 2]) =
-            (uint64_t)&_seh_exception_handler;
+            (uint64_t)&__julia_personality;
         catchjmp[SectionLoadOffset + 10] = 0xff;
         catchjmp[SectionLoadOffset + 11] = 0xe0; // jmp RAX
         UnwindData[SectionLoadOffset] = 0x09; // version info, UNW_FLAG_EHANDLER
@@ -481,8 +480,8 @@ public:
             else
                 SectionAddrCheck = SectionLoadAddr;
             create_PRUNTIME_FUNCTION(
-                   (uint8_t*)(intptr_t)Addr, (size_t)Size, sName,
-                   (uint8_t*)(intptr_t)SectionLoadAddr, (size_t)SectionSize, UnwindData);
+                   (uint8_t*)(uintptr_t)Addr, (size_t)Size, sName,
+                   (uint8_t*)(uintptr_t)SectionLoadAddr, (size_t)SectionSize, UnwindData);
 #endif
             StringMap<jl_lambda_info_t*>::iterator linfo_it = linfo_in_flight.find(sName);
             jl_lambda_info_t *linfo = NULL;
@@ -557,8 +556,8 @@ public:
             else
                 SectionAddrCheck = SectionLoadAddr;
             create_PRUNTIME_FUNCTION(
-                   (uint8_t*)(intptr_t)Addr, (size_t)Size, sName,
-                   (uint8_t*)(intptr_t)SectionLoadAddr, (size_t)SectionSize, UnwindData);
+                   (uint8_t*)(uintptr_t)Addr, (size_t)Size, sName,
+                   (uint8_t*)(uintptr_t)SectionLoadAddr, (size_t)SectionSize, UnwindData);
 #endif
             StringMap<jl_lambda_info_t*>::iterator linfo_it = linfo_in_flight.find(sName);
             jl_lambda_info_t *linfo = NULL;
@@ -601,7 +600,7 @@ public:
 #endif
 #endif
         uv_rwlock_wrunlock(&threadsafe);
-        jl_gc_safe_leave(gc_state);
+        jl_gc_safe_leave(ptls, gc_state);
     }
 
     // must implement if we ever start freeing code
@@ -694,7 +693,6 @@ static int lookup_pointer(DIContext *context, jl_frame_t **frames,
         free(*frames);
         *frames = new_frames;
     }
-    jl_lambda_info_t *outer_linfo = (*frames)[n_frames-1].linfo;
     for (int i = 0; i < n_frames; i++) {
         bool inlined_frame = i != n_frames - 1;
         DILineInfo info;
@@ -715,7 +713,7 @@ static int lookup_pointer(DIContext *context, jl_frame_t **frames,
         if (inlined_frame) {
             frame->inlined = 1;
             frame->fromC = fromC;
-            if (outer_linfo) {
+            if ((*frames)[n_frames-1].linfo) {
                 std::size_t semi_pos = func_name.find(';');
                 if (semi_pos != std::string::npos) {
                     func_name = func_name.substr(0, semi_pos);
@@ -856,6 +854,9 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
                 jl_copy_str(name, pSymbol->Name);
             if (saddr)
                 *saddr = (void*)(uintptr_t)pSymbol->Address;
+        }
+        else if (saddr) {
+            *saddr = NULL;
         }
 
         // If we didn't find the filename before in the debug
@@ -1112,6 +1113,14 @@ static int jl_getDylibFunctionInfo(jl_frame_t **frames, size_t pointer, int skip
                                               pointer, &pip, NULL) == 0)
             saddr = (void*)pip.start_ip;
 #endif
+#if defined(_OS_WINDOWS_) && defined(_CPU_X86_64_)
+        if (!saddr) {
+            DWORD64 ImageBase;
+            PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(pointer, &ImageBase, NULL);
+            if (fn)
+                saddr = (void*)(ImageBase + fn->BeginAddress);
+        }
+#endif
         if (saddr) {
             for (size_t i = 0; i < sysimg_fvars_n; i++) {
                 if (saddr == sysimg_fvars[i]) {
@@ -1174,17 +1183,18 @@ int jl_DI_for_fptr(uint64_t fptr, uint64_t *symsize, int64_t *slide, int64_t *se
 extern "C"
 JL_DLLEXPORT jl_value_t *jl_get_dobj_data(uint64_t fptr)
 {
+    jl_tls_states_t *ptls = jl_get_ptls_states();
     // Used by Gallium.jl
     const object::ObjectFile *object = NULL;
     DIContext *context;
     int64_t slide, section_slide;
-    int8_t gc_state = jl_gc_safe_enter();
+    int8_t gc_state = jl_gc_safe_enter(ptls);
     if (!jl_DI_for_fptr(fptr, NULL, &slide, NULL, &object, NULL))
         if (!jl_dylib_DI_for_fptr(fptr, &object, &context, &slide, &section_slide, false, NULL, NULL, NULL, NULL)) {
-            jl_gc_safe_leave(gc_state);
+            jl_gc_safe_leave(ptls, gc_state);
             return jl_nothing;
         }
-    jl_gc_safe_leave(gc_state);
+    jl_gc_safe_leave(ptls, gc_state);
     if (object == NULL)
         return jl_nothing;
     return (jl_value_t*)jl_ptr_to_array_1d((jl_value_t*)jl_array_uint8_type,
@@ -1195,8 +1205,9 @@ JL_DLLEXPORT jl_value_t *jl_get_dobj_data(uint64_t fptr)
 extern "C"
 JL_DLLEXPORT uint64_t jl_get_section_start(uint64_t fptr)
 {
+    jl_tls_states_t *ptls = jl_get_ptls_states();
     // Used by Gallium.jl
-    int8_t gc_state = jl_gc_safe_enter();
+    int8_t gc_state = jl_gc_safe_enter(ptls);
     std::map<size_t, ObjectInfo, revcomp> &objmap = jl_jit_events->getObjectMap();
     std::map<size_t, ObjectInfo, revcomp>::iterator fit = objmap.lower_bound(fptr);
 
@@ -1212,7 +1223,7 @@ JL_DLLEXPORT uint64_t jl_get_section_start(uint64_t fptr)
        }
     }
     uv_rwlock_rdunlock(&threadsafe);
-    jl_gc_safe_leave(gc_state);
+    jl_gc_safe_leave(ptls, gc_state);
     return ret;
 }
 
@@ -1242,7 +1253,7 @@ int jl_getFunctionInfo(jl_frame_t **frames_out, size_t pointer, int skipC, int n
 // Without MCJIT we use the FuncInfo structure containing address maps
     std::map<size_t, FuncInfo, revcomp> &info = jl_jit_events->getMap();
     std::map<size_t, FuncInfo, revcomp>::iterator it = info.lower_bound(pointer);
-    if (it != info.end() && (intptr_t)(*it).first + (*it).second.lengthAdr >= pointer) {
+    if (it != info.end() && (uintptr_t)(*it).first + (*it).second.lengthAdr >= pointer) {
         // We do this to hide the jlcall wrappers when getting julia backtraces,
         // but it is still good to have them for regular lookup of C frames.
         if (skipC && (*it).second.lines.empty()) {
@@ -1314,6 +1325,21 @@ int jl_getFunctionInfo(jl_frame_t **frames_out, size_t pointer, int skipC, int n
     uv_rwlock_rdunlock(&threadsafe);
 #endif // USE_MCJIT
     return jl_getDylibFunctionInfo(frames_out, pointer, skipC, noInline);
+}
+
+extern "C" jl_lambda_info_t *jl_gdblookuplinfo(void *p)
+{
+#ifndef USE_MCJIT
+    std::map<size_t, FuncInfo, revcomp> &info = jl_jit_events->getMap();
+    std::map<size_t, FuncInfo, revcomp>::iterator it = info.lower_bound((size_t)p);
+    jl_lambda_info_t *li = NULL;
+    if (it != info.end() && (uintptr_t)(*it).first + (*it).second.lengthAdr >= (uintptr_t)p)
+        li = (*it).second.linfo;
+    uv_rwlock_rdunlock(&threadsafe);
+    return li;
+#else
+    return jl_jit_events->lookupLinfo((size_t)p);
+#endif
 }
 
 #if defined(LLVM37) && (defined(_OS_LINUX_) || (defined(_OS_DARWIN_) && defined(LLVM_SHLIB)))
@@ -1731,7 +1757,7 @@ uint64_t jl_getUnwindInfo(uint64_t dwAddr)
     std::map<size_t, ObjectInfo, revcomp>::iterator it = objmap.lower_bound(dwAddr);
     uint64_t ipstart = 0; // ip of the start of the section (if found)
     if (it != objmap.end() && dwAddr < it->first + it->second.SectionSize) {
-        ipstart = (uint64_t)(intptr_t)(*it).first;
+        ipstart = (uint64_t)(uintptr_t)(*it).first;
     }
     uv_rwlock_rdunlock(&threadsafe);
     return ipstart;
@@ -1744,8 +1770,8 @@ uint64_t jl_getUnwindInfo(uint64_t dwAddr)
     std::map<size_t, FuncInfo, revcomp> &info = jl_jit_events->getMap();
     std::map<size_t, FuncInfo, revcomp>::iterator it = info.lower_bound(dwAddr);
     uint64_t ipstart = 0; // ip of the first instruction in the function (if found)
-    if (it != info.end() && (intptr_t)(*it).first + (*it).second.lengthAdr > dwAddr) {
-        ipstart = (uint64_t)(intptr_t)(*it).first;
+    if (it != info.end() && (uintptr_t)(*it).first + (*it).second.lengthAdr > dwAddr) {
+        ipstart = (uint64_t)(uintptr_t)(*it).first;
     }
     uv_rwlock_rdunlock(&threadsafe);
     return ipstart;

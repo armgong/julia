@@ -582,17 +582,11 @@ function deserialize(s::AbstractSerializer, ::Type{Module})
     if isa(path,Tuple) && path !== ()
         # old version
         for mname in path
-            if !isdefined(m,mname)
-                warn("Module $mname not defined on process $(myid())")  # an error seemingly fails
-            end
             m = getfield(m,mname)::Module
         end
     else
         mname = path
         while mname !== ()
-            if !isdefined(m,mname)
-                warn("Module $mname not defined on process $(myid())")  # an error seemingly fails
-            end
             m = getfield(m,mname)::Module
             mname = deserialize(s)
         end
@@ -893,7 +887,7 @@ end
 
 deserialize(s::AbstractSerializer, ::Type{BigFloat}) = parse(BigFloat, deserialize(s))
 
-deserialize(s::AbstractSerializer, ::Type{BigInt}) = get(GMP.tryparse_internal(BigInt, deserialize(s), 62, true))
+deserialize(s::AbstractSerializer, ::Type{BigInt}) = parse(BigInt, deserialize(s), 62)
 
 function deserialize(s::AbstractSerializer, t::Type{Regex})
     pattern = deserialize(s)

@@ -76,7 +76,7 @@ module MyArray15367
 
     A = MyArray(rand(4,5))
     b = rand(5)
-    @test_approx_eq A*b A.data*b
+    @test A*b ≈ A.data*b
 end
 
 let
@@ -268,7 +268,7 @@ let AA = [1+2im 3+4im; 5+6im 7+8im], BB = [2+7im 4+1im; 3+8im 6+5im]
             if n1 != n2
                 @test_throws DimensionMismatch d(1:n1, 1:n2)
             else
-                @test_approx_eq d(1:n1, 1:n2) vecnorm(1:n1)^2
+                @test d(1:n1, 1:n2) ≈ vecnorm(1:n1)^2
             end
         end
     end
@@ -388,3 +388,15 @@ let
         @test_throws DimensionMismatch A_mul_B!(full43, full43, tri44)
     end
 end
+
+# Ensure that matrix multiplication with a narrower output type than input type does not
+# produce allocation in the inner loop (#14722), by ensuring allocation does not change
+# with the size of the input.
+C1 = Array(Float32, 5, 5)
+A1 = rand(Float64, 5, 5)
+B1 = rand(Float64, 5, 5)
+C2 = Array(Float32, 6, 6)
+A2 = rand(Float64, 6, 6)
+B2 = rand(Float64, 6, 6)
+A_mul_B!(C1, A1, B1)
+@test @allocated(A_mul_B!(C1, A1, B1)) == @allocated(A_mul_B!(C2, A2, B2))

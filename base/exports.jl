@@ -1184,6 +1184,8 @@ export
 # multiprocessing
     addprocs,
     asyncmap,
+    CachingPool,
+    clear!,
     ClusterManager,
     default_worker_pool,
     fetch,
@@ -1412,6 +1414,7 @@ export
     @enum,
     @label,
     @goto,
+    @view,
 
 # SparseArrays module re-exports
     SparseArrays,

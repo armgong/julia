@@ -159,13 +159,13 @@ ratio = [1,1/2,1/3,1/4,1/5]
 @test r1./r2 == ratio
 m = [1:2;]'
 @test m.*r2 == [1:5 2:2:10]
-@test_approx_eq m./r2 [ratio 2ratio]
-@test_approx_eq m./[r2;] [ratio 2ratio]
+@test m./r2 ≈ [ratio 2ratio]
+@test m./[r2;] ≈ [ratio 2ratio]
 
 @test @inferred([0,1.2].+reshape([0,-2],1,1,2)) == reshape([0 -2; 1.2 -0.8],2,1,2)
 rt = Base.return_types(.+, Tuple{Array{Float64, 3}, Array{Int, 1}})
 @test length(rt) == 1 && rt[1] == Array{Float64, 3}
-rt = Base.return_types(broadcast, Tuple{Function, Array{Float64, 3}, Array{Int, 1}})
+rt = Base.return_types(broadcast, Tuple{typeof(.+), Array{Float64, 3}, Array{Int, 3}})
 @test length(rt) == 1 && rt[1] == Array{Float64, 3}
 rt = Base.return_types(broadcast!, Tuple{Function, Array{Float64, 3}, Array{Float64, 3}, Array{Int, 1}})
 @test length(rt) == 1 && rt[1] == Array{Float64, 3}
@@ -196,3 +196,20 @@ end
 let a = broadcast(Float32, [3, 4, 5])
     @test eltype(a) == Float32
 end
+
+# issue #4883
+@test isa(broadcast(tuple, [1 2 3], ["a", "b", "c"]), Matrix{Tuple{Int,String}})
+@test isa(broadcast((x,y)->(x==1?1.0:x,y), [1 2 3], ["a", "b", "c"]), Matrix{Tuple{Real,String}})
+let a = length.(["foo", "bar"])
+    @test isa(a, Vector{Int})
+    @test a == [3, 3]
+end
+let a = sin.([1, 2])
+    @test isa(a, Vector{Float64})
+    @test a ≈ [0.8414709848078965, 0.9092974268256817]
+end
+
+# PR 16988
+@test Base.promote_op(+, Bool) === Int
+@test isa(broadcast(+, true), Array{Int,0})
+@test Base.promote_op(Float64, Bool) === Float64

@@ -34,15 +34,17 @@
 extern "C" {
 #endif
 
-#ifdef JULIA_ENABLE_THREADING
-static JL_CONST_FUNC jl_tls_states_t *jl_get_ptls_states_static(void)
+#if defined(JULIA_ENABLE_THREADING) && !defined(_OS_DARWIN_) && !defined(_OS_WINDOWS_)
+JL_DLLEXPORT JL_CONST_FUNC jl_tls_states_t *jl_get_ptls_states_static(void)
 {
-#  if !defined(_COMPILER_MICROSOFT_)
     static __attribute__((tls_model("local-exec"))) __thread jl_tls_states_t tls_states;
-#  else
-    static __declspec(thread) jl_tls_states_t tls_states;
-#  endif
     return &tls_states;
+}
+__attribute__((constructor)) void jl_register_ptls_states_getter(void)
+{
+    // We need to make sure this function is called before any reference to
+    // TLS variables.
+    jl_set_ptls_states_getter(jl_get_ptls_states_static);
 }
 #endif
 
@@ -60,7 +62,7 @@ static const char opts[]  =
     " -J, --sysimage <file>     Start up with the given system image file\n"
     " --precompiled={yes|no}    Use precompiled code from system image if available\n"
     " --compilecache={yes|no}   Enable/disable incremental precompilation of modules\n"
-    " -H, --home <dir>          Set location of julia executable\n"
+    " -H, --home <dir>          Set location of `julia` executable\n"
     " --startup-file={yes|no}   Load ~/.juliarc.jl\n"
     " --handle-signals={yes|no} Enable or disable Julia's default signal handlers\n\n"
 
@@ -487,7 +489,7 @@ static int exec_program(char *program)
             JL_EH_POP();
             return 1;
         }
-        jl_load(program, strlen(program));
+        jl_load(program);
     }
     JL_CATCH {
         err = 1;
@@ -659,14 +661,6 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
         if (!WideCharToMultiByte(CP_UTF8, 0, warg, -1, arg, len, NULL, NULL)) return 1;
         argv[i] = (wchar_t*)arg;
     }
-#endif
-#ifdef JULIA_ENABLE_THREADING
-    // We need to make sure this function is called before any reference to
-    // TLS variables. Since the compiler is free to move calls to
-    // `jl_get_ptls_states()` around, we should avoid referencing TLS
-    // variables in this function. (Mark `true_main` as noinline for this
-    // reason).
-    jl_set_ptls_states_getter(jl_get_ptls_states_static);
 #endif
     libsupport_init();
     parse_opts(&argc, (char***)&argv);

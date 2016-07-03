@@ -411,7 +411,8 @@
                   sparams))
          (keyword-sparam-names
           (map (lambda (s) (if (symbol? s) s (cadr s))) keyword-sparams)))
-    (let ((kw (gensy)) (i (gensy)) (ii (gensy)) (elt (gensy)) (rkw (gensy))
+    (let ((kw (gensy)) (i (gensy)) (ii (gensy)) (elt (gensy))
+          (rkw (if (null? restkw) '() (symbol (string (car restkw) "..."))))
           (mangled (symbol (string "#" (if name (undot-name name) 'call) "#"
                                    (string (current-julia-module-counter)))))
           (flags (map (lambda (x) (gensy)) vals)))
@@ -506,7 +507,8 @@
                                    ,else)))
                           (if (null? restkw)
                               ;; if no rest kw, give error for unrecognized
-                              `(call (top kwerr) ,elt)
+                              `(call (top kwerr) ,kw ,@(map arg-name pargl),@(if (null? vararg) '()
+                                (list `(... ,(arg-name (car vararg))))))
                               ;; otherwise add to rest keywords
                               `(ccall 'jl_array_ptr_1d_push Void (tuple Any Any)
                                       ,rkw (tuple ,elt
@@ -3016,8 +3018,12 @@ f(x) = yt(x)
             ((call new)
              (let* ((ccall? (and (eq? (car e) 'call) (equal? (cadr e) '(core ccall))))
                     (args (if ccall?
-                              ;; NOTE: first 3 arguments of ccall must be left in place
-                              (append (list-head (cdr e) 4)
+                              ;; NOTE: 2nd and 3rd arguments of ccall must be left in place
+                              ;;       the 1st should be compiled if an atom.
+                              (append (list (cadr e))
+                                      (cond (atom? (caddr e) (compile-args (list (caddr e)) break-labels))
+                                            (else (caddr e)))
+                                      (list-head (cdddr e) 2)
                                       (compile-args (list-tail e 5) break-labels))
                               (compile-args (cdr e) break-labels)))
                     (callex (cons (car e) args)))

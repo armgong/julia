@@ -193,7 +193,7 @@ typeintersect
 """
     pointer(array [, index])
 
-Get the native address of an array or string element. Be careful to ensure that a julia
+Get the native address of an array or string element. Be careful to ensure that a Julia
 reference to `a` exists as long as this pointer will be used. This function is "unsafe" like
 `unsafe_convert`.
 
@@ -593,7 +593,7 @@ valtype
     edit(path::AbstractString, [line])
 
 Edit a file or directory optionally providing a line number to edit the file at. Returns to
-the julia prompt when you quit the editor.
+the `julia` prompt when you quit the editor.
 """
 edit(path::AbstractString, line=?)
 
@@ -3083,7 +3083,7 @@ addprocs()
 addprocs(machines; keyword_args...) -> List of process identifiers
 ```
 
-Add processes on remote machines via SSH. Requires julia to be installed in the same
+Add processes on remote machines via SSH. Requires `julia` to be installed in the same
 location on each node, or to be available via a shared file system.
 
 `machines` is a vector of machine specifications.  Worker are started for each specification.
@@ -3113,7 +3113,7 @@ Keyword arguments:
 * `dir`: specifies the working directory on the workers. Defaults to the host's current
          directory (as found by `pwd()`)
 
-* `exename`: name of the julia executable. Defaults to `"\$JULIA_HOME/julia"` or
+* `exename`: name of the `julia` executable. Defaults to `"\$JULIA_HOME/julia"` or
              `"\$JULIA_HOME/julia-debug"` as the case may be.
 
 * `exeflags`: additional flags passed to the worker processes.
@@ -3466,7 +3466,7 @@ Convert `x` to a value of type `T`
 In cases where `convert` would need to take a Julia object and turn it into a `Ptr`, this
 function should be used to define and perform that conversion.
 
-Be careful to ensure that a julia reference to `x` exists as long as the result of this
+Be careful to ensure that a Julia reference to `x` exists as long as the result of this
 function will be used. Accordingly, the argument `x` to this function should never be an
 expression, only a variable name or field reference. For example, `x=a.b.c` is acceptable,
 but `x=[a,b,c]` is not.
@@ -3623,7 +3623,7 @@ the file is large, and is only read once and not written to.
 If `ignore_invalid_chars` is `true`, bytes in `source` with invalid character encoding will
 be ignored. Otherwise an error is thrown indicating the offending character position.
 
-If `quotes` is `true`, column enclosed within double-quote (\") characters are allowed to
+If `quotes` is `true`, columns enclosed within double-quote (\") characters are allowed to
 contain new lines and column delimiters. Double-quote characters within a quoted field must
 be escaped with another double-quote.  Specifying `dims` as a tuple of the expected rows and
 columns (including header, if any) may speed up reading of large files.  If `comments` is
@@ -3643,14 +3643,14 @@ readdlm(source, delim::Char, eol::Char)
 """
     readdlm(source, delim::Char, T::Type; options...)
 
-The end of line delimiter is taken as `n`.
+The end of line delimiter is taken as `\\n`.
 """
 readdlm(source, delim::Char, T::Type)
 
 """
     readdlm(source, delim::Char; options...)
 
-The end of line delimiter is taken as `n`. If all data is numeric, the result will be a
+The end of line delimiter is taken as `\\n`. If all data is numeric, the result will be a
 numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of
 numbers and strings is returned.
 """
@@ -3660,7 +3660,7 @@ readdlm(source, delim::Char)
     readdlm(source, T::Type; options...)
 
 The columns are assumed to be separated by one or more whitespaces. The end of line
-delimiter is taken as `n`.
+delimiter is taken as `\\n`.
 """
 readdlm(source, T::Type)
 
@@ -3668,7 +3668,7 @@ readdlm(source, T::Type)
     readdlm(source; options...)
 
 The columns are assumed to be separated by one or more whitespaces. The end of line
-delimiter is taken as `n`. If all data is numeric, the result will be a numeric array. If
+delimiter is taken as `\\n`. If all data is numeric, the result will be a numeric array. If
 some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings
 is returned.
 """
@@ -6571,7 +6571,7 @@ error
     less(file::AbstractString, [line])
 
 Show a file using the default pager, optionally providing a starting line number. Returns to
-the julia prompt when you quit the pager.
+the `julia` prompt when you quit the pager.
 """
 less(f::AbstractString, ?)
 
@@ -7470,7 +7470,7 @@ listenany
 """
     getpid() -> Int32
 
-Get julia's process ID.
+Get Julia's process ID.
 """
 getpid
 
@@ -7948,15 +7948,6 @@ findfirst(A,v)
 Return the index of the first element of `A` for which `predicate` returns `true`.
 """
 findfirst
-
-"""
-    factorize(A)
-
-Compute a convenient factorization (including LU, Cholesky, Bunch-Kaufman, LowerTriangular,
-UpperTriangular) of `A`, based upon the type of the input matrix. The return value can then
-be reused for efficient solving of multiple systems. For example: `A=factorize(A); x=A\\b; y=A\\C`.
-"""
-factorize
 
 """
     promote_rule(type1, type2)
@@ -8938,7 +8929,7 @@ redirect_stdout
 """
     redirect_stdout(stream)
 
-Replace `STDOUT` by stream for all C and julia level output to `STDOUT`. Note that `stream`
+Replace `STDOUT` by stream for all C and Julia level output to `STDOUT`. Note that `stream`
 must be a TTY, a `Pipe` or a `TCPSocket`.
 """
 redirect_stdout(stream)

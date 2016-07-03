@@ -38,7 +38,16 @@ test_code_reflections(test_ast_reflection, code_lowered)
 test_code_reflections(test_ast_reflection, code_typed)
 test_code_reflections(test_bin_reflection, code_llvm)
 test_code_reflections(test_bin_reflection, code_native)
+
+# Issue #16326
+mktemp() do f, io
+    OLDSTDOUT = STDOUT
+    redirect_stdout(io)
+    @test try @code_native map(y->abs(y), rand(3)); true; catch false; end
+    redirect_stdout(OLDSTDOUT)
 end
+
+end # module ReflectionTest
 
 # code_warntype
 module WarnType
@@ -364,10 +373,7 @@ function test_typed_ast_printing(f::ANY, types::ANY, must_used_vars)
     for str in (sprint(io->code_warntype(io, f, types)),
                 sprint(io->show(io, li)))
         # Test to make sure the clearing of file path below works
-        # If we don't store the full path in line number node/ast printing
-        # anymore, the test and the string replace below should be fixed.
-        @test contains(str, @__FILE__)
-        str = replace(str, @__FILE__, "")
+        @test string(li.def.file) == @__FILE__
         for var in must_used_vars
             @test contains(str, string(var))
         end

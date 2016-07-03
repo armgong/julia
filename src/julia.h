@@ -246,6 +246,7 @@ typedef struct _jl_lambda_info_t {
     jl_array_t *slotflags;  // local var bit flags
     struct _jl_lambda_info_t *unspecialized_ducttape; // if template can't be compiled due to intrinsics, an un-inferred executable copy may get stored here
     jl_method_t *def; // method this is specialized from, (null if this is a toplevel thunk)
+    jl_value_t *constval;  // value of the function if jlcall_api==2
     int32_t nargs;
     int8_t isva;
     int8_t inferred;
@@ -253,7 +254,7 @@ typedef struct _jl_lambda_info_t {
     int8_t inlineable;
     int8_t inInference; // flags to tell if inference is running on this function
     int8_t inCompile; // flag to tell if codegen is running on this function
-    int8_t jlcall_api; // the c-abi for fptr; 0 = jl_fptr_t, 1 = jl_fptr_sparam_t
+    int8_t jlcall_api; // the c-abi for fptr; 0 = jl_fptr_t, 1 = jl_fptr_sparam_t, 2 = constval
     int8_t compile_traced; // if set will notify callback if this linfo is compiled
     jl_fptr_t fptr; // jlcall entry point
 
@@ -560,7 +561,7 @@ extern jl_sym_t *importall_sym; extern jl_sym_t *using_sym;
 extern jl_sym_t *goto_sym;    extern jl_sym_t *goto_ifnot_sym;
 extern jl_sym_t *label_sym;   extern jl_sym_t *return_sym;
 extern jl_sym_t *lambda_sym;  extern jl_sym_t *assign_sym;
-extern jl_sym_t *null_sym;    extern jl_sym_t *body_sym;
+extern jl_sym_t *body_sym;
 extern jl_sym_t *method_sym;  extern jl_sym_t *slot_sym;
 extern jl_sym_t *enter_sym;   extern jl_sym_t *leave_sym;
 extern jl_sym_t *exc_sym;     extern jl_sym_t *new_sym;
@@ -575,7 +576,7 @@ extern jl_sym_t *copyast_sym; extern jl_sym_t *fastmath_sym;
 extern jl_sym_t *pure_sym; extern jl_sym_t *simdloop_sym;
 extern jl_sym_t *meta_sym; extern jl_sym_t *list_sym;
 extern jl_sym_t *inert_sym; extern jl_sym_t *static_parameter_sym;
-extern jl_sym_t *polly_sym;
+extern jl_sym_t *polly_sym; extern jl_sym_t *inline_sym;
 
 // gc -------------------------------------------------------------------------
 
@@ -985,6 +986,14 @@ JL_DLLEXPORT const char *jl_typename_str(jl_value_t *v);
 JL_DLLEXPORT const char *jl_typeof_str(jl_value_t *v);
 JL_DLLEXPORT int jl_type_morespecific(jl_value_t *a, jl_value_t *b);
 
+#ifdef NDEBUG
+STATIC_INLINE int jl_is_leaf_type_(jl_value_t *v)
+{
+    return jl_is_datatype(v) && ((jl_datatype_t*)v)->isleaftype;
+}
+#define jl_is_leaf_type(v) jl_is_leaf_type_(v)
+#endif
+
 // type constructors
 JL_DLLEXPORT jl_typename_t *jl_new_typename(jl_sym_t *name);
 JL_DLLEXPORT jl_tvar_t *jl_new_typevar(jl_sym_t *name,jl_value_t *lb,jl_value_t *ub);
@@ -1307,7 +1316,7 @@ JL_DLLEXPORT jl_value_t *jl_parse_string(const char *str, size_t len,
                                          int pos0, int greedy);
 JL_DLLEXPORT int jl_parse_depwarn(int warn);
 JL_DLLEXPORT jl_value_t *jl_load_file_string(const char *text, size_t len,
-                                             char *filename, size_t namelen);
+                                             char *filename);
 JL_DLLEXPORT jl_value_t *jl_expand(jl_value_t *expr);
 JL_DLLEXPORT jl_value_t *jl_eval_string(const char *str);
 
@@ -1342,7 +1351,7 @@ JL_DLLEXPORT const char *jl_lookup_soname(const char *pfx, size_t n);
 // compiler
 JL_DLLEXPORT jl_value_t *jl_toplevel_eval(jl_value_t *v);
 JL_DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex);
-JL_DLLEXPORT jl_value_t *jl_load(const char *fname, size_t len);
+JL_DLLEXPORT jl_value_t *jl_load(const char *fname);
 JL_DLLEXPORT jl_value_t *jl_interpret_toplevel_expr_in(jl_module_t *m, jl_value_t *e,
                                                        jl_lambda_info_t *lam);
 JL_DLLEXPORT jl_module_t *jl_base_relative_to(jl_module_t *m);
@@ -1520,7 +1529,7 @@ STATIC_INLINE void jl_eh_restore_state(jl_handler_t *eh)
     ptls->gc_state = eh->gc_state;
     ptls->finalizers_inhibited = eh->finalizers_inhibited;
     if (old_gc_state && !eh->gc_state) {
-        jl_gc_safepoint();
+        jl_gc_safepoint_(ptls);
     }
     if (old_defer_signal && !eh->defer_signal) {
         jl_sigint_safepoint();

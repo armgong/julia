@@ -50,9 +50,9 @@ angle(z::Real) = atan2(zero(z), z)
 
 widemul(x::Number, y::Number) = widen(x)*widen(y)
 
-start(x::Number) = 0  # see #16687
-next(x::Number, state) = (x, state+1)
-done(x::Number, state) = state == 1
+start(x::Number) = false
+next(x::Number, state) = (x, true)
+done(x::Number, state) = state
 isempty(x::Number) = false
 in(x::Number, y::Number) = x == y
 
@@ -62,5 +62,17 @@ zero(x::Number) = oftype(x,0)
 zero{T<:Number}(::Type{T}) = convert(T,0)
 one(x::Number)  = oftype(x,1)
 one{T<:Number}(::Type{T}) = convert(T,1)
+
+promote_op{R,S<:Number}(::Type{R}, ::Type{S}) = (@_pure_meta; R) # to fix ambiguities
+function promote_op{T<:Number}(op, ::Type{T})
+    S = typeof(op(one(T)))
+    # preserve the most general (abstract) type when possible
+    return isleaftype(T) ? S : typejoin(S, T)
+end
+function promote_op{R<:Number,S<:Number}(op, ::Type{R}, ::Type{S})
+    T = typeof(op(one(R), one(S)))
+    # preserve the most general (abstract) type when possible
+    return isleaftype(R) && isleaftype(S) ? T : typejoin(R, S, T)
+end
 
 factorial(x::Number) = gamma(x + 1) # fallback for x not Integer

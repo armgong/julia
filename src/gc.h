@@ -66,6 +66,7 @@ typedef struct {
 // This struct must be kept in sync with the Julia type of the same name in base/util.jl
 typedef struct {
     int64_t     allocd;
+    int64_t     deferred_alloc;
     int64_t     freed;
     uint64_t    malloc;
     uint64_t    realloc;
@@ -178,7 +179,6 @@ typedef struct {
 extern jl_gc_num_t gc_num;
 extern region_t regions[REGION_COUNT];
 extern bigval_t *big_objects_marked;
-extern arraylist_t finalizer_list;
 extern arraylist_t finalizer_list_marked;
 extern arraylist_t to_finalize;
 extern int64_t lazy_freed_pages;
@@ -219,9 +219,19 @@ STATIC_INLINE int gc_old(int bits)
     return (bits & GC_OLD) != 0;
 }
 
+STATIC_INLINE uintptr_t gc_ptr_tag(void *v, uintptr_t mask)
+{
+    return ((uintptr_t)v) & mask;
+}
+
+STATIC_INLINE void *gc_ptr_clear_tag(void *v, uintptr_t mask)
+{
+    return (void*)(((uintptr_t)v) & ~mask);
+}
+
 NOINLINE uintptr_t gc_get_stack_ptr(void);
 
-STATIC_INLINE region_t *find_region(void *ptr, int maybe)
+STATIC_INLINE region_t *find_region(void *ptr)
 {
     // on 64bit systems we could probably use a single region and remove this loop
     for (int i = 0; i < REGION_COUNT && regions[i].pages; i++) {
@@ -232,20 +242,19 @@ STATIC_INLINE region_t *find_region(void *ptr, int maybe)
             return region;
         }
     }
-    (void)maybe;
-    assert(maybe && "find_region failed");
     return NULL;
 }
 
 STATIC_INLINE jl_gc_pagemeta_t *page_metadata_(void *data, region_t *r)
 {
+    assert(r != NULL);
     int pg_idx = page_index(r, (char*)data - GC_PAGE_OFFSET);
     return &r->meta[pg_idx];
 }
 
 STATIC_INLINE jl_gc_pagemeta_t *page_metadata(void *data)
 {
-    return page_metadata_(data, find_region(data, 0));
+    return page_metadata_(data, find_region(data));
 }
 
 STATIC_INLINE void gc_big_object_unlink(const bigval_t *hdr)
@@ -355,7 +364,7 @@ void add_lostval_parent(jl_value_t *parent);
     } while(0);
 
 #define verify_parent(ty, obj, slot, args...) do {                      \
-        if (*(jl_value_t**)(slot) == lostval &&                         \
+        if (gc_ptr_clear_tag(*(void**)(slot), 3) == (void*)lostval &&   \
             (jl_value_t*)(obj) != lostval) {                            \
             jl_printf(JL_STDOUT, "Found parent %p %p at %s:%d\n",       \
                       (void*)(ty), (void*)(obj), __FILE__, __LINE__);   \
