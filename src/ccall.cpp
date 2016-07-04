@@ -854,7 +854,7 @@ static jl_cgval_t mark_or_box_ccall_result(Value *result, bool isboxed, jl_value
         int nb = sizeof(void*);
         // TODO: can this be tighter than tbaa_value?
         return mark_julia_type(
-            init_bits_value(emit_allocobj(ctx, nb), runtime_bt, result, tbaa_value),
+            init_bits_value(emit_allocobj(ctx, nb, runtime_bt), result, tbaa_value),
             true, (jl_value_t*)jl_pointer_type, ctx);
     }
     return mark_julia_type(result, isboxed, rt, ctx);
@@ -892,7 +892,8 @@ static std::string generate_func_sig(
         if (*prt == NULL)
             *prt = *lrt;
 
-        if (jl_is_datatype(rt) && !jl_is_abstracttype(rt) && use_sret(&abi, rt)) {
+        if (jl_is_datatype(rt) && !jl_is_abstracttype(rt) &&
+            !jl_is_array_type(rt) && use_sret(&abi, rt)) {
             paramattrs.push_back(AttrBuilder());
             paramattrs[0].clear();
 #if !defined(_OS_WINDOWS_) || defined(LLVM35) // llvm used to use the old mingw ABI, skipping this marking works around that difference
@@ -1009,6 +1010,7 @@ static std::string generate_func_sig(
 // ccall(pointer, rettype, (argtypes...), args...)
 static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
 {
+    jl_ptls_t ptls = jl_get_ptls_states();
     JL_NARGSV(ccall, 3);
     jl_value_t *rt=NULL, *at=NULL;
     JL_GC_PUSH2(&rt, &at);
@@ -1068,9 +1070,10 @@ static jl_cgval_t emit_ccall(jl_value_t **args, size_t nargs, jl_codectx_t *ctx)
                 }
             }
             if (rt == NULL) {
-                if (jl_exception_in_transit && jl_typeis(jl_exception_in_transit,
-                                                         jl_undefvarerror_type)
-                                            && jl_is_symbol(args[2])) {
+                if (ptls->exception_in_transit &&
+                    jl_typeis(ptls->exception_in_transit,
+                              jl_undefvarerror_type) &&
+                    jl_is_symbol(args[2])) {
                     std::string msg = "ccall return type undefined: " +
                                       std::string(jl_symbol_name((jl_sym_t*)args[2]));
                     emit_error(msg.c_str(), ctx);
