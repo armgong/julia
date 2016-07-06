@@ -807,12 +807,28 @@ void jl_dump_compiles(void *s)
 static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_functions_t *declarations);
 void jl_add_linfo_in_flight(StringRef name, jl_lambda_info_t *linfo, const DataLayout &DL);
 
-// this is the implementation component of jl_compile_linfo
-// which compiles li and adds the result to the jitlayers
-static void to_function(jl_lambda_info_t *li)
+// this generates llvm code for the lambda info
+// and adds the result to the jitlayers
+// (and the shadow module), but doesn't yet compile
+// or generate object code for it
+// objective: assign li->functionObject
+extern "C" void jl_compile_linfo(jl_lambda_info_t *li)
 {
-    // setup global state
+    if (li->jlcall_api == 2) {
+        // delete code for functions reduced to a constant
+        jl_set_lambda_code_null(li);
+        return;
+    }
+    // grab the codegen lock and see if this needs to be compiled
+    if (li->functionObjectsDecls.functionObject != NULL) {
+        return;
+    }
     JL_LOCK(&codegen_lock);
+    if (li->functionObjectsDecls.functionObject != NULL) {
+        JL_UNLOCK(&codegen_lock);
+        return;
+    }
+    // setup global state
     assert(!li->inInference);
     li->inCompile = 1;
     BasicBlock *old = nested_compile ? builder.GetInsertBlock() : NULL;
@@ -860,15 +876,12 @@ static void to_function(jl_lambda_info_t *li)
         jl_add_linfo_in_flight((specf ? specf : f)->getName(), li, DL);
     }
 
-    // success. add the result to the execution engine now
-    jl_finalize_module(std::move(m), !toplevel);
-    if (!toplevel) {
-        li->functionID = jl_assign_functionID(f, 0);
-        if (specf)
-            li->specFunctionID = jl_assign_functionID(specf, 1);
-    }
     // mark the pointer calling convention
     li->jlcall_api = (f->getFunctionType() == jl_func_sig ? 0 : 1);
+    li->fptr = NULL;
+
+    // success. add the result to the execution engine now
+    jl_finalize_module(std::move(m), !toplevel);
 
     // if not inlineable, code won't be needed again
     if (JL_DELETE_NON_INLINEABLE &&
@@ -1016,21 +1029,6 @@ extern "C" void jl_generate_fptr(jl_lambda_info_t *li)
     JL_UNLOCK(&codegen_lock); // Might GC
 }
 
-// this generates llvm code for the lambda info
-// (and adds it to the shadow module), but doesn't yet compile
-// or generate object code for it
-extern "C" void jl_compile_linfo(jl_lambda_info_t *li)
-{
-    if (li->jlcall_api == 2) {
-        // delete code for functions reduced to a constant
-        jl_set_lambda_code_null(li);
-    }
-    else if (li->functionObjectsDecls.functionObject == NULL) {
-        // objective: assign li->functionObject
-        to_function(li);
-    }
-}
-
 static Function *jl_cfunction_object(jl_function_t *f, jl_value_t *rt, jl_tupletype_t *argt);
 // get the address of a C-callable entry point for a function
 extern "C" JL_DLLEXPORT
@@ -1102,11 +1100,13 @@ void jl_extern_c(jl_function_t *f, jl_value_t *rt, jl_value_t *argt, char *name)
 // for use in reflection from Julia.
 // this is paired with jl_dump_function_ir and jl_dump_function_asm in particular ways:
 // misuse will leak memory or cause read-after-free
+extern "C" JL_DLLEXPORT jl_lambda_info_t *jl_get_specialized(jl_method_t *m, jl_tupletype_t *types, jl_svec_t *sp);
+
 extern "C" JL_DLLEXPORT
 void *jl_get_llvmf(jl_tupletype_t *tt, bool getwrapper, bool getdeclarations)
 {
-    jl_lambda_info_t *linfo = NULL;
-    JL_GC_PUSH2(&linfo, &tt);
+    jl_lambda_info_t *linfo = NULL, *temp = NULL;
+    JL_GC_PUSH3(&linfo, &temp, &tt);
     if (tt != NULL) {
         linfo = jl_get_specialization1(tt);
         if (linfo == NULL) {
@@ -1129,11 +1129,12 @@ void *jl_get_llvmf(jl_tupletype_t *tt, bool getwrapper, bool getdeclarations)
     if (!getdeclarations) {
         if (linfo->code == jl_nothing) {
             // re-infer if we've deleted the code
-            // XXX: this only /partially/ corrupts linfo
-            // (by confusing the compiler about the
-            // validity of the code it already generated)
-            linfo = jl_type_infer(linfo, 0);
-            if (linfo->code == jl_nothing || linfo->inInference) {
+            // first copy the linfo to avoid corrupting it and
+            // confusing the compiler about the
+            // validity of the code it already generated
+            temp = jl_get_specialized(linfo->def, linfo->specTypes, linfo->sparam_vals);
+            jl_type_infer(temp, 0);
+            if (temp->code == jl_nothing || temp->inInference) {
                 JL_GC_POP();
                 return NULL;
             }
@@ -1141,21 +1142,21 @@ void *jl_get_llvmf(jl_tupletype_t *tt, bool getwrapper, bool getdeclarations)
         // emit this function into a new module
         Function *f, *specf;
         jl_llvm_functions_t declarations;
-        std::unique_ptr<Module> m = emit_function(linfo, &declarations);
+        std::unique_ptr<Module> m = emit_function(temp ? temp : linfo, &declarations);
         finalize_gc_frame(m.get());
         PM->run(*m.get());
         f = (llvm::Function*)declarations.functionObject;
         specf = (llvm::Function*)declarations.specFunctionObject;
         // swap declarations for definitions and destroy declarations
         if (specf) {
-            Function *temp = cast<Function>(m->getNamedValue(specf->getName()));
+            Function *tempf = cast<Function>(m->getNamedValue(specf->getName()));
             delete specf;
-            specf = temp;
+            specf = tempf;
         }
         if (f) {
-            Function *temp = cast<Function>(m->getNamedValue(f->getName()));
+            Function *tempf = cast<Function>(m->getNamedValue(f->getName()));
             delete f;
-            f = temp;
+            f = tempf;
         }
         Function *specf_decl = (Function*)linfo->functionObjectsDecls.specFunctionObject;
         if (specf_decl) {
@@ -1176,12 +1177,20 @@ void *jl_get_llvmf(jl_tupletype_t *tt, bool getwrapper, bool getdeclarations)
     }
     if (linfo->jlcall_api == 2) {
         // normally we don't generate native code for these functions, so need an exception here
-        if (linfo->functionObjectsDecls.functionObject == NULL)
-            to_function(linfo);
+        // This leaks a bit of memory to cache the native code that we'll never actually need
+        if (linfo->functionObjectsDecls.functionObject == NULL) {
+            temp = jl_get_specialized(linfo->def, linfo->specTypes, linfo->sparam_vals);
+            jl_type_infer(temp, 0);
+            temp->jlcall_api = 0;
+            temp->constval = jl_nothing;
+            if (temp->code == jl_nothing || temp->inInference) {
+                JL_GC_POP();
+                return NULL;
+            }
+            jl_compile_linfo(temp);
+            linfo->functionObjectsDecls = temp->functionObjectsDecls;
+        }
         jl_set_lambda_code_null(linfo);
-    }
-    else {
-        jl_compile_linfo(linfo);
     }
     Function *llvmf;
     if (!getwrapper && linfo->functionObjectsDecls.specFunctionObject != NULL) {
@@ -1882,8 +1891,9 @@ static void jl_add_linfo_root(jl_lambda_info_t *li, jl_value_t *val)
 {
     if (jl_is_leaf_type(val) || jl_is_bool(val) || jl_is_symbol(val))
         return;
-    JL_GC_PUSH1(&val);
     jl_method_t *m = li->def;
+    JL_GC_PUSH1(&val);
+    JL_LOCK(&m->writelock);
     if (m->roots == NULL) {
         m->roots = jl_alloc_vec_any(1);
         jl_gc_wb(m, m->roots);
@@ -1893,12 +1903,14 @@ static void jl_add_linfo_root(jl_lambda_info_t *li, jl_value_t *val)
         size_t rlen = jl_array_dim0(m->roots);
         for(size_t i=0; i < rlen; i++) {
             if (jl_array_ptr_ref(m->roots,i) == val) {
+                JL_UNLOCK(&li->def->writelock);
                 JL_GC_POP();
                 return;
             }
         }
         jl_array_ptr_1d_push(m->roots, val);
     }
+    JL_UNLOCK(&li->def->writelock);
     JL_GC_POP();
 }
 
@@ -1993,7 +2005,7 @@ static Value *emit_bits_compare(const jl_cgval_t &arg1, const jl_cgval_t &arg2, 
     if (at->isAggregateType()) { // Struct or Array
         assert(arg1.ispointer() && arg2.ispointer());
         size_t sz = jl_datatype_size(arg1.typ);
-        if (sz > 512 && !((jl_datatype_t*)arg1.typ)->haspadding) {
+        if (sz > 512 && !((jl_datatype_t*)arg1.typ)->layout->haspadding) {
 #ifdef LLVM37
             Value *answer = builder.CreateCall(prepare_call(memcmp_func),
                             {
@@ -2391,9 +2403,9 @@ static bool emit_builtin_call(jl_cgval_t *ret, jl_value_t *f, jl_value_t **args,
                             Value *own_ptr;
                             if (jl_is_long(ndp)) {
                                 own_ptr = tbaa_decorate(tbaa_const, builder.CreateLoad(
-                                    builder.CreateBitCast(
+                                    emit_bitcast(
                                         builder.CreateConstGEP1_32(
-                                            builder.CreateBitCast(aryv, T_pint8),
+                                            emit_bitcast(aryv, T_pint8),
                                             jl_array_data_owner_offset(nd)),
                                         T_ppjlvalue)));
                             }
@@ -2552,7 +2564,7 @@ static bool emit_builtin_call(jl_cgval_t *ret, jl_value_t *f, jl_value_t **args,
                 Value *types_len = emit_datatype_nfields(tyv);
                 Value *idx = emit_unbox(T_size, emit_expr(args[2], ctx), (jl_value_t*)jl_long_type);
                 emit_bounds_check(ty, (jl_value_t*)jl_datatype_type, idx, types_len, ctx);
-                Value *fieldtyp = tbaa_decorate(tbaa_const, builder.CreateLoad(builder.CreateGEP(builder.CreateBitCast(types_svec, T_ppjlvalue), idx)));
+                Value *fieldtyp = tbaa_decorate(tbaa_const, builder.CreateLoad(builder.CreateGEP(emit_bitcast(types_svec, T_ppjlvalue), idx)));
                 *ret = mark_julia_type(fieldtyp, true, expr_type(expr, ctx), ctx);
                 JL_GC_POP();
                 return true;
@@ -2864,7 +2876,7 @@ static Value *global_binding_pointer(jl_module_t *m, jl_sym_t *s,
             PHINode *p = builder.CreatePHI(T_pjlvalue, 2);
             p->addIncoming(cachedval, currentbb);
             p->addIncoming(bval, not_found);
-            return julia_binding_gv(builder.CreateBitCast(p, T_ppjlvalue));
+            return julia_binding_gv(emit_bitcast(p, T_ppjlvalue));
         }
         if (b->deprecated) cg_bdw(b, ctx);
     }
@@ -2892,7 +2904,7 @@ static jl_cgval_t emit_sparam(size_t i, jl_codectx_t *ctx)
     }
     assert(ctx->spvals_ptr != NULL);
     Value *bp = builder.CreateConstInBoundsGEP1_32(LLVM37_param(T_pjlvalue)
-            builder.CreateBitCast(ctx->spvals_ptr, T_ppjlvalue),
+            emit_bitcast(ctx->spvals_ptr, T_ppjlvalue),
             i + sizeof(jl_svec_t) / sizeof(jl_value_t*));
     return mark_julia_type(tbaa_decorate(tbaa_const, builder.CreateLoad(bp)), true, jl_any_type, ctx);
 }
@@ -3553,10 +3565,14 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
     // infer it first, if necessary
     if (lam && lam->inInference)
         lam = NULL; // TODO: use emit_invoke framework to dispatch these
-    if (lam && (lam->code == jl_nothing || !lam->inferred))
-        jl_type_infer(lam, 0);
-    if (lam && (lam->inInference || !lam->inferred))
-        lam = NULL; // TODO: use emit_invoke framework to dispatch these
+    if (lam) {
+        if (lam->functionObjectsDecls.functionObject == NULL && lam->jlcall_api != 2) {
+            if (lam && (lam->code == jl_nothing || !lam->inferred))
+                jl_type_infer(lam, 0);
+            if (lam && (lam->inInference || !lam->inferred))
+                lam = NULL; // TODO: use emit_invoke framework to dispatch these
+        }
+    }
     if (lam != NULL) {
         jl_compile_linfo(lam);
         name = jl_symbol_name(lam->def->name);
@@ -3635,7 +3651,7 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
         if (jlfunc_sret) {
             // fuse the two sret together, or emit an alloca to hold it
             if (sret)
-                result = builder.CreateBitCast(sretPtr, theFptr->getFunctionType()->getParamType(0));
+                result = emit_bitcast(sretPtr, theFptr->getFunctionType()->getParamType(0));
             else
                 result = builder.CreateAlloca(theFptr->getFunctionType()->getParamType(0)->getContainedType(0));
             args.push_back(result);
@@ -3713,7 +3729,7 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
                                                literal_pointer_val((jl_value_t*)jargty));
                     tbaa_decorate(jl_is_mutable(jargty) ? tbaa_mutab : tbaa_immut,
                                   builder.CreateAlignedStore(val,
-                                                             builder.CreateBitCast(mem, val->getType()->getPointerTo()),
+                                                             emit_bitcast(mem, val->getType()->getPointerTo()),
                                                              16)); // julia's gc gives 16-byte aligned addresses
                     inputarg = mark_julia_type(mem, true, jargty, &ctx);
                 }

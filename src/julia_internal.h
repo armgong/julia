@@ -143,7 +143,7 @@ JL_DLLEXPORT jl_value_t *jl_gc_alloc(jl_ptls_t ptls, size_t sz, void *ty);
     (__builtin_constant_p(sz) ? jl_gc_alloc_(ptls, sz, ty) :    \
      (jl_gc_alloc)(ptls, sz, ty))
 #else
-#  define jl_gc_alloc(ptls, sz) jl_gc_alloc_(ptls, sz, ty)
+#  define jl_gc_alloc(ptls, sz, ty) jl_gc_alloc_(ptls, sz, ty)
 #endif
 
 #define jl_buff_tag ((uintptr_t)0x4eade800)
@@ -160,11 +160,10 @@ jl_lambda_info_t *jl_compile_for_dispatch(jl_lambda_info_t *li);
 JL_DLLEXPORT void jl_set_lambda_code_null(jl_lambda_info_t *li);
 
 // invoke (compiling if necessary) the jlcall function pointer for a method
-jl_lambda_info_t *jl_get_unspecialized(jl_lambda_info_t *method);
 STATIC_INLINE jl_value_t *jl_call_method_internal(jl_lambda_info_t *meth, jl_value_t **args, uint32_t nargs)
 {
     jl_lambda_info_t *mfptr = meth;
-    if (__unlikely(mfptr->fptr == NULL)) {
+    if (__unlikely(mfptr->fptr == NULL && mfptr->jlcall_api != 2)) {
         mfptr = jl_compile_for_dispatch(mfptr);
         if (!mfptr->fptr)
             jl_generate_fptr(mfptr);
@@ -173,8 +172,10 @@ STATIC_INLINE jl_value_t *jl_call_method_internal(jl_lambda_info_t *meth, jl_val
         return mfptr->fptr(args[0], &args[1], nargs-1);
     else if (mfptr->jlcall_api == 1)
         return ((jl_fptr_sparam_t)mfptr->fptr)(meth->sparam_vals, args[0], &args[1], nargs-1);
-    else
+    else if (mfptr->jlcall_api == 2)
         return meth->constval;
+    else
+        abort();
 }
 
 jl_tupletype_t *jl_argtype_with_function(jl_function_t *f, jl_tupletype_t *types);
@@ -263,6 +264,7 @@ jl_value_t *jl_type_intersection_matching(jl_value_t *a, jl_value_t *b,
                                           jl_svec_t **penv, jl_svec_t *tvars);
 jl_value_t *jl_apply_type_(jl_value_t *tc, jl_value_t **params, size_t n);
 jl_value_t *jl_instantiate_type_with(jl_value_t *t, jl_value_t **env, size_t n);
+jl_datatype_t *jl_new_uninitialized_datatype(void);
 jl_datatype_t *jl_new_abstracttype(jl_value_t *name, jl_datatype_t *super,
                                    jl_svec_t *parameters);
 void jl_precompute_memoized_dt(jl_datatype_t *dt);
@@ -301,6 +303,7 @@ jl_value_t *jl_nth_slot_type(jl_tupletype_t *sig, size_t i);
 void jl_compute_field_offsets(jl_datatype_t *st);
 jl_array_t *jl_new_array_for_deserialization(jl_value_t *atype, uint32_t ndims, size_t *dims,
                                              int isunboxed, int elsz);
+void jl_module_run_initializer(jl_module_t *m);
 extern jl_array_t *jl_module_init_order;
 extern union jl_typemap_t jl_cfunction_list;
 
@@ -323,7 +326,6 @@ void jl_init_stack_limits(int ismaster);
 void jl_init_root_task(void *stack, size_t ssize);
 void jl_init_serializer(void);
 void jl_gc_init(void);
-void jl_init_restored_modules(jl_array_t *init_order);
 void jl_init_signal_async(void);
 void jl_init_debuginfo(void);
 void jl_init_runtime_ccall(void);
@@ -398,6 +400,7 @@ static inline void jl_set_gc_and_wait(void)
 
 void jl_dump_native(const char *bc_fname, const char *obj_fname, const char *sysimg_data, size_t sysimg_len);
 int32_t jl_get_llvm_gv(jl_value_t *p);
+int32_t jl_assign_functionID(/*llvm::Function*/void *function);
 // the first argument to jl_idtable_rehash is used to return a value
 // make sure it is rooted if it is used after the function returns
 void jl_idtable_rehash(jl_array_t **pa, size_t newsz);
@@ -406,7 +409,6 @@ JL_DLLEXPORT jl_methtable_t *jl_new_method_table(jl_sym_t *name, jl_module_t *mo
 jl_lambda_info_t *jl_get_specialization1(jl_tupletype_t *types);
 int jl_has_call_ambiguities(jl_tupletype_t *types, jl_method_t *m);
 
-jl_function_t *jl_module_get_initializer(jl_module_t *m);
 uint32_t jl_module_next_counter(jl_module_t *m);
 void jl_fptr_to_llvm(jl_fptr_t fptr, jl_lambda_info_t *lam, int specsig);
 jl_tupletype_t *arg_type_tuple(jl_value_t **args, size_t nargs);

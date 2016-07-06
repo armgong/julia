@@ -843,6 +843,12 @@ let
     n3a = mapslices(x-> ones(1,6), c, [2,3])
     @test size(n1a) == (1,6,4) && size(n2a) == (1,3,6)  && size(n3a) == (2,1,6)
     @test size(n1) == (6,1,4) && size(n2) == (6,3,1)  && size(n3) == (2,6,1)
+
+    # mutating functions
+    o = ones(3, 4)
+    m = mapslices(x->fill!(x, 0), o, 2)
+    @test m == zeros(3, 4)
+    @test o == ones(3, 4)
 end
 
 
@@ -1222,6 +1228,9 @@ a[1,CartesianIndex{2}(3,4)] = -2
 @test a[CartesianIndex{1}(2),3,CartesianIndex{1}(4)] == 44
 a[CartesianIndex{1}(2),3,CartesianIndex{1}(3)] = -3
 @test a[CartesianIndex{1}(2),3,CartesianIndex{1}(3)] == -3
+@test a[:, :, CartesianIndex((1,))] == a[:,:,1]
+@test a[CartesianIndex((1,)), [1,2], :] == a[1,[1,2],:]
+@test a[CartesianIndex((2,)), 3:4, :] == a[2,3:4,:]
 
 a = view(zeros(3, 4, 5), :, :, :)
 a[CartesianIndex{3}(2,3,3)] = -1

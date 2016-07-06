@@ -80,7 +80,7 @@
 
    .. Docstring generated from Julia source
 
-   Convert a string to ``String`` type and check that it contains only ASCII data, otherwise throwing an ``ArugmentError`` indicating the position of the first non-ASCII byte.
+   Convert a string to ``String`` type and check that it contains only ASCII data, otherwise throwing an ``ArgumentError`` indicating the position of the first non-ASCII byte.
 
 .. function:: @r_str -> Regex
 

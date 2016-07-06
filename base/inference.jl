@@ -1145,6 +1145,8 @@ function abstract_eval(e::ANY, vtypes::VarTable, sv::InferenceState)
         t = abstract_eval(e.args[1], vtypes, sv)
     elseif is(e.head,:inert)
         return abstract_eval_constant(e.args[1])
+    elseif is(e.head,:invoke)
+        error("type inference data-flow error: tried to double infer a function")
     else
         t = Any
     end
@@ -1480,7 +1482,7 @@ function typeinf_edge(method::Method, atypes::ANY, sparams::SimpleVector, needtr
     if isa(code, LambdaInfo) && code.code !== nothing
         # reuse the existing code object
         linfo = code
-        @assert typeseq(linfo.specTypes, atypes)
+        @assert typeseq(linfo.specTypes, atypes) && !code.inferred
     elseif method.isstaged
         if !isleaftype(atypes)
             # don't call staged functions on abstract types.
@@ -1560,6 +1562,9 @@ end
 function typeinf_ext(linfo::LambdaInfo)
     if isdefined(linfo, :def)
         # method lambda - infer this specialization via the method cache
+        if linfo.inferred && linfo.code !== nothing
+            return linfo
+        end
         (code, _t, inferred) = typeinf_edge(linfo.def, linfo.specTypes, linfo.sparam_vals, true, true, true, linfo)
         if inferred && code.inferred && linfo !== code
             # This case occurs when the IR for a function has been deleted.
@@ -1574,12 +1579,12 @@ function typeinf_ext(linfo::LambdaInfo)
             linfo.pure = code.pure
             linfo.inlineable = code.inlineable
             ccall(:jl_set_lambda_rettype, Void, (Any, Any), linfo, code.rettype)
-            linfo.inferred = true
-            linfo.inInference = false
             if code.jlcall_api == 2
                 linfo.constval = code.constval
                 linfo.jlcall_api = 2
             end
+            linfo.inferred = true
+            linfo.inInference = false
         end
         return code
     else
@@ -1946,6 +1951,7 @@ function finish(me::InferenceState)
     widen_all_consts!(me.linfo)
 
     ispure = me.linfo.pure
+    ccall(:jl_set_lambda_rettype, Void, (Any, Any), me.linfo, widenconst(me.bestguess))
 
     if (isa(me.bestguess,Const) && me.bestguess.val !== nothing) ||
         (isType(me.bestguess) && !has_typevars(me.bestguess.parameters[1],true))
@@ -1994,7 +2000,6 @@ function finish(me::InferenceState)
         me.linfo.inlineable = false
     end
 
-    ccall(:jl_set_lambda_rettype, Void, (Any, Any), me.linfo, widenconst(me.bestguess))
     me.linfo.inferred = true
     me.linfo.inInference = false
     # finalize and record the linfo result
@@ -2387,7 +2392,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
     end
     if length(atypes)==3 && is(f,unbox)
         at3 = widenconst(atypes[3])
-        if isa(at3,DataType) && !at3.mutable && at3.pointerfree
+        if isa(at3,DataType) && !at3.mutable && at3.layout != C_NULL && datatype_pointerfree(at3)
             # remove redundant unbox
             return (e.args[3],())
         end
