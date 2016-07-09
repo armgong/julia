@@ -28,6 +28,7 @@ export
 # Types
     AbstractChannel,
     AbstractMatrix,
+    AbstractUnitRange,
     AbstractVector,
     AbstractVecOrMat,
     Array,
@@ -267,6 +268,7 @@ export
     A_rdiv_Bc,
     A_rdiv_Bt,
     Ac_ldiv_B,
+    Ac_ldiv_B!,
     Ac_ldiv_Bc,
     Ac_mul_B,
     Ac_mul_B!,
@@ -275,6 +277,7 @@ export
     Ac_rdiv_B,
     Ac_rdiv_Bc,
     At_ldiv_B,
+    At_ldiv_B!,
     At_ldiv_Bt,
     At_mul_B,
     At_mul_B!,
@@ -483,7 +486,6 @@ export
     zeta,
 
 # arrays
-    allocate_for,
     bitbroadcast,
     broadcast!,
     broadcast,
@@ -583,7 +585,6 @@ export
     searchsortedlast,
     select!,
     select,
-    shape,
     shuffle,
     shuffle!,
     size,

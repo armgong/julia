@@ -430,6 +430,7 @@ static Function *jlcall_frame_func;
 
 static std::vector<Type *> two_pvalue_llvmt;
 static std::vector<Type *> three_pvalue_llvmt;
+static std::vector<Type *> four_pvalue_llvmt;
 
 static std::map<jl_fptr_t, Function*> builtin_func_map;
 
@@ -3547,7 +3548,7 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
     Type *fargt_vasig;
     std::vector<bool> inRegList(0);
     std::vector<bool> byRefList(0);
-    attr_type attrs;
+    AttributeSet attrs;
     Type *prt = NULL;
     int sret = 0;
     size_t nargs = jl_nparams(argt);
@@ -5125,6 +5126,10 @@ static void init_julia_llvm_env(Module *m)
     three_pvalue_llvmt.push_back(T_pjlvalue);
     three_pvalue_llvmt.push_back(T_pjlvalue);
     three_pvalue_llvmt.push_back(T_pjlvalue);
+    four_pvalue_llvmt.push_back(T_pjlvalue);
+    four_pvalue_llvmt.push_back(T_pjlvalue);
+    four_pvalue_llvmt.push_back(T_pjlvalue);
+    four_pvalue_llvmt.push_back(T_pjlvalue);
     V_null = Constant::getNullValue(T_pjlvalue);
 
     std::vector<Type*> ftargs(0);
@@ -5363,11 +5368,11 @@ static void init_julia_llvm_env(Module *m)
                          "jl_get_binding_or_error", m);
     add_named_global(jlgetbindingorerror_func, &jl_get_binding_or_error);
 
-    jlpref_func = Function::Create(FunctionType::get(T_pjlvalue, two_pvalue_llvmt, false),
+    jlpref_func = Function::Create(FunctionType::get(T_pjlvalue, three_pvalue_llvmt, false),
                             Function::ExternalLinkage,
                             "jl_pointerref", m);
 
-    jlpset_func = Function::Create(FunctionType::get(T_pjlvalue, three_pvalue_llvmt, false),
+    jlpset_func = Function::Create(FunctionType::get(T_pjlvalue, four_pvalue_llvmt, false),
                             Function::ExternalLinkage,
                             "jl_pointerset", m);
 

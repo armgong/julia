@@ -3678,9 +3678,23 @@ void jl_init_types(void)
 
     jl_typemap_level_type =
         jl_new_datatype(jl_symbol("TypeMapLevel"), jl_any_type, jl_emptysvec,
-                        jl_svec(5, jl_symbol("arg1"), jl_symbol("targ"), jl_symbol("list"), jl_symbol("any"), jl_symbol("key")),
-                        jl_svec(5, jl_any_type,       jl_any_type,       jl_any_type,       jl_any_type,      jl_any_type),
-                        0, 1, 4);
+                        jl_svec(7,
+                            jl_symbol("index_arg1"),
+                            jl_symbol("arg1"),
+                            jl_symbol("index_targ"),
+                            jl_symbol("targ"),
+                            jl_symbol("list"),
+                            jl_symbol("any"),
+                            jl_symbol("key")),
+                        jl_svec(7,
+                            jl_any_type,
+                            jl_any_type,
+                            jl_any_type,
+                            jl_any_type,
+                            jl_any_type,
+                            jl_any_type,
+                            jl_any_type),
+                        0, 1, 6);
 
     jl_typemap_entry_type =
         jl_new_datatype(jl_symbol("TypeMapEntry"), jl_any_type, jl_emptysvec,
@@ -3727,7 +3741,7 @@ void jl_init_types(void)
                         jl_emptysvec, jl_emptysvec, 0, 1, 0);
     jl_array_typename = jl_array_type->name;
     jl_array_type->ninitialized = 0;
-    static const struct _jl_datatype_layout_t _jl_array_layout = { 0, sizeof(void*), 0, 0, 0 };
+    static const jl_datatype_layout_t _jl_array_layout = { 0, sizeof(void*), 0, 0, 0 };
     jl_array_type->layout = &_jl_array_layout;
 
     jl_array_any_type =
@@ -3962,8 +3976,8 @@ void jl_init_types(void)
     jl_compute_field_offsets(jl_sym_type);
 
     // TODO: don't modify layout objects
-    ((struct _jl_datatype_layout_t*)jl_sym_type->layout)->pointerfree = 0;
-    ((struct _jl_datatype_layout_t*)jl_simplevector_type->layout)->pointerfree = 0;
+    ((jl_datatype_layout_t*)jl_sym_type->layout)->pointerfree = 0;
+    ((jl_datatype_layout_t*)jl_simplevector_type->layout)->pointerfree = 0;
 
     empty_sym = jl_symbol("");
     call_sym = jl_symbol("call");

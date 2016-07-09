@@ -512,6 +512,14 @@ end
 # to be removed post 0.5
 #@test_throws MethodError eval(parse("(Any=>Any)[x=>y for (x,y) in zip([1,2,3],[4,5,6])]"))
 
+# make sure base can be any Integer
+for T in (Int, BigInt)
+    let n = parse(T, "123", Int8(10))
+        @test n == 123
+        @test isa(n, T)
+    end
+end
+
 # issue #16720
 let err = try
     include_string("module A
@@ -537,6 +545,11 @@ end
 @test get(tryparse(Bool, "false")) === get(Nullable{Bool}(false))
 @test_throws ArgumentError parse(Int, "2", 1)
 @test_throws ArgumentError parse(Int, "2", 63)
+
+# issue #17333: tryparse should still throw on invalid base
+for T in (Int32, BigInt), base in (0,1,100)
+    @test_throws ArgumentError tryparse(T, "0", base)
+end
 
 # error throwing branch from #10560
 @test_throws ArgumentError Base.tryparse_internal(Bool, "foo", 1, 2, 10, true)

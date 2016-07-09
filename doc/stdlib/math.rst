@@ -478,129 +478,6 @@ Mathematical Operators
 
    Short-circuiting boolean OR.
 
-.. function:: A_ldiv_Bc(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A` \\ :math:`Bᴴ`\ .
-
-.. function:: A_ldiv_Bt(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A` \\ :math:`Bᵀ`\ .
-
-.. function:: A_mul_B!(Y, A, B) -> Y
-
-   .. Docstring generated from Julia source
-
-   Calculates the matrix-matrix or matrix-vector product :math:`A⋅B` and stores the result in ``Y``\ , overwriting the existing value of ``Y``\ . Note that ``Y`` must not be aliased with either ``A`` or ``B``\ .
-
-   .. doctest::
-
-       julia> A=[1.0 2.0; 3.0 4.0]; B=[1.0 1.0; 1.0 1.0]; Y = similar(B); A_mul_B!(Y, A, B);
-
-       julia> Y
-       2×2 Array{Float64,2}:
-        3.0  3.0
-        7.0  7.0
-
-.. function:: A_mul_Bc(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A⋅Bᴴ`\ .
-
-.. function:: A_mul_Bt(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A⋅Bᵀ`\ .
-
-.. function:: A_rdiv_Bc(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A / Bᴴ`\ .
-
-.. function:: A_rdiv_Bt(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A / Bᵀ`\ .
-
-.. function:: Ac_ldiv_B(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ` \\ :math:`B`\ .
-
-.. function:: Ac_ldiv_Bc(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ` \\ :math:`Bᴴ`\ .
-
-.. function:: Ac_mul_B(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ⋅B`\ .
-
-.. function:: Ac_mul_Bc(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ Bᴴ`\ .
-
-.. function:: Ac_rdiv_B(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ / B`\ .
-
-.. function:: Ac_rdiv_Bc(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ / Bᴴ`\ .
-
-.. function:: At_ldiv_B(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ` \\ :math:`B`\ .
-
-.. function:: At_ldiv_Bt(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ` \\ :math:`Bᵀ`\ .
-
-.. function:: At_mul_B(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ⋅B`\ .
-
-.. function:: At_mul_Bt(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ⋅Bᵀ`\ .
-
-.. function:: At_rdiv_B(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ / B`\ .
-
-.. function:: At_rdiv_Bt(A, B)
-
-   .. Docstring generated from Julia source
-
-   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ / Bᵀ`\ .
-
 Mathematical Functions
 ----------------------
 
@@ -966,7 +843,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   ``round(x)`` rounds ``x`` to an integer value according to the default rounding mode (see :func:`rounding`\ ), returning a value of the same type as ``x``\ . By default (:obj:`RoundNearest`\ ), this will round to the nearest integer, with ties (fractional values of 0.5) being rounded to the even integer.
+   Rounds ``x`` to an integer value according to the provided :obj:`RoundingMode`\ , returning a value of the same type as ``x``\ . When not specifying a rounding mode the global mode will be used (see :func:`rounding`\ ), which by default is round to the nearest integer (:obj:`RoundNearest` mode), with ties (fractional values of 0.5) being rounded to the nearest even integer.
 
    .. doctest::
 
@@ -1011,43 +888,57 @@ Mathematical Functions
           1.2
 
 
-.. data:: RoundingMode
+.. type:: RoundingMode
 
-   A type which controls rounding behavior. Currently supported rounding modes are:
+   .. Docstring generated from Julia source
 
-   - :obj:`RoundNearest` (default)
-   - :obj:`RoundNearestTiesAway`
-   - :obj:`RoundNearestTiesUp`
-   - :obj:`RoundToZero`
-   - :obj:`RoundUp`
-   - :obj:`RoundDown`
+   A type used for controlling the rounding mode of floating point operations (via :func:`rounding`\ /:func:`setrounding` functions), or as optional arguments for rounding to the nearest integer (via the :func:`round` function).
 
-.. data:: RoundNearest
+   Currently supported rounding modes are:
 
-   The default rounding mode. Rounds to the nearest integer, with ties
-   (fractional values of 0.5) being rounded to the nearest even integer.
+   * :obj:`RoundNearest` (default)
+   * :obj:`RoundNearestTiesAway`
+   * :obj:`RoundNearestTiesUp`
+   * :obj:`RoundToZero`
+   * :obj:`RoundFromZero` (``BigFloat`` only)
+   * :obj:`RoundUp`
+   * :obj:`RoundDown`
 
-.. data:: RoundNearestTiesAway
+.. variable:: RoundNearest
 
-   Rounds to nearest integer, with ties rounded away from zero (C/C++
-   :func:`round` behaviour).
+   .. Docstring generated from Julia source
 
-.. data:: RoundNearestTiesUp
+   The default rounding mode. Rounds to the nearest integer, with ties (fractional values of 0.5) being rounded to the nearest even integer.
 
-   Rounds to nearest integer, with ties rounded toward positive infinity
-   (Java/JavaScript :func:`round` behaviour).
+.. variable:: RoundNearestTiesAway
 
-.. data:: RoundToZero
+   .. Docstring generated from Julia source
 
-   :func:`round` using this rounding mode is an alias for :func:`trunc`.
+   Rounds to nearest integer, with ties rounded away from zero (C/C++ :func:`round` behaviour).
 
-.. data:: RoundUp
+.. variable:: RoundNearestTiesUp
 
-   :func:`round` using this rounding mode is an alias for :func:`ceil`.
+   .. Docstring generated from Julia source
 
-.. data:: RoundDown
+   Rounds to nearest integer, with ties rounded toward positive infinity (Java/JavaScript :func:`round` behaviour).
 
-   :func:`round` using this rounding mode is an alias for :func:`floor`.
+.. variable:: RoundToZero
+
+   .. Docstring generated from Julia source
+
+   :func:`round` using this rounding mode is an alias for :func:`trunc`\ .
+
+.. variable:: RoundUp
+
+   .. Docstring generated from Julia source
+
+   :func:`round` using this rounding mode is an alias for :func:`ceil`\ .
+
+.. variable:: RoundDown
+
+   .. Docstring generated from Julia source
+
+   :func:`round` using this rounding mode is an alias for :func:`floor`\ .
 
 .. function:: round(z, RoundingModeReal, RoundingModeImaginary)
 

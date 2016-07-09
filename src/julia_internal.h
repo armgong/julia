@@ -44,6 +44,9 @@ JL_DLLEXPORT jl_value_t *jl_gc_pool_alloc(jl_ptls_t ptls, jl_gc_pool_t *p,
                                           int osize, int end_offset);
 JL_DLLEXPORT jl_value_t *jl_gc_big_alloc(jl_ptls_t ptls, size_t allocsz);
 int jl_gc_classify_pools(size_t sz, int *osize, int *end_offset);
+extern jl_mutex_t gc_perm_lock;
+void *jl_gc_perm_alloc_nolock(size_t sz);
+void *jl_gc_perm_alloc(size_t sz);
 
 // pools are 16376 bytes large (GC_POOL_SZ - GC_PAGE_OFFSET)
 static const int jl_gc_sizeclasses[JL_GC_N_POOLS] = {
@@ -174,6 +177,8 @@ STATIC_INLINE jl_value_t *jl_call_method_internal(jl_lambda_info_t *meth, jl_val
         return ((jl_fptr_sparam_t)mfptr->fptr)(meth->sparam_vals, args[0], &args[1], nargs-1);
     else if (mfptr->jlcall_api == 2)
         return meth->constval;
+    else if (mfptr->jlcall_api == 3)
+        return ((jl_fptr_linfo_t)mfptr->fptr)(mfptr, &args[0], nargs, meth->sparam_vals);
     else
         abort();
 }
@@ -515,8 +520,8 @@ extern JL_DLLEXPORT jl_value_t *jl_segv_exception;
 const char *jl_intrinsic_name(int f);
 
 JL_DLLEXPORT jl_value_t *jl_reinterpret(jl_value_t *ty, jl_value_t *v);
-JL_DLLEXPORT jl_value_t *jl_pointerref(jl_value_t *p, jl_value_t *i);
-JL_DLLEXPORT jl_value_t *jl_pointerset(jl_value_t *p, jl_value_t *x, jl_value_t *i);
+JL_DLLEXPORT jl_value_t *jl_pointerref(jl_value_t *p, jl_value_t *i, jl_value_t *align);
+JL_DLLEXPORT jl_value_t *jl_pointerset(jl_value_t *p, jl_value_t *x, jl_value_t *align, jl_value_t *i);
 
 JL_DLLEXPORT jl_value_t *jl_neg_int(jl_value_t *a);
 JL_DLLEXPORT jl_value_t *jl_add_int(jl_value_t *a, jl_value_t *b);

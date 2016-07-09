@@ -168,6 +168,7 @@ STATIC_INLINE int jl_array_ndimwords(uint32_t ndims)
 }
 
 typedef struct _jl_datatype_t jl_tupletype_t;
+struct _jl_lambda_info_t;
 
 // TypeMap is an implicitly defined type
 // that can consist of any of the following nodes:
@@ -187,6 +188,7 @@ union jl_typemap_t {
 // This defines the default ABI used by compiled julia functions.
 typedef jl_value_t *(*jl_fptr_t)(jl_value_t*, jl_value_t**, uint32_t);
 typedef jl_value_t *(*jl_fptr_sparam_t)(jl_svec_t*, jl_value_t*, jl_value_t**, uint32_t);
+typedef jl_value_t *(*jl_fptr_linfo_t)(struct _jl_lambda_info_t*, jl_value_t**, uint32_t, jl_svec_t*);
 
 typedef struct _jl_llvm_functions_t {
     void *functionObject;     // jlcall llvm Function
@@ -326,7 +328,7 @@ typedef struct {
     uint32_t offset;   // offset relative to data start, excluding type tag
 } jl_fielddesc32_t;
 
-struct _jl_datatype_layout_t {
+typedef struct {
     uint32_t nfields;
     uint32_t alignment : 28;  // strictest alignment over all fields
     uint32_t haspadding : 1;  // has internal undefined bytes
@@ -337,7 +339,7 @@ struct _jl_datatype_layout_t {
     //     jl_fielddesc16_t field16[];
     //     jl_fielddesc32_t field32[];
     // };
-};
+} jl_datatype_layout_t;
 
 typedef struct _jl_datatype_t {
     JL_DATA_TYPE
@@ -346,7 +348,7 @@ typedef struct _jl_datatype_t {
     jl_svec_t *parameters;
     jl_svec_t *types;
     jl_value_t *instance;  // for singletons
-    const struct _jl_datatype_layout_t *layout;
+    const jl_datatype_layout_t *layout;
     int32_t size; // TODO: move to _jl_datatype_layout_t
     int32_t ninitialized;
     uint32_t uid;
@@ -418,10 +420,14 @@ typedef struct _jl_typemap_entry_t {
 
 // one level in a TypeMap tree
 // indexed by key if it is a sublevel in an array
+struct jl_ordereddict_t {
+    jl_array_t *indexes; // Array{Int{8,16,32}}
+    jl_array_t *values; // Array{union jl_typemap_t}
+};
 typedef struct _jl_typemap_level_t {
     JL_DATA_TYPE
-    jl_array_t *arg1; // Array{union jl_typemap_t}
-    jl_array_t *targ; // Array{union jl_typemap_t}
+    struct jl_ordereddict_t arg1;
+    struct jl_ordereddict_t targ;
     jl_typemap_entry_t *linear; // union jl_typemap_t (but no more levels)
     union jl_typemap_t any; // type at offs is Any
     jl_value_t *key; // [nullable]
@@ -784,12 +790,12 @@ STATIC_INLINE char *jl_symbol_name_(jl_sym_t *s)
 }
 #define jl_symbol_name(s) jl_symbol_name_(s)
 
-#define jl_dt_layout_fields(d) ((const char*)(d) + sizeof(struct _jl_datatype_layout_t))
+#define jl_dt_layout_fields(d) ((const char*)(d) + sizeof(jl_datatype_layout_t))
 
 #define DEFINE_FIELD_ACCESSORS(f)                                             \
     static inline uint32_t jl_field_##f(jl_datatype_t *st, int i)             \
     {                                                                         \
-        const struct _jl_datatype_layout_t *ly = st->layout;                  \
+        const jl_datatype_layout_t *ly = st->layout;                          \
         assert(i >= 0 && (size_t)i < ly->nfields);                            \
         if (ly->fielddesc_type == 0) {                                        \
             return ((const jl_fielddesc8_t*)jl_dt_layout_fields(ly))[i].f;    \
@@ -806,7 +812,7 @@ DEFINE_FIELD_ACCESSORS(offset)
 DEFINE_FIELD_ACCESSORS(size)
 static inline int jl_field_isptr(jl_datatype_t *st, int i)
 {
-    const struct _jl_datatype_layout_t *ly = st->layout;
+    const jl_datatype_layout_t *ly = st->layout;
     assert(i >= 0 && (size_t)i < ly->nfields);
     return ((const jl_fielddesc8_t*)(jl_dt_layout_fields(ly) + (i << (ly->fielddesc_type + 1))))->isptr;
 }
@@ -1671,9 +1677,18 @@ typedef struct {
     const char *outputo;
     const char *outputji;
     int8_t incremental;
+    int8_t image_file_specified;
 } jl_options_t;
 
 extern JL_DLLEXPORT jl_options_t jl_options;
+
+// Parse an argc/argv pair to extract general julia options, passing back out
+// any arguments that should be passed on to the script.
+JL_DLLEXPORT void jl_parse_opts(int *argcp, char ***argvp);
+
+// Set julia-level ARGS array according to the arguments provided in
+// argc/argv
+JL_DLLEXPORT void jl_set_ARGS(int argc, char **argv);
 
 JL_DLLEXPORT int jl_generating_output(void);
 

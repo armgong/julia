@@ -1031,7 +1031,10 @@ let
     local X, p
     X = FooBar[ FooBar(3,1), FooBar(4,4) ]
     p = pointer(X)
+    @test unsafe_load(p) == FooBar(3,1)
     @test unsafe_load(p, 2) == FooBar(4,4)
+    unsafe_store!(p, FooBar(8,4))
+    @test X[1] == FooBar(8,4)
     unsafe_store!(p, FooBar(7,3), 1)
     @test X[1] == FooBar(7,3)
 end
@@ -3339,8 +3342,6 @@ typealias PossiblyInvalidUnion{T} Union{T,Int}
 @test_throws TypeError PossiblyInvalidUnion{1}
 
 # issue #12569
-@test_throws ArgumentError Symbol("x"^10_000_000)
-@test_throws ArgumentError gensym("x"^10_000_000)
 @test Symbol("x") === Symbol("x")
 @test split(string(gensym("abc")),'#')[3] == "abc"
 

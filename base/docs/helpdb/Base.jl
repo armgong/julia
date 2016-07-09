@@ -955,7 +955,7 @@ julia> Float32(1/3, RoundUp)
 0.33333334f0
 ```
 
-See `rounding` for available rounding modes.
+See [`RoundingMode`](:obj:`RoundingMode`) for available rounding modes.
 """
 Float32
 
@@ -2309,16 +2309,6 @@ For matrices or vectors ``A`` and ``B``, calculates ``A / Bᴴ``.
 A_rdiv_Bc
 
 """
-    round(z, RoundingModeReal, RoundingModeImaginary)
-
-Returns the nearest integral value of the same type as the complex-valued `z` to `z`,
-breaking ties using the specified [`RoundingMode`](:obj:`RoundingMode`)s. The first
-[`RoundingMode`](:obj:`RoundingMode`) is used for rounding the real components while the
-second is used for rounding the imaginary components.
-"""
-round(z::Real, ::Type{RoundingMode}, ::Type{RoundingMode})
-
-"""
     strwidth(s)
 
 Gives the number of columns needed to print a string.
@@ -2977,7 +2967,7 @@ julia> Float64(pi, RoundUp)
 3.1415926535897936
 ```
 
-See `rounding` for available rounding modes.
+See [`RoundingMode`](:obj:`RoundingMode`) for available rounding modes.
 """
 Float64
 
@@ -5246,18 +5236,6 @@ Determine whether a stream is read-only.
 isreadonly
 
 """
-    rounding(T)
-
-Get the current floating point rounding mode for type `T`, controlling the rounding of basic
-arithmetic functions ([`+`](:func:`+`), [`-`](:func:`-`), [`*`](:func:`*`), [`/`](:func:`/`)
-and [`sqrt`](:func:`sqrt`)) and type conversion.
-
-Valid modes are `RoundNearest`, `RoundToZero`, `RoundUp`, `RoundDown`, and `RoundFromZero`
-(`BigFloat` only).
-"""
-rounding
-
-"""
     code_llvm(f, types)
 
 Prints the LLVM bitcodes generated for running the method matching the given generic
@@ -5435,33 +5413,6 @@ the results need to be used judiciously. See [Manual](:ref:`man-code-warntype`) 
 information.
 """
 code_warntype
-
-"""
-    setrounding(T, mode)
-
-Set the rounding mode of floating point type `T`, controlling the rounding of basic
-arithmetic functions ([`+`](:func:`+`), [`-`](:func:`-`), [`*`](:func:`*`), [`/`](:func:`/`)
-and [`sqrt`](:func:`sqrt`)) and type conversion.
-
-Note that this may affect other types, for instance changing the rounding mode of `Float64`
-will change the rounding mode of `Float32`. See `rounding` for available modes
-"""
-setrounding(T, mode)
-
-"""
-    setrounding(f::Function, T, mode)
-
-Change the rounding mode of floating point type `T` for the duration of `f`. It is logically
-equivalent to:
-
-    old = rounding(T)
-    setrounding(T, mode)
-    f()
-    setrounding(T, old)
-
-See `rounding` for available rounding modes.
-"""
-setrounding(f::Function, T, mode)
 
 """
     Mmap.sync!(array)
@@ -6511,7 +6462,7 @@ Convolution of two vectors. Uses FFT algorithm.
 conv
 
 """
-    unsafe_store!(p::Ptr{T},x,i::Integer)
+    unsafe_store!(p::Ptr{T}, x, [i::Integer=1])
 
 Store a value of type `T` to the address of the ith element (1-indexed) starting at `p`.
 This is equivalent to the C expression `p[i-1] = x`.
@@ -8087,7 +8038,7 @@ throw this exception.
 ProcessExitedException
 
 """
-    unsafe_load(p::Ptr{T},i::Integer)
+    unsafe_load(p::Ptr{T}, [i::Integer=1])
 
 Load a value of type `T` from the address of the ith element (1-indexed) starting at `p`.
 This is equivalent to the C expression `p[i-1]`.
