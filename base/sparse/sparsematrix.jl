@@ -284,8 +284,22 @@ function convert{Tv,Ti}(::Type{SparseMatrixCSC{Tv,Ti}}, M::AbstractMatrix)
                              m, n)
 end
 convert{T}(::Type{AbstractMatrix{T}}, A::SparseMatrixCSC) = convert(SparseMatrixCSC{T}, A)
-convert(::Type{Matrix}, S::SparseMatrixCSC) = full(S)
 convert(::Type{SparseMatrixCSC}, M::Matrix) = sparse(M)
+
+function convert{Tv}(::Type{Matrix}, S::SparseMatrixCSC{Tv})
+    # Handle cases where zero(Tv) is not defined but the array is dense.
+    A = length(S) == nnz(S) ? Array{Tv}(S.m, S.n) : zeros(Tv, S.m, S.n)
+    for Sj in 1:S.n
+        for Sk in nzrange(S, Sj)
+            Si = S.rowval[Sk]
+            Sv = S.nzval[Sk]
+            A[Si, Sj] = Sv
+        end
+    end
+    return A
+end
+convert(::Type{Array}, S::SparseMatrixCSC) = convert(Matrix, S)
+full(S::SparseMatrixCSC) = convert(Array, S)
 
 """
     full(S)
@@ -293,16 +307,6 @@ convert(::Type{SparseMatrixCSC}, M::Matrix) = sparse(M)
 Convert a sparse matrix or vector `S` into a dense matrix or vector.
 """
 full
-
-function full{Tv}(S::SparseMatrixCSC{Tv})
-    # Handle cases where zero(Tv) is not defined but the array is dense.
-    # (Should we really worry about this?)
-    A = length(S) == nnz(S) ? Array{Tv}(S.m, S.n) : zeros(Tv, S.m, S.n)
-    for col = 1 : S.n, k = S.colptr[col] : (S.colptr[col+1]-1)
-        A[S.rowval[k], col] = S.nzval[k]
-    end
-    return A
-end
 
 float(S::SparseMatrixCSC) = SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), float(copy(S.nzval)))
 
@@ -2482,11 +2486,11 @@ getindex{T<:Integer}(A::SparseMatrixCSC, I::AbstractVector{T}, J::AbstractVector
 getindex{T<:Integer}(A::SparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{T}) = A[find(I),J]
 
 ## setindex!
-function setindex!{T,Ti}(A::SparseMatrixCSC{T,Ti}, v, i0::Integer, i1::Integer)
-    i0 = convert(Ti, i0)
-    i1 = convert(Ti, i1)
+function setindex!{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, v, i::Integer, j::Integer)
+    setindex!(A, convert(Tv, v), convert(Ti, i), convert(Ti, j))
+end
+function setindex!{Tv,Ti<:Integer}(A::SparseMatrixCSC{Tv,Ti}, v::Tv, i0::Ti, i1::Ti)
     if !(1 <= i0 <= A.m && 1 <= i1 <= A.n); throw(BoundsError()); end
-    v = convert(T, v)
     r1 = Int(A.colptr[i1])
     r2 = Int(A.colptr[i1+1]-1)
     if v == 0 #either do nothing or delete entry if it exists
