@@ -489,7 +489,7 @@ Base.done{N}(::GenericIterator{N}, i) = i > N ? true : false
 Base.iteratorsize{N}(::Type{GenericIterator{N}}) = Base.SizeUnknown()
 
 function test_map(::Type{TestAbstractArray})
-    empty_pool = WorkerPool()
+    empty_pool = WorkerPool([myid()])
     pmap_fallback = (f, c...) -> pmap(empty_pool, f, c...)
 
     for mapf in [map, asyncmap, pmap_fallback]
@@ -549,6 +549,10 @@ end
 
 # issue #15689, mapping an abstract type
 @test isa(map(Set, Array[[1,2],[3,4]]), Vector{Set{Int}})
+
+# mapping over scalars and empty arguments:
+@test map(sin, 1) === sin(1)
+@test map(()->1234) === 1234
 
 function test_UInt_indexing(::Type{TestAbstractArray})
     A = [1:100...]

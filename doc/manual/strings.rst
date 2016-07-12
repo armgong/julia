@@ -54,9 +54,8 @@ There are a few noteworthy high-level features about Julia's strings:
    strings.
 -  Julia supports the full range of
    `Unicode <https://en.wikipedia.org/wiki/Unicode>`_ characters: literal
-   strings are always `ASCII <https://en.wikipedia.org/wiki/ASCII>`_ or
-   `UTF-8 <https://en.wikipedia.org/wiki/UTF-8>`_ but other encodings for
-   strings from external sources can be supported.
+   strings are always `UTF-8 <https://en.wikipedia.org/wiki/UTF-8>`_ but
+   other encodings for strings from external sources can be supported.
 
 .. _man-characters:
 
@@ -272,8 +271,8 @@ string literals:
 
 Whether these Unicode characters are displayed as escapes or shown as
 special characters depends on your terminal's locale settings and its
-support for Unicode. Non-ASCII string literals are encoded using the
-UTF-8 encoding. UTF-8 is a variable-width encoding, meaning that not all
+support for Unicode. String literals are encoded using the UTF-8
+encoding. UTF-8 is a variable-width encoding, meaning that not all
 characters are encoded in the same number of bytes. In UTF-8, ASCII
 characters — i.e. those with code points less than 0x80 (128) — are
 encoded as they are in ASCII, using a single byte, while code points
@@ -289,13 +288,17 @@ such an invalid byte index, an error is thrown:
 
     julia> s[2]
     ERROR: UnicodeError: invalid character index
-     in next at ./unicode/utf8.jl:65
-     in getindex at strings/basic.jl:37
+     in slow_utf8_next(::Array{UInt8,1}, ::UInt8, ::Int64) at ./strings/string.jl:69
+     in next at ./strings/string.jl:94 [inlined]
+     in getindex(::String, ::Int64) at ./strings/basic.jl:70
+     ...
 
     julia> s[3]
     ERROR: UnicodeError: invalid character index
-     in next at ./unicode/utf8.jl:65
-     in getindex at strings/basic.jl:37
+     in slow_utf8_next(::Array{UInt8,1}, ::UInt8, ::Int64) at ./strings/string.jl:69
+     in next at ./strings/string.jl:94 [inlined]
+     in getindex(::String, ::Int64) at ./strings/basic.jl:70
+     ...
 
     julia> s[4]
     ' '
@@ -317,11 +320,11 @@ inefficient and verbose way to iterate through the characters of ``s``:
 .. doctest::
 
     julia> for i = 1:endof(s)
-             try
-               println(s[i])
-             catch
-               # ignore the index error
-             end
+               try
+                   println(s[i])
+               catch
+                   # ignore the index error
+               end
            end
     ∀
     <BLANKLINE>
@@ -339,7 +342,7 @@ exception handling required:
 .. doctest::
 
     julia> for c in s
-             println(c)
+               println(c)
            end
     ∀
     <BLANKLINE>
@@ -349,14 +352,13 @@ exception handling required:
     <BLANKLINE>
     y
 
-UTF-8 is not the only encoding that Julia supports, and adding support
-for new encodings is quite easy.  In particular, Julia also provides
-:obj:`UTF16String` and :obj:`UTF32String` types, constructed by
-:func:`utf16` and :func:`utf32` respectively, for UTF-16 and
-UTF-32 encodings. Additional discussion of other encodings and how to
-implement support for them is beyond the scope of this document for
-the time being. For further discussion of UTF-8 encoding issues, see
-the section below on `byte array literals <#Byte+Array+Literals>`_,
+Julia uses UTF-8 encoding by default, and support for new encodings can
+be added by packages. For example, the `LegacyStrings.jl
+<https://github.com/JuliaArchive/LegacyStrings.jl>`_ package implements
+``UTF16String`` and ``UTF32String`` types. Additional discussion of other
+encodings and how to implement support for them is beyond the scope of this
+document for the time being. For further discussion of UTF-8 encoding issues,
+see the section below on `byte array literals <#Byte+Array+Literals>`_,
 which goes into some greater detail.
 
 .. _man-string-interpolation:
@@ -547,10 +549,11 @@ contained in a string:
     false
 
     julia> contains("Xylophon", 'o')
-    ERROR: MethodError: `contains` has no method matching contains(::String, ::Char)
+    ERROR: MethodError: no method matching contains(::String, ::Char)
     Closest candidates are:
       contains(!Matched::Function, ::Any, !Matched::Any)
       contains(::AbstractString, !Matched::AbstractString)
+     ...
 
 The last error is because ``'o'`` is a character literal, and :func:`contains`
 is a generic function that looks for subsequences. To look for an element in a
@@ -872,6 +875,7 @@ error:
 
     julia> "DATA\xff\u2200"
     ERROR: syntax: invalid UTF-8 sequence
+     ...
 
 Also observe the significant distinction between ``\xff`` and ``\uff``:
 the former escape sequence encodes the *byte 255*, whereas the latter
@@ -906,10 +910,9 @@ encodings.
 
 If this is all extremely confusing, try reading `"The Absolute Minimum
 Every Software Developer Absolutely, Positively Must Know About Unicode
-and Character
-Sets" <http://www.joelonsoftware.com/articles/Unicode.html>`_. It's an
-excellent introduction to Unicode and UTF-8, and may help alleviate some
-confusion regarding the matter.
+and Character Sets" <http://www.joelonsoftware.com/articles/Unicode.html>`_.
+It's an excellent introduction to Unicode and UTF-8, and may help alleviate
+some confusion regarding the matter.
 
 .. _man-version-number-literals:
 

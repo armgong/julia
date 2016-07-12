@@ -299,7 +299,7 @@ Create an uninitialized mutable array analogous to that specified by
 `storagetype`, but with `indices` specified by the last
 argument. `storagetype` might be a type or a function.
 
-    **Examples**:
+**Examples**:
 
     similar(Array{Int}, indices(A))
 
@@ -813,8 +813,8 @@ typed_hcat{T}(::Type{T}) = Array{T}(0)
 ## cat: special cases
 vcat{T}(X::T...)         = T[ X[i] for i=1:length(X) ]
 vcat{T<:Number}(X::T...) = T[ X[i] for i=1:length(X) ]
-hcat{T}(X::T...)         = T[ X[j] for i=1, j=1:length(X) ]
-hcat{T<:Number}(X::T...) = T[ X[j] for i=1, j=1:length(X) ]
+hcat{T}(X::T...)         = T[ X[j] for i=1:1, j=1:length(X) ]
+hcat{T<:Number}(X::T...) = T[ X[j] for i=1:1, j=1:length(X) ]
 
 vcat(X::Number...) = hvcat_fill(Array{promote_typeof(X...)}(length(X)), X)
 hcat(X::Number...) = hvcat_fill(Array{promote_typeof(X...)}(1,length(X)), X)
@@ -1391,6 +1391,7 @@ end
 
 map!{F}(f::F, dest::AbstractArray, As::AbstractArray...) = map_n!(f, dest, As)
 
+map(f) = f()
 map(f, iters...) = collect(Generator(f, iters...))
 
 # multi-item push!, unshift! (built on top of type-specific 1-item version)

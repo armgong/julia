@@ -488,16 +488,6 @@ end
     end
 )
 
-if sizeof(Cwchar_t) == 2
-    @deprecate_binding WString UTF16String
-    @deprecate_binding wstring utf16
-    utf16(s::Cwstring) = utf16(convert(Ptr{Cwchar_t}, s))
-elseif sizeof(Cwchar_t) == 4
-    @deprecate_binding WString UTF32String
-    @deprecate_binding wstring utf32
-    utf32(s::Cwstring) = utf32(convert(Ptr{Cwchar_t}, s))
-end
-
 @deprecate ==(x::Char, y::Integer) UInt32(x) == y
 @deprecate ==(x::Integer, y::Char) x == UInt32(y)
 @deprecate isless(x::Char, y::Integer) UInt32(x) < y
@@ -792,6 +782,15 @@ end
 function symperm{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, pinv::Vector{Ti})
     error(string("symperm(A, pinv) now lives in package SuiteSparse.jl. Run,",
         "Pkg.add(\"SuiteSparse\") to install SuiteSparse on Julia v0.5."))
+end
+
+# Deprecate no-op transpose fallback. Please see #13171 and #17075.
+function transpose(x)
+    depwarn(string("the no-op `transpose` fallback is deprecated, and no more specific ",
+        "`transpose` method for $(typeof(x)) exists. Consider `permutedims(x, [2, 1])` ",
+        "or writing a specific `transpose(x::$(typeof(x)))` method if appropriate."),
+        :transpose)
+    return x
 end
 
 # During the 0.5 development cycle, do not add any deprecations below this line

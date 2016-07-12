@@ -584,10 +584,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
        julia> eig([1.0 0.0 0.0; 0.0 3.0 0.0; 0.0 0.0 18.0])
        ([1.0,3.0,18.0],
-       3×3 Array{Float64,2}:
-        1.0  0.0  0.0
-        0.0  1.0  0.0
-        0.0  0.0  1.0)
+       [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0])
 
    ``eig`` is a wrapper around :func:`eigfact`\ , extracting all parts of the factorization to a tuple; where possible, using :func:`eigfact` is recommended.
 
@@ -806,7 +803,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    * ``F[:U]`` is a M-by-M orthogonal matrix,
    * ``F[:V]`` is a P-by-P orthogonal matrix,
    * ``F[:Q]`` is a N-by-N orthogonal matrix,
-   * ``F[:R0]`` is a (K+L)-by-N matrix whose rightmost (K+L)-by-(K+L) block is            nonsingular upper block triangular,
+   * ``F[:R0]`` is a (K+L)-by-N matrix whose rightmost (K+L)-by-(K+L) block is          nonsingular upper block triangular,
    * ``F[:D1]`` is a M-by-(K+L) diagonal matrix with 1s in the first K entries,
    * ``F[:D2]`` is a P-by-(K+L) matrix whose top right L-by-L block is diagonal,
 
@@ -1016,7 +1013,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Output:
 
-   * ``v`` - A unit vector being the input vector, rescaled to have norm 1.         The input vector is modified in-place.
+   * ``v`` - A unit vector being the input vector, rescaled to have norm 1.       The input vector is modified in-place.
 
    See also:
 
@@ -1307,7 +1304,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    The following keyword arguments are supported:
 
    * ``nev``\ : Number of eigenvalues
-   * ``ncv``\ : Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n``   for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the   size of the input matrix ``A``\ . The default is ``ncv = max(20,2*nev+1)``\ . Note that these   restrictions limit the input matrix ``A`` to be of dimension at least 2.
+   * ``ncv``\ : Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrix ``A``\ . The default is ``ncv = max(20,2*nev+1)``\ . Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
    * ``which``\ : type of eigenvalues to compute. See the note below.
 
    +-----------+-----------------------------------------------------------------------------------------------------------------------------+
@@ -1328,17 +1325,16 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    | ``:BE``   | compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only) |
    +-----------+-----------------------------------------------------------------------------------------------------------------------------+
 
-   * ``tol``\ : parameter defining the relative tolerance for convergence of Ritz values (eigenvalue estimates).      A Ritz value :math:`θ` is considered converged when its associated residual      is less than or equal to the product of ``tol`` and :math:`max(ɛ^{2/3}, |θ|)`\ ,      where ``ɛ = eps(real(eltype(A)))/2`` is LAPACK's machine epsilon.      The residual associated with :math:`θ` and its corresponding Ritz vector :math:`v`      is defined as the norm :math:`||Av - vθ||`\ .      The specified value of ``tol`` should be positive; otherwise, it is ignored      and :math:`ɛ` is used instead.      Default: :math:`ɛ`\ .
-
+   * ``tol``\ : parameter defining the relative tolerance for convergence of Ritz values (eigenvalue estimates).    A Ritz value :math:`θ` is considered converged when its associated residual    is less than or equal to the product of ``tol`` and :math:`max(ɛ^{2/3}, |θ|)`\ ,    where ``ɛ = eps(real(eltype(A)))/2`` is LAPACK's machine epsilon.    The residual associated with :math:`θ` and its corresponding Ritz vector :math:`v`    is defined as the norm :math:`||Av - vθ||`\ .    The specified value of ``tol`` should be positive; otherwise, it is ignored    and :math:`ɛ` is used instead.    Default: :math:`ɛ`\ .
    * ``maxiter``\ : Maximum number of iterations (default = 300)
-   * ``sigma``\ : Specifies the level shift used in inverse iteration. If ``nothing`` (default),   defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma``   using shift and invert iterations.
+   * ``sigma``\ : Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
    * ``ritzvec``\ : Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
    * ``v0``\ : starting vector from which to start the iterations
 
    ``eigs`` returns the ``nev`` requested eigenvalues in ``d``\ , the corresponding Ritz vectors ``v`` (only if ``ritzvec=true``\ ), the number of converged eigenvalues ``nconv``\ , the number of iterations ``niter`` and the number of matrix vector multiplications ``nmult``\ , as well as the final residual vector ``resid``\ .
 
    .. note::
-      The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do _not_ necessarily refer to the eigenvalues of ``A``\ , but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``\ .
+      The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do *not* necessarily refer to the eigenvalues of ``A``\ , but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``\ .
 
       +-----------------+------------------------------------+------------------------------------+
       | ``sigma``       | iteration mode                     | ``which`` refers to eigenvalues of |
@@ -1354,8 +1350,8 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
       For details of how the errors in the computed eigenvalues are estimated, see:
 
-      * B. N. Parlett, "The Symmetric Eigenvalue Problem", SIAM: Philadelphia, 2/e   (1998), Ch. 13.2, "Accessing Accuracy in Lanczos Problems", pp. 290-292 ff.
-      * R. B. Lehoucq and D. C. Sorensen, "Deflation Techniques for an Implicitly   Restarted Arnoldi Iteration", SIAM Journal on Matrix Analysis and   Applications (1996), 17(4), 789–821.  doi:10.1137/S0895479895281484
+      * B. N. Parlett, "The Symmetric Eigenvalue Problem", SIAM: Philadelphia, 2/e (1998), Ch. 13.2, "Accessing Accuracy in Lanczos Problems", pp. 290-292 ff.
+      * R. B. Lehoucq and D. C. Sorensen, "Deflation Techniques for an Implicitly Restarted Arnoldi Iteration", SIAM Journal on Matrix Analysis and Applications (1996), 17(4), 789–821.  doi:10.1137/S0895479895281484
 
 
 .. function:: eigs(A, B; nev=6, ncv=max(20,2*nev+1), which="LM", tol=0.0, maxiter=300, sigma=nothing, ritzvec=true, v0=zeros((0,))) -> (d,[v,],nconv,niter,nmult,resid)
@@ -1367,7 +1363,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    The following keyword arguments are supported:
 
    * ``nev``\ : Number of eigenvalues
-   * ``ncv``\ : Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n``   for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the   size of the input matrices ``A`` and ``B``\ . The default is ``ncv = max(20,2*nev+1)``\ . Note that   these restrictions limit the input matrix ``A`` to be of dimension at least 2.
+   * ``ncv``\ : Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrices ``A`` and ``B``\ . The default is ``ncv = max(20,2*nev+1)``\ . Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
    * ``which``\ : type of eigenvalues to compute. See the note below.
 
    +-----------+-----------------------------------------------------------------------------------------------------------------------------+
@@ -1388,9 +1384,9 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    | ``:BE``   | compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only) |
    +-----------+-----------------------------------------------------------------------------------------------------------------------------+
 
-   * ``tol``\ : relative tolerance used in the convergence criterion for eigenvalues, similar to      ``tol`` in the :func:`eigs` method for the ordinary eigenvalue      problem, but effectively for the eigenvalues of :math:`B^{-1} A` instead of :math:`A`\ .      See the documentation for the ordinary eigenvalue problem in      :func:`eigs` and the accompanying note about ``tol``\ .
+   * ``tol``\ : relative tolerance used in the convergence criterion for eigenvalues, similar to    ``tol`` in the :func:`eigs` method for the ordinary eigenvalue    problem, but effectively for the eigenvalues of :math:`B^{-1} A` instead of :math:`A`\ .    See the documentation for the ordinary eigenvalue problem in    :func:`eigs` and the accompanying note about ``tol``\ .
    * ``maxiter``\ : Maximum number of iterations (default = 300)
-   * ``sigma``\ : Specifies the level shift used in inverse iteration. If ``nothing`` (default),   defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma``   using shift and invert iterations.
+   * ``sigma``\ : Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
    * ``ritzvec``\ : Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
    * ``v0``\ : starting vector from which to start the iterations
 
@@ -1403,17 +1399,17 @@ Linear algebra functions in Julia are largely implemented by calling functions f
        X = sprand(10, 5, 0.2)
        eigs(X, nsv = 2, tol = 1e-3)
 
-   **Note**
+   .. note::
+      The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do *not* necessarily refer to the eigenvalue problem :math:`Av = Bv\lambda`\ , but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``\ .
 
-   The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do _not_ necessarily refer to the eigenvalue problem :math:`Av = Bv\lambda`\ , but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``\ .
+      +-----------------+------------------------------------+--------------------------------------+
+      | ``sigma``       | iteration mode                     | ``which`` refers to the problem      |
+      +=================+====================================+======================================+
+      | ``nothing``     | ordinary (forward)                 | :math:`Av = Bv\lambda`               |
+      +-----------------+------------------------------------+--------------------------------------+
+      | real or complex | inverse with level shift ``sigma`` | :math:`(A - \sigma B )^{-1}B = v\nu` |
+      +-----------------+------------------------------------+--------------------------------------+
 
-   +-----------------+------------------------------------+--------------------------------------+
-   | ``sigma``       | iteration mode                     | ``which`` refers to the problem      |
-   +=================+====================================+======================================+
-   | ``nothing``     | ordinary (forward)                 | :math:`Av = Bv\lambda`               |
-   +-----------------+------------------------------------+--------------------------------------+
-   | real or complex | inverse with level shift ``sigma`` | :math:`(A - \sigma B )^{-1}B = v\nu` |
-   +-----------------+------------------------------------+--------------------------------------+
 
 .. function:: svds(A; nsv=6, ritzvec=true, tol=0.0, maxiter=1000, ncv=2*nsv, u0=zeros((0,)), v0=zeros((0,))) -> (SVD([left_sv,] s, [right_sv,]), nconv, niter, nmult, resid)
 
@@ -1423,9 +1419,9 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    **Inputs**
 
-   * ``A``\ : Linear operator whose singular values are desired. ``A`` may be represented   as a subtype of ``AbstractArray``\ , e.g., a sparse matrix, or any other type   supporting the four methods ``size(A)``\ , ``eltype(A)``\ , ``A * vector``\ , and   ``A' * vector``\ .
+   * ``A``\ : Linear operator whose singular values are desired. ``A`` may be represented as a subtype of ``AbstractArray``\ , e.g., a sparse matrix, or any other type supporting the four methods ``size(A)``\ , ``eltype(A)``\ , ``A * vector``\ , and ``A' * vector``\ .
    * ``nsv``\ : Number of singular values. Default: 6.
-   * ``ritzvec``\ : If ``true``\ , return the left and right singular vectors ``left_sv`` and ``right_sv``\ .    If ``false``\ , omit the singular vectors. Default: ``true``\ .
+   * ``ritzvec``\ : If ``true``\ , return the left and right singular vectors ``left_sv`` and ``right_sv``\ .  If ``false``\ , omit the singular vectors. Default: ``true``\ .
    * ``tol``\ : tolerance, see :func:`eigs`\ .
    * ``maxiter``\ : Maximum number of iterations, see :func:`eigs`\ . Default: 1000.
    * ``ncv``\ : Maximum size of the Krylov subspace, see :func:`eigs` (there called ``nev``\ ). Default: ``2*nsv``\ .
@@ -1479,7 +1475,7 @@ according to the usual Julia convention.
 
    Compute ``A  B`` in-place and store the result in ``Y``\ , returning the result. If only two arguments are passed, then ``A_ldiv_B!(A, B)`` overwrites ``B`` with the result.
 
-   The argument ``A`` should *not* be a matrix.  Rather, instead of matrices it should be a factorization object (e.g. produced by :func:`factorize` or :func:`cholfact`\ ). The reason for this is that factorization itself is both expensive and typically allocates memory (although it can also be done in-place via, e.g., :func:`lufact`\ ), and performance-critical situations requiring ``A_ldiv_B!`` usually also require fine-grained control over the factorization of ``A``\ .
+   The argument ``A`` should *not* be a matrix.  Rather, instead of matrices it should be a factorization object (e.g. produced by :func:`factorize` or :func:`cholfact`\ ). The reason for this is that factorization itself is both expensive and typically allocates memory (although it can also be done in-place via, e.g., :func:`lufact!`\ ), and performance-critical situations requiring ``A_ldiv_B!`` usually also require fine-grained control over the factorization of ``A``\ .
 
 .. function:: A_ldiv_Bc(A, B)
 
@@ -2525,3 +2521,4 @@ set of functions in future releases.
    Solves the Sylvester matrix equation ``A * X +/- X * B = scale*C`` where ``A`` and ``B`` are both quasi-upper triangular. If ``transa = N``\ , ``A`` is not modified. If ``transa = T``\ , ``A`` is transposed. If ``transa = C``\ , ``A`` is conjugate transposed. Similarly for ``transb`` and ``B``\ . If ``isgn = 1``\ , the equation ``A * X + X * B = scale * C`` is solved. If ``isgn = -1``\ , the equation ``A * X - X * B = scale * C`` is solved.
 
    Returns ``X`` (overwriting ``C``\ ) and ``scale``\ .
+
