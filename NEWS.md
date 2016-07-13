@@ -10,7 +10,8 @@ New language features
   * Generators and comprehensions support filtering using `if` ([#550]) and nested
     iteration using multiple `for` keywords ([#4867]).
 
-  * Broadcasting syntax: ``f.(args...)`` is equivalent to ``broadcast(f, args...)`` ([#15032]).
+  * Broadcasting syntax: ``f.(args...)`` is equivalent to ``broadcast(f, args...)`` ([#15032]),
+    and nested `f.(g.(args...))` calls are fused into a single `broadcast` loop ([#17300]).
 
   * Macro expander functions are now generic, so macros can have multiple definitions
     (e.g. for different numbers of arguments, or optional arguments) ([#8846], [#9627]).
@@ -130,6 +131,9 @@ Library improvements
       `String(s)`, `unsafe_string(ptr)` (formerly `bytestring(ptr)`), and
       `unsafe_wrap(String, ptr)` (formerly `pointer_to_string`) ([#16731]).
 
+    * A `transcode(T, src)` function is now exported for converting data
+      between UTF-xx Unicode encodings ([#17323]).
+
   * Most of the combinatorics functions have been moved from `Base`
     to the [Combinatorics.jl package](https://github.com/JuliaLang/Combinatorics.jl) ([#13897]).
 
@@ -141,6 +145,9 @@ Library improvements
 
     * Package-development functions like `Pkg.tag` and `Pkg.publish`
       have been moved to an external [PkgDev] package ([#13387]).
+
+    * Updating only a subset of the packages is now supported,
+      e.g. `Pkg.update("Example")` ([#17132])
 
   * The `Base.Test` module now has a `@testset` feature to bundle
     tests together and delay throwing an error until the end ([#13062]).
@@ -316,4 +323,6 @@ Deprecated or removed
 [#17037]: https://github.com/JuliaLang/julia/issues/17037
 [#17075]: https://github.com/JuliaLang/julia/issues/17075
 [#17266]: https://github.com/JuliaLang/julia/issues/17266
+[#17300]: https://github.com/JuliaLang/julia/issues/17300
+[#17323]: https://github.com/JuliaLang/julia/issues/17323
 [#17374]: https://github.com/JuliaLang/julia/issues/17374
