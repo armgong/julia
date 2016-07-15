@@ -126,7 +126,7 @@ Getting Around
 
    Loads a source files, in the context of the ``Main`` module, on every active node, searching standard locations for files. ``require`` is considered a top-level operation, so it sets the current ``include`` path but does not use it to search for files (see help for ``include``\ ). This function is typically used to load library code, and is implicitly called by ``using`` to load packages.
 
-   When searching for files, ``require`` first looks for package code under ``Pkg.dir()``\ , then tries paths in the global array ``LOAD_PATH``\ . ``require`` is case-sensitive  on all platforms including those with case-insensitive filesystems like macOS and Windows.
+   When searching for files, ``require`` first looks for package code under ``Pkg.dir()``\ , then tries paths in the global array ``LOAD_PATH``\ . ``require`` is case-sensitive on all platforms, including those with case-insensitive filesystems like macOS and Windows.
 
 .. function:: Base.compilecache(module::String)
 
@@ -228,8 +228,9 @@ Getting Around
 
 .. data:: ans
 
-   A variable referring to the last computed value, automatically set at the
-   interactive prompt.
+   .. Docstring generated from Julia source
+
+   A variable referring to the last computed value, automatically set at the interactive prompt.
 
 All Objects
 -----------
@@ -758,8 +759,13 @@ System
 
 .. data:: DevNull
 
-   Used in a stream redirect to discard all data written to it. Essentially equivalent to /dev/null on Unix or NUL on Windows.
-   Usage: ``run(pipeline(`cat test.txt`, DevNull))``
+   .. Docstring generated from Julia source
+
+   Used in a stream redirect to discard all data written to it. Essentially equivalent to /dev/null on Unix or NUL on Windows. Usage:
+
+   .. code-block:: julia
+
+       run(pipeline(`cat test.txt`, DevNull))
 
 .. function:: success(command)
 
@@ -960,7 +966,7 @@ System
 
    A singleton of this type provides a hash table interface to environment variables.
 
-.. variable:: ENV
+.. data:: ENV
 
    .. Docstring generated from Julia source
 

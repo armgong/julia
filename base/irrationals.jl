@@ -103,7 +103,7 @@ macro irrational(sym, val, def)
             c = BigFloat()
             ccall(($(string("mpfr_const_", def)), :libmpfr),
                   Cint, (Ptr{BigFloat}, Int32),
-                  &c, MPFR.ROUNDING_MODE[end])
+                  &c, MPFR.ROUNDING_MODE[])
             return c
         end
     end : quote
@@ -131,10 +131,44 @@ big(x::Irrational) = convert(BigFloat,x)
 @irrational φ        1.61803398874989484820  (1+sqrt(big(5)))/2
 
 # aliases
+"""
+    pi
+    π
+
+The constant pi.
+"""
 const pi = π
+
+"""
+    e
+    eu
+
+The constant e.
+"""
 const eu = e
+
+"""
+    γ
+    eulergamma
+
+Euler's constant.
+"""
 const eulergamma = γ
+
+"""
+    φ
+    golden
+
+The golden ratio.
+"""
 const golden = φ
+
+"""
+    catalan
+
+Catalan's constant.
+"""
+catalan
 
 # special behaviors
 
