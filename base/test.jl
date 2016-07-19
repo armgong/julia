@@ -873,6 +873,7 @@ macro test_approx_eq(a, b)
     :(test_approx_eq($(esc(a)), $(esc(b)), $(string(a)), $(string(b))))
 end
 
+_args_and_call(args...; kwargs...) = (args[1:end-1], kwargs, args[end](args[1:end-1]...; kwargs...))
 """
     @inferred f(x)
 
@@ -912,12 +913,26 @@ julia> @inferred max(1,2)
 ```
 """
 macro inferred(ex)
-    ex.head == :call || error("@inferred requires a call expression")
+    Meta.isexpr(ex, :call)|| error("@inferred requires a call expression")
+
     Base.remove_linenums!(quote
-        vals = ($([esc(ex.args[i]) for i = 2:length(ex.args)]...),)
-        inftypes = Base.return_types($(esc(ex.args[1])), Base.typesof(vals...))
+        $(if any(a->(Meta.isexpr(a, :kw) || Meta.isexpr(a, :parameters)), ex.args)
+            # Has keywords
+            args = gensym()
+            kwargs = gensym()
+            quote
+                $(esc(args)), $(esc(kwargs)), result = $(esc(Expr(:call, _args_and_call, ex.args[2:end]..., ex.args[1])))
+                inftypes = $(Base.gen_call_with_extracted_types(Base.return_types, :($(ex.args[1])($(args)...; $(kwargs)...))))
+            end
+        else
+            # No keywords
+            quote
+                args = ($([esc(ex.args[i]) for i = 2:length(ex.args)]...),)
+                result = $(esc(ex.args[1]))(args...)
+                inftypes = Base.return_types($(esc(ex.args[1])), Base.typesof(args...))
+            end
+        end)
         @assert length(inftypes) == 1
-        result = $(esc(ex.args[1]))(vals...)
         rettype = isa(result, Type) ? Type{result} : typeof(result)
         rettype == inftypes[1] || error("return type $rettype does not match inferred return type $(inftypes[1])")
         result
