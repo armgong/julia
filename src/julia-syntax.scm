@@ -424,7 +424,8 @@
             ,@lno
             ,@(if (not ordered-defaults)
                   '()
-                  (map make-assignment keynames vals))
+                  (append! (map (lambda (kwname) `(local ,kwname)) keynames)
+                           (map make-assignment keynames vals)))
             ;; call mangled(vals..., [rest_kw ,]pargs..., [vararg]...)
             (return (call ,mangled
                           ,@(if ordered-defaults keynames vals)
@@ -466,6 +467,7 @@
           `(block
             ;; initialize keyword args to their defaults, or set a flag telling
             ;; whether this keyword needs to be set.
+            ,@(map (lambda (kwname) `(local ,kwname)) keynames)
             ,@(map (lambda (name dflt flag)
                      (if (const-default? dflt)
                          `(= ,name ,dflt)
@@ -1321,16 +1323,11 @@
 (define (remove-argument-side-effects e)
   (let ((a '()))
     (cond
-     ((and (decl? e) (symbol? (cadr e)))
-      (cons (cadr e) (list e)))
      ((not (pair? e))
       (cons e '()))
      (else
       (cons (map (lambda (x)
                    (cond
-                    ((and (decl? x) (symbol? (cadr x)))
-                     (set! a (cons x a))
-                     (cadr x))
                     ((not (effect-free? x))
                      (let ((g (make-ssavalue)))
                        (if (or (eq? (car x) '...) (eq? (car x) '&))
@@ -1418,12 +1415,12 @@
            `(call ,(cadr e) ,(expand-forms a) ,(expand-forms b))))))
 
 ;; convert `a+=b` to `a=a+b`
-(define (expand-update-operator- op lhs rhs declT)
+(define (expand-update-operator- op op= lhs rhs declT)
   (let ((e (remove-argument-side-effects lhs)))
     `(block ,@(cdr e)
             ,(if (null? declT)
-                 `(= ,(car e) (call ,op ,(car e) ,rhs))
-                 `(= ,(car e) (call ,op (:: ,(car e) ,(car declT)) ,rhs))))))
+                 `(,op= ,(car e) (call ,op ,(car e) ,rhs))
+                 `(,op= ,(car e) (call ,op (:: ,(car e) ,(car declT)) ,rhs))))))
 
 (define (partially-expand-ref e)
   (let ((a    (cadr e))
@@ -1443,7 +1440,7 @@
          ,@(append stmts stuff)
          (call getindex ,arr ,@new-idxs))))))
 
-(define (expand-update-operator op lhs rhs . declT)
+(define (expand-update-operator op op= lhs rhs . declT)
   (cond ((and (pair? lhs) (eq? (car lhs) 'ref))
          ;; expand indexing inside op= first, to remove "end" and ":"
          (let* ((ex (partially-expand-ref lhs))
@@ -1451,23 +1448,24 @@
                 (refex (last    (cdr ex)))
                 (nuref `(ref ,(caddr refex) ,@(cdddr refex))))
            `(block ,@stmts
-                   ,(expand-update-operator- op nuref rhs declT))))
+                   ,(expand-update-operator- op op= nuref rhs declT))))
         ((and (pair? lhs) (eq? (car lhs) '|::|))
          ;; (+= (:: x T) rhs)
          (let ((e (remove-argument-side-effects (cadr lhs)))
                (T (caddr lhs)))
            `(block ,@(cdr e)
-                   ,(expand-update-operator op (car e) rhs T))))
+                   ,(expand-update-operator op op= (car e) rhs T))))
         (else
-         (expand-update-operator- op lhs rhs declT))))
+         (expand-update-operator- op op= lhs rhs declT))))
 
 (define (lower-update-op e)
   (expand-forms
-   (expand-update-operator
-    (let ((str (string (car e))))
-      (symbol (string.sub str 0 (- (length str) 1))))
-    (cadr e)
-    (caddr e))))
+   (let ((str (string (car e))))
+     (expand-update-operator
+      (symbol (string.sub str 0 (- (length str) 1)))
+      (if (= (string.char str 0) #\.) '.= '=)
+      (cadr e)
+      (caddr e)))))
 
 (define (expand-and e)
   (let ((e (cdr (flatten-ex '&& e))))
@@ -1546,11 +1544,18 @@
         (cadr expr)  ;; eta reduce `x->f(x)` => `f`
         `(-> ,argname (block ,@splat ,expr)))))
 
-(define (getfield-field? x) ; whether x from (|.| f x) is a getfield call
-  (or (eq? (car x) 'quote) (eq? (car x) 'inert) (eq? (car x) '$)))
+(define (ref-to-view expr)
+  (if (and (pair? expr) (eq? (car expr) 'ref))
+      (let* ((ex (partially-expand-ref expr))
+             (stmts (butlast (cdr ex)))
+             (refex (last    (cdr ex)))
+             (nuref `(call (top view) ,(caddr refex) ,@(cdddr refex))))
+        `(block ,@stmts ,nuref))
+      expr))
 
-;; fuse nested calls to f.(args...) into a single broadcast call
-(define (expand-fuse-broadcast f args)
+; fuse nested calls to expr == f.(args...) into a single broadcast call,
+; or a broadcast! call if lhs is non-null.
+(define (expand-fuse-broadcast lhs rhs)
   (define (fuse? e) (and (pair? e) (eq? (car e) 'fuse)))
   (define (anyfuse? exprs)
     (if (null? exprs) #f (if (fuse? (car exprs)) #t (anyfuse? (cdr exprs)))))
@@ -1594,28 +1599,31 @@
                                                  oldarg))
                                  fargs args)))
         (let ,fbody ,@(reverse (fuse-lets fargs args '()))))))
-  (define (make-fuse f args) ; check for nested (fuse f args) exprs and combine
-    (define (split-kwargs args) ; return (cons keyword-args positional-args) extracted from args
-      (define (sk args kwargs pargs)
-        (if (null? args)
-            (cons kwargs pargs)
-            (if (kwarg? (car args))
-                (sk (cdr args) (cons (car args) kwargs) pargs)
-                (sk (cdr args) kwargs (cons (car args) pargs)))))
-      (if (has-parameters? args)
-          (sk (reverse (cdr args)) (cdar args) '())
-          (sk (reverse args) '() '())))
-    (define (dot-to-fuse e) ; convert e == (. f (tuple args)) to (fuse f args)
-      (if (and (pair? e) (eq? (car e) '|.|) (not (getfield-field? (caddr e))))
-          (make-fuse (cadr e) (cdaddr e))
-          e))
-    (let* ((kws.args (split-kwargs args))
-           (kws (car kws.args))
-           (args (cdr kws.args)) ; fusing occurs on positional args only
-           (args_ (map dot-to-fuse args)))
-      (if (anyfuse? args_)
-          `(fuse ,(fuse-funcs (to-lambda f args kws) args_) ,(fuse-args args_))
-          `(fuse ,(to-lambda f args kws) ,args_))))
+  (define (dot-to-fuse e) ; convert e == (. f (tuple args)) to (fuse f args)
+    (define (make-fuse f args) ; check for nested (fuse f args) exprs and combine
+      (define (split-kwargs args) ; return (cons keyword-args positional-args) extracted from args
+        (define (sk args kwargs pargs)
+          (if (null? args)
+              (cons kwargs pargs)
+              (if (kwarg? (car args))
+                  (sk (cdr args) (cons (car args) kwargs) pargs)
+                  (sk (cdr args) kwargs (cons (car args) pargs)))))
+        (if (has-parameters? args)
+            (sk (reverse (cdr args)) (cdar args) '())
+            (sk (reverse args) '() '())))
+      (let* ((kws.args (split-kwargs args))
+             (kws (car kws.args))
+             (args (cdr kws.args)) ; fusing occurs on positional args only
+             (args_ (map dot-to-fuse args)))
+        (if (anyfuse? args_)
+            `(fuse ,(fuse-funcs (to-lambda f args kws) args_) ,(fuse-args args_))
+            `(fuse ,(to-lambda f args kws) ,args_))))
+    (if (and (pair? e) (eq? (car e) '|.|))
+        (let ((f (cadr e)) (x (caddr e)))
+          (if (or (eq? (car x) 'quote) (eq? (car x) 'inert) (eq? (car x) '$))
+              `(call (core getfield) ,f ,x)
+              (make-fuse f (cdr x))))
+        e))
   ; given e == (fuse lambda args), compress the argument list by removing (pure)
   ; duplicates in args, inlining literals, and moving any varargs to the end:
   (define (compress-fuse e)
@@ -1623,43 +1631,52 @@
       (if (eq? arg (car args))
           (car fargs)
           (findfarg arg (cdr args) (cdr fargs))))
-    (let ((f (cadr e))
-          (args (caddr e)))
-      (define (cf old-fargs old-args new-fargs new-args renames varfarg vararg)
-        (if (null? old-args)
-            (let ((nfargs (if (null? varfarg) new-fargs (cons varfarg new-fargs)))
-                  (nargs (if (null? vararg) new-args (cons vararg new-args))))
-              `(fuse (-> (tuple ,@(reverse nfargs)) ,(replace-vars (caddr f) renames))
-                     ,(reverse nargs)))
-            (let ((farg (car old-fargs)) (arg (car old-args)))
-              (cond
-               ((and (vararg? farg) (vararg? arg)) ; arg... must be the last argument
-                (if (null? varfarg)
-                    (cf (cdr old-fargs) (cdr old-args)
-                        new-fargs new-args renames farg arg)
-                    (if (eq? (cadr vararg) (cadr arg))
+    (if (fuse? e)
+        (let ((f (cadr e))
+              (args (caddr e)))
+          (define (cf old-fargs old-args new-fargs new-args renames varfarg vararg)
+            (if (null? old-args)
+                (let ((nfargs (if (null? varfarg) new-fargs (cons varfarg new-fargs)))
+                      (nargs (if (null? vararg) new-args (cons vararg new-args))))
+                  `(fuse (-> (tuple ,@(reverse nfargs)) ,(replace-vars (caddr f) renames))
+                         ,(reverse nargs)))
+                (let ((farg (car old-fargs)) (arg (car old-args)))
+                  (cond
+                   ((and (vararg? farg) (vararg? arg)) ; arg... must be the last argument
+                    (if (null? varfarg)
                         (cf (cdr old-fargs) (cdr old-args)
-                            new-fargs new-args (cons (cons (cadr farg) (cadr varfarg)) renames)
-                            varfarg vararg)
-                        (error "multiple splatted args cannot be fused into a single broadcast"))))
-               ((number? arg) ; inline numeric literals
-                (cf (cdr old-fargs) (cdr old-args)
-                    new-fargs new-args
-                    (cons (cons farg arg) renames)
-                    varfarg vararg))
-               ((and (symbol? arg) (memq arg new-args)) ; combine duplicate args
-                ; (note: calling memq for every arg is O(length(args)^2) ...
-                ;  ... would be better to replace with a hash table if args is long)
-                (cf (cdr old-fargs) (cdr old-args)
-                    new-fargs new-args
-                    (cons (cons farg (findfarg arg new-args new-fargs)) renames)
-                    varfarg vararg))
-               (else
-                (cf (cdr old-fargs) (cdr old-args)
-                    (cons farg new-fargs) (cons arg new-args) renames varfarg vararg))))))
-      (cf (cdadr f) args '() '() '() '() '())))
-  (let ((e (compress-fuse (make-fuse f args)))) ; an expression '(fuse func args)
-    (expand-forms `(call broadcast ,(from-lambda (cadr e)) ,@(caddr e)))))
+                            new-fargs new-args renames farg arg)
+                        (if (eq? (cadr vararg) (cadr arg))
+                            (cf (cdr old-fargs) (cdr old-args)
+                                new-fargs new-args (cons (cons (cadr farg) (cadr varfarg)) renames)
+                                varfarg vararg)
+                            (error "multiple splatted args cannot be fused into a single broadcast"))))
+                   ((number? arg) ; inline numeric literals
+                    (cf (cdr old-fargs) (cdr old-args)
+                        new-fargs new-args
+                        (cons (cons farg arg) renames)
+                        varfarg vararg))
+                   ((and (symbol? arg) (memq arg new-args)) ; combine duplicate args
+                                        ; (note: calling memq for every arg is O(length(args)^2) ...
+                                        ;  ... would be better to replace with a hash table if args is long)
+                    (cf (cdr old-fargs) (cdr old-args)
+                        new-fargs new-args
+                        (cons (cons farg (findfarg arg new-args new-fargs)) renames)
+                        varfarg vararg))
+                   (else
+                    (cf (cdr old-fargs) (cdr old-args)
+                        (cons farg new-fargs) (cons arg new-args) renames varfarg vararg))))))
+          (cf (cdadr f) args '() '() '() '() '()))
+        e)) ; (not (fuse? e))
+  (let ((e (compress-fuse (dot-to-fuse rhs))) ; an expression '(fuse func args) if expr is a dot call
+        (lhs-view (ref-to-view lhs))) ; x[...] expressions on lhs turn in to view(x, ...) to update x in-place
+    (if (fuse? e)
+        (if (null? lhs)
+            (expand-forms `(call (top broadcast) ,(from-lambda (cadr e)) ,@(caddr e)))
+            (expand-forms `(call (top broadcast!) ,(from-lambda (cadr e)) ,lhs-view ,@(caddr e))))
+        (if (null? lhs)
+            (expand-forms e)
+            (expand-forms `(call (top broadcast!) identity ,lhs-view ,e))))))
 
 ;; table mapping expression head to a function expanding that form
 (define expand-table
@@ -1689,21 +1706,19 @@
            (else
             `(block
               ,.(map (lambda (x)
-                       (if (decl? x)
-                           `(decl ,@(map expand-forms (cdr x)))
+                       (if (and (decl? x) (length= (cdr x) 2) (symbol? (cadr x)))
+                           `(impl-decl ,@(map expand-forms (cdr x)))
                            (expand-forms x)))
                      (butlast (cdr e)))
               ,(expand-forms (last (cdr e)))))))
 
    '|.|
    (lambda (e) ; e = (|.| f x)
-     (let ((f (cadr e))
-           (x (caddr e)))
-       (if (getfield-field? x)
-           `(call (core getfield) ,(expand-forms f) ,(expand-forms x))
-          ; otherwise, came from f.(args...) --> broadcast(f, args...),
-          ; where we want to fuse with any nested broadcast calls.
-          (expand-fuse-broadcast f (cdr x)))))
+     (expand-fuse-broadcast '() e))
+
+   '.=
+   (lambda (e)
+     (expand-fuse-broadcast (cadr e) (caddr e)))
 
    '|<:| syntactic-op-to-call
    '|>:| syntactic-op-to-call
@@ -1943,9 +1958,9 @@
 
    '|::|
    (lambda (e)
-     (if (length= e 2)
+     (if (not (length= e 3))
          (error "invalid \"::\" syntax"))
-     (if (and (length= e 3) (not (symbol-like? (cadr e))))
+     (if (not (symbol-like? (cadr e)))
          `(call (core typeassert)
                 ,(expand-forms (cadr e)) ,(expand-forms (caddr e)))
          (map expand-forms e)))
@@ -2008,11 +2023,16 @@
    '%=     lower-update-op
    '.%=    lower-update-op
    '|\|=|  lower-update-op
+   '|.\|=|  lower-update-op
    '&=     lower-update-op
+   '.&=     lower-update-op
    '$=     lower-update-op
    '<<=    lower-update-op
+   '.<<=    lower-update-op
    '>>=    lower-update-op
+   '.>>=    lower-update-op
    '>>>=   lower-update-op
+   '.>>>=   lower-update-op
 
    ':
    (lambda (e)
@@ -2426,7 +2446,7 @@
                (vinfo:set-called! vi #t))
            (for-each (lambda (x) (analyze-vars x env captvars sp))
                      (cdr e))))
-        ((decl)
+        ((decl impl-decl)
          ;; handle var::T declaration by storing the type in the var-info
          ;; record. for non-symbols or globals, emit a type assertion.
          (let ((vi (var-info-for (cadr e) env)))
@@ -2478,24 +2498,21 @@ end
 f(x) = yt(x)
 |#
 
-;; template for generating a closure type with parameters
-(define (type-for-closure-parameterized name P fields types super)
-  (let ((n (length P)))
-    `(thunk
+(define (type-for-closure-parameterized name P names fields types super)
+   (let ((n (length P)))
+    `((thunk
       (lambda ()
-        ((,@(map (lambda (p) `(,p Any 18)) P))
-         () 0 ())
+        (() () 0 ())
         (body (global ,name) (const ,name)
-              ,@(map (lambda (p) `(= ,p (call (core TypeVar) ',p (core Any) false))) P)
+              ,@(map (lambda (p n) `(= ,p (call (core TypeVar) ',n (core Any) false))) P names)
               (composite_type ,name (call (core svec) ,@P)
                               (call (core svec) ,@(map (lambda (v) `',v) fields))
                               ,super
                               (call (core svec) ,@types) false ,(length fields))
-              (return (null)))))))
+              (return (null))))))))
 
-;; ... and without parameters
 (define (type-for-closure name fields super)
-  `(thunk (lambda ()
+  `((thunk (lambda ()
             (() () 0 ())
             (body (global ,name) (const ,name)
                   (composite_type ,name (call (core svec))
@@ -2503,7 +2520,33 @@ f(x) = yt(x)
                                   ,super
                                   (call (core svec) ,@(map (lambda (v) 'Any) fields))
                                   false ,(length fields))
-                  (return (null))))))
+                  (return (null)))))))
+
+
+;; better versions of above, but they gets handled wrong in many places
+;; need to fix that in order to handle #265 fully (and use the definitions)
+
+;; template for generating a closure type with parameters
+;(define (type-for-closure-parameterized name P names fields types super)
+;  (let ((n (length P)))
+;        `((global ,name)
+;          (const ,name)
+;          ,@(map (lambda (p n) `(= ,p (call (core TypeVar) ',n (core Any) false))) P names)
+;          (composite_type ,name (call (core svec) ,@P)
+;                          (call (core svec) ,@(map (lambda (v) `',v) fields))
+;                          ,super
+;                          (call (core svec) ,@types) false ,(length fields)))))
+
+;; ... and without parameters
+;(define (type-for-closure name fields super)
+;  `((global ,name)
+;    (const ,name)
+;    (composite_type ,name (call (core svec))
+;                    (call (core svec) ,@(map (lambda (v) `',v) fields))
+;                    ,super
+;                    (call (core svec) ,@(map (lambda (v) 'Any) fields))
+;                    false ,(length fields))))
+
 
 (define (vinfo:not-capt vi)
   (list (car vi) (cadr vi) (logand (caddr vi) (lognot 5))))
@@ -2773,9 +2816,10 @@ f(x) = yt(x)
                   (lam2  (if short #f (cadddr e)))
                   (vis   (if short '(() () ()) (lam:vinfo lam2)))
                   (cvs   (map car (cadr vis)))
-                  (local? (and lam (symbol? name)
-                               (or (assq name (car  (lam:vinfo lam)))
-                                   (assq name (cadr (lam:vinfo lam))))))
+                  (local? (lambda (s) (and (symbol? s)
+                               (or (assq s (car  (lam:vinfo lam)))
+                                   (assq s (cadr (lam:vinfo lam)))))))
+                  (local (and lam (local? name)))
                   (sig      (and (not short) (caddr e)))
                   (sp-inits (if (or short (not (eq? (car sig) 'block)))
                                 '()
@@ -2784,14 +2828,14 @@ f(x) = yt(x)
                   (sig      (and sig (if (eq? (car sig) 'block)
                                          (last sig)
                                          sig))))
-             (if local?
+             (if local
                  (begin (if (memq name (lam:args lam))
                             (error (string "cannot add method to function argument " name)))
                         (if (eqv? (string.char (string name) 0) #\@)
                             (error "macro definition not allowed inside a local scope"))))
              (if lam2
                  (lambda-optimize-vars! lam2))
-             (if (not local?) ;; not a local function; will not be closure converted to a new type
+             (if (not local) ;; not a local function; will not be closure converted to a new type
                  (cond (short e)
                        ((null? cvs)
                         `(block
@@ -2816,9 +2860,9 @@ f(x) = yt(x)
                                     ,(last e))))))
                  ;; local case - lift to a new type at top level
                  (let* ((exists (get namemap name #f))
-                        (tname  (or exists
-                                    (and name
-                                         (symbol (string "#" name "#" (current-julia-module-counter))))))
+                        (type-name  (or exists
+                                        (and name
+                                             (symbol (string "#" name "#" (current-julia-module-counter))))))
                         (alldefs (expr-find-all
                                   (lambda (ex) (and (eq? (car ex) 'method)
                                                     (not (eq? ex e))
@@ -2827,31 +2871,64 @@ f(x) = yt(x)
                                   (lam:body lam)
                                   identity
                                   (lambda (x) (and (pair? x) (not (eq? (car x) 'lambda))))))
-                        (cvs   (delete-duplicates
-                                (apply append  ;; merge captured vars from all definitions
-                                       cvs
-                                       (map (lambda (methdef)
-                                              (map car (cadr (lam:vinfo (cadddr methdef)))))
-                                            alldefs))))
-                        (sps   (delete-duplicates  ;; static params from all definitions
-                                (apply append
-                                       (if lam2 (lam:sp lam2) '())
-                                       (map (lambda (methdef) (lam:sp (cadddr methdef)))
-                                            alldefs))))
-                        (capt-sp (intersect cvs sps))
-                        (capt-vars (diff cvs capt-sp))
-                        (method-sp (map (lambda (s) (make-ssavalue)) capt-sp))
+                        (all-capt-vars   (delete-duplicates
+                                          (apply append  ;; merge captured vars from all definitions
+                                                 cvs
+                                                 (map (lambda (methdef)
+                                                        (map car (cadr (lam:vinfo (cadddr methdef)))))
+                                                      alldefs))))
+                        (all-sparams   (delete-duplicates  ;; static params from all definitions
+                                        (apply append
+                                               (if lam2 (lam:sp lam2) '())
+                                               (map (lambda (methdef) (lam:sp (cadddr methdef)))
+                                                    alldefs))))
+                        (capt-sp (simple-sort (intersect all-capt-vars all-sparams))) ; the intersection is the list of sparams that need to be captured
+                        (capt-vars (diff all-capt-vars capt-sp)) ; remove capt-sp from capt-vars
+                        (find-locals-in-method-sig (lambda (methdef)
+                                                     (expr-find-all
+                                                      (lambda (s) (and (not (eq? name s))
+                                                                       (not (memq s capt-sp))
+                                                                       (or ;(local? s) ; TODO: make this work for local variables too?
+                                                                         (memq s (lam:sp lam)))))
+                                                      (caddr methdef)
+                                                      identity)))
+                        (sig-locals (simple-sort
+                                     (delete-duplicates  ;; locals used in sig from all definitions
+                                      (apply append      ;; will convert these into sparams for dispatch
+                                             (if lam2 (find-locals-in-method-sig e) '())
+                                             (map find-locals-in-method-sig alldefs)))))
+                        (closure-param-names (append capt-sp sig-locals)) ; sparams for the closure method declaration
+                        (closure-param-syms (map (lambda (s) (make-ssavalue)) closure-param-names))
                         (typedef  ;; expression to define the type
                          (let* ((fieldtypes (map (lambda (v)
                                                    (if (is-var-boxed? v lam)
                                                        '(core Box)
-                                                       (gensy)))
-                                                 capt-vars))
-                                (para (append capt-sp
-                                              (filter (lambda (v) (symbol? v)) fieldtypes))))
+                                                       (make-ssavalue)))
+                                                  capt-vars))
+                                (para (append closure-param-syms
+                                              (filter (lambda (v) (ssavalue? v)) fieldtypes)))
+                                (fieldnames (append closure-param-names (filter (lambda (v) (not (is-var-boxed? v lam))) capt-vars))))
                            (if (null? para)
-                               (type-for-closure tname capt-vars '(core Function))
-                               (type-for-closure-parameterized tname para capt-vars fieldtypes '(core Function)))))
+                               (type-for-closure type-name capt-vars '(core Function))
+                               (type-for-closure-parameterized type-name para fieldnames capt-vars fieldtypes '(core Function)))))
+                        (mk-method ;; expression to make the method
+                          (if short '()
+                              (let* ((iskw ;; TODO jb/functions need more robust version of this
+                                      (contains (lambda (x) (eq? x 'kwftype)) sig))
+                                     (renamemap (map cons closure-param-names closure-param-syms))
+                                     (arg-defs (replace-vars
+                                                (fix-function-arg-type sig type-name iskw namemap closure-param-syms)
+                                                renamemap)))
+                                    (append (map (lambda (gs tvar)
+                                                   (make-assignment gs `(call (core TypeVar) ',tvar (core Any) true)))
+                                                  closure-param-syms closure-param-names)
+                                            `((method #f ,(cl-convert arg-defs fname lam namemap toplevel interp)
+                                                  ,(convert-lambda lam2
+                                                                   (if iskw
+                                                                       (caddr (lam:args lam2))
+                                                                       (car (lam:args lam2)))
+                                                                   #f closure-param-names)
+                                                  ,(last e)))))))
                         (mk-closure  ;; expression to make the closure
                          (let* ((var-exprs (map (lambda (v)
                                                   (let ((cv (assq v (cadr (lam:vinfo lam)))))
@@ -2862,40 +2939,23 @@ f(x) = yt(x)
                                                         v)))
                                                 capt-vars))
                                 (P (append
-                                    capt-sp
+                                    closure-param-names
                                     (filter identity (map (lambda (v ve)
                                                             (if (is-var-boxed? v lam)
                                                                 #f
                                                                 `(call (core typeof) ,ve)))
                                                           capt-vars var-exprs)))))
                            `(new ,(if (null? P)
-                                      tname
-                                      `(call (core apply_type) ,tname ,@P))
-                                 ,@var-exprs)))
-                        (iskw ;; TODO jb/functions need more robust version of this
-                         (contains (lambda (x) (eq? x 'kwftype)) sig)))
+                                      type-name
+                                      `(call (core apply_type) ,type-name ,@P))
+                                 ,@var-exprs))))
                    `(toplevel-butlast
                      ,@(if exists
                            '()
-                           (list
-                            (begin (and name (put! namemap name tname))
-                                   typedef)))
+                            (begin (and name (put! namemap name type-name))
+                                   typedef))
                      ,@sp-inits
-                     ,@(if short '()
-                           (map (lambda (gs tvar)
-                                  (make-assignment gs `(call (core TypeVar) ',tvar (core Any) true)))
-                                method-sp capt-sp))
-                     ,@(if short '()
-                           `((method #f
-                                     ,(cl-convert
-                                       (fix-function-arg-type sig tname iskw namemap method-sp)
-                                       fname lam namemap toplevel interp)
-                                     ,(convert-lambda lam2
-                                                      (if iskw
-                                                          (caddr (lam:args lam2))
-                                                          (car (lam:args lam2)))
-                                                      #f capt-sp)
-                                     ,(last e))))
+                     ,@mk-method
                      ,(if exists
                           '(null)
                           (convert-assignment name mk-closure fname lam interp)))))))
@@ -2914,11 +2974,21 @@ f(x) = yt(x)
            (cl-convert `(call (core typeassert) ,@(cdr e)) fname lam namemap toplevel interp))
           ;; remaining `decl` expressions are only type assertions if the
           ;; argument is global or a non-symbol.
-          ((decl)
+          ((impl-decl)
            (if (or (assq (cadr e) (car  (lam:vinfo lam)))
                    (assq (cadr e) (cadr (lam:vinfo lam))))
-               '(null)
+               (let ((str-e (deparse `(|::| ,@(cdr e)))))
+                    (syntax-deprecation #f str-e (string "local " str-e))
+                    '(null))
                (cl-convert `(call (core typeassert) ,@(cdr e)) fname lam namemap toplevel interp)))
+          ((decl)
+           (cond ((not (symbol? (cadr e)))
+                  (cl-convert `(call (core typeassert) ,@(cdr e)) fname lam namemap toplevel interp))
+                 ((or (assq (cadr e) (car  (lam:vinfo lam)))
+                      (assq (cadr e) (cadr (lam:vinfo lam))))
+                  '(null))
+                 (else (syntax-deprecation #f (string "global " (deparse `(|::| ,@(cdr e)))) "typeassert")
+                       (cl-convert `(call (core typeassert) ,@(cdr e)) fname lam namemap toplevel interp))))
           ;; `with-static-parameters` expressions can be removed now; used only by analyze-vars
           ((with-static-parameters)
            (cl-convert (cadr e) fname lam namemap toplevel interp))

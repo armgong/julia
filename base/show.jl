@@ -2,6 +2,14 @@
 
 print(io::IO, s::Symbol) = (write(io,s); nothing)
 
+"""
+    IOContext
+
+IOContext provides a mechanism for passing output configuration settings among `show` methods.
+
+In short, it is an immutable dictionary that is a subclass of IO. It supports standard
+dictionary operations such as `getindex`, and can also be used as an I/O stream.
+"""
 immutable IOContext{IO_t <: IO} <: AbstractPipe
     io::IO_t
     dict::ImmutableDict{Symbol, Any}
@@ -12,27 +20,10 @@ immutable IOContext{IO_t <: IO} <: AbstractPipe
 end
 
 """
-    IOContext{<:IO} <: IO
+    IOContext(io::IO; properties...)
 
-IOContext provides a mechanism for passing output-configuration keyword arguments through arbitrary show methods.
-
-In short, it is an immutable Dictionary that is a subclass of IO.
-
-    IOContext(io::IO, KV::Pair)
-
-Create a new entry in the IO Dictionary for the key => value pair
-
- - use `(key => value) in dict` to see if this particular combination is in the properties set
- - use `get(dict, key, default)` to retrieve the most recent value for a particular key
-
-```
-IOContext(io::IO, context::IOContext)
-```
-
-Create a IOContext that wraps an alternate IO but inherits the keyword arguments from the context
+The same as `IOContext(io::IO, KV::Pair)`, but accepting properties as keyword arguments.
 """
-IOContext
-
 IOContext(io::IO; kws...) = IOContext(IOContext(io, ImmutableDict{Symbol,Any}()); kws...)
 function IOContext(io::IOContext; kws...)
     for (k, v) in kws
@@ -48,7 +39,34 @@ IOContext(io::IO, key, value) = IOContext(io, ImmutableDict{Symbol, Any}(key, va
 IOContext(io::IOContext, key, value) = IOContext(io, ImmutableDict{Symbol, Any}(io.dict, key, value))
 
 IOContext(io::IO, context::IO) = IOContext(io)
+
+"""
+    IOContext(io::IO, context::IOContext)
+
+Create a IOContext that wraps an alternate IO but inherits the properties of `context`.
+"""
 IOContext(io::IO, context::IOContext) = IOContext(io, context.dict)
+
+"""
+    IOContext(io::IO, KV::Pair)
+
+Create an `IOContext` that wraps a given stream, adding the specified key=>value pair to
+the properties of that stream (note that `io` can itself be an `IOContext`).
+
+ - use `(key => value) in dict` to see if this particular combination is in the properties set
+ - use `get(dict, key, default)` to retrieve the most recent value for a particular key
+
+The following properties are in common use:
+
+ - `:compact`: Boolean specifying that small values should be printed more compactly, e.g.
+   that numbers should be printed with fewer digits. This is set when printing array
+   elements.
+ - `:limit`: Boolean specifying that containers should be truncated, e.g. showing `…` in
+   place of most elements.
+ - `:displaysize`: A `Tuple{Int,Int}` giving the size in rows and columns to use for text
+   output. This can be used to override the display size for called functions, but to
+   get the size of the screen use the `displaysize` function.
+"""
 IOContext(io::IO, KV::Pair) = IOContext(io, KV[1], KV[2])
 
 show(io::IO, ctx::IOContext) = (print(io, "IOContext("); show(io, ctx.io); print(io, ")"))
@@ -232,6 +250,7 @@ function show(io::IO, p::Pair)
     isa(p.second,Pair) && print(io, "(")
     show(io, p.second)
     isa(p.second,Pair) && print(io, ")")
+    nothing
 end
 
 function show(io::IO, m::Module)
@@ -259,30 +278,21 @@ function lambdainfo_slotnames(l::LambdaInfo)
         end
         printnames[i] = printname
     end
-    printnames
+    return printnames
 end
 
 function show(io::IO, l::LambdaInfo)
     if isdefined(l, :def)
-        if (l === l.def.lambda_template)
+        if l === l.def.lambda_template
             print(io, "LambdaInfo template for ")
             show(io, l.def)
-            println(io)
         else
             print(io, "LambdaInfo for ")
-            show_lambda_types(io, l.specTypes.parameters)
-            println(io)
+            show_lambda_types(io, l)
         end
     else
-        println(io, "Toplevel LambdaInfo thunk")
+        print(io, "Toplevel LambdaInfo thunk")
     end
-    # Fix slot names and types in function body
-    lambda_io = IOContext(IOContext(io, :LAMBDAINFO => l),
-                          :LAMBDA_SLOTNAMES => lambdainfo_slotnames(l))
-    body = Expr(:body)
-    body.args = uncompressed_ast(l)
-    body.typ = l.rettype
-    show(lambda_io, body)
 end
 
 function show_delim_array(io::IO, itr::Union{AbstractArray,SimpleVector}, op, delim, cl,
@@ -408,12 +418,15 @@ show_unquoted(io::IO, ex, ::Int,::Int) = show(io, ex)
 const indent_width = 4
 const quoted_syms = Set{Symbol}([:(:),:(::),:(:=),:(=),:(==),:(!=),:(===),:(!==),:(=>),:(>=),:(<=)])
 const uni_ops = Set{Symbol}([:(+), :(-), :(!), :(¬), :(~), :(<:), :(>:), :(√), :(∛), :(∜)])
-const expr_infix_wide = Set{Symbol}([:(=), :(+=), :(-=), :(*=), :(/=), :(\=), :(&=),
-    :(|=), :($=), :(>>>=), :(>>=), :(<<=), :(&&), :(||), :(<:), :(=>), :(÷=)])
+const expr_infix_wide = Set{Symbol}([
+    :(=), :(+=), :(-=), :(*=), :(/=), :(\=), :(^=), :(&=), :(|=), :(÷=), :(%=), :(>>>=), :(>>=), :(<<=),
+    :(.=), :(.+=), :(.-=), :(.*=), :(./=), :(.\=), :(.^=), :(.&=), :(.|=), :(.÷=), :(.%=), :(.>>>=), :(.>>=), :(.<<=),
+    :(&&), :(||), :(<:), :(=>), :($=)])
 const expr_infix = Set{Symbol}([:(:), :(->), Symbol("::")])
 const expr_infix_any = union(expr_infix, expr_infix_wide)
 const all_ops = union(quoted_syms, uni_ops, expr_infix_any)
-const expr_calls  = Dict(:call =>('(',')'), :calldecl =>('(',')'), :ref =>('[',']'), :curly =>('{','}'))
+const expr_calls  = Dict(:call => ('(',')'), :calldecl => ('(',')'),
+                         :ref => ('[',']'), :curly => ('{','}'), :(.) => ('(',')'))
 const expr_parens = Dict(:tuple=>('(',')'), :vcat=>('[',']'),
                          :hcat =>('[',']'), :row =>('[',']'), :vect=>('[',']'))
 
@@ -544,6 +557,9 @@ function show_call(io::IO, head, func, func_args, indent)
         show_unquoted(io, func, indent)
         print(io, ')')
     end
+    if head == :(.)
+        print(io, '.')
+    end
     if !isempty(func_args) && isa(func_args[1], Expr) && func_args[1].head === :parameters
         print(io, op)
         show_list(io, func_args[2:end], ',', indent)
@@ -562,15 +578,6 @@ show_unquoted(io::IO, ex::LineNumberNode, ::Int, ::Int) = show_linenumber(io, ex
 show_unquoted(io::IO, ex::LabelNode, ::Int, ::Int)      = print(io, ex.label, ": ")
 show_unquoted(io::IO, ex::GotoNode, ::Int, ::Int)       = print(io, "goto ", ex.label)
 show_unquoted(io::IO, ex::GlobalRef, ::Int, ::Int)      = print(io, ex.mod, '.', ex.name)
-
-function show_unquoted(io::IO, ex::LambdaInfo, ::Int, ::Int)
-    if isdefined(ex, :specTypes)
-        print(io, "LambdaInfo for ")
-        show_lambda_types(io, ex.specTypes.parameters)
-    else
-        show(io, ex)
-    end
-end
 
 function show_unquoted(io::IO, ex::Slot, ::Int, ::Int)
     typ = isa(ex,TypedSlot) ? ex.typ : Any
@@ -663,8 +670,8 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     if !emphstate && ex.typ === Any
         show_type = false
     end
-    # dot (i.e. "x.y")
-    if is(head, :(.))
+    # dot (i.e. "x.y"), but not compact broadcast exps
+    if is(head, :(.)) && !is_expr(args[2], :tuple)
         show_unquoted(io, args[1], indent + indent_width)
         print(io, '.')
         if is_quoted(args[2])
@@ -742,7 +749,7 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         # binary operator (i.e. "x + y")
         elseif func_prec > 0 # is a binary operator
             na = length(func_args)
-            if na == 2 || (na > 2 && func in (:+, :++, :*))
+            if (na == 2 || (na > 2 && func in (:+, :++, :*))) && all(!isa(a, Expr) || a.head !== :... for a in func_args)
                 sep = " $func "
                 if func_prec <= prec
                     show_enclosed_list(io, '(', func_args, sep, ')', indent, func_prec, true)
@@ -765,9 +772,10 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
             show_call(io, head, func, func_args, indent)
         end
 
-    # other call-like expressions ("A[1,2]", "T{X,Y}")
-    elseif haskey(expr_calls, head) && nargs >= 1  # :ref/:curly/:calldecl
-        show_call(io, head, ex.args[1], ex.args[2:end], indent)
+    # other call-like expressions ("A[1,2]", "T{X,Y}", "f.(X,Y)")
+    elseif haskey(expr_calls, head) && nargs >= 1  # :ref/:curly/:calldecl/:(.)
+        funcargslike = head == :(.) ? ex.args[2].args : ex.args[2:end]
+        show_call(io, head, ex.args[1], funcargslike, indent)
 
     # comprehensions
     elseif (head === :typed_comprehension || head === :typed_dict_comprehension) && length(args) == 2
@@ -981,11 +989,7 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
         show(io, ex.head)
         for arg in args
             print(io, ", ")
-            if isa(arg, LambdaInfo) && isdefined(arg, :specTypes)
-                show_lambda_types(io, arg.specTypes.parameters)
-            else
-                show(io, arg)
-            end
+            show(io, arg)
         end
         print(io, "))")
     end
@@ -993,8 +997,14 @@ function show_unquoted(io::IO, ex::Expr, indent::Int, prec::Int)
     nothing
 end
 
-function show_lambda_types(io::IO, sig::SimpleVector)
-    # print a method signature tuple
+function show_lambda_types(io::IO, li::LambdaInfo)
+    # print a method signature tuple for a lambda definition
+    if li.specTypes === Tuple
+        print(io, li.def.name, "(...)")
+        return
+    end
+
+    sig = li.specTypes.parameters
     ft = sig[1]
     if ft <: Function && isempty(ft.parameters) &&
             isdefined(ft.name.module, ft.name.mt.name) &&
@@ -1172,6 +1182,8 @@ end
 directsubtype(a::DataType, b::DataType) = supertype(a).name === b.name
 directsubtype(a::TypeConstructor, b::DataType) = directsubtype(a.body, b)
 directsubtype(a::Union, b::DataType) = any(t->directsubtype(t, b), a.types)
+# Fallback to handle TypeVar's
+directsubtype(a, b::DataType) = false
 function dumpsubtypes(io::IO, x::DataType, m::Module, n::Int, indent)
     for s in names(m, true)
         if isdefined(m, s) && !isdeprecated(m, s)
@@ -1181,15 +1193,15 @@ function dumpsubtypes(io::IO, x::DataType, m::Module, n::Int, indent)
             elseif isa(t, Module) && module_name(t) === s && module_parent(t) === m
                 # recurse into primary module bindings
                 dumpsubtypes(io, x, t, n, indent)
-            elseif isa(t, TypeConstructor) && directsubtype(t, x)
+            elseif isa(t, TypeConstructor) && directsubtype(t::TypeConstructor, x)
                 println(io)
                 print(io, indent, "  ", m, ".", s)
                 isempty(t.parameters) || print(io, "{", join(t.parameters, ","), "}")
                 print(io, " = ", t)
-            elseif isa(t, Union) && directsubtype(t, x)
+            elseif isa(t, Union) && directsubtype(t::Union, x)
                 println(io)
                 print(io, indent, "  ", m, ".", s, " = ", t)
-            elseif isa(t, DataType) && directsubtype(t, x)
+            elseif isa(t, DataType) && directsubtype(t::DataType, x)
                 println(io)
                 if t.name.module !== m || t.name.name != s
                     # aliases to types
@@ -1572,7 +1584,6 @@ function showarray(io::IO, X::AbstractArray, repr::Bool = true; header = true)
     if repr && ndims(X) == 1
         return show_vector(io, X, "[", "]")
     end
-    io = IOContext(io, multiline=false)
     if !haskey(io, :compact)
         io = IOContext(io, compact=true)
     end

@@ -387,6 +387,39 @@ All Objects
        julia> convert(Rational{Int64}, x)
        6004799503160661//18014398509481984
 
+   If ``T`` is a collection type and ``x`` a collection, the result of ``convert(T, x)`` may alias ``x``\ .
+
+   .. doctest::
+
+       julia> x = Int[1,2,3];
+
+       julia> y = convert(Vector{Int}, x);
+
+       julia> y === x
+       true
+
+   Similarly, if ``T`` is a composite type and ``x`` a related instance, the result of ``convert(T, x)`` may alias part or all of ``x``\ .
+
+   .. doctest::
+
+       julia> x = speye(5);
+
+       julia> typeof(x)
+       SparseMatrixCSC{Float64,Int64}
+
+       julia> y = convert(SparseMatrixCSC{Float64,Int64}, x);
+
+       julia> z = convert(SparseMatrixCSC{Float32,Int64}, y);
+
+       julia> y === x
+       true
+
+       julia> z === x
+       false
+
+       julia> z.colptr === x.colptr
+       true
+
 .. function:: promote(xs...)
 
    .. Docstring generated from Julia source
@@ -1304,19 +1337,31 @@ Reflection
 
    Get the name of field ``i`` of a ``DataType``\ .
 
+.. function:: Base.datatype_module(t::DataType) -> Module
+
+   .. Docstring generated from Julia source
+
+   Determine the module containing the definition of a ``DataType``\ .
+
 .. function:: isconst([m::Module], s::Symbol) -> Bool
 
    .. Docstring generated from Julia source
 
    Determine whether a global is declared ``const`` in a given ``Module``\ . The default ``Module`` argument is ``current_module()``\ .
 
-.. function:: function_name(f::Function) -> Symbol
+.. function:: Base.function_name(f::Function) -> Symbol
 
    .. Docstring generated from Julia source
 
    Get the name of a generic ``Function`` as a symbol, or ``:anonymous``\ .
 
-.. function:: function_module(f::Function, types) -> Module
+.. function:: Base.function_module(f::Function) -> Module
+
+   .. Docstring generated from Julia source
+
+   Determine the module containing the (first) definition of a generic function.
+
+.. function:: Base.function_module(f::Function, types) -> Module
 
    .. Docstring generated from Julia source
 
@@ -1391,11 +1436,11 @@ Internals
 
    Evaluates the arguments to the function or macro call, determines their types, and calls :func:`code_typed` on the resulting expression.
 
-.. function:: code_warntype(f, types)
+.. function:: code_warntype([io], f, types)
 
    .. Docstring generated from Julia source
 
-   Displays lowered and type-inferred ASTs for the methods matching the given generic function and type signature. The ASTs are annotated in such a way as to cause "non-leaf" types to be emphasized (if color is available, displayed in red). This serves as a warning of potential type instability. Not all non-leaf types are particularly problematic for performance, so the results need to be used judiciously. See :ref:`man-code-warntype` for more information.
+   Prints lowered and type-inferred ASTs for the methods matching the given generic function and type signature to ``io`` which defaults to ``STDOUT``\ . The ASTs are annotated in such a way as to cause "non-leaf" types to be emphasized (if color is available, displayed in red). This serves as a warning of potential type instability. Not all non-leaf types are particularly problematic for performance, so the results need to be used judiciously. See :ref:`man-code-warntype` for more information.
 
 .. function:: @code_warntype
 
@@ -1403,11 +1448,11 @@ Internals
 
    Evaluates the arguments to the function or macro call, determines their types, and calls :func:`code_warntype` on the resulting expression.
 
-.. function:: code_llvm(f, types)
+.. function:: code_llvm([io], f, types)
 
    .. Docstring generated from Julia source
 
-   Prints the LLVM bitcodes generated for running the method matching the given generic function and type signature to :const:`STDOUT`\ .
+   Prints the LLVM bitcodes generated for running the method matching the given generic function and type signature to ``io`` which defaults to ``STDOUT``\ .
 
    All metadata and dbg.* calls are removed from the printed bitcode. Use code_llvm_raw for the full IR.
 
@@ -1417,11 +1462,11 @@ Internals
 
    Evaluates the arguments to the function or macro call, determines their types, and calls :func:`code_llvm` on the resulting expression.
 
-.. function:: code_native(f, types)
+.. function:: code_native([io], f, types)
 
    .. Docstring generated from Julia source
 
-   Prints the native assembly instructions generated for running the method matching the given generic function and type signature to ``STDOUT``\ .
+   Prints the native assembly instructions generated for running the method matching the given generic function and type signature to ``io`` which defaults to ``STDOUT``\ .
 
 .. function:: @code_native
 

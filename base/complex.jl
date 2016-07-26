@@ -47,6 +47,11 @@ complex{T<:Real}(::Type{Complex{T}}) = Complex{T}
 
 isreal(x::Real) = true
 isreal(z::Complex) = imag(z) == 0
+"""
+    isimag(z) -> Bool
+
+Test whether `z` is purely imaginary, i.e. has a real part equal to 0.
+"""
 isimag(z::Number) = real(z) == 0
 isinteger(z::Complex) = isreal(z) & isinteger(real(z))
 isfinite(z::Complex) = isfinite(real(z)) & isfinite(imag(z))
@@ -451,11 +456,11 @@ function log1p{T}(z::Complex{T})
     end
 end
 
-function ^{T<:AbstractFloat}(z::Complex{T}, p::Complex{T})
-    if p==2 #square
+function ^{T<:AbstractFloat}(z::Complex{T}, p::Complex{T})::Complex{T}
+    if p == 2 #square
         zr, zi = reim(z)
         x = (zr-zi)*(zr+zi)
-        y = T(2*zr*zi)
+        y = 2*zr*zi
         if isnan(x)
             if isinf(y)
                 x = copysign(zero(T),zr)

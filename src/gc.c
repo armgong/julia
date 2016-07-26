@@ -119,7 +119,13 @@ static void run_finalizer(jl_ptls_t ptls, jl_value_t *o, jl_value_t *ff)
 static void finalize_object(arraylist_t *list, jl_value_t *o,
                             arraylist_t *copied_list, int need_sync)
 {
-    // The acquire load makes sure that the first `len` objects are valid
+    // The acquire load makes sure that the first `len` objects are valid.
+    // If `need_sync` is true, all mutations of the content should be limited
+    // to the first `oldlen` elements and no mutation is allowed after the
+    // new length is published with the `cmpxchg` at the end of the function.
+    // This way, the mutation should not conflict with the owning thread,
+    // which only writes to locations later than `len`
+    // and will not resize the buffer without acquiring the lock.
     size_t len = need_sync ? jl_atomic_load_acquire(&list->len) : list->len;
     size_t oldlen = len;
     void **items = list->items;
@@ -149,10 +155,12 @@ static void finalize_object(arraylist_t *list, jl_value_t *o,
     if (oldlen == len)
         return;
     if (need_sync) {
-        if (__unlikely(jl_atomic_compare_exchange(&list->len,
-                                                  oldlen, len) != oldlen)) {
-            memset(items[len], 0, (oldlen - len) * sizeof(void*));
-        }
+        // The memset needs to be unconditional since the thread might have
+        // already read the length.
+        // The `memset` (like any other content mutation) has to be done
+        // **before** the `cmpxchg` which publishes the length.
+        memset(&items[len], 0, (oldlen - len) * sizeof(void*));
+        jl_atomic_compare_exchange(&list->len, oldlen, len);
     }
     else {
         list->len = len;
@@ -246,9 +254,20 @@ static void gc_add_finalizer_(jl_ptls_t ptls, void *v, void *f)
 {
     int8_t gc_state = jl_gc_unsafe_enter(ptls);
     arraylist_t *a = &ptls->finalizers;
+    // This acquire load and the release store at the end are used to
+    // synchronize with `finalize_object` on another thread. Apart from the GC,
+    // which is blocked by entering a unsafe region, there might be only
+    // one other thread accessing our list in `finalize_object`
+    // (only one thread since it needs to acquire the finalizer lock).
+    // Similar to `finalize_object`, all content mutation has to be done
+    // between the acquire and the release of the length.
     size_t oldlen = jl_atomic_load_acquire(&a->len);
     if (__unlikely(oldlen + 2 > a->max)) {
         JL_LOCK_NOGC(&finalizers_lock);
+        // `a->len` might have been modified.
+        // Another possiblility is to always grow the array to `oldlen + 2` but
+        // it's simpler this way and uses slightly less memory =)
+        oldlen = a->len;
         arraylist_grow(a, 2);
         a->len = oldlen;
         JL_UNLOCK_NOGC(&finalizers_lock);
@@ -751,22 +770,24 @@ static void sweep_malloced_arrays(void)
 }
 
 // pool allocation
-static inline jl_taggedvalue_t *reset_page(jl_gc_pool_t *p, jl_gc_pagemeta_t *pg, jl_taggedvalue_t *fl)
+static inline jl_taggedvalue_t *reset_page(const jl_gc_pool_t *p, jl_gc_pagemeta_t *pg, jl_taggedvalue_t *fl)
 {
+    assert(GC_PAGE_OFFSET >= sizeof(void*));
     pg->nfree = (GC_PAGE_SZ - GC_PAGE_OFFSET) / p->osize;
     jl_ptls_t ptls2 = jl_all_tls_states[pg->thread_n];
     pg->pool_n = p - ptls2->heap.norm_pools;
     memset(pg->ages, 0, GC_PAGE_SZ / 8 / p->osize + 1);
     jl_taggedvalue_t *beg = (jl_taggedvalue_t*)(pg->data + GC_PAGE_OFFSET);
-    jl_taggedvalue_t *end = (jl_taggedvalue_t*)((char*)beg + (pg->nfree - 1)*p->osize);
-    end->next = fl;
+    jl_taggedvalue_t *next = (jl_taggedvalue_t*)pg->data;
+    next->next = fl;
     pg->has_young = 0;
     pg->has_marked = 0;
-    pg->fl_begin_offset = GC_PAGE_OFFSET;
-    pg->fl_end_offset = (char*)end - (char*)beg + GC_PAGE_OFFSET;
+    pg->fl_begin_offset = -1;
+    pg->fl_end_offset = -1;
     return beg;
 }
 
+// Add a new page to the pool. Discards any pages in `p->newpages` before.
 static NOINLINE jl_taggedvalue_t *add_page(jl_gc_pool_t *p)
 {
     // Do not pass in `ptls` as argument. This slows down the fast path
@@ -780,15 +801,19 @@ static NOINLINE jl_taggedvalue_t *add_page(jl_gc_pool_t *p)
     pg->osize = p->osize;
     pg->ages = (uint8_t*)malloc(GC_PAGE_SZ / 8 / p->osize + 1);
     pg->thread_n = ptls->tid;
-    jl_taggedvalue_t *fl = reset_page(p, pg, p->newpages);
+    jl_taggedvalue_t *fl = reset_page(p, pg, NULL);
     p->newpages = fl;
     return fl;
 }
 
 // Size includes the tag and the tag is not cleared!!
-JL_DLLEXPORT jl_value_t *jl_gc_pool_alloc(jl_ptls_t ptls, jl_gc_pool_t *p,
-                                          int osize, int end_offset)
+JL_DLLEXPORT jl_value_t *jl_gc_pool_alloc(jl_ptls_t ptls, int pool_offset,
+                                          int osize)
 {
+    // Use the pool offset instead of the pool address as the argument
+    // to workaround a llvm bug.
+    // Ref https://llvm.org/bugs/show_bug.cgi?id=27190
+    jl_gc_pool_t *p = (jl_gc_pool_t*)((char*)ptls + pool_offset);
     assert(ptls->gc_state == 0);
 #ifdef MEMDEBUG
     return jl_gc_big_alloc(ptls, osize);
@@ -820,31 +845,36 @@ JL_DLLEXPORT jl_value_t *jl_gc_pool_alloc(jl_ptls_t ptls, jl_gc_pool_t *p,
     }
     // if the freelist is empty we reuse empty but not freed pages
     v = p->newpages;
-    if (__unlikely(!v))
-        v = add_page(p);
-    jl_taggedvalue_t *end = (jl_taggedvalue_t*)&(gc_page_data(v)[end_offset]);
-    if (__likely(v != end)) {
-        p->newpages = (jl_taggedvalue_t*)((char*)v + osize);
+    jl_taggedvalue_t *next = (jl_taggedvalue_t*)((char*)v + osize);
+    // If there's no pages left or the current page is used up,
+    // we need to use the slow path.
+    char *cur_page = gc_page_data((char*)v - 1);
+    if (__unlikely(!v || cur_page + GC_PAGE_SZ < (char*)next)) {
+        if (v) {
+            // like the freelist case,
+            // but only update the page metadata when it is full
+            jl_gc_pagemeta_t *pg = page_metadata((char*)v - 1);
+            assert(pg->osize == p->osize);
+            pg->nfree = 0;
+            pg->has_young = 1;
+            v = *(jl_taggedvalue_t**)cur_page;
+        }
+        // Not an else!!
+        if (!v)
+            v = add_page(p);
+        next = (jl_taggedvalue_t*)((char*)v + osize);
     }
-    else {
-        // like the freelist case, but only update the page metadata when it is full
-        jl_gc_pagemeta_t *pg = page_metadata(v);
-        assert(pg->osize == p->osize);
-        pg->nfree = 0;
-        pg->has_young = 1;
-        p->newpages = v->next;
-    }
+    p->newpages = next;
     return jl_valueof(v);
 }
 
-int jl_gc_classify_pools(size_t sz, int *osize, int *end_offset)
+int jl_gc_classify_pools(size_t sz, int *osize)
 {
     if (sz > GC_MAX_SZCLASS)
         return -1;
     size_t allocsz = sz + sizeof(jl_taggedvalue_t);
     int klass = jl_gc_szclass(allocsz);
     *osize = jl_gc_sizeclasses[klass];
-    *end_offset = GC_POOL_END_OFS(*osize);
     return (int)(intptr_t)(&((jl_ptls_t)0)->heap.norm_pools[klass]);
 }
 
@@ -871,10 +901,7 @@ static jl_taggedvalue_t **sweep_page(jl_gc_pool_t *p, jl_gc_pagemeta_t *pg, jl_t
         // FIXME - need to do accounting on a per-thread basis
         // on quick sweeps, keep a few pages empty but allocated for performance
         if (!sweep_full && lazy_freed_pages <= default_collect_interval / GC_PAGE_SZ) {
-            jl_taggedvalue_t *begin = reset_page(p, pg, 0);
-            jl_taggedvalue_t **pend = (jl_taggedvalue_t**)((char*)begin + ((int)pg->nfree - 1)*osize);
-            jl_taggedvalue_t *npg = p->newpages;
-            *pend = npg;
+            jl_taggedvalue_t *begin = reset_page(p, pg, p->newpages);
             p->newpages = begin;
             begin->next = (jl_taggedvalue_t*)0;
             lazy_freed_pages++;
@@ -1042,8 +1069,10 @@ static void gc_sweep_pool(int sweep_full)
 
             last = p->newpages;
             if (last) {
-                jl_gc_pagemeta_t *pg = page_metadata(last);
-                pg->nfree = (GC_PAGE_SZ - ((char*)last - gc_page_data(last))) / p->osize;
+                char *last_p = (char*)last;
+                jl_gc_pagemeta_t *pg = page_metadata(last_p - 1);
+                assert(last_p - gc_page_data(last_p - 1) >= GC_PAGE_OFFSET);
+                pg->nfree = (GC_PAGE_SZ - (last_p - gc_page_data(last_p - 1))) / p->osize;
                 pg->has_young = 1;
             }
             p->newpages = NULL;
@@ -1861,7 +1890,6 @@ void jl_mk_thread_heap(jl_ptls_t ptls)
         p[i].osize = jl_gc_sizeclasses[i];
         p[i].freelist = NULL;
         p[i].newpages = NULL;
-        p[i].end_offset = GC_POOL_END_OFS(jl_gc_sizeclasses[i]);
     }
     arraylist_new(&heap->weak_refs, 0);
     heap->mallocarrays = NULL;

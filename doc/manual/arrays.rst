@@ -90,7 +90,7 @@ Function                                            Description
                                                     defaulting to the element type and dimensions of ``A`` if omitted.
 :func:`reinterpret(type, A) <reinterpret>`          an array with the same binary data as the given array, but with the
                                                     specified element type
-:func:`rand(dims) <rand>`                           :obj:`Array` of ``Float64``\ s with random, iid[#]_ and uniformly
+:func:`rand(dims) <rand>`                           :obj:`Array` of ``Float64``\ s with random, iid [#iid]_ and uniformly
                                                     distributed values in the half-open interval :math:`[0, 1)`
 :func:`randn(dims) <randn>`                         :obj:`Array` of ``Float64``\ s with random, iid and standard normally
                                                     distributed random values
@@ -101,7 +101,7 @@ Function                                            Description
 :func:`fill(x, dims) <fill>`                        create an array filled with the value ``x``
 =================================================== =====================================================================
 
-.. [#] *iid*, independently and identically distributed.
+.. [#iid] *iid*, independently and identically distributed.
 
 The syntax ``[A, B, C, ...]`` constructs a 1-d array (vector) of its arguments.
 
@@ -566,7 +566,7 @@ function elementwise:
      1.71056  0.847604
      1.73659  0.873631
 
-Elementwise operators such as ``.+`` and ``.*`` perform broadcasting if necessary. There is also a :func:`broadcast!` function to specify an explicit destination, and :func:`broadcast_getindex` and :func:`broadcast_setindex!` that broadcast the indices before indexing.   Moreover, ``f.(args...)`` is equivalent to ``broadcast(f, args...)``, providing a convenient syntax to broadcast any function (:ref:`man-dot-vectorizing`:.).
+Elementwise operators such as ``.+`` and ``.*`` perform broadcasting if necessary. There is also a :func:`broadcast!` function to specify an explicit destination, and :func:`broadcast_getindex` and :func:`broadcast_setindex!` that broadcast the indices before indexing.   Moreover, ``f.(args...)`` is equivalent to ``broadcast(f, args...)``, providing a convenient syntax to broadcast any function (:ref:`man-dot-vectorizing`:).
 
 Implementation
 --------------
@@ -829,7 +829,7 @@ reference.
 +----------------------------------------+----------------------------------+--------------------------------------------+
 | :func:`speye(n) <speye>`               | :func:`eye(n) <eye>`             | Creates a *n*-by-*n* identity matrix.      |
 +----------------------------------------+----------------------------------+--------------------------------------------+
-| :func:`convert(Array, S) <convert>`    | :func:`sparse(A) <sparse>`       | Interconverts between dense                |
+| :func:`full(S) <full>`                 | :func:`sparse(A) <sparse>`       | Interconverts between dense                |
 |                                        |                                  | and sparse formats.                        |
 +----------------------------------------+----------------------------------+--------------------------------------------+
 | :func:`sprand(m,n,d) <sprand>`         | :func:`rand(m,n) <rand>`         | Creates a *m*-by-*n* random matrix (of     |

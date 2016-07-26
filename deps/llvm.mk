@@ -407,7 +407,7 @@ endif # LLVM_VER
 LLVM_PATCH_PREV:=
 LLVM_PATCH_LIST:=
 define LLVM_PATCH
-$$(LLVM_SRC_DIR)/$1.patch-applied: $$(LLVM_SRC_DIR)/configure | $$(SRCDIR)/patches/$1.patch $$(LLVM_PATCH_PREV)
+$$(LLVM_SRC_DIR)/$1.patch-applied: | $$(LLVM_SRC_DIR)/CMakeLists.txt $$(SRCDIR)/patches/$1.patch $$(LLVM_PATCH_PREV)
 	cd $$(LLVM_SRC_DIR) && patch -p1 < $$(SRCDIR)/patches/$1.patch
 	echo 1 > $$@
 LLVM_PATCH_PREV := $$(LLVM_SRC_DIR)/$1.patch-applied
@@ -435,6 +435,9 @@ $(eval $(call LLVM_PATCH,llvm-win64-reloc-dwarf))
 else ifeq ($(LLVM_VER_SHORT),3.8)
 ifeq ($(LLVM_VER),3.8.0)
 $(eval $(call LLVM_PATCH,llvm-D17326_unpack_load))
+endif
+ifeq ($(LLVM_VER),3.8.1)
+$(eval $(call LLVM_PATCH,llvm-3.8.1-version))
 endif
 $(eval $(call LLVM_PATCH,llvm-3.7.1_3)) # Remove for 3.9
 $(eval $(call LLVM_PATCH,llvm-D14260))

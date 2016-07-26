@@ -9,7 +9,7 @@ replstr(x) = sprint((io,x) -> show(IOContext(io, limit=true), MIME("text/plain")
 immutable T5589
     names::Vector{String}
 end
-@test replstr(T5589(Array(String,100))) == "T5589(String[#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef  …  #undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef])"
+@test replstr(T5589(Array{String,1}(100))) == "T5589(String[#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef  …  #undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef])"
 
 @test replstr(parse("type X end")) == ":(type X # none, line 1:\n    end)"
 @test replstr(parse("immutable X end")) == ":(immutable X # none, line 1:\n    end)"
@@ -80,6 +80,8 @@ end
 @test_repr "a & (b && c)"
 @test_repr "(a => b) in c"
 @test_repr "a => b in c"
+@test_repr "*(a..., b)"
+@test_repr "+(a, b, c...)"
 
 # precedence tie resolution
 @test_repr "(a * b) * (c * d)"
@@ -103,7 +105,7 @@ end
             n *= d
         end
         nc = num_bit_chunks(n)
-        chunks = Array(UInt64, nc)
+        chunks = Array{UInt64,1}(nc)
         if nc > 0
             chunks[end] = UInt64(0)
         end
@@ -512,6 +514,8 @@ end
 let repr = sprint(dump, Int64)
     @test repr == "Int64 <: Signed\n"
 end
+# Make sure a `TypeVar` in a `Union` doesn't break subtype dump.
+typealias BreakDump17529{T} Union{T,Void}
 let repr = sprint(dump, Any)
     @test length(repr) > 100000
     @test ismatch(r"^Any\n  [^ \t\n]", repr)
@@ -557,3 +561,12 @@ end
 @test repr(:(x for x in y if aa for z in w if bb)) == ":(x for x = y if aa for z = w if bb)"
 @test repr(:([x for x = y])) == ":([x for x = y])"
 @test repr(:([x for x = y if z])) == ":([x for x = y if z])"
+
+for op in (:(.=), :(.+=), :(.&=))
+    @test repr(parse("x $op y")) == ":(x $op y)"
+end
+
+# pretty-printing of compact broadcast expressions (#17289)
+@test repr(:(f.(X,Y))) == ":(f.(X,Y))"
+@test repr(:(f.(X))) == ":(f.(X))"
+@test repr(:(f.())) == ":(f.())"

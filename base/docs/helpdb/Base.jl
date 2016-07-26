@@ -878,15 +878,6 @@ Get the local machine's host name.
 gethostname
 
 """
-    code_typed(f, types; optimize=true)
-
-Returns an array of lowered and type-inferred ASTs for the methods matching the given
-generic function and type signature. The keyword argument `optimize` controls whether
-additional optimizations, such as inlining, are also applied.
-"""
-code_typed
-
-"""
     hankelh1x(nu, x)
 
 Scaled Bessel function of the third kind of order `nu`, ``H^{(1)}_\\nu(x) e^{-x i}``.
@@ -904,14 +895,6 @@ If `pat` is a regular expression and `r` is a `SubstitutionString`, then capture
 references in `r` are replaced with the corresponding matched text.
 """
 replace
-
-"""
-    randexp([rng], [dims...])
-
-Generate a random number according to the exponential distribution with scale 1. Optionally
-generate an array of such random numbers.
-"""
-randexp
 
 """
     chop(string)
@@ -1582,7 +1565,7 @@ connect(host=?, port)
 """
     connect(path) -> PipeEndpoint
 
-Connect to the Named Pipe / Domain Socket at `path`.
+Connect to the named pipe / UNIX domain socket at `path`.
 """
 connect(path)
 
@@ -1925,14 +1908,6 @@ sort(A,dim,?,?,?,?)
 Kronecker tensor product of two vectors or two matrices.
 """
 kron
-
-"""
-    randn([rng], [dims...])
-
-Generate a normally-distributed random number with mean 0 and standard deviation 1.
-Optionally generate an array of normally-distributed random numbers.
-"""
-randn
 
 """
     process_exited(p::Process)
@@ -2293,13 +2268,6 @@ A_rdiv_Bc
 Gives the number of columns needed to print a string.
 """
 strwidth
-
-"""
-    function_module(f::Function, types) -> Module
-
-Determine the module containing a given definition of a generic function.
-"""
-function_module
 
 """
     hex(n, [pad])
@@ -2949,13 +2917,6 @@ julia> Float64(pi, RoundUp)
 See [`RoundingMode`](:obj:`RoundingMode`) for available rounding modes.
 """
 Float64
-
-"""
-    function_name(f::Function) -> Symbol
-
-Get the name of a generic `Function` as a symbol, or `:anonymous`.
-"""
-function_name
 
 """
 ```
@@ -4808,14 +4769,6 @@ Airy function derivative ``\\operatorname{Ai}'(x)``.
 airyaiprime
 
 """
-    besselh(nu, k, x)
-
-Bessel function of the third kind of order `nu` (Hankel function). `k` is either 1 or 2,
-selecting `hankelh1` or `hankelh2`, respectively.
-"""
-besselh
-
-"""
     prepend!(collection, items) -> collection
 
 Insert the elements of `items` to the beginning of `collection`.
@@ -4936,13 +4889,6 @@ clipboard
 Send a printed form of `x` to the operating system clipboard ("copy").
 """
 clipboard(x)
-
-"""
-    code_lowered(f, types)
-
-Returns an array of lowered ASTs for the methods matching the given generic function and type signature.
-"""
-code_lowered
 
 """
     values(collection)
@@ -5188,16 +5134,6 @@ Determine whether a stream is read-only.
 isreadonly
 
 """
-    code_llvm(f, types)
-
-Prints the LLVM bitcodes generated for running the method matching the given generic
-function and type signature to [`STDOUT`](:const:`STDOUT`).
-
-All metadata and dbg.* calls are removed from the printed bitcode. Use code_llvm_raw for the full IR.
-"""
-code_llvm
-
-"""
     notify(condition, val=nothing; all=true, error=false)
 
 Wake up tasks waiting for a condition, passing them `val`. If `all` is `true` (the default),
@@ -5353,18 +5289,6 @@ The largest power of two not greater than `n`. Returns 0 for `n==0`, and returns
 `-prevpow2(-n)` for negative arguments.
 """
 prevpow2
-
-"""
-    code_warntype(f, types)
-
-Displays lowered and type-inferred ASTs for the methods matching the given generic function
-and type signature. The ASTs are annotated in such a way as to cause "non-leaf" types to be
-emphasized (if color is available, displayed in red). This serves as a warning of potential
-type instability. Not all non-leaf types are particularly problematic for performance, so
-the results need to be used judiciously. See [Manual](:ref:`man-code-warntype`) for more
-information.
-"""
-code_warntype
 
 """
     Mmap.sync!(array)
@@ -5564,14 +5488,6 @@ total bytes allocated, garbage collection time, and an object with various memor
 counters.
 """
 :@timed
-
-"""
-    code_native(f, types)
-
-Prints the native assembly instructions generated for running the method matching the given
-generic function and type signature to `STDOUT`.
-"""
-code_native
 
 """
     symdiff(s1,s2...)
@@ -6109,13 +6025,6 @@ the topmost backend that does not throw a `MethodError`).
 pushdisplay
 
 """
-    randexp!([rng], A::Array{Float64,N})
-
-Fill the array `A` with random numbers following the exponential distribution (with scale 1).
-"""
-randexp!
-
-"""
     prevind(str, i)
 
 Get the previous valid string index before `i`. Returns a value less than `1` at the
@@ -6294,6 +6203,9 @@ defining a 2-argument `show(stream::IO, x::MyType)` method.
 Technically, the `MIME"mime"` macro defines a singleton type for the given `mime` string,
 which allows us to exploit Julia's dispatch mechanisms in determining how to display objects
 of any given type.
+
+The first argument to `show` can be an `IOContext` specifying output format properties.
+See `IOContext` for details.
 """
 show(stream, mime, x)
 
@@ -7144,23 +7056,6 @@ Matrix multiplication.
 Base.:(*)(::AbstractMatrix, ::AbstractMatrix)
 
 """
-    \\(A, B)
-
-Matrix division using a polyalgorithm. For input matrices `A` and `B`, the result `X` is
-such that `A*X == B` when `A` is square.  The solver that is used depends upon the structure
-of `A`.  A direct solver is used for upper or lower triangular `A`.  For Hermitian `A`
-(equivalent to symmetric `A` for non-complex `A`) the `BunchKaufman` factorization is used.
-Otherwise an LU factorization is used. For rectangular `A` the result is the minimum-norm
-least squares solution computed by a pivoted QR factorization of `A` and a rank estimate of
-`A` based on the R factor.
-
-When `A` is sparse, a similar polyalgorithm is used. For indefinite matrices, the `LDLt`
-factorization does not use pivoting during the numerical factorization and therefore the
-procedure can fail even for invertible matrices.
-"""
-Base.:(\)(A,B)
-
-"""
     .\\(x, y)
 
 Element-wise left division operator.
@@ -7374,7 +7269,7 @@ listen(addr,port)
 """
     listen(path) -> PipeServer
 
-Create and listen on a Named Pipe / Domain Socket.
+Create and listen on a named pipe / UNIX domain socket.
 """
 listen(path)
 
@@ -8128,6 +8023,38 @@ julia> convert(Rational{Int32}, x)
 
 julia> convert(Rational{Int64}, x)
 6004799503160661//18014398509481984
+```
+
+If `T` is a collection type and `x` a collection, the result of `convert(T, x)` may alias
+`x`.
+```jldoctest
+julia> x = Int[1,2,3];
+
+julia> y = convert(Vector{Int}, x);
+
+julia> y === x
+true
+```
+Similarly, if `T` is a composite type and `x` a related instance, the result of
+`convert(T, x)` may alias part or all of `x`.
+```jldoctest
+julia> x = speye(5);
+
+julia> typeof(x)
+SparseMatrixCSC{Float64,Int64}
+
+julia> y = convert(SparseMatrixCSC{Float64,Int64}, x);
+
+julia> z = convert(SparseMatrixCSC{Float32,Int64}, y);
+
+julia> y === x
+true
+
+julia> z === x
+false
+
+julia> z.colptr === x.colptr
+true
 ```
 """
 convert
@@ -9028,14 +8955,6 @@ This is only needed if your module depends on a file that is not used via `inclu
 no effect outside of compilation.
 """
 include_dependency
-
-"""
-    randn!([rng], A::Array{Float64,N})
-
-Fill the array `A` with normally-distributed (mean 0, standard deviation 1) random numbers.
-Also see the rand function.
-"""
-randn!
 
 """
     ldexp(x, n)

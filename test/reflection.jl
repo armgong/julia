@@ -163,19 +163,22 @@ not_const = 1
 
 module TestMod7648
 using Base.Test
-export a9475, c7648, foo7648
+export a9475, foo9475, c7648, foo7648, foo7648_nomethods, Foo7648
 
 const c7648 = 8
 d7648 = 9
 const f7648 = 10
 foo7648(x) = x
+function foo7648_nomethods end
+type Foo7648 end
 
     module TestModSub9475
     using Base.Test
     using ..TestMod7648
-    export a9475
+    export a9475, foo9475
     a9475 = 5
     b9475 = 7
+    foo9475(x) = x
     let
         @test Base.binding_module(:a9475) == current_module()
         @test Base.binding_module(:c7648) == TestMod7648
@@ -199,8 +202,10 @@ let
     @test Base.binding_module(TestMod7648, :d7648) == TestMod7648
     @test Base.binding_module(TestMod7648, :a9475) == TestMod7648.TestModSub9475
     @test Base.binding_module(TestMod7648.TestModSub9475, :b9475) == TestMod7648.TestModSub9475
-    @test Set(names(TestMod7648)) == Set([:TestMod7648, :a9475, :c7648, :foo7648])
-    @test Set(names(TestMod7648, true)) == Set([:TestMod7648, :TestModSub9475, :a9475, :c7648, :d7648, :f7648, :foo7648, Symbol("#foo7648"), :eval, Symbol("#eval")])
+    @test Set(names(TestMod7648))==Set([:TestMod7648, :a9475, :foo9475, :c7648, :foo7648, :foo7648_nomethods, :Foo7648])
+    @test Set(names(TestMod7648, true)) == Set([:TestMod7648, :TestModSub9475, :a9475, :foo9475, :c7648, :d7648, :f7648,
+                                                :foo7648, Symbol("#foo7648"), :foo7648_nomethods, Symbol("#foo7648_nomethods"),
+                                                :Foo7648, :eval, Symbol("#eval")])
     @test isconst(TestMod7648, :c7648)
     @test !isconst(TestMod7648, :d7648)
 end
@@ -211,6 +216,11 @@ let
     @test Base.binding_module(:c7648) == TestMod7648
     @test Base.function_name(foo7648) == :foo7648
     @test Base.function_module(foo7648, (Any,)) == TestMod7648
+    @test Base.function_module(foo7648) == TestMod7648
+    @test Base.function_module(foo7648_nomethods) == TestMod7648
+    @test Base.function_module(foo9475, (Any,)) == TestMod7648.TestModSub9475
+    @test Base.function_module(foo9475) == TestMod7648.TestModSub9475
+    @test Base.datatype_module(Foo7648) == TestMod7648
     @test basename(functionloc(foo7648, (Any,))[1]) == "reflection.jl"
     @test first(methods(TestMod7648.TestModSub9475.foo7648)) == @which foo7648(5)
     @test TestMod7648 == @which foo7648
@@ -218,6 +228,10 @@ let
 end
 
 @test_throws ArgumentError which(is, Tuple{Int, Int})
+@test_throws ArgumentError code_typed(is, Tuple{Int, Int})
+@test_throws ArgumentError code_llvm(is, Tuple{Int, Int})
+@test_throws ArgumentError code_native(is, Tuple{Int, Int})
+@test_throws ArgumentError Base.return_types(is, Tuple{Int, Int})
 
 module TestingExported
 using Base.Test
@@ -371,8 +385,8 @@ function test_typed_ast_printing(f::ANY, types::ANY, must_used_vars)
     for name in must_used_vars
         @test name in slotnames
     end
-    for str in (sprint(io->code_warntype(io, f, types)),
-                sprint(io->show(io, li)))
+    for str in (sprint(code_warntype, f, types),
+                stringmime("text/plain", li))
         # Test to make sure the clearing of file path below works
         @test string(li.def.file) == @__FILE__
         for var in must_used_vars
@@ -397,7 +411,7 @@ function test_typed_ast_printing(f::ANY, types::ANY, must_used_vars)
         end
     end
     # Make sure printing an AST outside LambdaInfo still works.
-    str = sprint(io->show(io, Base.uncompressed_ast(li)))
+    str = sprint(show, Base.uncompressed_ast(li))
     # Check that we are printing the slot numbers when we don't have the context
     # Use the variable names that we know should be present in the optimized AST
     for i in 2:length(li.slotnames)
@@ -413,6 +427,16 @@ test_typed_ast_printing(g15714, Tuple{Vector{Float32}},
                         [:array_var15714, :index_var15714])
 @test used_dup_var_tested15714
 @test used_unique_var_tested15714
+
+let li = typeof(getfield).name.mt.cache.func::LambdaInfo,
+    lrepr = string(li),
+    mrepr = string(li.def),
+    lmime = stringmime("text/plain", li)
+
+    @test lrepr == "LambdaInfo template for getfield(...)"
+    @test mrepr == "getfield(...)"
+end
+
 
 # Linfo Tracing test
 tracefoo(x, y) = x+y

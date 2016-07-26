@@ -113,6 +113,23 @@ function show(io::IO, ::MIME"text/plain", f::Function)
     end
 end
 
+function show(io::IO, ::MIME"text/plain", l::LambdaInfo)
+    show(io, l)
+    # Fix slot names and types in function body
+    ast = uncompressed_ast(l)
+    if ast !== nothing
+        println(io)
+        lambda_io = IOContext(io, :LAMBDAINFO => l)
+        if isdefined(l, :slotnames)
+            lambda_io = IOContext(lambda_io, :LAMBDA_SLOTNAMES => lambdainfo_slotnames(l))
+        end
+        body = Expr(:body)
+        body.args = ast
+        body.typ = l.rettype
+        show(lambda_io, body)
+    end
+end
+
 function show(io::IO, ::MIME"text/plain", r::LinSpace)
     # show for linspace, e.g.
     # linspace(1,3,7)
@@ -389,11 +406,7 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
     arg_types_param = Any[arg_types.parameters...]
     # Displays the closest candidates of the given function by looping over the
     # functions methods and counting the number of matching arguments.
-    if isa(ex.f, Tuple)
-        f = ex.f[1]
-    else
-        f = ex.f
-    end
+    f = ex.f
     ft = typeof(f)
     lines = []
     # These functions are special cased to only show if first argument is matched.
@@ -420,6 +433,7 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                 # function itself doesn't match
                 return
             else
+                # TODO: use the methodshow logic here
                 use_constructor_syntax = isa(func, Type)
                 print(buf, use_constructor_syntax ? func : typeof(func).name.mt.name)
             end
@@ -507,6 +521,7 @@ function show_method_candidates(io::IO, ex::MethodError, kwargs::Vector=Any[])
                     length(kwords) > 0 && print(buf, "; ", join(kwords, ", "))
                 end
                 print(buf, ")")
+                print(buf, " at ", method.file, ":", method.line)
                 if !isempty(kwargs)
                     unexpected = Symbol[]
                     if isempty(kwords) || !(any(endswith(string(kword), "...") for kword in kwords))
@@ -552,32 +567,20 @@ function show_trace_entry(io, frame, n)
     n > 1 && print(io, " (repeats ", n, " times)")
 end
 
-function show_backtrace(io::IO, t::Vector, set=1:typemax(Int))
-    # we may not declare :eval_user_input
-    # directly so that we get a compile error
-    # in case its name changes in the future
-    show_backtrace(io,
-                    try
-                        typeof(eval_user_input).name.mt.name
-                    catch
-                        :(:) #for when client.jl is not yet defined
-                    end, t, set)
-end
-
-function show_backtrace(io::IO, top_function::Symbol, t::Vector, set)
+function show_backtrace(io::IO, t::Vector)
     process_entry(last_frame, n) =
         show_trace_entry(io, last_frame, n)
-    process_backtrace(process_entry, top_function, t, set)
+    process_backtrace(process_entry, t)
 end
 
-function show_backtrace(io::IO, top_function::Symbol, t::Vector{Any}, set)
+function show_backtrace(io::IO, t::Vector{Any})
     for entry in t
         show_trace_entry(io, entry...)
     end
 end
 
-# process the backtrace, up to (but not including) top_function
-function process_backtrace(process_func::Function, top_function::Symbol, t::Vector, set; skipC = true)
+# call process_func on each frame in a backtrace
+function process_backtrace(process_func::Function, t::Vector, limit::Int=typemax(Int); skipC = true)
     n = 0
     last_frame = StackTraces.UNKNOWN
     count = 0
@@ -590,9 +593,8 @@ function process_backtrace(process_func::Function, top_function::Symbol, t::Vect
 
             if lkup.from_c && skipC; continue; end
             if i == 1 && lkup.func == :error; continue; end
-            if lkup.func == top_function; break; end
             count += 1
-            if !in(count, set); continue; end
+            if count > limit; break; end
 
             if lkup.file != last_frame.file || lkup.line != last_frame.line || lkup.func != last_frame.func
                 if n > 0
