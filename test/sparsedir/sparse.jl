@@ -918,19 +918,19 @@ function test_getindex_algs{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, I::AbstractVector,
 end
 
 let M=2^14, N=2^4
-    Irand = randperm(M);
-    Jrand = randperm(N);
-    SA = [sprand(M, N, d) for d in [1., 0.1, 0.01, 0.001, 0.0001, 0.]];
-    IA = [sort(Irand[1:round(Int,n)]) for n in [M, M*0.1, M*0.01, M*0.001, M*0.0001, 0.]];
+    Irand = randperm(M)
+    Jrand = randperm(N)
+    SA = [sprand(M, N, d) for d in [1., 0.1, 0.01, 0.001, 0.0001, 0.]]
+    IA = [sort(Irand[1:round(Int,n)]) for n in [M, M*0.1, M*0.01, M*0.001, M*0.0001, 0.]]
     debug = false
 
     if debug
-        println("row sizes: $([round(Int,nnz(S)/S.n) for S in SA])");
-        println("I sizes: $([length(I) for I in IA])");
+        println("row sizes: $([round(Int,nnz(S)/S.n) for S in SA])")
+        println("I sizes: $([length(I) for I in IA])")
         @printf("    S    |    I    | binary S | binary I |  linear  | best\n")
     end
 
-    J = Jrand;
+    J = Jrand
     for I in IA
         for S in SA
             res = Any[1,2,3]
@@ -967,7 +967,7 @@ let M = 2^8, N=2^3
     I = sort([Irand; Irand; Irand])
     J = [Jrand; Jrand]
 
-    SA = [sprand(M, N, d) for d in [1., 0.1, 0.01, 0.001, 0.0001, 0.]];
+    SA = [sprand(M, N, d) for d in [1., 0.1, 0.01, 0.001, 0.0001, 0.]]
     for S in SA
         res = Any[1,2,3]
         for searchtype in [0, 1, 2]
@@ -983,8 +983,8 @@ let M = 2^14, N=2^4
     J = randperm(N)
     Jsorted = sort(J)
 
-    SA = [sprand(M, N, d) for d in [1., 0.1, 0.01, 0.001, 0.0001, 0.]];
-    IA = [I[1:round(Int,n)] for n in [M, M*0.1, M*0.01, M*0.001, M*0.0001, 0.]];
+    SA = [sprand(M, N, d) for d in [1., 0.1, 0.01, 0.001, 0.0001, 0.]]
+    IA = [I[1:round(Int,n)] for n in [M, M*0.1, M*0.01, M*0.001, M*0.0001, 0.]]
     debug = false
     if debug
         @printf("         |         |         |        times        |        memory       |\n")
@@ -1554,14 +1554,30 @@ end
 @inferred sprand(1, 1, 1.0, rand, Float64)
 @inferred sprand(1, 1, 1.0, x->round(Int,rand(x)*100))
 
-# dense sparse concatenation -> sparse return type
-@test issparse([sprand(10,10,.1) rand(10,10)])
-@test issparse([sprand(10,10,.1); rand(10,10)])
-@test issparse([sprand(10,10,.1) rand(10,10); rand(10,10) rand(10,10)])
-# ---
-@test !issparse([rand(10,10)  rand(10,10)])
-@test !issparse([rand(10,10); rand(10,10)])
-@test !issparse([rand(10,10)  rand(10,10); rand(10,10) rand(10,10)])
+# Test that concatenations of combinations of sparse matrices with sparse matrices or dense
+# matrices/vectors yield sparse arrays
+let
+    N = 4
+    densevec = ones(N)
+    densemat = diagm(ones(N))
+    spmat = spdiagm(ones(N))
+    # Test that concatenations of pairs of sparse matrices yield sparse arrays
+    @test issparse(vcat(spmat, spmat))
+    @test issparse(hcat(spmat, spmat))
+    @test issparse(hvcat((2,), spmat, spmat))
+    @test issparse(cat((1,2), spmat, spmat))
+    # Test that concatenations of a sparse matrice with a dense matrix/vector yield sparse arrays
+    @test issparse(vcat(spmat, densemat))
+    @test issparse(vcat(densemat, spmat))
+    for densearg in (densevec, densemat)
+        @test issparse(hcat(spmat, densearg))
+        @test issparse(hcat(densearg, spmat))
+        @test issparse(hvcat((2,), spmat, densearg))
+        @test issparse(hvcat((2,), densearg, spmat))
+        @test issparse(cat((1,2), spmat, densearg))
+        @test issparse(cat((1,2), densearg, spmat))
+    end
+end
 
 # issue #14816
 let m = 5
@@ -1572,3 +1588,8 @@ end
 
 # Test temporary fix for issue #16548 in PR #16979. Brittle. Expect to remove with `\` revisions.
 @test which(\, (SparseMatrixCSC, AbstractVecOrMat)).module == Base.SparseArrays
+
+# Row indexing a SparseMatrixCSC with non-Int integer type
+let A = sparse(UInt32[1,2,3], UInt32[1,2,3], [1.0,2.0,3.0])
+    @test A[1,1:3] == A[1,:] == [1,0,0]
+end

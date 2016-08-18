@@ -17,7 +17,7 @@ end
         1
     end
 
-addprocs(4; exeflags=`$cov_flag $inline_flag --check-bounds=yes --depwarn=error`)
+addprocs(4; exeflags=`$cov_flag $inline_flag --check-bounds=yes --startup-file=no --depwarn=error`)
 
 # Test remote()
 let
@@ -582,7 +582,7 @@ num_small_requests = 10000
 # test parallel sends of large arrays from multiple tasks to the same remote worker
 ntasks = 10
 rr_list = [Channel() for x in 1:ntasks]
-a=ones(2*10^5);
+a = ones(2*10^5)
 for rr in rr_list
     @async let rr=rr
         try
@@ -991,7 +991,7 @@ end
 # issue #15406
 v15406 = remotecall_wait(() -> 1, id_other)
 fetch(v15406)
-remotecall_wait(t -> fetch(t), id_other, v15406)
+remotecall_wait(fetch, id_other, v15406)
 
 # Test various forms of remotecall* invocations
 
@@ -1022,6 +1022,34 @@ end
 
 # issue #15451
 @test remotecall_fetch(x->(y->2y)(x)+1, workers()[1], 3) == 7
+
+# issue #16091
+type T16091 end
+wid = workers()[1]
+@test try
+    remotecall_fetch(()->T16091, wid)
+    false
+catch ex
+    ((ex::RemoteException).captured::CapturedException).ex === UndefVarError(:T16091)
+end
+@test try
+    remotecall_fetch(identity, wid, T16091)
+    false
+catch ex
+    ((ex::RemoteException).captured::CapturedException).ex === UndefVarError(:T16091)
+end
+
+f16091a() = 1
+remotecall_fetch(()->eval(:(f16091a() = 2)), wid)
+@test remotecall_fetch(f16091a, wid) === 2
+@test remotecall_fetch((myid)->remotecall_fetch(f16091a, myid), wid, myid()) === 1
+
+# these will only heisen-fail, since it depends on the gensym counter collisions:
+f16091b = () -> 1
+remotecall_fetch(()->eval(:(f16091b = () -> 2)), wid)
+@test remotecall_fetch(f16091b, 2) === 1
+@test remotecall_fetch((myid)->remotecall_fetch(f16091b, myid), wid, myid()) === 2
+
 
 # issue #16451
 rng=RandomDevice()

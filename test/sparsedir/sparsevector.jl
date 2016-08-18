@@ -225,6 +225,13 @@ let x = SparseVector(10, [2, 7, 9], [2.0, 7.0, 9.0])
     @test Base.SparseArrays.dropstored!(x, 5) == SparseVector(10, [7, 9], [7.0, 9.0])
 end
 
+# find and findnz tests
+@test find(spv_x1) == find(x1_full)
+@test findnz(spv_x1) == (find(x1_full), filter(x->x!=0, x1_full))
+let xc = SparseVector(8, [2, 3, 5], [1.25, 0, -0.75]), fc = full(xc)
+    @test find(xc) == find(fc)
+    @test findnz(xc) == ([2, 5], [1.25, -0.75])
+end
 
 ### Array manipulation
 
@@ -402,6 +409,41 @@ let m = 80, n = 100
     @test length(V) == m * n
     Vr = vec(Hr)
     @test full(V) == Vr
+end
+
+# Test that concatenations of combinations of sparse vectors with various other
+# matrix/vector types yield sparse arrays
+let
+    N = 4
+    spvec = spzeros(N)
+    spmat = spzeros(N, 1)
+    densevec = ones(N)
+    densemat = ones(N, 1)
+    diagmat = Diagonal(ones(4))
+    # Test that concatenations of pairwise combinations of sparse vectors with dense
+    # vectors/matrices, sparse matrices, or special matrices yield sparse arrays
+    for othervecormat in (densevec, densemat, spmat)
+        @test issparse(vcat(spvec, othervecormat))
+        @test issparse(vcat(othervecormat, spvec))
+    end
+    for othervecormat in (densevec, densemat, spmat, diagmat)
+        @test issparse(hcat(spvec, othervecormat))
+        @test issparse(hcat(othervecormat, spvec))
+        @test issparse(hvcat((2,), spvec, othervecormat))
+        @test issparse(hvcat((2,), othervecormat, spvec))
+        @test issparse(cat((1,2), spvec, othervecormat))
+        @test issparse(cat((1,2), othervecormat, spvec))
+    end
+    # The preceding tests should cover multi-way combinations of those types, but for good
+    # measure test a few multi-way combinations involving those types
+    @test issparse(vcat(spvec, densevec, spmat, densemat))
+    @test issparse(vcat(densevec, spvec, densemat, spmat))
+    @test issparse(hcat(spvec, densemat, spmat, densevec, diagmat))
+    @test issparse(hcat(densemat, spmat, spvec, densevec, diagmat))
+    @test issparse(hvcat((5,), diagmat, densevec, spvec, densemat, spmat))
+    @test issparse(hvcat((5,), spvec, densemat, diagmat, densevec, spmat))
+    @test issparse(cat((1,2), densemat, diagmat, spmat, densevec, spvec))
+    @test issparse(cat((1,2), spvec, diagmat, densevec, spmat, densemat))
 end
 
 

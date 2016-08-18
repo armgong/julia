@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
 # Issue #6573
-srand(0); rand(); x = rand(384);
+srand(0); rand(); x = rand(384)
 @test find(x .== rand()) == []
 
 @test rand() != rand()
@@ -10,8 +10,8 @@ srand(0); rand(); x = rand(384);
 @test -10 <= rand(-10:-5) <= -5
 @test -10 <= rand(-10:5) <= 5
 @test minimum([rand(Int32(1):Int32(7^7)) for i = 1:100000]) > 0
-@test(typeof(rand(false:true)) === Bool)
-@test(typeof(rand(Char)) === Char)
+@test typeof(rand(false:true)) === Bool
+@test typeof(rand(Char)) === Char
 @test length(randn(4, 5)) == 20
 @test length(bitrand(4, 5)) == 20
 
@@ -343,6 +343,23 @@ for rng in ([], [MersenneTwister()], [RandomDevice()])
     bitrand(rng..., 2, 3)          ::BitArray{2}
     rand!(rng..., BitArray(5))     ::BitArray{1}
     rand!(rng..., BitArray(2, 3))  ::BitArray{2}
+
+    # Test that you cannot call randn or randexp with non-Float types.
+    for r in [randn, randexp, randn!, randexp!]
+        @test_throws MethodError r(Int)
+        @test_throws MethodError r(Int32)
+        @test_throws MethodError r(Bool)
+        @test_throws MethodError r(String)
+        @test_throws MethodError r(AbstractFloat)
+        # TODO(#17627): Consider adding support for randn(BigFloat) and removing this test.
+        @test_throws MethodError r(BigFloat)
+
+        @test_throws MethodError r(Int64, (2,3))
+        @test_throws MethodError r(String, 1)
+
+        @test_throws MethodError r(rng..., Number, (2,3))
+        @test_throws MethodError r(rng..., Any, 1)
+    end
 end
 
 function hist(X,n)

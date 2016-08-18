@@ -26,6 +26,23 @@ function vect(X...)
     copy!(Array{T,1}(length(X)), X)
 end
 
+"""
+    size(A::AbstractArray, [dim...])
+
+Returns a tuple containing the dimensions of `A`. Optionally you can specify the
+dimension(s) you want the length of, and get the length of that dimension, or a tuple of the
+lengths of dimensions you asked for.
+
+```jldoctest
+julia> A = ones(2,3,4);
+
+julia> size(A, 2)
+3
+
+julia> size(A,3,2)
+(4,3)
+```
+"""
 size{T,N}(t::AbstractArray{T,N}, d) = d <= N ? size(t)[d] : 1
 size{N}(x, d1::Integer, d2::Integer, dx::Vararg{Integer, N}) = (size(x, d1), size(x, d2), ntuple(k->size(x, dx[k]), Val{N})...)
 
@@ -34,15 +51,19 @@ size{N}(x, d1::Integer, d2::Integer, dx::Vararg{Integer, N}) = (size(x, d1), siz
 
 Returns the valid range of indices for array `A` along dimension `d`.
 """
-indices{T,N}(A::AbstractArray{T,N}, d) = d <= N ? indices(A)[d] : OneTo(1)
+function indices{T,N}(A::AbstractArray{T,N}, d)
+    @_inline_meta
+    d <= N ? indices(A)[d] : OneTo(1)
+end
+
 """
     indices(A)
 
 Returns the tuple of valid indices for array `A`.
 """
-function indices{T,N}(A::AbstractArray{T,N})
-    @_inline_pure_meta
-    map(s->OneTo(s), size(A))
+function indices(A)
+    @_inline_meta
+    map(OneTo, size(A))
 end
 
 # Performance optimization: get rid of a branch on `d` in `indices(A,
@@ -50,6 +71,7 @@ end
 # comes up in other applications.
 indices1{T}(A::AbstractArray{T,0}) = OneTo(1)
 indices1{T}(A::AbstractArray{T})   = (@_inline_meta; indices(A)[1])
+indices1(iter) = OneTo(length(iter))
 
 unsafe_indices(A) = indices(A)
 unsafe_indices(r::Range) = (OneTo(unsafe_length(r)),) # Ranges use checked_sub for size
@@ -71,11 +93,37 @@ linearindices(A::AbstractVector) = (@_inline_meta; indices1(A))
 eltype{T}(::Type{AbstractArray{T}}) = T
 eltype{T,N}(::Type{AbstractArray{T,N}}) = T
 elsize{T}(::AbstractArray{T}) = sizeof(T)
+"""
+    ndims(A::AbstractArray) -> Integer
+
+Returns the number of dimensions of `A`.
+
+```jldoctest
+julia> A = ones(3,4,5);
+
+julia> ndims(A)
+3
+```
+"""
 ndims{T,N}(::AbstractArray{T,N}) = N
 ndims{T,N}(::Type{AbstractArray{T,N}}) = N
 ndims{T<:AbstractArray}(::Type{T}) = ndims(supertype(T))
+
+"""
+    length(A::AbstractArray) -> Integer
+
+Returns the number of elements in `A`.
+
+```jldoctest
+julia> A = ones(3,4,5);
+
+julia> length(A)
+60
+```
+"""
 length(t::AbstractArray) = prod(size(t))
 _length(A::AbstractArray) = prod(map(unsafe_length, indices(A))) # circumvent missing size
+_length(A) = length(A)
 endof(a::AbstractArray) = length(a)
 first(a::AbstractArray) = a[first(eachindex(a))]
 
@@ -87,9 +135,19 @@ end
 last(a) = a[end]
 
 """
-    stride(A, k)
+    stride(A, k::Integer)
 
 Returns the distance in memory (in number of elements) between adjacent elements in dimension `k`.
+
+```jldoctest
+julia> A = ones(3,4,5);
+
+julia> stride(A,2)
+3
+
+julia> stride(A,3)
+12
+```
 """
 function stride(a::AbstractArray, i::Integer)
     if i > ndims(a)
@@ -107,6 +165,13 @@ strides{T}(A::AbstractArray{T,0}) = ()
     strides(A)
 
 Returns a tuple of the memory strides in each dimension.
+
+```jldoctest
+julia> A = ones(3,4,5);
+
+julia> strides(A)
+(1,3,12)
+```
 """
 strides(A::AbstractArray) = _strides((1,), A)
 _strides{T,N}(out::NTuple{N}, A::AbstractArray{T,N}) = out
@@ -116,12 +181,15 @@ function _strides{M,T,N}(out::NTuple{M}, A::AbstractArray{T,N})
 end
 
 function isassigned(a::AbstractArray, i::Int...)
-    # TODO
     try
         a[i...]
         true
-    catch
-        false
+    catch e
+        if isa(e, BoundsError) || isa(e, UndefRefError)
+            return false
+        else
+            rethrow(e)
+        end
     end
 end
 
@@ -144,6 +212,22 @@ abstract LinearIndexing
 immutable LinearFast <: LinearIndexing end
 immutable LinearSlow <: LinearIndexing end
 
+"""
+    Base.linearindexing(A)
+
+`linearindexing` defines how an AbstractArray most efficiently accesses its elements. If
+`Base.linearindexing(A)` returns `Base.LinearFast()`, this means that linear indexing with
+only one index is an efficient operation. If it instead returns `Base.LinearSlow()` (by
+default), this means that the array intrinsically accesses its elements with indices
+specified for every dimension. Since converting a linear index to multiple indexing
+subscripts is typically very expensive, this provides a traits-based mechanism to enable
+efficient generic code for all array types.
+
+An abstract array subtype `MyArray` that wishes to opt into fast linear indexing behaviors
+should define `linearindexing` in the type-domain:
+
+    Base.linearindexing{T<:MyArray}(::Type{T}) = Base.LinearFast()
+"""
 linearindexing(A::AbstractArray) = linearindexing(typeof(A))
 linearindexing{T<:AbstractArray}(::Type{T}) = LinearSlow()
 linearindexing{T<:Array}(::Type{T}) = LinearFast()
@@ -623,11 +707,14 @@ convert{T,S,N}(::Type{AbstractArray{T  }}, A::AbstractArray{S,N}) = convert(Abst
 
 convert{T,N}(::Type{Array}, A::AbstractArray{T,N}) = convert(Array{T,N}, A)
 
-full(x::AbstractArray) = x
+"""
+   of_indices(x, y)
 
-map(::Type{Integer},  a::Array) = map!(Integer, similar(a,typeof(Integer(one(eltype(a))))), a)
-map(::Type{Signed},   a::Array) = map!(Signed, similar(a,typeof(Signed(one(eltype(a))))), a)
-map(::Type{Unsigned}, a::Array) = map!(Unsigned, similar(a,typeof(Unsigned(one(eltype(a))))), a)
+Represents the array `y` as an array having the same indices type as `x`.
+"""
+of_indices(x, y) = similar(dims->y, oftype(indices(x), indices(y)))
+
+full(x::AbstractArray) = x
 
 ## range conversions ##
 
@@ -998,7 +1085,7 @@ function cat_t(catdims, typeC::Type, X...)
         end
     end
 
-    C = similar(isa(X[1],AbstractArray) ? full(X[1]) : [X[1]], typeC, tuple(dimsC...))
+    C = similar(isa(X[1],AbstractArray) ? X[1] : [X[1]], typeC, tuple(dimsC...))
     if length(catdims)>1
         fill!(C,0)
     end
@@ -1015,7 +1102,80 @@ function cat_t(catdims, typeC::Type, X...)
     return C
 end
 
+"""
+    vcat(A...)
+
+Concatenate along dimension 1.
+
+```jldoctest
+julia> a = [1 2 3 4 5]
+1×5 Array{Int64,2}:
+ 1  2  3  4  5
+
+julia> b = [6 7 8 9 10; 11 12 13 14 15]
+2×5 Array{Int64,2}:
+  6   7   8   9  10
+ 11  12  13  14  15
+
+julia> vcat(a,b)
+3×5 Array{Int64,2}:
+  1   2   3   4   5
+  6   7   8   9  10
+ 11  12  13  14  15
+
+julia> c = ([1 2 3], [4 5 6])
+(
+[1 2 3],
+<BLANKLINE>
+[4 5 6])
+
+julia> vcat(c...)
+2×3 Array{Int64,2}:
+ 1  2  3
+ 4  5  6
+```
+"""
 vcat(X...) = cat(1, X...)
+"""
+    hcat(A...)
+
+Concatenate along dimension 2.
+
+```jldoctest
+julia> a = [1; 2; 3; 4; 5]
+5-element Array{Int64,1}:
+ 1
+ 2
+ 3
+ 4
+ 5
+
+julia> b = [6 7; 8 9; 10 11; 12 13; 14 15]
+5×2 Array{Int64,2}:
+  6   7
+  8   9
+ 10  11
+ 12  13
+ 14  15
+
+julia> hcat(a,b)
+5×3 Array{Int64,2}:
+ 1   6   7
+ 2   8   9
+ 3  10  11
+ 4  12  13
+ 5  14  15
+
+julia> c = ([1; 2; 3], [4; 5; 6])
+([1,2,3],[4,5,6])
+
+julia> hcat(c...)
+3×2 Array{Int64,2}:
+ 1  4
+ 2  5
+ 3  6
+```
+"""
 hcat(X...) = cat(2, X...)
 
 typed_vcat(T::Type, X...) = cat_t(1, T, X...)
@@ -1052,6 +1212,43 @@ function hvcat(nbc::Integer, as...)
     hvcat(ntuple(i->nbc, nbr), as...)
 end
 
+"""
+    hvcat(rows::Tuple{Vararg{Int}}, values...)
+
+Horizontal and vertical concatenation in one call. This function is called for block matrix
+syntax. The first argument specifies the number of arguments to concatenate in each block
+row.
+
+```jldoctest
+julia> a, b, c, d, e, f = 1, 2, 3, 4, 5, 6
+(1,2,3,4,5,6)
+
+julia> [a b c; d e f]
+2×3 Array{Int64,2}:
+ 1  2  3
+ 4  5  6
+
+julia> hvcat((3,3), a,b,c,d,e,f)
+2×3 Array{Int64,2}:
+ 1  2  3
+ 4  5  6
+
+julia> [a b;c d; e f]
+3×2 Array{Int64,2}:
+ 1  2
+ 3  4
+ 5  6
+
+julia> hvcat((2,2,2), a,b,c,d,e,f)
+3×2 Array{Int64,2}:
+ 1  2
+ 3  4
+ 5  6
+```
+
+If the first argument is a single integer `n`, then all block rows are assumed to have `n`
+block columns.
+"""
 hvcat(rows::Tuple{Vararg{Int}}, xs::AbstractMatrix...) = typed_hvcat(promote_eltype(xs...), rows, xs...)
 hvcat{T}(rows::Tuple{Vararg{Int}}, xs::AbstractMatrix{T}...) = typed_hvcat(T, rows, xs...)
 
@@ -1336,6 +1533,15 @@ Call function `f` on each element of iterable `c`.
 For multiple iterable arguments, `f` is called elementwise.
 `foreach` should be used instead of `map` when the results of `f` are not
 needed, for example in `foreach(println, array)`.
+
+```jldoctest
+julia> a = 1:3:7;
+
+julia> foreach(x->println(x^2),a)
+1
+16
+49
+```
 """
 foreach(f) = (f(); nothing)
 foreach(f, itr) = (for x in itr; f(x); end; nothing)
@@ -1346,6 +1552,49 @@ foreach(f, itrs...) = (for z in zip(itrs...); f(z...); end; nothing)
 ## transform any set of dimensions
 ## dims specifies which dimensions will be transformed. for example
 ## dims==1:2 will call f on all slices A[:,:,...]
+"""
+    mapslices(f, A, dims)
+
+Transform the given dimensions of array `A` using function `f`. `f` is called on each slice
+of `A` of the form `A[...,:,...,:,...]`. `dims` is an integer vector specifying where the
+colons go in this expression. The results are concatenated along the remaining dimensions.
+For example, if `dims` is `[1,2]` and `A` is 4-dimensional, `f` is called on `A[:,:,i,j]`
+for all `i` and `j`.
+
+```jldoctest
+julia> a = reshape(collect(1:16),(2,2,2,2))
+2×2×2×2 Array{Int64,4}:
+[:, :, 1, 1] =
+ 1  3
+ 2  4
+<BLANKLINE>
+[:, :, 2, 1] =
+ 5  7
+ 6  8
+<BLANKLINE>
+[:, :, 1, 2] =
+  9  11
+ 10  12
+<BLANKLINE>
+[:, :, 2, 2] =
+ 13  15
+ 14  16
+
+julia> mapslices(sum, a, [1,2])
+1×1×2×2 Array{Int64,4}:
+[:, :, 1, 1] =
+ 10
+<BLANKLINE>
+[:, :, 2, 1] =
+ 26
+<BLANKLINE>
+[:, :, 1, 2] =
+ 42
+<BLANKLINE>
+[:, :, 2, 2] =
+ 58
+```
+"""
 mapslices(f, A::AbstractArray, dims) = mapslices(f, A, [dims...])
 function mapslices(f, A::AbstractArray, dims::AbstractVector)
     if isempty(dims)
@@ -1407,12 +1656,12 @@ end
 
 # These are needed because map(eltype, As) is not inferrable
 promote_eltype_op(::Any) = (@_pure_meta; Bottom)
+promote_eltype_op(op, A) = (@_pure_meta; promote_op(op, eltype(A)))
 promote_eltype_op{T}(op, ::AbstractArray{T}) = (@_pure_meta; promote_op(op, T))
-promote_eltype_op{T}(op, ::T               ) = (@_pure_meta; promote_op(op, T))
+promote_eltype_op{T}(op, ::AbstractArray{T}, A) = (@_pure_meta; promote_op(op, T, eltype(A)))
+promote_eltype_op{T}(op, A, ::AbstractArray{T}) = (@_pure_meta; promote_op(op, eltype(A), T))
 promote_eltype_op{R,S}(op, ::AbstractArray{R}, ::AbstractArray{S}) = (@_pure_meta; promote_op(op, R, S))
-promote_eltype_op{R,S}(op, ::AbstractArray{R}, ::S) = (@_pure_meta; promote_op(op, R, S))
-promote_eltype_op{R,S}(op, ::R, ::AbstractArray{S}) = (@_pure_meta; promote_op(op, R, S))
-promote_eltype_op(op, A, B, C, D...) = (@_pure_meta; promote_op(op, eltype(A), promote_eltype_op(op, B, C, D...)))
+promote_eltype_op(op, A, B, C, D...) = (@_pure_meta; promote_eltype_op(op, promote_eltype_op(op, A, B), C, D...))
 
 ## 1 argument
 map!{F}(f::F, A::AbstractArray) = map!(f, A, A)

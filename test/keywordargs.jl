@@ -9,7 +9,7 @@ kwf1(ones; tens=0, hundreds=0) = ones + 10*tens + 100*hundreds
 @test kwf1(3, tens=7, hundreds=2) == 273
 
 @test_throws MethodError kwf1()             # no method, too few args
-@test_throws MethodError kwf1(1, z=0)    # unsupported keyword
+@test_throws MethodError kwf1(1, z=0)       # unsupported keyword
 @test_throws MethodError kwf1(1, 2)         # no method, too many positional args
 
 # keyword args plus varargs
@@ -20,6 +20,13 @@ kwf2(x, rest...; y=1) = (x, y, rest)
 @test isequal(kwf2(0,y=88,1,2), (0, 88, (1,2)))
 @test_throws MethodError kwf2(0, z=1)
 @test_throws MethodError kwf2(y=1)
+
+# Test for #13919
+test13919(x::Vararg{Int}; key=100) = (x, key)
+@test test13919(1, 1)[1] === (1, 1)
+@test test13919(1, 1)[2] === 100
+@test test13919(1, 1, key=10)[1] === (1, 1)
+@test test13919(1, 1, key=10)[2] === 10
 
 # keyword arg with declared type
 kwf3(x; y::Float64 = 1.0) = x + y
@@ -211,3 +218,12 @@ end
 @test f9948(x=5) == 5
 @test_throws UndefVarError f9948()
 @test getx9948() == 3
+
+# issue #17785 - handle all sources of kwargs left-to-right
+g17785(; a=1, b=2) = (a, b)
+let opts = (:a=>3, :b=>4)
+    @test g17785(; a=5, opts...) == (3, 4)
+    @test g17785(; opts..., a=5) == (5, 4)
+    @test g17785(; opts..., a=5, b=6) == (5, 6)
+    @test g17785(; b=0, opts..., a=5) == (5, 4)
+end

@@ -446,7 +446,12 @@ s = view(a,:,[1,2,4],[1,5])
 c = convert(Array, s)
 for p in ([1,2,3], [1,3,2], [2,1,3], [2,3,1], [3,1,2], [3,2,1])
     @test permutedims(s, p) == permutedims(c, p)
+    @test Base.PermutedDimsArrays.PermutedDimsArray(s, p) == permutedims(c, p)
 end
+@test_throws ArgumentError permutedims(a, (1,1,1))
+@test_throws ArgumentError permutedims(s, (1,1,1))
+@test_throws ArgumentError Base.PermutedDimsArrays.PermutedDimsArray(a, (1,1,1))
+@test_throws ArgumentError Base.PermutedDimsArrays.PermutedDimsArray(s, (1,1,1))
 
 ## ipermutedims ##
 
@@ -456,6 +461,15 @@ for i = tensors
     @test isequal(i,ipermutedims(permutedims(i,perm),perm))
     @test isequal(i,permutedims(ipermutedims(i,perm),perm))
 end
+
+## circshift
+
+@test circshift(1:5, -1) == circshift(1:5, 4) == circshift(1:5, -6) == [2,3,4,5,1]
+@test circshift(1:5, 1) == circshift(1:5, -4) == circshift(1:5, 6)  == [5,1,2,3,4]
+a = [1:5;]
+@test_throws ArgumentError Base.circshift!(a, a, 1)
+b = copy(a)
+@test Base.circshift!(b, a, 1) == [5,1,2,3,4]
 
 ## unique across dim ##
 
@@ -1019,12 +1033,12 @@ end
 
 # flipdim
 @test isequal(flipdim([2,3,1], 1), [1,3,2])
-@test isequal(flipdim([2,3,1], 2), [2,3,1])
+@test_throws ArgumentError flipdim([2,3,1], 2)
 @test isequal(flipdim([2 3 1], 1), [2 3 1])
 @test isequal(flipdim([2 3 1], 2), [1 3 2])
 @test_throws ArgumentError flipdim([2,3,1], -1)
 @test isequal(flipdim(1:10, 1), 10:-1:1)
-@test isequal(flipdim(1:10, 2), 1:10)
+@test_throws ArgumentError flipdim(1:10, 2)
 @test_throws ArgumentError flipdim(1:10, -1)
 @test isequal(flipdim(Array{Int}(0,0),1), Array{Int}(0,0))  # issue #5872
 
@@ -1252,6 +1266,7 @@ end
 
 I1 = CartesianIndex((2,3,0))
 I2 = CartesianIndex((-1,5,2))
+@test -I1 == CartesianIndex((-2,-3,0))
 @test I1 + I2 == CartesianIndex((1,8,2))
 @test I2 + I1 == CartesianIndex((1,8,2))
 @test I1 - I2 == CartesianIndex((3,-2,-2))
@@ -1415,7 +1430,7 @@ ctranspose!(a,b)
 # flipdim
 a = rand(5,3)
 @test flipdim(flipdim(a,2),2) == a
-@test flipdim(a,3) == a
+@test_throws ArgumentError flipdim(a,3)
 
 # bounds checking for copy!
 a = rand(5,3)
@@ -1424,7 +1439,6 @@ b = rand(6,7)
 @test_throws ArgumentError copy!(a,2:3,1:3,b,1:5,2:7)
 @test_throws ArgumentError Base.copy_transpose!(a,2:3,1:3,b,1:5,2:7)
 
-# return type declarations (promote_op)
 module RetTypeDecl
     using Base.Test
     import Base: +, *, .*, convert
@@ -1442,7 +1456,6 @@ module RetTypeDecl
     (*){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,2}(x.val*y.val)
     (.*){T}(x::MeterUnits{T,1}, y::MeterUnits{T,1}) = MeterUnits{T,2}(x.val*y.val)
     convert{T,pow}(::Type{MeterUnits{T,pow}}, y::Real) = MeterUnits{T,pow}(convert(T,y))
-    Base.promote_op{R,S}(::typeof(*), ::Type{MeterUnits{R,1}}, ::Type{MeterUnits{S,1}}) = MeterUnits{promote_type(R,S),2}
 
     @test @inferred(m+[m,m]) == [m+m,m+m]
     @test @inferred([m,m]+m) == [m+m,m+m]
@@ -1457,9 +1470,15 @@ A = 1:5
 B = 1.5:5.5
 @test A + B == 2.5:2.0:10.5
 
-#slice dim error
-A = zeros(5,5)
-@test_throws ArgumentError slicedim(A,0,1)
+# slicedim
+for A in (reshape(collect(1:20), 4, 5),
+          reshape(1:20, 4, 5))
+    @test slicedim(A, 1, 2) == collect(2:4:20)
+    @test slicedim(A, 2, 2) == collect(5:8)
+    @test_throws ArgumentError slicedim(A,0,1)
+    @test slicedim(A, 3, 1) == A
+    @test_throws BoundsError slicedim(A, 3, 2)
+end
 
 ###
 ### LinearSlow workout
@@ -1537,8 +1556,8 @@ copy!(S, A)
 @test cumsum(A, 1) == cumsum(B, 1) == cumsum(S, 1)
 @test cumsum(A, 2) == cumsum(B, 2) == cumsum(S, 2)
 
-@test mapslices(v->sort(v), A, 1) == mapslices(v->sort(v), B, 1) == mapslices(v->sort(v), S, 1)
-@test mapslices(v->sort(v), A, 2) == mapslices(v->sort(v), B, 2) == mapslices(v->sort(v), S, 2)
+@test mapslices(sort, A, 1) == mapslices(sort, B, 1) == mapslices(sort, S, 1)
+@test mapslices(sort, A, 2) == mapslices(sort, B, 2) == mapslices(sort, S, 2)
 
 @test flipdim(A, 1) == flipdim(B, 1) == flipdim(S, 2)
 @test flipdim(A, 2) == flipdim(B, 2) == flipdim(S, 2)
@@ -1696,4 +1715,26 @@ for op in (:.+, :.*, :.÷, :.%, :.<<, :.>>, :.-, :./, :.\, :.//, :.^)
     @eval @test typeof($(op)(A,A)) == Matrix{Foo}
 end
 
+end
+
+# Test that concatenations of dense matrices/vectors yield dense matrices/vectors
+let
+    N = 4
+    densevec = ones(N)
+    densemat = diagm(ones(N))
+    # Test that concatenations of homogeneous pairs of either dense matrices or dense vectors
+    # (i.e., Matrix-Matrix concatenations, and Vector-Vector concatenations) yield dense arrays
+    for densearray in (densevec, densemat)
+        @test isa(vcat(densearray, densearray), Array)
+        @test isa(hcat(densearray, densearray), Array)
+        @test isa(hvcat((2,), densearray, densearray), Array)
+        @test isa(cat((1,2), densearray, densearray), Array)
+    end
+    # Test that concatenations of heterogeneous Matrix-Vector pairs yield dense matrices
+    @test isa(hcat(densemat, densevec), Array)
+    @test isa(hcat(densevec, densemat), Array)
+    @test isa(hvcat((2,), densemat, densevec), Array)
+    @test isa(hvcat((2,), densevec, densemat), Array)
+    @test isa(cat((1,2), densemat, densevec), Array)
+    @test isa(cat((1,2), densevec, densemat), Array)
 end

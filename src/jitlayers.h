@@ -1,3 +1,5 @@
+// This file is a part of Julia. License is MIT: http://julialang.org/license
+
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Constants.h>
 #include <llvm/IR/Module.h>
@@ -33,7 +35,6 @@ extern PassManager *jl_globalPM;
 
 #ifdef LLVM35
 #include <llvm/Target/TargetMachine.h>
-#else
 #endif
 
 extern "C" {
@@ -151,6 +152,17 @@ static inline void add_named_global(GlobalValue *gv, T *addr, bool dllimport = t
 
 void jl_init_jit(Type *T_pjlvalue_);
 #ifdef USE_ORCJIT
+#ifdef LLVM40
+typedef JITSymbol JL_JITSymbol;
+// The type that is similar to SymbolInfo on LLVM 4.0 is actually
+// `JITEvaluatedSymbol`. However, we only use this type when a JITSymbol
+// is expected.
+typedef JITSymbol JL_SymbolInfo;
+#else
+typedef orc::JITSymbol JL_JITSymbol;
+typedef RuntimeDyld::SymbolInfo JL_SymbolInfo;
+#endif
+
 class JuliaOJIT {
     // Custom object emission notification handler for the JuliaOJIT
     // TODO: hook up RegisterJITEventListener, instead of hard-coding the GDB and JuliaListener targets
@@ -182,8 +194,8 @@ public:
     void *getPointerToGlobalIfAvailable(const GlobalValue *GV);
     void addModule(std::unique_ptr<Module> M);
     void removeModule(ModuleHandleT H);
-    orc::JITSymbol findSymbol(const std::string &Name, bool ExportedSymbolsOnly);
-    orc::JITSymbol findUnmangledSymbol(const std::string Name);
+    JL_JITSymbol findSymbol(const std::string &Name, bool ExportedSymbolsOnly);
+    JL_JITSymbol findUnmangledSymbol(const std::string Name);
     uint64_t getGlobalValueAddress(const std::string &Name);
     uint64_t getFunctionAddress(const std::string &Name);
     Function *FindFunctionNamed(const std::string &Name);

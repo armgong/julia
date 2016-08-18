@@ -18,7 +18,7 @@ x = ModInts.ModInt{256}(13)
 y = inv(x)
 @test y == ModInts.ModInt{256}(197)
 @test x*y == ModInts.ModInt{256}(1)
-@test_throws ErrorException inv(ModInts.ModInt{8}(4))
+@test_throws DomainError inv(ModInts.ModInt{8}(4))
 
 include(joinpath(dir, "ndgrid.jl"))
 r = repmat(1:10,1,10)
@@ -38,7 +38,7 @@ include(joinpath(dir, "queens.jl"))
 # cluster manager example through a new Julia session.
 if is_unix()
     script = joinpath(dir, "clustermanager/simple/test_simple.jl")
-    cmd = `$(Base.julia_cmd()) $script`
+    cmd = `$(Base.julia_cmd()) --startup-file=no $script`
     if !success(pipeline(cmd; stdout=STDOUT, stderr=STDERR)) && ccall(:jl_running_on_valgrind,Cint,()) == 0
         error("UnixDomainCM failed test, cmd : $cmd")
     end

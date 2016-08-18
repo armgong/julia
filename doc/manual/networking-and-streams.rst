@@ -202,8 +202,8 @@ create various other kinds of servers::
 
 Note that the return type of the last invocation is different. This is because
 this server does not listen on TCP, but rather on a named pipe (Windows)
-or UNIX domain socket (UNIX). The difference
-is subtle and has to do with the :func:`accept` and :func:`connect` methods. The :func:`accept`
+or UNIX domain socket. The difference is subtle and has to do with the
+:func:`accept` and :func:`connect` methods. The :func:`accept`
 method retrieves a connection to the client that is connecting on the server we
 just created, while the :func:`connect` function connects to a server using the
 specified method. The :func:`connect` function takes the same arguments as
@@ -260,5 +260,5 @@ allows you to do things like::
 At the base of this functionality is :func:`getaddrinfo`, which will do the appropriate address resolution::
 
     julia> getaddrinfo("google.com")
-    IPv4(74.125.226.225)
+    ip"74.125.226.225"
 

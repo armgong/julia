@@ -10,19 +10,23 @@
 #include <stdlib.h>
 #include <string.h>
 #include <assert.h>
-#ifdef _OS_WINDOWS_
-#include <psapi.h>
-#else
-#include <sys/sysctl.h>
-#include <sys/wait.h>
-#include <sys/ptrace.h>
-#include <unistd.h>
-#include <sys/mman.h>
-#include <dlfcn.h>
-#endif
 #include <errno.h>
 #include <signal.h>
 #include <fcntl.h>
+
+#ifdef _OS_WINDOWS_
+#include <psapi.h>
+#else
+#include <unistd.h>
+#if !defined(_SC_NPROCESSORS_ONLN) || defined(_OS_FREEBSD_) || defined(_OS_DARWIN_)
+// try secondary location for _SC_NPROCESSORS_ONLN, or for HW_AVAILCPU on BSDs
+#include <sys/sysctl.h>
+#endif
+#include <sys/wait.h>
+#include <sys/ptrace.h>
+#include <sys/mman.h>
+#include <dlfcn.h>
+#endif
 
 #ifndef _OS_WINDOWS_
 // for getrusage
@@ -48,10 +52,8 @@
 #include <intrin.h>
 #endif
 
-#ifdef __has_feature
-#if __has_feature(memory_sanitizer)
+#ifdef JL_MSAN_ENABLED
 #include <sanitizer/msan_interface.h>
-#endif
 #endif
 
 #ifdef __cplusplus
@@ -357,7 +359,10 @@ JL_DLLEXPORT int jl_cpu_cores(void)
     }
     return count;
 #elif defined(_SC_NPROCESSORS_ONLN)
-    return sysconf(_SC_NPROCESSORS_ONLN);
+    long count = sysconf(_SC_NPROCESSORS_ONLN);
+    if (count < 1)
+        return 1;
+    return count;
 #elif defined(_OS_WINDOWS_)
     //Try to get WIN7 API method
     GAPC gapc = (GAPC) jl_dlsym_e(
@@ -374,6 +379,7 @@ JL_DLLEXPORT int jl_cpu_cores(void)
         return info.dwNumberOfProcessors;
     }
 #else
+#warning "cpu core detection not defined for this platform"
     return 1;
 #endif
 }
@@ -663,14 +669,12 @@ JL_DLLEXPORT const char *jl_pathname_for_handle(void *handle)
 
     struct link_map *map;
     dlinfo(handle, RTLD_DI_LINKMAP, &map);
-#ifdef __has_feature
-#if __has_feature(memory_sanitizer)
+#ifdef JL_MSAN_ENABLED
     __msan_unpoison(&map,sizeof(struct link_map*));
     if (map) {
         __msan_unpoison(map, sizeof(struct link_map));
         __msan_unpoison_string(map->l_name);
     }
-#endif
 #endif
     if (map)
         return map->l_name;

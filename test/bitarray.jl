@@ -857,11 +857,11 @@ b1 = bitrand(s1, s2, s3, s4)
 for d = 1 : 4
     j = rand(1:size(b1, d))
     #for j = 1 : size(b1, d)
-        @check_bit_operation slicedim(b1, d, j) BitArray{4}
+        @check_bit_operation slicedim(b1, d, j) BitArray{3}
     #end
     @check_bit_operation flipdim(b1, d) BitArray{4}
 end
-@check_bit_operation flipdim(b1, 5) BitArray{4}
+@test_throws ArgumentError flipdim(b1, 5)
 
 b1 = bitrand(n1, n2)
 for k = 1 : 4

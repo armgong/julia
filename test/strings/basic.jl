@@ -158,11 +158,11 @@ end
 immutable tstStringType <: AbstractString
     data::Array{UInt8,1}
 end
-tstr = tstStringType("12");
+tstr = tstStringType("12")
 @test_throws ErrorException endof(tstr)
 @test_throws ErrorException next(tstr, Bool(1))
 
-gstr = GenericString("12");
+gstr = GenericString("12")
 @test typeof(string(gstr))==GenericString
 
 @test convert(Array{UInt8}, gstr) ==[49;50]
@@ -419,3 +419,6 @@ foobaz(ch) = reinterpret(Char, typemax(UInt32))
 # issue #17271: endof() doesn't throw an error even with invalid strings
 @test endof(String(b"\x90")) == 0
 @test endof(String(b"\xce")) == 1
+
+# issue #17624, missing getindex method for String
+@test "abc"[:] == "abc"

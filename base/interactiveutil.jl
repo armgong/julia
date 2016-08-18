@@ -40,7 +40,7 @@ function edit(path::AbstractString, line::Integer=0)
         background = false
     elseif name == "textmate" || name == "mate" || name == "kate"
         cmd = line != 0 ? `$command $path -l $line` : `$command $path`
-    elseif startswith(name, "subl") || name == "atom"
+    elseif startswith(name, "subl") || startswith(name, "atom")
         cmd = line != 0 ? `$command $path:$line` : `$command $path`
     elseif is_windows() && (name == "start" || name == "open")
         cmd = `cmd /c start /b $path`
@@ -70,9 +70,17 @@ edit(file, line::Integer) = error("could not find source file for function")
 
 # terminal pager
 
-function less(file::AbstractString, line::Integer)
-    pager = get(ENV, "PAGER", "less")
-    run(`$pager +$(line)g $file`)
+if is_windows()
+    function less(file::AbstractString, line::Integer)
+        pager = get(ENV, "PAGER", "more")
+        g = pager == "more" ? "" : "g"
+        run(Cmd(`$pager +$(line)$(g) \"$file\"`, windows_verbatim = true))
+    end
+else
+    function less(file::AbstractString, line::Integer)
+        pager = get(ENV, "PAGER", "less")
+        run(`$pager +$(line)g $file`)
+    end
 end
 
 less(file::AbstractString) = less(file, 1)
@@ -338,11 +346,23 @@ function gen_call_with_extracted_types(fcn, ex0)
     exret
 end
 
-for fname in [:which, :less, :edit, :functionloc, :code_typed, :code_warntype,
-              :code_lowered, :code_llvm, :code_llvm_raw, :code_native]
+for fname in [:which, :less, :edit, :functionloc, :code_warntype,
+              :code_llvm, :code_llvm_raw, :code_native]
     @eval begin
         macro ($fname)(ex0)
             gen_call_with_extracted_types($(Expr(:quote,fname)), ex0)
+        end
+    end
+end
+
+for fname in [:code_typed, :code_lowered]
+    @eval begin
+        macro ($fname)(ex0)
+            thecall = gen_call_with_extracted_types($(Expr(:quote,fname)), ex0)
+            quote
+                results = $thecall
+                length(results) == 1 ? results[1] : results
+            end
         end
     end
 end
@@ -430,6 +450,17 @@ function type_close_enough(x::ANY, t::ANY)
 end
 
 # `methodswith` -- shows a list of methods using the type given
+"""
+    methodswith(typ[, module or function][, showparents])
+
+Return an array of methods with an argument of type `typ`.
+
+The optional second argument restricts the search to a particular module or function
+(the default is all modules, starting from Main).
+
+If optional `showparents` is `true`, also return arguments with a parent type of `typ`,
+excluding type `Any`.
+"""
 function methodswith(t::Type, f::Function, showparents::Bool=false, meths = Method[])
     for d in methods(f)
         if any(x -> (type_close_enough(x, t) ||
@@ -458,10 +489,10 @@ end
 
 function methodswith(t::Type, showparents::Bool=false)
     meths = Method[]
-    mainmod = current_module()
+    mainmod = Main
     # find modules in Main
     for nm in names(mainmod)
-        if isdefined(mainmod,nm)
+        if isdefined(mainmod, nm)
             mod = getfield(mainmod, nm)
             if isa(mod, Module)
                 append!(meths, methodswith(t, mod, showparents))

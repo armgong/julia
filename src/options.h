@@ -36,6 +36,11 @@
 // catch invalid accesses.
 // #define MEMDEBUG
 
+// with MEMFENCE, the object pool headers are verified during sweep
+// to help detect corruption due to fence-post write errors
+// #define MEMFENCE
+
+
 // GC_VERIFY force a full verification gc along with every quick gc to ensure no
 // reachable memory is freed
 #ifndef GC_VERIFY
@@ -67,6 +72,9 @@
 // OBJPROFILE counts objects by type
 // #define OBJPROFILE
 
+// Automatic Instrumenting Profiler
+//#define ENABLE_TIMINGS
+
 
 // method dispatch profiling --------------------------------------------------
 
@@ -93,6 +101,7 @@
 #define COPY_STACKS
 #endif
 
+
 // threading options ----------------------------------------------------------
 
 // controls for when threads sleep
@@ -109,21 +118,32 @@
 #define MACHINE_EXCLUSIVE_NAME          "JULIA_EXCLUSIVE"
 #define DEFAULT_MACHINE_EXCLUSIVE       0
 
+
 // sanitizer defaults ---------------------------------------------------------
 
-// Automatically enable MEMDEBUG and KEEP_BODIES for the sanitizers
+// XXX: these macros are duplicated from julia_internal.h
 #if defined(__has_feature)
-#  if __has_feature(address_sanitizer) || __has_feature(memory_sanitizer)
-#  define MEMDEBUG
-#  define KEEP_BODIES
-#  endif
-// Memory sanitizer needs TLS, which llvm only supports for the small memory model
-#  if __has_feature(memory_sanitizer)
-   // todo: fix the llvm MemoryManager to work with small memory model
-#  endif
+#if __has_feature(address_sanitizer)
+#define JL_ASAN_ENABLED
+#endif
+#elif defined(__SANITIZE_ADDRESS__)
+#define JL_ASAN_ENABLED
+#endif
+#if defined(__has_feature)
+#if __has_feature(memory_sanitizer)
+#define JL_MSAN_ENABLED
+#endif
 #endif
 
-// Automatic Instrumenting Profiler
-//#define ENABLE_TIMINGS
+// Automatically enable MEMDEBUG and KEEP_BODIES for the sanitizers
+#if defined(JL_ASAN_ENABLED) || defined(JL_MSAN_ENABLED)
+#define MEMDEBUG
+#define KEEP_BODIES
+#endif
+
+// Memory sanitizer needs TLS, which llvm only supports for the small memory model
+#if defined(JL_MSAN_ENABLED)
+// todo: fix the llvm MemoryManager to work with small memory model
+#endif
 
 #endif

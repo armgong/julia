@@ -277,6 +277,9 @@ endif
 ifeq ($(USE_SYSTEM_LIBSSH2),0)
 JL_PRIVATE_LIBS += ssh2
 endif
+ifeq ($(USE_SYSTEM_CURL),0)
+JL_PRIVATE_LIBS += curl
+endif
 ifeq ($(USE_SYSTEM_LIBGIT2),0)
 JL_PRIVATE_LIBS += git2
 endif
@@ -450,7 +453,7 @@ endif
 	@$(MAKE) -C $(BUILDROOT) -f $(JULIAHOME)/Makefile install
 	cp $(JULIAHOME)/LICENSE.md $(BUILDROOT)/julia-$(JULIA_COMMIT)
 ifneq ($(OS), WINNT)
-	-$(JULIAHOME)/contrib/fixup-libgfortran.sh $(DESTDIR)$(private_libdir)
+	-$(CUSTOM_LD_LIBRARY_PATH) PATH=$(PATH):$(build_depsbindir) $(JULIAHOME)/contrib/fixup-libgfortran.sh $(DESTDIR)$(private_libdir)
 endif
 ifeq ($(OS), Linux)
 	-$(JULIAHOME)/contrib/fixup-libstdc++.sh $(DESTDIR)$(libdir) $(DESTDIR)$(private_libdir)
@@ -468,7 +471,11 @@ endif
 
 ifeq ($(OS), WINNT)
 	[ ! -d $(JULIAHOME)/dist-extras ] || ( cd $(JULIAHOME)/dist-extras && \
-		cp 7z.exe 7z.dll busybox.exe libexpat-1.dll zlib1.dll libgfortran-3.dll libquadmath-0.dll libstdc++-6.dll libgcc_s_s*-1.dll libssp-0.dll $(BUILDROOT)/julia-$(JULIA_COMMIT)/bin )
+		cp 7z.exe 7z.dll libexpat-1.dll zlib1.dll libgfortran-3.dll libquadmath-0.dll libstdc++-6.dll libgcc_s_s*-1.dll libssp-0.dll $(BUILDROOT)/julia-$(JULIA_COMMIT)/bin )
+ifeq ($(USE_GPL_LIBS), 1)
+	[ ! -d $(JULIAHOME)/dist-extras ] || ( cd $(JULIAHOME)/dist-extras && \
+		cp busybox.exe $(BUILDROOT)/julia-$(JULIA_COMMIT)/bin )
+endif
 	cd $(BUILDROOT)/julia-$(JULIA_COMMIT)/bin && rm -f llvm* llc.exe lli.exe opt.exe LTO.dll bugpoint.exe macho-dump.exe
 
 	# create file listing for uninstall. note: must have Windows path separators and line endings.
@@ -594,11 +601,11 @@ ifneq (,$(filter $(ARCH), i386 i486 i586 i686))
 	7z x -y 7z920.exe 7z.exe 7z.dll && \
 	../contrib/windows/winrpm.sh http://download.opensuse.org/repositories/windows:/mingw:/win32/openSUSE_13.2 \
 		"mingw32-libexpat1 mingw32-zlib1" && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libgfortran3-5.3.0-1.1.noarch.rpm && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libquadmath0-5.3.0-1.1.noarch.rpm && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libstdc%2B%2B6-5.3.0-1.1.noarch.rpm && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libgcc_s_sjlj1-5.3.0-1.1.noarch.rpm && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libssp0-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://julialang.s3.amazonaws.com/bin/winnt/extras/mingw32-libgfortran3-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://julialang.s3.amazonaws.com/bin/winnt/extras/mingw32-libquadmath0-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://julialang.s3.amazonaws.com/bin/winnt/extras/mingw32-libstdc++6-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://julialang.s3.amazonaws.com/bin/winnt/extras/mingw32-libgcc_s_sjlj1-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://julialang.s3.amazonaws.com/bin/winnt/extras/mingw32-libssp0-5.3.0-1.1.noarch.rpm && \
 	for i in *.rpm; do 7z x -y $$i; done && \
 	for i in *.cpio; do 7z x -y $$i; done && \
 	cp usr/i686-w64-mingw32/sys-root/mingw/bin/*.dll .
@@ -610,11 +617,11 @@ else ifeq ($(ARCH),x86_64)
 	mv _7z.exe 7z.exe && \
 	../contrib/windows/winrpm.sh http://download.opensuse.org/repositories/windows:/mingw:/win64/openSUSE_13.2 \
 		"mingw64-libexpat1 mingw64-zlib1" && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libgfortran3-5.3.0-1.1.noarch.rpm && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libquadmath0-5.3.0-1.1.noarch.rpm && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libstdc%2B%2B6-5.3.0-1.1.noarch.rpm && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libgcc_s_seh1-5.3.0-1.1.noarch.rpm && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libssp0-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://julialang.s3.amazonaws.com/bin/winnt/extras/mingw64-libgfortran3-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://julialang.s3.amazonaws.com/bin/winnt/extras/mingw64-libquadmath0-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://julialang.s3.amazonaws.com/bin/winnt/extras/mingw64-libstdc++6-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://julialang.s3.amazonaws.com/bin/winnt/extras/mingw64-libgcc_s_seh1-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://julialang.s3.amazonaws.com/bin/winnt/extras/mingw64-libssp0-5.3.0-1.1.noarch.rpm && \
 	for i in *.rpm; do 7z x -y $$i; done && \
 	for i in *.cpio; do 7z x -y $$i; done && \
 	cp usr/x86_64-w64-mingw32/sys-root/mingw/bin/*.dll .
@@ -624,12 +631,15 @@ endif
 	cd $(JULIAHOME)/dist-extras && \
 	$(JLDOWNLOAD) http://downloads.sourceforge.net/sevenzip/7z920_extra.7z && \
 	$(JLDOWNLOAD) https://unsis.googlecode.com/files/nsis-2.46.5-Unicode-setup.exe && \
-	$(JLDOWNLOAD) busybox.exe http://frippery.org/files/busybox/busybox-w32-FRP-483-g31277ab.exe && \
 	chmod a+x 7z.exe && \
 	chmod a+x 7z.dll && \
 	$(call spawn,./7z.exe) x -y -onsis nsis-2.46.5-Unicode-setup.exe && \
-	chmod a+x ./nsis/makensis.exe && \
+	chmod a+x ./nsis/makensis.exe
+ifeq ($(USE_GPL_LIBS), 1)
+	cd $(JULIAHOME)/dist-extras && \
+	$(JLDOWNLOAD) busybox.exe http://frippery.org/files/busybox/busybox-w32-FRP-483-g31277ab.exe && \
 	chmod a+x busybox.exe
+endif
 
 # various statistics about the build that may interest the user
 ifeq ($(USE_SYSTEM_LLVM), 1)

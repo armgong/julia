@@ -3,16 +3,18 @@
 import Base.Pkg.PkgError
 
 function temp_pkg_dir(fn::Function, remove_tmp_dir::Bool=true)
-    # Used in tests below to setup and teardown a sandboxed package directory
-    const tmpdir = ENV["JULIA_PKGDIR"] = joinpath(tempdir(),randstring())
-    @test !isdir(Pkg.dir())
-    try
-        Pkg.init()
-        @test isdir(Pkg.dir())
-        Pkg.resolve()
-        fn()
-    finally
-        remove_tmp_dir && rm(tmpdir, recursive=true)
+    # Used in tests below to set up and tear down a sandboxed package directory
+    const tmpdir = joinpath(tempdir(),randstring())
+    withenv("JULIA_PKGDIR" => tmpdir) do
+        @test !isdir(Pkg.dir())
+        try
+            Pkg.init()
+            @test isdir(Pkg.dir())
+            Pkg.resolve()
+            fn()
+        finally
+            remove_tmp_dir && rm(tmpdir, recursive=true)
+        end
     end
 end
 
@@ -65,7 +67,7 @@ temp_pkg_dir() do
     @test !isempty(Pkg.available())
 
     @test_throws PkgError Pkg.installed("MyFakePackage")
-    @test Pkg.installed("Example") == nothing
+    @test Pkg.installed("Example") === nothing
 
     # check that versioninfo(io, true) doesn't error and produces some output
     # (done here since it calls Pkg.status which might error or clone metadata)
@@ -95,7 +97,7 @@ temp_pkg_dir() do
     end
 
     Pkg.setprotocol!("")
-    @test Pkg.Cache.rewrite_url_to == nothing
+    @test Pkg.Cache.rewrite_url_to === nothing
     Pkg.setprotocol!("https")
     Pkg.add("Example")
     @test [keys(Pkg.installed())...] == ["Example"]
@@ -138,6 +140,66 @@ temp_pkg_dir() do
     str = chomp(takebuf_string(iob))
     @test endswith(str, string(Pkg.installed("Example")))
     @test isempty(Pkg.dependents("Example"))
+
+    # 17364 - a, Pkg.checkout with specific local branch
+    let branch_name = "test-branch-1",
+        branch_commit = "ba3888212e30a7974ac6803a89e64c7098f4865e"
+
+        # create a branch in Example package
+        LibGit2.with(LibGit2.GitRepo, Pkg.dir("Example")) do repo
+            LibGit2.branch!(repo, branch_name, branch_commit, set_head=false)
+        end
+
+        Pkg.clone(Pkg.dir("Example"), "Example2")
+        Pkg.clone(Pkg.dir("Example"), "Example3")
+        open(Pkg.dir("Example3", "README.md"), "w") do f
+            println(f, "overwritten")
+        end
+        LibGit2.with(LibGit2.GitRepo, Pkg.dir("Example3")) do repo
+            LibGit2.add!(repo, "README.md")
+            test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(), 0), 0)
+            LibGit2.commit(repo, "testmsg"; author=test_sig, committer=test_sig)
+        end
+
+        Pkg.checkout("Example2", branch_name)
+        Pkg.checkout("Example3", branch_name)
+
+        LibGit2.with(LibGit2.GitRepo, Pkg.dir("Example2")) do repo
+            @test LibGit2.head_oid(repo) == LibGit2.Oid(branch_commit)
+        end
+        LibGit2.with(LibGit2.GitRepo, Pkg.dir("Example3")) do repo
+            @test LibGit2.head_oid(repo) == LibGit2.Oid(branch_commit)
+        end
+    end
+
+    # 17364 - b, remote off-tree branch
+    let branch_name = "test-branch-2",
+        branch_commit = "ba3888212e30a7974ac6803a89e64c7098f4865e"
+
+        # create a branch in Example package
+        LibGit2.with(LibGit2.GitRepo, Pkg.dir("Example")) do repo
+            LibGit2.branch!(repo, branch_name, branch_commit, set_head=true)
+        end
+
+        # Make changes to local branch
+        open(Pkg.dir("Example", "README.md"), "w") do f
+            println(f, "overwritten")
+        end
+
+        test_commit = LibGit2.with(LibGit2.GitRepo, Pkg.dir("Example")) do repo
+            LibGit2.add!(repo, "README.md")
+            test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(), 0), 0)
+            LibGit2.commit(repo, "testmsg"; author=test_sig, committer=test_sig)
+        end
+        Pkg.checkout("Example")
+
+        Pkg.clone(Pkg.dir("Example"), "Example4")
+        Pkg.checkout("Example4", branch_name)
+
+        LibGit2.with(LibGit2.GitRepo, Pkg.dir("Example4")) do repo
+            @test LibGit2.head_oid(repo) == test_commit
+        end
+    end
 
     # adding a package with unsatisfiable julia version requirements (REPL.jl) errors
     try
@@ -393,7 +455,7 @@ temp_pkg_dir() do
     # issue #15948
     let package = "Example"
         Pkg.rm(package)  # Remove package if installed
-        @test Pkg.installed(package) == nothing  # Registered with METADATA but not installed
+        @test Pkg.installed(package) === nothing  # Registered with METADATA but not installed
         msg = readstring(ignorestatus(`$(Base.julia_cmd()) -f -e "redirect_stderr(STDOUT); Pkg.build(\"$package\")"`))
         @test contains(msg, "$package is not an installed package")
         @test !contains(msg, "signal (15)")

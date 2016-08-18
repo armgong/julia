@@ -43,7 +43,7 @@ test_code_reflections(test_bin_reflection, code_native)
 mktemp() do f, io
     OLDSTDOUT = STDOUT
     redirect_stdout(io)
-    @test try @code_native map(y->abs(y), rand(3)); true; catch false; end
+    @test try @code_native map(abs, rand(3)); true; catch false; end
     redirect_stdout(OLDSTDOUT)
 end
 
@@ -221,6 +221,7 @@ let
     @test Base.function_module(foo9475, (Any,)) == TestMod7648.TestModSub9475
     @test Base.function_module(foo9475) == TestMod7648.TestModSub9475
     @test Base.datatype_module(Foo7648) == TestMod7648
+    @test Base.datatype_name(Foo7648) == :Foo7648
     @test basename(functionloc(foo7648, (Any,))[1]) == "reflection.jl"
     @test first(methods(TestMod7648.TestModSub9475.foo7648)) == @which foo7648(5)
     @test TestMod7648 == @which foo7648
@@ -531,4 +532,24 @@ if is_windows()
     end
 else
     @test isnull(h16850)
+end
+
+# Adds test for PR #17636
+let
+    a = @code_typed 1 + 1
+    b = @code_lowered 1 + 1
+    @test isa(a, LambdaInfo)
+    @test isa(b, LambdaInfo)
+
+    function thing(a::Array, b::Real)
+        println("thing")
+    end
+    function thing(a::AbstractArray, b::Int)
+        println("blah")
+    end
+    @test_throws MethodError thing(rand(10), 1)
+    a = @code_typed thing(rand(10), 1)
+    b = @code_lowered thing(rand(10), 1)
+    @test length(a) == 0
+    @test length(b) == 0
 end

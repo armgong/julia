@@ -720,6 +720,13 @@ function testset_forloop(args, testloop)
     # wrapped in the outer loop provided by the user
     tests = testloop.args[2]
     blk = quote
+        # Trick to handle `break` and `continue` in the test code before
+        # they can be handled properly by `finally` lowering.
+        if !first_iteration
+            pop_testset()
+            push!(arr, finish(ts))
+        end
+        first_iteration = false
         ts = $(testsettype)($desc; $options...)
         push_testset(ts)
         try
@@ -729,10 +736,22 @@ function testset_forloop(args, testloop)
             # error in this test set
             record(ts, Error(:nontest_error, :(), err, catch_backtrace()))
         end
-        pop_testset()
-        finish(ts)
     end
-    Expr(:comprehension, blk, [esc(v) for v in loopvars]...)
+    quote
+        arr = Array{Any,1}(0)
+        first_iteration = true
+        local ts
+        try
+            $(Expr(:for, Expr(:block, [esc(v) for v in loopvars]...), blk))
+        finally
+            # Handle `return` in test body
+            if !first_iteration
+                pop_testset()
+                push!(arr, finish(ts))
+            end
+        end
+        arr
+    end
 end
 
 """
@@ -822,10 +841,11 @@ approx_full(x) = full(x)
 function test_approx_eq(va, vb, Eps, astr, bstr)
     va = approx_full(va)
     vb = approx_full(vb)
-    if length(va) != length(vb)
+    la, lb = length(linearindices(va)), length(linearindices(vb))
+    if la != lb
         error("lengths of ", astr, " and ", bstr, " do not match: ",
-              "\n  ", astr, " (length $(length(va))) = ", va,
-              "\n  ", bstr, " (length $(length(vb))) = ", vb)
+              "\n  ", astr, " (length $la) = ", va,
+              "\n  ", bstr, " (length $lb) = ", vb)
     end
     diff = real(zero(eltype(va)))
     for (xa, xb) = zip(va, vb)
@@ -851,7 +871,7 @@ array_eps{T}(a::AbstractArray{Complex{T}}) = eps(float(maximum(x->(isfinite(x) ?
 array_eps(a) = eps(float(maximum(x->(isfinite(x) ? abs(x) : oftype(x,NaN)), a)))
 
 test_approx_eq(va, vb, astr, bstr) =
-    test_approx_eq(va, vb, 1E4*length(va)*max(array_eps(va), array_eps(vb)), astr, bstr)
+    test_approx_eq(va, vb, 1E4*length(linearindices(va))*max(array_eps(va), array_eps(vb)), astr, bstr)
 
 """
     @test_approx_eq_eps(a, b, tol)
@@ -913,6 +933,9 @@ julia> @inferred max(1,2)
 ```
 """
 macro inferred(ex)
+    if Meta.isexpr(ex, :ref)
+        ex = Expr(:call, :getindex, ex.args...)
+    end
     Meta.isexpr(ex, :call)|| error("@inferred requires a call expression")
 
     Base.remove_linenums!(quote
@@ -958,10 +981,10 @@ end
 # nothing.
 function test_approx_eq_modphase{S<:Real,T<:Real}(
         a::StridedVecOrMat{S}, b::StridedVecOrMat{T}, err=nothing)
-    m, n = size(a)
-    @test n==size(b, 2) && m==size(b, 1)
+    @test indices(a,1) == indices(b,1) && indices(a,2) == indices(b,2)
+    m = length(indices(a,1))
     err === nothing && (err=m^3*(eps(S)+eps(T)))
-    for i=1:n
+    for i in indices(a,2)
         v1, v2 = a[:, i], b[:, i]
         @test_approx_eq_eps min(abs(norm(v1-v2)), abs(norm(v1+v2))) 0.0 err
     end

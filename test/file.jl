@@ -179,7 +179,7 @@ if !is_windows()
     end
 else
     # test that chown doesn't cause any errors for Windows
-    @test chown(file, -2, -2) == nothing
+    @test chown(file, -2, -2) === nothing
 end
 
 #######################################################################
@@ -263,8 +263,8 @@ test_monitor_wait_poll()
 test_watch_file_timeout(0.1)
 test_watch_file_change(6)
 
-@test_throws Base.UVError watch_file("nonexistantfile", 10)
-@test_throws Base.UVError poll_file("nonexistantfile", 2, 10)
+@test_throws Base.UVError watch_file("____nonexistent_file", 10)
+@test_throws Base.UVError poll_file("____nonexistent_file", 2, 10)
 
 ##############
 # mark/reset #
@@ -1109,7 +1109,7 @@ function test_13559()
     run(`mkfifo $fn`)
     # use subprocess to write 127 bytes to FIFO
     writer_cmds = "x=open(\"$fn\", \"w\"); for i=1:127 write(x,0xaa); flush(x); sleep(0.1) end; close(x); quit()"
-    open(pipeline(`$(Base.julia_cmd()) -e $writer_cmds`, stderr=STDERR))
+    open(pipeline(`$(Base.julia_cmd()) --startup-file=no -e $writer_cmds`, stderr=STDERR))
     #quickly read FIFO, draining it and blocking but not failing with EOFError yet
     r = open(fn, "r")
     # 15 proper reads

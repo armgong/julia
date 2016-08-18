@@ -278,7 +278,11 @@ ndigits_mismatch(n) = ndigits(n) != ndigits(BigInt(n))
 ndigits(rand(big(-999:999)), rand(63:typemax(Int)))
 ndigits(rand(big(-999:999)), big(2)^rand(2:999))
 
-@test_throws DomainError ndigits(rand(big(-999:999)), rand(typemin(Int):1))
+for i in big([-20:-1;1:20])
+    for b in -10:1
+        @test_throws DomainError ndigits(i, b)
+    end
+end
 
 # conversion from float
 @test BigInt(2.0) == BigInt(2.0f0) == BigInt(big(2.0)) == 2
@@ -311,3 +315,22 @@ ndigits(rand(big(-999:999)), big(2)^rand(2:999))
 
 @test big(5)^true == big(5)
 @test big(5)^false == one(BigInt)
+
+
+# operations that when applied to Int64 give Float64, should give BigFloat
+@test typeof(exp(a)) == BigFloat
+@test typeof(exp2(a)) == BigFloat
+@test typeof(exp10(a)) == BigFloat
+@test typeof(expm1(a)) == BigFloat
+@test typeof(erf(a)) == BigFloat
+@test typeof(erfc(a)) == BigFloat
+@test typeof(cosh(a)) == BigFloat
+@test typeof(sinh(a)) == BigFloat
+@test typeof(tanh(a)) == BigFloat
+@test typeof(sech(a)) == BigFloat
+@test typeof(csch(a)) == BigFloat
+@test typeof(coth(a)) == BigFloat
+@test typeof(cbrt(a)) == BigFloat
+@test typeof(tan(a)) == BigFloat
+@test typeof(cos(a)) == BigFloat
+@test typeof(sin(a)) == BigFloat

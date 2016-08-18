@@ -67,30 +67,30 @@ if !is_windows() || Sys.windows_version() >= Sys.WINDOWS_VISTA_VER
     # calling readuntil() to suppress the warning it (currently) gives for
     # long strings.
     origpwd = pwd()
-    tmpdir = mktempdir()
-    write(stdin_write, ";")
-    readuntil(stdout_read, "shell> ")
-    write(stdin_write, "cd $(escape_string(tmpdir))\n")
-    readuntil(stdout_read, "cd $(escape_string(tmpdir))"[max(1,end-39):end])
-    readuntil(stdout_read, realpath(tmpdir)[max(1,end-39):end])
-    readuntil(stdout_read, "\n")
-    readuntil(stdout_read, "\n")
-    @test pwd() == realpath(tmpdir)
-    write(stdin_write, ";")
-    readuntil(stdout_read, "shell> ")
-    write(stdin_write, "cd -\n")
-    readuntil(stdout_read, origpwd[max(1,end-39):end])
-    readuntil(stdout_read, "\n")
-    readuntil(stdout_read, "\n")
-    @test pwd() == origpwd
-    write(stdin_write, ";")
-    readuntil(stdout_read, "shell> ")
-    write(stdin_write, "cd\n")
-    readuntil(stdout_read, homedir()[max(1,end-39):end])
-    readuntil(stdout_read, "\n")
-    readuntil(stdout_read, "\n")
-    @test pwd() == homedir()
-    rm(tmpdir)
+    mktempdir() do tmpdir
+        write(stdin_write, ";")
+        readuntil(stdout_read, "shell> ")
+        write(stdin_write, "cd $(escape_string(tmpdir))\n")
+        readuntil(stdout_read, "cd $(escape_string(tmpdir))"[max(1,end-39):end])
+        readuntil(stdout_read, realpath(tmpdir)[max(1,end-39):end])
+        readuntil(stdout_read, "\n")
+        readuntil(stdout_read, "\n")
+        @test pwd() == realpath(tmpdir)
+        write(stdin_write, ";")
+        readuntil(stdout_read, "shell> ")
+        write(stdin_write, "cd -\n")
+        readuntil(stdout_read, origpwd[max(1,end-39):end])
+        readuntil(stdout_read, "\n")
+        readuntil(stdout_read, "\n")
+        @test pwd() == origpwd
+        write(stdin_write, ";")
+        readuntil(stdout_read, "shell> ")
+        write(stdin_write, "cd\n")
+        readuntil(stdout_read, homedir()[max(1,end-39):end])
+        readuntil(stdout_read, "\n")
+        readuntil(stdout_read, "\n")
+        @test pwd() == homedir()
+    end
     cd(origpwd)
 
     # Test that accepting a REPL result immediately shows up, not
@@ -130,7 +130,7 @@ if !is_windows() || Sys.windows_version() >= Sys.WINDOWS_VISTA_VER
         isopen(t) || return
         error("Stuck waiting for history test")
     end
-    s1 = "12345678"; s2 = "23456789";
+    s1 = "12345678"; s2 = "23456789"
     write(stdin_write, s1, '\n')
     readuntil(stdout_read, s1)
     write(stdin_write, s2, '\n')
@@ -190,7 +190,7 @@ function AddCustomMode(repl)
     b = Dict{Any,Any}[skeymap, mk, LineEdit.history_keymap, LineEdit.default_keymap, LineEdit.escape_defaults]
     foobar_mode.keymap_dict = LineEdit.keymap(b)
 
-    main_mode.keymap_dict = LineEdit.keymap_merge(main_mode.keymap_dict, foobar_keymap);
+    main_mode.keymap_dict = LineEdit.keymap_merge(main_mode.keymap_dict, foobar_keymap)
     foobar_mode, search_prompt
 end
 
@@ -397,6 +397,66 @@ begin
     # Try entering search mode while in custom repl mode
     LineEdit.enter_search(s, custom_histp, true)
 end
+
+# Test removal of prompt in bracket pasting
+begin
+    stdin_write, stdout_read, stderr_read, repl = fake_repl()
+
+    repl.interface = REPL.setup_interface(repl)
+    repl_mode = repl.interface.modes[1]
+    shell_mode = repl.interface.modes[2]
+    help_mode = repl.interface.modes[3]
+
+    repltask = @async begin
+        Base.REPL.run_repl(repl)
+    end
+
+    c = Condition()
+
+    sendrepl2(cmd) = write(stdin_write,"$cmd\n notify(c)\n")
+
+    # Test removal of prefix in single statement paste
+    sendrepl2("\e[200~julia> A = 2\e[201~\n")
+    wait(c)
+    @test A == 2
+
+    # Test removal of prefix in multiple statement paste
+    sendrepl2("""\e[200~
+            julia> type T17599; a::Int; end
+
+            julia> function foo(julia)
+            julia> 3
+                end
+
+                    julia> A = 3\e[201~
+             """)
+    wait(c)
+    @test A == 3
+    @test foo(4)
+    @test T17599(3).a == 3
+    @test !foo(2)
+
+    sendrepl2("""\e[200~
+            julia> goo(x) = x + 1
+            error()
+
+            julia> A = 4
+            4\e[201~
+             """)
+    wait(c)
+    @test A == 4
+    @test goo(4) == 5
+
+    # Test prefix removal only active in bracket paste mode
+    sendrepl2("julia = 4\n julia> 3 && (A = 1)\n")
+    wait(c)
+    @test A == 1
+
+    # Close repl
+    write(stdin_write, '\x04')
+    wait(repltask)
+end
+
 # Simple non-standard REPL tests
 if !is_windows() || Sys.windows_version() >= Sys.WINDOWS_VISTA_VER
     stdin_write, stdout_read, stdout_read, repl = fake_repl()
@@ -444,40 +504,25 @@ let exename = Base.julia_cmd()
 
 # Test REPL in dumb mode
 if !is_windows()
-    const O_RDWR = Base.Filesystem.JL_O_RDWR
-    const O_NOCTTY = Base.Filesystem.JL_O_NOCTTY
+    TestHelpers.with_fake_pty() do slave, master
 
-    fdm = ccall(:posix_openpt, Cint, (Cint,), O_RDWR|O_NOCTTY)
-    fdm == -1 && error("Failed to open PTY master")
-    rc = ccall(:grantpt, Cint, (Cint,), fdm)
-    rc != 0 && error("grantpt failed")
-    rc = ccall(:unlockpt, Cint, (Cint,), fdm)
-    rc != 0 && error("unlockpt")
+        nENV = copy(ENV)
+        nENV["TERM"] = "dumb"
+        p = spawn(setenv(`$exename --startup-file=no --quiet`,nENV),slave,slave,slave)
+        output = readuntil(master,"julia> ")
+        if ccall(:jl_running_on_valgrind,Cint,()) == 0
+            # If --trace-children=yes is passed to valgrind, we will get a
+            # valgrind banner here, not just the prompt.
+            @test output == "julia> "
+        end
+        write(master,"1\nquit()\n")
 
-    fds = ccall(:open, Cint, (Ptr{UInt8}, Cint),
-        ccall(:ptsname, Ptr{UInt8}, (Cint,), fdm), O_RDWR|O_NOCTTY)
+        wait(p)
+        output = readuntil(master,' ')
+        @test output == "1\r\nquit()\r\n1\r\n\r\njulia> "
+        @test nb_available(master) == 0
 
-    # slave
-    slave   = RawFD(fds)
-    master = Base.TTY(RawFD(fdm); readable = true)
-
-    nENV = copy(ENV)
-    nENV["TERM"] = "dumb"
-    p = spawn(setenv(`$exename --startup-file=no --quiet`,nENV),slave,slave,slave)
-    output = readuntil(master,"julia> ")
-    if ccall(:jl_running_on_valgrind,Cint,()) == 0
-        # If --trace-children=yes is passed to valgrind, we will get a
-        # valgrind banner here, not just the prompt.
-        @test output == "julia> "
     end
-    write(master,"1\nquit()\n")
-
-    wait(p)
-    output = readuntil(master,' ')
-    @test output == "1\r\nquit()\r\n1\r\n\r\njulia> "
-    @test nb_available(master) == 0
-    ccall(:close,Cint,(Cint,),fds) # XXX: this causes the kernel to throw away all unread data on the pty
-    close(master)
 end
 
 # Test stream mode

@@ -2310,7 +2310,7 @@ function test_wr()
     test_wr(ref, wref)
     pop!(ref)
     gc()
-    @test wref[1].value == nothing
+    @test wref[1].value === nothing
 end
 test_wr()
 
@@ -2955,7 +2955,7 @@ f10978(T::TupleType10978) = isa(T, TupleType10978)
 @test f10978(Tuple{Int})
 
 # issue #10995
-#typealias TupleType{T<:Tuple} Type{T};
+#typealias TupleType{T<:Tuple} Type{T}
 f10995(::Any) = (while false; end; nothing)
 f10995(T::TupleType10978) = (while false; end; @assert isa(T, TupleType10978))
 g10995(x) = f10995(typeof(x))
@@ -3130,13 +3130,13 @@ end
 
 # issue 11874
 immutable Foo11874
-   x::Int
+    x::Int
 end
 
 function bar11874(x)
-   local y::Foo11874
-   y = x
-   nothing
+    local y::Foo11874
+    y = x
+    nothing
 end
 
 Base.convert(::Type{Foo11874},x::Int) = float(x)
@@ -3376,9 +3376,9 @@ gg13183{X}(x::X...) = 1==0 ? gg13183(x, x) : 0
 
 # issue 8932 (llvm return type legalizer error)
 immutable Vec3_8932
-   x::Float32
-   y::Float32
-   z::Float32
+    x::Float32
+    y::Float32
+    z::Float32
 end
 f8932(a::Vec3_8932, b::Vec3_8932) = Vec3_8932(a.x % b.x, a.y % b.y, a.z % b.z)
 a8932 = Vec3_8932(1,1,1)
@@ -3416,9 +3416,9 @@ immutable X13647
     b::Bool
 end
 function f13647(x, y)
-   z = false
-   z = y
-   x === z
+    z = false
+    z = y
+    x === z
 end
 @test f13647(X13647(1, false), X13647(1, false))
 @test !f13647(X13647(1, false), X13647(1, true))
@@ -4364,6 +4364,15 @@ g1090{T}(x::T)::T = x+1.0
 @test g1090(1) === 2
 @test g1090(Float32(3)) === Float32(4)
 
+function f17613_2(x)::Float64
+    try
+        return x
+    catch
+        return x+1
+    end
+end
+@test isa(f17613_2(1), Float64)
+
 # issue #16783
 function f16783()
     T = UInt32
@@ -4452,3 +4461,18 @@ end
 #end
 #@test local_innersig(Int32(2)) == ((Int32(2), Int32(1), Int32(2)im), (Int32(2), UInt32(1)))
 #@test local_innersig(Int64(3)) == ((Int64(3), Int64(1), Int64(3)im), (Int64(3), UInt64(1)))
+
+# Issue 4914
+let
+    j(j) = j
+    @test j(1) == 1
+    k(x) = (k = x; k)
+    @test k(1) == 1
+end
+
+# PR #18054: compilation of cfunction leaves IRBuilder in bad state,
+#            causing heap-use-after-free when compiling f18054
+function f18054()
+    return Cint(0)
+end
+cfunction(f18054, Cint, ())

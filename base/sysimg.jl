@@ -101,6 +101,7 @@ include("multinverses.jl")
 using .MultiplicativeInverses
 include("abstractarraymath.jl")
 include("arraymath.jl")
+include("float16.jl")
 
 # SIMD loops
 include("simdloop.jl")
@@ -152,6 +153,12 @@ include("show.jl")
 include("base64.jl")
 importall .Base64
 
+# nullable types
+include("nullable.jl")
+
+# version
+include("version.jl")
+
 # system & environment
 include("libc.jl")
 using .Libc: getpid, gethostname, time
@@ -159,14 +166,13 @@ include("libdl.jl")
 using .Libdl: DL_LOAD_PATH
 include("env.jl")
 
-# nullable types
-include("nullable.jl")
-
 # Scheduling
 include("libuv.jl")
 include("event.jl")
 include("task.jl")
 include("lock.jl")
+include("threads.jl")
+include("weakkeydict.jl")
 
 # I/O
 include("stream.jl")
@@ -186,7 +192,6 @@ include("math.jl")
 importall .Math
 const (√)=sqrt
 const (∛)=cbrt
-include("float16.jl")
 
 # multidimensional arrays
 include("cartesian.jl")
@@ -216,9 +221,6 @@ include("collections.jl")
 # Combinatorics
 include("sort.jl")
 importall .Sort
-
-# version
-include("version.jl")
 
 function deepcopy_internal end
 
@@ -342,8 +344,7 @@ import .Dates: Date, DateTime, now
 include("sparse/sparse.jl")
 importall .SparseArrays
 
-# threads
-include("threads.jl")
+# worker threads
 include("threadcall.jl")
 
 # deprecated functions

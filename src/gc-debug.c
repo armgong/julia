@@ -4,6 +4,12 @@
 #include <inttypes.h>
 #include <stdio.h>
 
+// re-include assert.h without NDEBUG,
+// so that we can always use the assert macro in this file
+// for use under their respective enable flags
+#undef NDEBUG
+#include <assert.h>
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -250,6 +256,119 @@ void gc_verify(jl_ptls_t ptls)
 }
 #endif
 
+#ifdef MEMFENCE
+static uint8_t freelist_map[GC_PAGE_SZ / sizeof(void*) / 8];
+static int freelist_zerod;
+void gc_verify_tags(void)
+{
+    // verify the freelist chains look valid
+    for (int t_i = 0; t_i < jl_n_threads; t_i++) {
+        jl_ptls_t ptls2 = jl_all_tls_states[t_i];
+        for (int i = 0; i < JL_GC_N_POOLS; i++) {
+            // for all pools, iterate its freelist
+            jl_gc_pool_t *p = &ptls2->heap.norm_pools[i];
+            jl_taggedvalue_t *next = p->freelist;
+            jl_taggedvalue_t *last = NULL;
+            char *allocating = gc_page_data(next);
+            while (next) {
+                // and assert that the freelist values aren't gc-marked
+                assert(next->bits.gc == 0);
+                // TODO: verify they are ordered and on the right byte boundaries
+                if (gc_page_data(next) != gc_page_data(last)) {
+                    // and verify that the chain looks valid
+                    jl_gc_pagemeta_t *pg = page_metadata(next);
+                    assert(pg->osize == p->osize);
+                    if (gc_page_data(next) != allocating) {
+                        // when not currently allocating on this page, fl_begin_offset should be correct
+                        assert(next == page_pfl_beg(pg));
+                    }
+                }
+                last = next;
+                next = next->next;
+            }
+        }
+    }
+
+
+    // verify that all the objects on every page are either valid julia objects
+    // or are part of the freelist or are on the allocated half of a page
+    for (int region_i = 0; region_i < REGION_COUNT; region_i++) {
+        if (!regions[region_i].pages)
+            break;
+        region_t *region = &regions[region_i];
+        for (int pg_i = 0; pg_i <= region->ub; pg_i++) {
+            uint32_t line = region->allocmap[pg_i];
+            if (line) {
+                for (int j = 0; j < 32; j++) {
+                    if ((line >> j) & 1) {
+                        // for all pages in use
+                        jl_gc_pagemeta_t *pg = &region->meta[pg_i*32 + j];
+                        int p_n = pg->pool_n;
+                        int t_n = pg->thread_n;
+                        jl_ptls_t ptls2 = jl_all_tls_states[t_n];
+                        jl_gc_pool_t *p = &ptls2->heap.norm_pools[p_n];
+                        int osize = pg->osize;
+                        char *data = pg->data;
+                        char *page_begin = data + GC_PAGE_OFFSET;
+                        jl_taggedvalue_t *v = (jl_taggedvalue_t*)page_begin;
+                        char *lim = data + GC_PAGE_SZ - osize;
+                        // reset the freelist map to zero
+                        if (!freelist_zerod) {
+                            memset(freelist_map, 0, sizeof(freelist_map));
+                            freelist_zerod = 1;
+                        }
+                        // check for p in new newpages list
+                        jl_taggedvalue_t *halfpages = p->newpages;
+                        while (halfpages) {
+                            char *cur_page = gc_page_data((char*)halfpages - 1);
+                            if (cur_page == data) {
+                                lim = (char*)halfpages - 1;
+                                break;
+                            }
+                            halfpages = *(jl_taggedvalue_t**)cur_page;
+                        }
+                        // compute the freelist_map
+                        if (pg->nfree) {
+                            jl_taggedvalue_t *next = NULL;
+                            if (gc_page_data(p->freelist) == data) {
+                                // currently allocating on this page
+                                next = p->freelist;
+                                assert(page_metadata(next)->osize == osize);
+                                freelist_zerod = 0;
+                            }
+                            else if (pg->fl_begin_offset != (uint16_t)-1) {
+                                // part of free list exists on this page
+                                next = page_pfl_beg(pg);
+                                freelist_zerod = 0;
+                            }
+                            assert(halfpages || next);
+                            while (gc_page_data(next) == data) {
+                                int obj_idx = (((char*)next) - page_begin) / sizeof(void*);
+                                freelist_map[obj_idx / 8] |= 1 << (obj_idx % 7);
+                                next = next->next;
+                            }
+                        }
+                        // validate all of the tags on the page
+                        while ((char*)v <= lim) {
+                            int obj_idx = (((char*)v) - page_begin) / sizeof(void*);
+                            int in_freelist = freelist_map[obj_idx / 8] & (1 << (obj_idx % 7));
+                            if (!in_freelist) {
+                                jl_value_t *dt = jl_typeof(jl_valueof(v));
+                                // 0x10 (type) and 0x20 (singleton) are used by the incremental serializer to invalidate objects
+                                if (dt != (jl_value_t*)jl_buff_tag && v->header != 0x10 && v->header != 0x20) {
+                                    assert(jl_typeof(dt) == (jl_value_t*)jl_datatype_type);
+                                }
+                            }
+                            v = (jl_taggedvalue_t*)((char*)v + osize);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+#endif
+
 #ifdef GC_DEBUG_ENV
 JL_DLLEXPORT jl_gc_debug_env_t jl_gc_debug_env = {
     0, 0,
@@ -257,7 +376,6 @@ JL_DLLEXPORT jl_gc_debug_env_t jl_gc_debug_env = {
     {0, UINT64_MAX, 0, 0, 0, {0, 0, 0}},
     {0, UINT64_MAX, 0, 0, 0, {0, 0, 0}}
 };
-static char *gc_stack_lo;
 
 static void gc_debug_alloc_setnext(jl_alloc_num_t *num)
 {
@@ -345,11 +463,26 @@ void gc_debug_print(void)
     gc_debug_print_status();
 }
 
-static void gc_scrub_range(char *stack_lo, char *stack_hi)
+// a list of tasks for conservative stack scan during gc_scrub
+static arraylist_t jl_gc_debug_tasks;
+
+void gc_scrub_record_task(jl_task_t *t)
 {
-    stack_lo = (char*)((uintptr_t)stack_lo & ~(uintptr_t)15);
-    for (char **stack_p = (char**)stack_lo;
-         stack_p > (char**)stack_hi;stack_p--) {
+    arraylist_push(&jl_gc_debug_tasks, t);
+}
+
+static void gc_scrub_range(char *low, char *high)
+{
+    jl_ptls_t ptls = jl_get_ptls_states();
+    jl_jmp_buf *old_buf = ptls->safe_restore;
+    jl_jmp_buf buf;
+    if (jl_setjmp(buf, 0)) {
+        ptls->safe_restore = old_buf;
+        return;
+    }
+    ptls->safe_restore = &buf;
+    low = (char*)((uintptr_t)low & ~(uintptr_t)15);
+    for (char **stack_p = ((char**)high) - 1; stack_p > (char**)low; stack_p--) {
         char *p = *stack_p;
         size_t osize;
         jl_taggedvalue_t *tag = jl_gc_find_taggedvalue_pool(p, &osize);
@@ -371,11 +504,42 @@ static void gc_scrub_range(char *stack_lo, char *stack_hi)
         // set mark to GC_MARKED (young and marked)
         tag->bits.gc = GC_MARKED;
     }
+    ptls->safe_restore = old_buf;
 }
 
-void gc_scrub(char *stack_hi)
+static void gc_scrub_task(jl_task_t *ta)
 {
-    gc_scrub_range(gc_stack_lo, stack_hi);
+    int16_t tid = ta->tid;
+    jl_ptls_t ptls = jl_get_ptls_states();
+    jl_ptls_t ptls2 = jl_all_tls_states[tid];
+    if (ptls == ptls2 && ta == ptls2->current_task) {
+        // scan up to current `sp` for current thread and task
+        char *low = (char*)jl_get_frame_addr();
+#ifdef COPY_STACKS
+        gc_scrub_range(low, ptls2->stack_hi);
+#else
+        gc_scrub_range(low, (char*)ta->stkbuf + ta->ssize);
+#endif
+        return;
+    }
+    // The task that owns/is running on the threads's stack.
+#ifdef COPY_STACKS
+    jl_task_t *thread_task = ptls2->current_task;
+#else
+    jl_task_t *thread_task = ptls2->root_task;
+#endif
+    if (ta == thread_task)
+        gc_scrub_range(ptls2->stack_lo, ptls2->stack_hi);
+    if (ta->stkbuf == (void*)(intptr_t)(-1) || !ta->stkbuf)
+        return;
+    gc_scrub_range((char*)ta->stkbuf, (char*)ta->stkbuf + ta->ssize);
+}
+
+void gc_scrub(void)
+{
+    for (size_t i = 0; i < jl_gc_debug_tasks.len; i++)
+        gc_scrub_task((jl_task_t*)jl_gc_debug_tasks.items[i]);
+    jl_gc_debug_tasks.len = 0;
 }
 #else
 void gc_debug_critical_error(void)
@@ -694,7 +858,6 @@ void gc_time_sweep_pause(uint64_t gc_end_t, int64_t actual_allocd,
 void gc_debug_init(void)
 {
 #ifdef GC_DEBUG_ENV
-    gc_stack_lo = (char*)gc_get_stack_ptr();
     char *env = getenv("JULIA_GC_NO_GENERATIONAL");
     if (env && strcmp(env, "0") != 0)
         jl_gc_debug_env.always_full = 1;
@@ -703,6 +866,7 @@ void gc_debug_init(void)
     gc_debug_alloc_init(&jl_gc_debug_env.pool, "POOL");
     gc_debug_alloc_init(&jl_gc_debug_env.other, "OTHER");
     gc_debug_alloc_init(&jl_gc_debug_env.print, "PRINT");
+    arraylist_new(&jl_gc_debug_tasks, 0);
 #endif
 
 #ifdef GC_VERIFY

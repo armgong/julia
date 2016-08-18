@@ -48,6 +48,7 @@ one{N}(::CartesianIndex{N}) = one(CartesianIndex{N})
 one{N}(::Type{CartesianIndex{N}}) = CartesianIndex(ntuple(x -> 1, Val{N}))
 
 # arithmetic, min/max
+(-){N}(index::CartesianIndex{N}) = CartesianIndex{N}(map(-, index.I))
 (+){N}(index1::CartesianIndex{N}, index2::CartesianIndex{N}) = CartesianIndex{N}(map(+, index1.I, index2.I))
 (-){N}(index1::CartesianIndex{N}, index2::CartesianIndex{N}) = CartesianIndex{N}(map(-, index1.I, index2.I))
 min{N}(index1::CartesianIndex{N}, index2::CartesianIndex{N}) = CartesianIndex{N}(map(min, index1.I, index2.I))
@@ -78,7 +79,7 @@ end
 CartesianRange{N}(index::CartesianIndex{N}) = CartesianRange(one(index), index)
 CartesianRange(::Tuple{}) = CartesianRange{CartesianIndex{0}}(CartesianIndex{0}(()),CartesianIndex{0}(()))
 CartesianRange{N}(sz::NTuple{N,Int}) = CartesianRange(CartesianIndex(sz))
-CartesianRange{N}(rngs::NTuple{N,Union{Integer,AbstractUnitRange}}) = CartesianRange(CartesianIndex(map(r->first(r), rngs)), CartesianIndex(map(r->last(r), rngs)))
+CartesianRange{N}(rngs::NTuple{N,Union{Integer,AbstractUnitRange}}) = CartesianRange(CartesianIndex(map(first, rngs)), CartesianIndex(map(last, rngs)))
 
 ndims(R::CartesianRange) = length(R.start)
 ndims{I<:CartesianIndex}(::Type{CartesianRange{I}}) = length(I)
@@ -157,7 +158,7 @@ end  # IteratorsMD
 using .IteratorsMD
 
 ## Bounds-checking with CartesianIndex
-@inline checkbounds_indices(::Type{Bool}, ::Tuple{},   I::Tuple{CartesianIndex,Vararg{Any}}) =
+@inline checkbounds_indices(::Type{Bool}, ::Tuple{}, I::Tuple{CartesianIndex,Vararg{Any}}) =
     checkbounds_indices(Bool, (), (I[1].I..., tail(I)...))
 @inline checkbounds_indices(::Type{Bool}, IA::Tuple{Any}, I::Tuple{CartesianIndex,Vararg{Any}}) =
     checkbounds_indices(Bool, IA, (I[1].I..., tail(I)...))
@@ -317,7 +318,7 @@ function _unsafe_getindex(::LinearFast, src::AbstractArray, I::AbstractArray{Boo
 
     D = eachindex(dest)
     Ds = start(D)
-    s = 0
+    s = first(linearindices(src))-1
     for i in eachindex(I)
         s += 1
         @inbounds if I[i]
@@ -496,8 +497,56 @@ for (f, fmod, op) = ((:cummin, :_cummin!, :min), (:cummax, :_cummax!, :max))
     @eval ($f)(A::AbstractArray) = ($f)(A, 1)
 end
 
- cumsum(A::AbstractArray, axis::Integer=1) =  cumsum!(similar(A, Base._cumsum_type(A)), A, axis)
+"""
+    cumsum(A, dim=1)
+
+Cumulative sum along a dimension `dim` (defaults to 1). See also [`cumsum!`](:func:`cumsum!`)
+to use a preallocated output array, both for performance and to control the precision of the
+output (e.g. to avoid overflow).
+
+```jldoctest
+julia> a = [1 2 3; 4 5 6]
+2×3 Array{Int64,2}:
+ 1  2  3
+ 4  5  6
+
+julia> cumsum(a,1)
+2×3 Array{Int64,2}:
+ 1  2  3
+ 5  7  9
+
+julia> cumsum(a,2)
+2×3 Array{Int64,2}:
+ 1  3   6
+ 4  9  15
+```
+"""
+cumsum(A::AbstractArray, axis::Integer=1) =  cumsum!(similar(A, Base._cumsum_type(A)), A, axis)
 cumsum!(B, A::AbstractArray) = cumsum!(B, A, 1)
+"""
+    cumprod(A, dim=1)
+
+Cumulative product along a dimension `dim` (defaults to 1). See also
+[`cumprod!`](:func:`cumprod!`) to use a preallocated output array, both for performance and
+to control the precision of the output (e.g. to avoid overflow).
+
+```jldoctest
+julia> a = [1 2 3; 4 5 6]
+2×3 Array{Int64,2}:
+ 1  2  3
+ 4  5  6
+
+julia> cumprod(a,1)
+2×3 Array{Int64,2}:
+ 1   2   3
+ 4  10  18
+
+julia> cumprod(a,2)
+2×3 Array{Int64,2}:
+ 1   2    6
+ 4  20  120
+```
+"""
 cumprod(A::AbstractArray, axis::Integer=1) = cumprod!(similar(A), A, axis)
 cumprod!(B, A) = cumprod!(B, A, 1)
 
@@ -561,6 +610,135 @@ function copy!{T,N}(dest::AbstractArray{T,N}, src::AbstractArray{T,N})
     dest
 end
 
+function copy!(dest::AbstractArray, Rdest::CartesianRange, src::AbstractArray, Rsrc::CartesianRange)
+    isempty(Rdest) && return dest
+    size(Rdest) == size(Rsrc) || throw(ArgumentError("source and destination must have same size (got $(size(Rsrc)) and $(size(Rdest)))"))
+    @boundscheck checkbounds(dest, Rdest.start)
+    @boundscheck checkbounds(dest, Rdest.stop)
+    @boundscheck checkbounds(src, Rsrc.start)
+    @boundscheck checkbounds(src, Rsrc.stop)
+    deltaI = Rdest.start - Rsrc.start
+    for I in Rsrc
+        @inbounds dest[I+deltaI] = src[I]
+    end
+    dest
+end
+
+# circshift!
+circshift!(dest::AbstractArray, src, ::Tuple{}) = copy!(dest, src)
+"""
+    circshift!(dest, src, shifts)
+
+Circularly shift the data in `src`, storing the result in
+`dest`. `shifts` specifies the amount to shift in each dimension.
+
+The `dest` array must be distinct from the `src` array (they cannot
+alias each other).
+
+See also `circshift`.
+"""
+@noinline function circshift!{T,N}(dest::AbstractArray{T,N}, src, shiftamt::DimsInteger)
+    dest === src && throw(ArgumentError("dest and src must be separate arrays"))
+    inds = indices(src)
+    indices(dest) == inds || throw(ArgumentError("indices of src and dest must match (got $inds and $(indices(dest)))"))
+    _circshift!(dest, (), src, (), inds, fill_to_length(shiftamt, 0, Val{N}))
+end
+circshift!(dest::AbstractArray, src, shiftamt) = circshift!(dest, src, (shiftamt...,))
+
+# For each dimension, we copy the first half of src to the second half
+# of dest, and the second half of src to the first half of dest. This
+# uses a recursive bifurcation strategy so that these splits can be
+# encoded by ranges, which means that we need only one call to `mod`
+# per dimension rather than one call per index.
+# `rdest` and `rsrc` are tuples-of-ranges that grow one dimension at a
+# time; when all the dimensions have been filled in, you call `copy!`
+# for that block. In other words, in two dimensions schematically we
+# have the following call sequence (--> means a call):
+#   circshift!(dest, src, shiftamt) -->
+#     _circshift!(dest, src, ("first half of dim1",)) -->
+#       _circshift!(dest, src, ("first half of dim1", "first half of dim2")) --> copy!
+#       _circshift!(dest, src, ("first half of dim1", "second half of dim2")) --> copy!
+#     _circshift!(dest, src, ("second half of dim1",)) -->
+#       _circshift!(dest, src, ("second half of dim1", "first half of dim2")) --> copy!
+#       _circshift!(dest, src, ("second half of dim1", "second half of dim2")) --> copy!
+@inline function _circshift!(dest, rdest, src, rsrc,
+                             inds::Tuple{AbstractUnitRange,Vararg{Any}},
+                             shiftamt::Tuple{Integer,Vararg{Any}})
+    ind1, d = inds[1], shiftamt[1]
+    s = mod(d, length(ind1))
+    sf, sl = first(ind1)+s, last(ind1)-s
+    r1, r2 = first(ind1):sf-1, sf:last(ind1)
+    r3, r4 = first(ind1):sl, sl+1:last(ind1)
+    tinds, tshiftamt = tail(inds), tail(shiftamt)
+    _circshift!(dest, (rdest..., r1), src, (rsrc..., r4), tinds, tshiftamt)
+    _circshift!(dest, (rdest..., r2), src, (rsrc..., r3), tinds, tshiftamt)
+end
+# At least one of inds, shiftamt is empty
+function _circshift!(dest, rdest, src, rsrc, inds, shiftamt)
+    copy!(dest, CartesianRange(rdest), src, CartesianRange(rsrc))
+end
+
+# circcopy!
+"""
+    circcopy!(dest, src)
+
+Copy `src` to `dest`, indexing each dimension modulo its length.
+`src` and `dest` must have the same size, but can be offset in
+their indices; any offset results in a (circular) wraparound. If the
+arrays have overlapping indices, then on the domain of the overlap
+`dest` agrees with `src`.
+
+```julia
+julia> src = reshape(collect(1:16), (4,4))
+4×4 Array{Int64,2}:
+ 1  5   9  13
+ 2  6  10  14
+ 3  7  11  15
+ 4  8  12  16
+
+julia> dest = OffsetArray{Int}((0:3,2:5))
+
+julia> circcopy!(dest, src)
+OffsetArrays.OffsetArray{Int64,2,Array{Int64,2}} with indices 0:3×2:5:
+ 8  12  16  4
+ 5   9  13  1
+ 6  10  14  2
+ 7  11  15  3
+
+julia> dest[1:3,2:4] == src[1:3,2:4]
+true
+```
+"""
+function circcopy!(dest, src)
+    dest === src && throw(ArgumentError("dest and src must be separate arrays"))
+    indssrc, indsdest = indices(src), indices(dest)
+    if (szsrc = map(length, indssrc)) != (szdest = map(length, indsdest))
+        throw(DimensionMismatch("src and dest must have the same sizes (got $szsrc and $szdest)"))
+    end
+    shift = map((isrc, idest)->first(isrc)-first(idest), indssrc, indsdest)
+    all(x->x==0, shift) && return copy!(dest, src)
+    _circcopy!(dest, (), indsdest, src, (), indssrc)
+end
+
+# This uses the same strategy described above for _circshift!
+@inline function _circcopy!(dest, rdest, indsdest::Tuple{AbstractUnitRange,Vararg{Any}},
+                            src,  rsrc,  indssrc::Tuple{AbstractUnitRange,Vararg{Any}})
+    indd1, inds1 = indsdest[1], indssrc[1]
+    l = length(indd1)
+    s = mod(first(inds1)-first(indd1), l)
+    sdf = first(indd1)+s
+    rd1, rd2 = first(indd1):sdf-1, sdf:last(indd1)
+    ssf = last(inds1)-s
+    rs1, rs2 = first(inds1):ssf, ssf+1:last(inds1)
+    tindsd, tindss = tail(indsdest), tail(indssrc)
+    _circcopy!(dest, (rdest..., rd1), tindsd, src, (rsrc..., rs2), tindss)
+    _circcopy!(dest, (rdest..., rd2), tindsd, src, (rsrc..., rs1), tindss)
+end
+
+# At least one of indsdest, indssrc are empty (and both should be, since we've checked)
+function _circcopy!(dest, rdest, indsdest, src, rsrc, indssrc)
+    copy!(dest, CartesianRange(rdest), src, CartesianRange(rsrc))
+end
 
 ### BitArrays
 

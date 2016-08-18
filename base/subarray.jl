@@ -300,7 +300,7 @@ end
 """
     replace_ref_end!(ex)
 
-Recursively replace occurences of the symbol :end in a "ref" expression (i.e. A[...]) `ex`
+Recursively replace occurrences of the symbol :end in a "ref" expression (i.e. A[...]) `ex`
 with the appropriate function calls (`endof`, `size` or `trailingsize`). Replacement uses
 the closest enclosing ref, so
 
@@ -313,7 +313,7 @@ should transform to
 """
 function replace_ref_end!(ex,withex=nothing)
     if isa(ex,Symbol) && ex == :end
-        withex == nothing && error("Invalid use of end")
+        withex === nothing && error("Invalid use of end")
         return withex
     elseif isa(ex,Expr)
         if ex.head == :ref

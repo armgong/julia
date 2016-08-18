@@ -24,6 +24,7 @@ JL_DLLEXPORT void jl_profile_stop_timer(void);
 JL_DLLEXPORT int jl_profile_start_timer(void);
 
 static uint64_t jl_last_sigint_trigger = 0;
+static uint64_t jl_disable_sigint_time = 0;
 static void jl_clear_force_sigint(void)
 {
     jl_last_sigint_trigger = 0;
@@ -44,20 +45,27 @@ static int jl_check_force_sigint(void)
     if (!isnormal(new_weight))
         new_weight = 0;
     accum_weight = new_weight;
-    return new_weight > 1;
+    if (new_weight > 1) {
+        jl_disable_sigint_time = cur_time + (uint64_t)0.5e9;
+        return 1;
+    }
+    jl_disable_sigint_time = 0;
+    return 0;
+}
+
+// Force sigint requires pressing `Ctrl-C` repeatedly.
+// Ignore sigint for a short time after that to avoid rethrowing sigint too
+// quickly again. (Code that has this issue is inherently racy but this is
+// an interactive feature anyway.)
+static int jl_ignore_sigint(void)
+{
+    return jl_disable_sigint_time && jl_disable_sigint_time > uv_hrtime();
 }
 
 static int exit_on_sigint = 0;
 JL_DLLEXPORT void jl_exit_on_sigint(int on)
 {
     exit_on_sigint = on;
-}
-
-// what to do on SIGINT
-JL_DLLEXPORT void jl_sigint_action(void)
-{
-    if (exit_on_sigint) jl_exit(130); // 128+SIGINT
-    jl_throw(jl_interrupt_exception);
 }
 
 #if defined(_WIN32)

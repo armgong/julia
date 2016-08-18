@@ -260,6 +260,18 @@ parsehex(s) = parse(Int,s,16)
 @test_throws ArgumentError parse(Int,"2x")
 @test_throws ArgumentError parse(Int,"-")
 
+# parsing numbers with _ and .
+@test parse("1_2.3_4") == 12.34
+@test_throws ParseError parse("1._")
+@test_throws ParseError parse("1._5")
+@test_throws ParseError parse("1e.3")
+@test_throws ParseError parse("1e3.")
+@test parse("2e_1") == Expr(:call, :*, 2, :e_1)
+# issue #17705
+@test parse("2e3_") == Expr(:call, :*, 2e3, :_)
+@test parse("2e-3_") == Expr(:call, :*, 2e-3, :_)
+@test parse("2e3_\"x\"") == Expr(:call, :*, 2e3, Expr(:macrocall, Symbol("@__str"), "x"))
+
 # multibyte spaces
 @test parse(Int, "3\u2003\u202F") == 3
 @test_throws ArgumentError parse(Int, "3\u2003\u202F,")
@@ -276,15 +288,14 @@ parsehex(s) = parse(Int,s,16)
 @test parse(Int,"-0o1234") == -Int(0o1234)
 @test parse(Int,"-0b1011") == -Int(0b1011)
 
-## FIXME: #4905, do these tests for Int128/UInt128!
-for T in (Int8, Int16, Int32, Int64)
+for T in (Int8, Int16, Int32, Int64, Int128)
     @test parse(T,string(typemin(T))) == typemin(T)
     @test parse(T,string(typemax(T))) == typemax(T)
     @test_throws OverflowError parse(T,string(big(typemin(T))-1))
     @test_throws OverflowError parse(T,string(big(typemax(T))+1))
 end
 
-for T in (UInt8,UInt16,UInt32,UInt64)
+for T in (UInt8,UInt16,UInt32,UInt64,UInt128)
     @test parse(T,string(typemin(T))) == typemin(T)
     @test parse(T,string(typemax(T))) == typemax(T)
     @test_throws ArgumentError parse(T,string(big(typemin(T))-1))
@@ -642,4 +653,17 @@ let nometh = expand(:(A15838.@f(1, 2)))
     e = nometh.args[1]::MethodError
     @test e.f === getfield(A15838, Symbol("@f"))
     @test e.args === (1,2)
+end
+
+# issue 10046
+for op in ["+", "-", "\$", "|", ".+", ".-", "*", ".*"]
+    @test_throws ParseError parse("$op in [+, -]")
+end
+
+# issue #17701
+@test expand(:(i==3 && i+=1)) == Expr(:error, "invalid assignment location \"==(i,3)&&i\"")
+
+# PR #15592
+let str = "[1] [2]"
+    @test_throws ParseError parse(str)
 end

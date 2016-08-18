@@ -40,8 +40,8 @@ countnz(S::SparseMatrixCSC) = countnz(S.nzval)
 Return a vector of the structural nonzero values in sparse array `A`. This
 includes zeros that are explicitly stored in the sparse array. The returned
 vector points directly to the internal nonzero storage of `A`, and any
-modifications to the returned vector will mutate `A` as well. See `rowvals(A)`
-and `nzrange(A, col)`.
+modifications to the returned vector will mutate `A` as well. See
+[`rowvals`](:func:`rowvals`) and [`nzrange`](:func:`nzrange`).
 """
 nonzeros(S::SparseMatrixCSC) = S.nzval
 
@@ -51,7 +51,7 @@ nonzeros(S::SparseMatrixCSC) = S.nzval
 Return a vector of the row indices of `A`. Any modifications to the returned
 vector will mutate `A` as well. Providing access to how the row indices are
 stored internally can be useful in conjunction with iterating over structural
-nonzero values. See also `nonzeros(A)` and `nzrange(A, col)`.
+nonzero values. See also [`nonzeros`](:func:`nonzeros`) and [`nzrange`](:func:`nzrange`).
 """
 rowvals(S::SparseMatrixCSC) = S.rowval
 
@@ -59,8 +59,8 @@ rowvals(S::SparseMatrixCSC) = S.rowval
     nzrange(A::SparseMatrixCSC, col)
 
 Return the range of indices to the structural nonzero values of a sparse matrix
-column. In conjunction with `nonzeros(A)` and `rowvals(A)`, this allows for
-convenient iterating over a sparse matrix :
+column. In conjunction with [`nonzeros`](:func:`nonzeros`) and
+[`rowvals`](:func:`rowvals`), this allows for convenient iterating over a sparse matrix :
 
     A = sparse(I,J,V)
     rows = rowvals(A)
@@ -374,7 +374,7 @@ are set to `maximum(I)` and `maximum(J)` respectively. If the `combine` function
 supplied, `combine` defaults to `+` unless the elements of `V` are Booleans in which case
 `combine` defaults to `|`. All elements of `I` must satisfy `1 <= I[k] <= m`, and all
 elements of `J` must satisfy `1 <= J[k] <= n`. Numerical zeros in (`I`, `J`, `V`) are
-retained as structural nonzeros; to drop numerical zeros, use `dropzeros!`.
+retained as structural nonzeros; to drop numerical zeros, use [`dropzeros!`](:func:`dropzeros!`).
 
 For additional documentation and an expert driver, see `Base.SparseArrays.sparse!`.
 """
@@ -1044,7 +1044,7 @@ droptol!(A::SparseMatrixCSC, tol, trim::Bool = true) =
 Removes stored numerical zeros from `A`, optionally trimming resulting excess space from
 `A.rowval` and `A.nzval` when `trim` is `true`.
 
-For an out-of-place version, see [`dropzeros`](:func:`Base.SparseArrays.dropzeros`). For
+For an out-of-place version, see [`dropzeros`](:func:`dropzeros`). For
 algorithmic information, see [`Base.SparseArrays.fkeep!`](:func:`Base.SparseArrays.fkeep!`).
 """
 dropzeros!(A::SparseMatrixCSC, trim::Bool = true) = fkeep!(A, (i, j, x) -> x != 0, trim)
@@ -1054,7 +1054,7 @@ dropzeros!(A::SparseMatrixCSC, trim::Bool = true) = fkeep!(A, (i, j, x) -> x != 
 Generates a copy of `A` and removes stored numerical zeros from that copy, optionally
 trimming excess space from the result's `rowval` and `nzval` arrays when `trim` is `true`.
 
-For an in-place version and algorithmic information, see [`dropzeros!`](:func:`Base.SparseArrays.dropzeros!`).
+For an in-place version and algorithmic information, see [`dropzeros!`](:func:`dropzeros!`).
 """
 dropzeros(A::SparseMatrixCSC, trim::Bool = true) = dropzeros!(copy(A), trim)
 
@@ -1212,6 +1212,24 @@ sprandn(m::Integer, n::Integer, density::AbstractFloat) = sprandn(GLOBAL_RNG,m,n
 
 Create a sparse array with the same structure as that of `S`, but with every nonzero
 element having the value `1.0`.
+
+```jldoctest
+julia> A = sparse([1,2,3,4],[2,4,3,1],[5.,4.,3.,2.])
+4×4 sparse matrix with 4 Float64 nonzero entries:
+        [4, 1]  =  2.0
+        [1, 2]  =  5.0
+        [3, 3]  =  3.0
+        [2, 4]  =  4.0
+
+julia> spones(A)
+4×4 sparse matrix with 4 Float64 nonzero entries:
+        [4, 1]  =  1.0
+        [1, 2]  =  1.0
+        [3, 3]  =  1.0
+        [2, 4]  =  1.0
+```
+
+Note the difference from [`speye`](:func:`speye`).
 """
 spones{T}(S::SparseMatrixCSC{T}) =
      SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), ones(T, S.colptr[end]-1))
@@ -1240,7 +1258,25 @@ speye(m::Integer, n::Integer) = speye(Float64, m, n)
 """
     speye(S)
 
-Create a sparse identity matrix with the same structure as that of  `S`.
+Create a sparse identity matrix with the same size as `S`.
+
+```jldoctest
+julia> A = sparse([1,2,3,4],[2,4,3,1],[5.,4.,3.,2.])
+4×4 sparse matrix with 4 Float64 nonzero entries:
+        [4, 1]  =  2.0
+        [1, 2]  =  5.0
+        [3, 3]  =  3.0
+        [2, 4]  =  4.0
+
+julia> speye(A)
+4×4 sparse matrix with 4 Float64 nonzero entries:
+        [1, 1]  =  1.0
+        [2, 2]  =  1.0
+        [3, 3]  =  1.0
+        [4, 4]  =  1.0
+```
+
+Note the difference from [`spones`](:func:`spones`).
 """
 speye{T}(S::SparseMatrixCSC{T}) = speye(T, size(S, 1), size(S, 2))
 eye(S::SparseMatrixCSC) = speye(S)
@@ -1653,13 +1689,7 @@ broadcast_zpreserving{Tv,Ti}(f::Function, A_1::Union{Array,BitArray,Number}, A_2
 
 ## Binary arithmetic and boolean operators
 
-for (op, pro) in ((+,   :eltype_plus),
-                  (-,   :eltype_plus),
-                  (min, :promote_eltype),
-                  (max, :promote_eltype),
-                  (&,   :promote_eltype),
-                  (|,   :promote_eltype),
-                  ($,   :promote_eltype))
+for op in (+, -, min, max, &, |, $)
     body = gen_broadcast_body_sparse(op, true)
     OP = Symbol(string(op))
     @eval begin
@@ -1667,7 +1697,7 @@ for (op, pro) in ((+,   :eltype_plus),
             if size(A_1,1) != size(A_2,1) || size(A_1,2) != size(A_2,2)
                 throw(DimensionMismatch(""))
             end
-            Tv = ($pro)(A_1, A_2)
+            Tv = promote_op($op, Tv1, Tv2)
             B =  spzeros(Tv, promote_type(Ti1, Ti2), to_shape(broadcast_shape(A_1, A_2)))
             $body
             B
@@ -1710,10 +1740,10 @@ end # macro
 (.^)(A::Array, B::SparseMatrixCSC) = (.^)(A, full(B))
 
 .+{Tv1,Ti1,Tv2,Ti2}(A_1::SparseMatrixCSC{Tv1,Ti1}, A_2::SparseMatrixCSC{Tv2,Ti2}) =
-   broadcast!(+, spzeros(eltype_plus(A_1, A_2), promote_type(Ti1, Ti2), to_shape(broadcast_shape(A_1, A_2))), A_1, A_2)
+    broadcast!(+, spzeros(promote_op(+, Tv1, Tv2), promote_type(Ti1, Ti2), to_shape(broadcast_shape(A_1, A_2))), A_1, A_2)
 
 function .-{Tva,Tia,Tvb,Tib}(A::SparseMatrixCSC{Tva,Tia}, B::SparseMatrixCSC{Tvb,Tib})
-    broadcast!(-, spzeros(eltype_plus(A, B), promote_type(Tia, Tib), to_shape(broadcast_shape(A, B))), A, B)
+    broadcast!(-, spzeros(promote_op(-, Tva, Tvb), promote_type(Tia, Tib), to_shape(broadcast_shape(A, B))), A, B)
 end
 
 ## element-wise comparison operators returning SparseMatrixCSC ##
@@ -3234,31 +3264,6 @@ function hcat(X::SparseMatrixCSC...)
     SparseMatrixCSC(m, n, colptr, rowval, nzval)
 end
 
-
-# Sparse/dense concatenation
-
-function hcat(Xin::Union{Vector, Matrix, SparseMatrixCSC}...)
-    X = SparseMatrixCSC[issparse(x) ? x : sparse(x) for x in Xin]
-    hcat(X...)
-end
-
-function vcat(Xin::Union{Vector, Matrix, SparseMatrixCSC}...)
-    X = SparseMatrixCSC[issparse(x) ? x : sparse(x) for x in Xin]
-    vcat(X...)
-end
-
-function hvcat(rows::Tuple{Vararg{Int}}, X::Union{Vector, Matrix, SparseMatrixCSC}...)
-    nbr = length(rows)  # number of block rows
-
-    tmp_rows = Array{SparseMatrixCSC}(nbr)
-    k = 0
-    @inbounds for i = 1 : nbr
-        tmp_rows[i] = hcat(X[(1 : rows[i]) + k]...)
-        k += rows[i]
-    end
-    vcat(tmp_rows...)
-end
-
 """
     blkdiag(A...)
 
@@ -3461,6 +3466,19 @@ Construct a sparse diagonal matrix. `B` is a tuple of vectors containing the dia
 one diagonal, `B` can be a vector (instead of a tuple) and `d` can be the diagonal position
 (instead of a tuple), defaulting to 0 (diagonal). Optionally, `m` and `n` specify the size
 of the resulting sparse matrix.
+
+```jldoctest
+julia> spdiagm(([1,2,3,4],[4,3,2,1]),(-1,1))
+5×5 sparse matrix with 8 Int64 nonzero entries:
+        [2, 1]  =  1
+        [1, 2]  =  4
+        [3, 2]  =  2
+        [2, 3]  =  3
+        [4, 3]  =  3
+        [3, 4]  =  2
+        [5, 4]  =  4
+        [4, 5]  =  1
+```
 """
 function spdiagm(B, d, m::Integer, n::Integer)
     (I,J,V) = spdiagm_internal(B, d)
