@@ -128,9 +128,6 @@ void jl_add_linfo_in_flight(StringRef name, jl_lambda_info_t *linfo, const DataL
 }
 
 #if defined(_OS_WINDOWS_)
-#if defined(_CPU_X86_64_)
-extern "C" EXCEPTION_DISPOSITION _seh_exception_handler(PEXCEPTION_RECORD ExceptionRecord,void *EstablisherFrame, PCONTEXT ContextRecord, void *DispatcherContext);
-#endif
 static void create_PRUNTIME_FUNCTION(uint8_t *Code, size_t Size, StringRef fnname,
         uint8_t *Section, size_t Allocated, uint8_t *UnwindData)
 {
@@ -143,7 +140,7 @@ static void create_PRUNTIME_FUNCTION(uint8_t *Code, size_t Size, StringRef fnnam
     if (!catchjmp[0]) {
         catchjmp[0] = 0x48;
         catchjmp[1] = 0xb8; // mov RAX, QWORD PTR [...]
-        *(uint64_t*)(&catchjmp[2]) = (uint64_t)&_seh_exception_handler;
+        *(uint64_t*)(&catchjmp[2]) = (uint64_t)&__julia_personality;
         catchjmp[10] = 0xff;
         catchjmp[11] = 0xe0; // jmp RAX
         UnwindData[0] = 0x09; // version info, UNW_FLAG_EHANDLER
@@ -251,9 +248,10 @@ public:
     virtual void NotifyFunctionEmitted(const Function &F, void *Code,
                                        size_t Size, const EmittedFunctionDetails &Details)
     {
+        jl_ptls_t ptls = jl_get_ptls_states();
         // This function modify linfo->fptr in GC safe region.
         // This should be fine since the GC won't scan this field.
-        int8_t gc_state = jl_gc_safe_enter();
+        int8_t gc_state = jl_gc_safe_enter(ptls);
         uv_rwlock_wrlock(&threadsafe);
         StringRef sName = F.getName();
         StringMap<jl_lambda_info_t*>::iterator linfo_it = linfo_in_flight.find(sName);
@@ -274,7 +272,7 @@ public:
             const_cast<Function*>(&F)->deleteBody();
 #endif
         uv_rwlock_wrunlock(&threadsafe);
-        jl_gc_safe_leave(gc_state);
+        jl_gc_safe_leave(ptls, gc_state);
     }
 
     std::map<size_t, FuncInfo, revcomp>& getMap()
@@ -298,19 +296,21 @@ public:
     virtual void NotifyObjectEmitted(const object::ObjectFile &obj,
                                      const RuntimeDyld::LoadedObjectInfo &L)
     {
-        return _NotifyObjectEmitted(obj,obj,L);
+        return _NotifyObjectEmitted(obj,obj,L,nullptr);
     }
 
     virtual void _NotifyObjectEmitted(const object::ObjectFile &obj,
-                                     const object::ObjectFile &debugObj,
-                                     const RuntimeDyld::LoadedObjectInfo &L)
+                                      const object::ObjectFile &debugObj,
+                                      const RuntimeDyld::LoadedObjectInfo &L,
+                                      RTDyldMemoryManager *memmgr)
 #else
     virtual void NotifyObjectEmitted(const ObjectImage &obj)
 #endif
     {
+        jl_ptls_t ptls = jl_get_ptls_states();
         // This function modify linfo->fptr in GC safe region.
         // This should be fine since the GC won't scan this field.
-        int8_t gc_state = jl_gc_safe_enter();
+        int8_t gc_state = jl_gc_safe_enter(ptls);
         uv_rwlock_wrlock(&threadsafe);
 #ifdef LLVM36
         object::section_iterator Section = debugObj.section_begin();
@@ -340,6 +340,7 @@ public:
         uint64_t SectionAddrCheck = 0; // assert that all of the Sections are at the same location
         uint8_t *UnwindData = NULL;
 #if defined(_CPU_X86_64_)
+        uint64_t SectionLoadOffset = 1; // The real offset shouldn't be 1.
         uint8_t *catchjmp = NULL;
         for (const object::SymbolRef &sym_iter : debugObj.symbols()) {
             StringRef sName;
@@ -400,25 +401,37 @@ public:
                     assert(SectionAddrCheck == SectionLoadAddr);
                 else
                     SectionAddrCheck = SectionLoadAddr;
+#ifdef USE_ORCJIT
+                if (memmgr)
+                    SectionAddr =
+                        (uintptr_t)lookupWriteAddressFor(memmgr,
+                                                         (void*)SectionLoadAddr);
+#endif
+                if (SectionLoadOffset != 1)
+                    assert(SectionLoadOffset == SectionAddr - SectionLoadAddr);
+                else
+                    SectionLoadOffset = SectionAddr - SectionLoadAddr;
             }
         }
         assert(catchjmp);
         assert(UnwindData);
         assert(SectionAddrCheck);
-        catchjmp[0] = 0x48;
-        catchjmp[1] = 0xb8; // mov RAX, QWORD PTR [&_seh_exception_handle]
-        *(uint64_t*)(&catchjmp[2]) = (uint64_t)&_seh_exception_handler;
-        catchjmp[10] = 0xff;
-        catchjmp[11] = 0xe0; // jmp RAX
-        UnwindData[0] = 0x09; // version info, UNW_FLAG_EHANDLER
-        UnwindData[1] = 4;    // size of prolog (bytes)
-        UnwindData[2] = 2;    // count of unwind codes (slots)
-        UnwindData[3] = 0x05; // frame register (rbp) = rsp
-        UnwindData[4] = 4;    // second instruction
-        UnwindData[5] = 0x03; // mov RBP, RSP
-        UnwindData[6] = 1;    // first instruction
-        UnwindData[7] = 0x50; // push RBP
-        *(DWORD*)&UnwindData[8] = (DWORD)(catchjmp - (uint8_t*)SectionAddrCheck); // relative location of catchjmp
+        assert(SectionLoadOffset != 1);
+        catchjmp[SectionLoadOffset] = 0x48;
+        catchjmp[SectionLoadOffset + 1] = 0xb8; // mov RAX, QWORD PTR [&__julia_personality]
+        *(uint64_t*)(&catchjmp[SectionLoadOffset + 2]) =
+            (uint64_t)&__julia_personality;
+        catchjmp[SectionLoadOffset + 10] = 0xff;
+        catchjmp[SectionLoadOffset + 11] = 0xe0; // jmp RAX
+        UnwindData[SectionLoadOffset] = 0x09; // version info, UNW_FLAG_EHANDLER
+        UnwindData[SectionLoadOffset + 1] = 4;    // size of prolog (bytes)
+        UnwindData[SectionLoadOffset + 2] = 2;    // count of unwind codes (slots)
+        UnwindData[SectionLoadOffset + 3] = 0x05; // frame register (rbp) = rsp
+        UnwindData[SectionLoadOffset + 4] = 4;    // second instruction
+        UnwindData[SectionLoadOffset + 5] = 0x03; // mov RBP, RSP
+        UnwindData[SectionLoadOffset + 6] = 1;    // first instruction
+        UnwindData[SectionLoadOffset + 7] = 0x50; // push RBP
+        *(DWORD*)&UnwindData[SectionLoadOffset + 8] = (DWORD)(catchjmp - (uint8_t*)SectionAddrCheck); // relative location of catchjmp
 #endif // defined(_OS_X86_64_)
 #endif // defined(_OS_WINDOWS_)
 
@@ -467,8 +480,8 @@ public:
             else
                 SectionAddrCheck = SectionLoadAddr;
             create_PRUNTIME_FUNCTION(
-                   (uint8_t*)(intptr_t)Addr, (size_t)Size, sName,
-                   (uint8_t*)(intptr_t)SectionLoadAddr, (size_t)SectionSize, UnwindData);
+                   (uint8_t*)(uintptr_t)Addr, (size_t)Size, sName,
+                   (uint8_t*)(uintptr_t)SectionLoadAddr, (size_t)SectionSize, UnwindData);
 #endif
             StringMap<jl_lambda_info_t*>::iterator linfo_it = linfo_in_flight.find(sName);
             jl_lambda_info_t *linfo = NULL;
@@ -543,8 +556,8 @@ public:
             else
                 SectionAddrCheck = SectionLoadAddr;
             create_PRUNTIME_FUNCTION(
-                   (uint8_t*)(intptr_t)Addr, (size_t)Size, sName,
-                   (uint8_t*)(intptr_t)SectionLoadAddr, (size_t)SectionSize, UnwindData);
+                   (uint8_t*)(uintptr_t)Addr, (size_t)Size, sName,
+                   (uint8_t*)(uintptr_t)SectionLoadAddr, (size_t)SectionSize, UnwindData);
 #endif
             StringMap<jl_lambda_info_t*>::iterator linfo_it = linfo_in_flight.find(sName);
             jl_lambda_info_t *linfo = NULL;
@@ -587,7 +600,7 @@ public:
 #endif
 #endif
         uv_rwlock_wrunlock(&threadsafe);
-        jl_gc_safe_leave(gc_state);
+        jl_gc_safe_leave(ptls, gc_state);
     }
 
     // must implement if we ever start freeing code
@@ -606,9 +619,10 @@ public:
 JL_DLLEXPORT void ORCNotifyObjectEmitted(JITEventListener *Listener,
                                          const object::ObjectFile &obj,
                                          const object::ObjectFile &debugObj,
-                                         const RuntimeDyld::LoadedObjectInfo &L)
+                                         const RuntimeDyld::LoadedObjectInfo &L,
+                                         RTDyldMemoryManager *memmgr)
 {
-    ((JuliaJITEventListener*)Listener)->_NotifyObjectEmitted(obj,debugObj,L);
+    ((JuliaJITEventListener*)Listener)->_NotifyObjectEmitted(obj,debugObj,L,memmgr);
 }
 #endif
 
@@ -648,7 +662,7 @@ JITEventListener *CreateJuliaJITEventListener()
 static int lookup_pointer(DIContext *context, jl_frame_t **frames,
                           size_t pointer, int demangle, int noInline)
 {
-    // This function is not allowed to reference any TLS variables if noInline
+    // This function is not allowed to reference any TLS variables
     // since it can be called from an unmanaged thread on OSX.
     if (!context) {
         if (demangle && (*frames)[0].func_name != NULL) {
@@ -675,11 +689,10 @@ static int lookup_pointer(DIContext *context, jl_frame_t **frames,
         n_frames = 1;
     if (n_frames > 1) {
         jl_frame_t *new_frames = (jl_frame_t*)calloc(sizeof(jl_frame_t), n_frames);
-        memcpy(&new_frames[n_frames-1], *frames, sizeof(jl_frame_t));
+        memcpy(&new_frames[n_frames - 1], *frames, sizeof(jl_frame_t));
         free(*frames);
         *frames = new_frames;
     }
-    jl_lambda_info_t *outer_linfo = (*frames)[n_frames-1].linfo;
     for (int i = 0; i < n_frames; i++) {
         bool inlined_frame = i != n_frames - 1;
         DILineInfo info;
@@ -700,7 +713,7 @@ static int lookup_pointer(DIContext *context, jl_frame_t **frames,
         if (inlined_frame) {
             frame->inlined = 1;
             frame->fromC = fromC;
-            if (outer_linfo) {
+            if ((*frames)[n_frames-1].linfo) {
                 std::size_t semi_pos = func_name.find(';');
                 if (semi_pos != std::string::npos) {
                     func_name = func_name.substr(0, semi_pos);
@@ -820,7 +833,7 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
         bool insysimage = (fbase == jl_sysimage_base);
         if (isSysImg)
             *isSysImg = insysimage;
-        if (onlySysImg && insysimage) {
+        if (onlySysImg && !insysimage) {
             return false;
         }
         static char frame_info_func[
@@ -842,6 +855,9 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
             if (saddr)
                 *saddr = (void*)(uintptr_t)pSymbol->Address;
         }
+        else if (saddr) {
+            *saddr = NULL;
+        }
 
         // If we didn't find the filename before in the debug
         // info, use the dll name
@@ -853,7 +869,7 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
     Dl_info dlinfo;
     int dladdr_success;
     uint64_t fbase;
-#ifdef _OS_LINUX_
+#ifdef __GLIBC__
     struct link_map *extra_info;
     dladdr_success = dladdr1((void*)pointer, &dlinfo, (void**)&extra_info, RTLD_DL_LINKMAP) != 0;
 #else
@@ -861,7 +877,7 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
 #endif
 
     if (dladdr_success && dlinfo.dli_fname) {
-#ifdef _OS_LINUX_
+#ifdef __GLIBC__
         // dlinfo.dli_fbase is not the right value for the main executable on linux
         fbase = (uintptr_t)extra_info->l_addr;
 #else
@@ -876,7 +892,7 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
         bool insysimage = (fbase == jl_sysimage_base);
         if (isSysImg)
             *isSysImg = insysimage;
-        if (onlySysImg && insysimage) {
+        if (onlySysImg && !insysimage) {
             return false;
         }
         // In case we fail with the debug info lookup, we at least still
@@ -1097,6 +1113,14 @@ static int jl_getDylibFunctionInfo(jl_frame_t **frames, size_t pointer, int skip
                                               pointer, &pip, NULL) == 0)
             saddr = (void*)pip.start_ip;
 #endif
+#if defined(_OS_WINDOWS_) && defined(_CPU_X86_64_)
+        if (!saddr) {
+            DWORD64 ImageBase;
+            PRUNTIME_FUNCTION fn = RtlLookupFunctionEntry(pointer, &ImageBase, NULL);
+            if (fn)
+                saddr = (void*)(ImageBase + fn->BeginAddress);
+        }
+#endif
         if (saddr) {
             for (size_t i = 0; i < sysimg_fvars_n; i++) {
                 if (saddr == sysimg_fvars[i]) {
@@ -1159,17 +1183,18 @@ int jl_DI_for_fptr(uint64_t fptr, uint64_t *symsize, int64_t *slide, int64_t *se
 extern "C"
 JL_DLLEXPORT jl_value_t *jl_get_dobj_data(uint64_t fptr)
 {
+    jl_ptls_t ptls = jl_get_ptls_states();
     // Used by Gallium.jl
     const object::ObjectFile *object = NULL;
     DIContext *context;
     int64_t slide, section_slide;
-    int8_t gc_state = jl_gc_safe_enter();
+    int8_t gc_state = jl_gc_safe_enter(ptls);
     if (!jl_DI_for_fptr(fptr, NULL, &slide, NULL, &object, NULL))
         if (!jl_dylib_DI_for_fptr(fptr, &object, &context, &slide, &section_slide, false, NULL, NULL, NULL, NULL)) {
-            jl_gc_safe_leave(gc_state);
+            jl_gc_safe_leave(ptls, gc_state);
             return jl_nothing;
         }
-    jl_gc_safe_leave(gc_state);
+    jl_gc_safe_leave(ptls, gc_state);
     if (object == NULL)
         return jl_nothing;
     return (jl_value_t*)jl_ptr_to_array_1d((jl_value_t*)jl_array_uint8_type,
@@ -1180,8 +1205,9 @@ JL_DLLEXPORT jl_value_t *jl_get_dobj_data(uint64_t fptr)
 extern "C"
 JL_DLLEXPORT uint64_t jl_get_section_start(uint64_t fptr)
 {
+    jl_ptls_t ptls = jl_get_ptls_states();
     // Used by Gallium.jl
-    int8_t gc_state = jl_gc_safe_enter();
+    int8_t gc_state = jl_gc_safe_enter(ptls);
     std::map<size_t, ObjectInfo, revcomp> &objmap = jl_jit_events->getObjectMap();
     std::map<size_t, ObjectInfo, revcomp>::iterator fit = objmap.lower_bound(fptr);
 
@@ -1197,7 +1223,7 @@ JL_DLLEXPORT uint64_t jl_get_section_start(uint64_t fptr)
        }
     }
     uv_rwlock_rdunlock(&threadsafe);
-    jl_gc_safe_leave(gc_state);
+    jl_gc_safe_leave(ptls, gc_state);
     return ret;
 }
 
@@ -1227,7 +1253,7 @@ int jl_getFunctionInfo(jl_frame_t **frames_out, size_t pointer, int skipC, int n
 // Without MCJIT we use the FuncInfo structure containing address maps
     std::map<size_t, FuncInfo, revcomp> &info = jl_jit_events->getMap();
     std::map<size_t, FuncInfo, revcomp>::iterator it = info.lower_bound(pointer);
-    if (it != info.end() && (intptr_t)(*it).first + (*it).second.lengthAdr >= pointer) {
+    if (it != info.end() && (uintptr_t)(*it).first + (*it).second.lengthAdr >= pointer) {
         // We do this to hide the jlcall wrappers when getting julia backtraces,
         // but it is still good to have them for regular lookup of C frames.
         if (skipC && (*it).second.lines.empty()) {
@@ -1251,54 +1277,79 @@ int jl_getFunctionInfo(jl_frame_t **frames_out, size_t pointer, int skipC, int n
         std::vector<JITEvent_EmittedFunctionDetails::LineStart>::iterator vit =
             (*it).second.lines.begin();
         JITEvent_EmittedFunctionDetails::LineStart prev = *vit;
+        LLVMContext &Ctx = (*it).second.func->getContext();
 
-        if ((*it).second.func) {
-            DISubprogram debugscope =
-                DISubprogram(prev.Loc.getScope((*it).second.func->getContext()));
-            jl_copy_str(&frames[0].file_name, debugscope.getFilename().str().c_str());
-            // the DISubprogram has the un-mangled name, so use that if
-            // available. However, if the scope need not be the current
-            // subprogram.
-            if (debugscope.getName().data() != NULL) {
-                jl_copy_str(&frames[0].func_name, debugscope.getName().str().c_str());
-            }
-            else {
-                char *oldname = frames[0].func_name;
-                frames[0].func_name = jl_demangle(frames[0].func_name);
-                free(oldname);
-            }
+        DISubprogram debugscope(prev.Loc.getScope(Ctx));
+        jl_copy_str(&frames[0].file_name, debugscope.getFilename().str().c_str());
+        // The DISubprogram has the un-mangled name, so use that if
+        // available. However, the scope need not be the current subprogram.
+        if (debugscope.getName().data() != NULL) {
+            jl_copy_str(&frames[0].func_name, debugscope.getName().str().c_str());
+        }
+        else {
+            char *oldname = frames[0].func_name;
+            frames[0].func_name = jl_demangle(frames[0].func_name);
+            free(oldname);
         }
 
-        vit++;
-
+        // find nearest line info
+        ++vit;
         while (vit != (*it).second.lines.end()) {
             if (pointer <= (*vit).Address) {
-                frames[0].line = prev.Loc.getLine();
                 break;
             }
             prev = *vit;
-            vit++;
-        }
-        if (frames[0].line == -1) {
-            frames[0].line = prev.Loc.getLine();
+            ++vit;
         }
 
-        DILexicalBlockFile locscope = DILexicalBlockFile(prev.Loc.getScope((*it).second.func->getContext()));
-        jl_copy_str(&frames[0].file_name, locscope.getFilename().str().c_str());
+        // read out inlining and line number information
+        int n_frames = 1;
+        if (!noInline) {
+            MDNode *inlinedAt = prev.Loc.getInlinedAt(Ctx);
+            while (inlinedAt != NULL) {
+                DebugLoc inlineloc = DebugLoc::getFromDILocation(inlinedAt);
+                inlinedAt = inlineloc.getInlinedAt(Ctx);
+                n_frames++;
+            }
+            if (n_frames > 1) {
+                frames = (jl_frame_t*)calloc(sizeof(jl_frame_t), n_frames);
+                memcpy(&frames[n_frames - 1], *frames_out, sizeof(jl_frame_t));
+                free(*frames_out);
+                *frames_out = frames;
+            }
+        }
+        DebugLoc inlineloc = prev.Loc;
+        for (int i = 0; i < n_frames; i++) {
+            frames[i].inlined = i != n_frames - 1;
+            frames[i].line = inlineloc.getLine();
+            DISubprogram locscope(inlineloc.getScope(Ctx));
+            jl_copy_str(&frames[i].file_name, locscope.getFilename().str().c_str());
+            jl_copy_str(&frames[i].func_name, locscope.getName().str().c_str());
+            MDNode *inlinedAt = inlineloc.getInlinedAt(Ctx);
+            inlineloc = DebugLoc::getFromDILocation(inlinedAt);
+        }
 
-        /*MDNode *inlinedAt = skipInline ? NULL : prev.Loc.getInlinedAt((*it).second.func->getContext());
-        if ((!skipInline) && (inlinedAt != NULL)) {
-            DebugLoc inlineloc = DebugLoc::getFromDILocation(inlinedAt);
-            DILexicalBlockFile inlinescope = DILexicalBlockFile(inlineloc.getScope((*it).second.func->getContext()));
-            jl_copy_str(&frames, inlinescope.getFilename().str().c_str());
-            *inlinedat_line = inlineloc.getLine();
-            }*/
         uv_rwlock_rdunlock(&threadsafe);
-        return 1;
+        return n_frames;
     }
     uv_rwlock_rdunlock(&threadsafe);
 #endif // USE_MCJIT
     return jl_getDylibFunctionInfo(frames_out, pointer, skipC, noInline);
+}
+
+extern "C" jl_lambda_info_t *jl_gdblookuplinfo(void *p)
+{
+#ifndef USE_MCJIT
+    std::map<size_t, FuncInfo, revcomp> &info = jl_jit_events->getMap();
+    std::map<size_t, FuncInfo, revcomp>::iterator it = info.lower_bound((size_t)p);
+    jl_lambda_info_t *li = NULL;
+    if (it != info.end() && (uintptr_t)(*it).first + (*it).second.lengthAdr >= (uintptr_t)p)
+        li = (*it).second.linfo;
+    uv_rwlock_rdunlock(&threadsafe);
+    return li;
+#else
+    return jl_jit_events->lookupLinfo((size_t)p);
+#endif
 }
 
 #if defined(LLVM37) && (defined(_OS_LINUX_) || (defined(_OS_DARWIN_) && defined(LLVM_SHLIB)))
@@ -1306,26 +1357,25 @@ extern "C" void __register_frame(void*);
 extern "C" void __deregister_frame(void*);
 
 template <typename callback>
-static const char *processFDE(const char *Entry, callback f)
-{
-    const char *P = Entry;
-    uint32_t Length = *((const uint32_t *)P);
-    P += 4;
-    uint32_t Offset = *((const uint32_t *)P);
-    if (Offset != 0) {
-        f(Entry);
-    }
-    return P + Length;
-}
-
-template <typename callback>
 static void processFDEs(const char *EHFrameAddr, size_t EHFrameSize, callback f)
 {
-    const char *P = (const char*)EHFrameAddr;
+    const char *P = EHFrameAddr;
     const char *End = P + EHFrameSize;
-    do  {
-        P = processFDE(P, f);
-    } while(P != End);
+    do {
+        const char *Entry = P;
+        P += 4;
+        assert(P <= End);
+        uint32_t Length = *(const uint32_t*)Entry;
+        // Length == 0: Terminator
+        if (Length == 0)
+            break;
+        assert(P + Length <= End);
+        uint32_t Offset = *(const uint32_t*)P;
+        // Offset == 0: CIE
+        if (Offset != 0)
+            f(Entry);
+        P += Length;
+    } while (P != End);
 }
 #endif
 
@@ -1339,28 +1389,11 @@ static void processFDEs(const char *EHFrameAddr, size_t EHFrameSize, callback f)
  * ourselves to ensure the right one gets picked.
  */
 
-#include "llvm/ExecutionEngine/SectionMemoryManager.h"
-class RTDyldMemoryManagerOSX : public SectionMemoryManager
-{
-    RTDyldMemoryManagerOSX(const RTDyldMemoryManagerOSX&) = delete;
-    void operator=(const RTDyldMemoryManagerOSX&) = delete;
-
-public:
-    RTDyldMemoryManagerOSX() {};
-    ~RTDyldMemoryManagerOSX() override {};
-    void registerEHFrames(uint8_t *Addr, uint64_t LoadAddr, size_t Size) override;
-    void deregisterEHFrames(uint8_t *Addr, uint64_t LoadAddr, size_t Size) override;
-};
-
 static void (*libc_register_frame)(void*)   = NULL;
 static void (*libc_deregister_frame)(void*) = NULL;
 
 // This implementation handles frame registration for local targets.
-// Memory managers for remote targets should re-implement this function
-// and use the LoadAddr parameter.
-void RTDyldMemoryManagerOSX::registerEHFrames(uint8_t *Addr,
-                                              uint64_t LoadAddr,
-                                              size_t Size)
+void register_eh_frames(uint8_t *Addr, size_t Size)
 {
   // On OS X OS X __register_frame takes a single FDE as an argument.
   // See http://lists.cs.uiuc.edu/pipermail/llvmdev/2013-April/061768.html
@@ -1374,9 +1407,7 @@ void RTDyldMemoryManagerOSX::registerEHFrames(uint8_t *Addr,
     });
 }
 
-void RTDyldMemoryManagerOSX::deregisterEHFrames(uint8_t *Addr,
-                                                uint64_t LoadAddr,
-                                                size_t Size)
+void deregister_eh_frames(uint8_t *Addr, size_t Size)
 {
    processFDEs((char*)Addr, Size, [](const char *Entry) {
         if (!libc_deregister_frame) {
@@ -1388,27 +1419,8 @@ void RTDyldMemoryManagerOSX::deregisterEHFrames(uint8_t *Addr,
     });
 }
 
-RTDyldMemoryManager* createRTDyldMemoryManagerOSX()
-{
-    return new RTDyldMemoryManagerOSX();
-}
-
-#endif
-
-#if defined(_OS_LINUX_) && defined(LLVM37) && defined(JL_UNW_HAS_FORMAT_IP)
+#elif defined(_OS_LINUX_) && defined(LLVM37) && defined(JL_UNW_HAS_FORMAT_IP)
 #include <type_traits>
-#include "llvm/ExecutionEngine/SectionMemoryManager.h"
-class RTDyldMemoryManagerUnix : public SectionMemoryManager
-{
-    RTDyldMemoryManagerUnix(const RTDyldMemoryManagerUnix&) = delete;
-    void operator=(const RTDyldMemoryManagerUnix&) = delete;
-
-public:
-    RTDyldMemoryManagerUnix() {};
-    ~RTDyldMemoryManagerUnix() override {};
-    void registerEHFrames(uint8_t *Addr, uint64_t LoadAddr, size_t Size) override;
-    void deregisterEHFrames(uint8_t *Addr, uint64_t LoadAddr, size_t Size) override;
-};
 
 struct unw_table_entry
 {
@@ -1515,8 +1527,10 @@ static DW_EH_PE parseCIE(const uint8_t *Addr, const uint8_t *End)
     // Assume there's no EH Data field, which exist when the augmentation
     // string has "eh" in it.
     p += augmentation_len + 1;
-    // Code Alignment Factor (1 byte) should always be 1
-    assert(*p == 1);
+    // Code Alignment Factor (1 byte)
+    // should always be 1 on x86, 4 on PPC, etc.
+    // (used for DW_CFA_advance_loc / not used here)
+    //assert(*p == 1);
     p++;
     // Data Alignment Factor (LEB128)
     assert(cie_end >= p);
@@ -1588,9 +1602,7 @@ static DW_EH_PE parseCIE(const uint8_t *Addr, const uint8_t *End)
     return DW_EH_PE_absptr;
 }
 
-void RTDyldMemoryManagerUnix::registerEHFrames(uint8_t *Addr,
-                                               uint64_t LoadAddr,
-                                               size_t Size)
+void register_eh_frames(uint8_t *Addr, size_t Size)
 {
 #ifndef _CPU_ARM_
     // System unwinder
@@ -1701,7 +1713,7 @@ void RTDyldMemoryManagerUnix::registerEHFrames(uint8_t *Addr,
             if (start < start_ip)
                 start_ip = start;
             if (end_ip < (start + size))
-                end_ip = start+size;
+                end_ip = start + size;
             table[cur_entry].fde_offset =
                 safe_trunc<int32_t>((intptr_t)Entry - (intptr_t)Addr);
             start_ips[cur_entry] = start;
@@ -1721,9 +1733,7 @@ void RTDyldMemoryManagerUnix::registerEHFrames(uint8_t *Addr,
     _U_dyn_register(di);
 }
 
-void RTDyldMemoryManagerUnix::deregisterEHFrames(uint8_t *Addr,
-                                           uint64_t LoadAddr,
-                                           size_t Size)
+void deregister_eh_frames(uint8_t *Addr, size_t Size)
 {
 #ifndef _CPU_ARM_
     __deregister_frame(Addr);
@@ -1733,9 +1743,14 @@ void RTDyldMemoryManagerUnix::deregisterEHFrames(uint8_t *Addr,
     // data structures).
 }
 
-RTDyldMemoryManager* createRTDyldMemoryManagerUnix()
+#else
+
+void register_eh_frames(uint8_t *Addr, size_t Size)
 {
-    return new RTDyldMemoryManagerUnix();
+}
+
+void deregister_eh_frames(uint8_t *Addr, size_t Size)
+{
 }
 
 #endif
@@ -1749,7 +1764,7 @@ uint64_t jl_getUnwindInfo(uint64_t dwAddr)
     std::map<size_t, ObjectInfo, revcomp>::iterator it = objmap.lower_bound(dwAddr);
     uint64_t ipstart = 0; // ip of the start of the section (if found)
     if (it != objmap.end() && dwAddr < it->first + it->second.SectionSize) {
-        ipstart = (uint64_t)(intptr_t)(*it).first;
+        ipstart = (uint64_t)(uintptr_t)(*it).first;
     }
     uv_rwlock_rdunlock(&threadsafe);
     return ipstart;
@@ -1762,8 +1777,8 @@ uint64_t jl_getUnwindInfo(uint64_t dwAddr)
     std::map<size_t, FuncInfo, revcomp> &info = jl_jit_events->getMap();
     std::map<size_t, FuncInfo, revcomp>::iterator it = info.lower_bound(dwAddr);
     uint64_t ipstart = 0; // ip of the first instruction in the function (if found)
-    if (it != info.end() && (intptr_t)(*it).first + (*it).second.lengthAdr > dwAddr) {
-        ipstart = (uint64_t)(intptr_t)(*it).first;
+    if (it != info.end() && (uintptr_t)(*it).first + (*it).second.lengthAdr > dwAddr) {
+        ipstart = (uint64_t)(uintptr_t)(*it).first;
     }
     uv_rwlock_rdunlock(&threadsafe);
     return ipstart;

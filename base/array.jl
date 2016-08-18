@@ -12,6 +12,8 @@ typealias DenseVecOrMat{T} Union{DenseVector{T}, DenseMatrix{T}}
 
 ## Basic functions ##
 
+import Core: arraysize, arrayset, arrayref
+
 size(a::Array, d) = arraysize(a, d)
 size(a::Vector) = (arraysize(a,1),)
 size(a::Matrix) = (arraysize(a,1), arraysize(a,2))
@@ -25,10 +27,6 @@ length(a::Array) = arraylen(a)
 elsize{T}(a::Array{T}) = isbits(T) ? sizeof(T) : sizeof(Ptr)
 sizeof(a::Array) = elsize(a) * length(a)
 
-strides{T}(a::Array{T,1}) = (1,)
-strides{T}(a::Array{T,2}) = (1, size(a,1))
-strides{T}(a::Array{T,3}) = (1, size(a,1), size(a,1)*size(a,2))
-
 function isassigned{T}(a::Array{T}, i::Int...)
     ii = sub2ind(size(a), i...)
     1 <= ii <= length(a) || return false
@@ -38,6 +36,8 @@ end
 ## copy ##
 
 function unsafe_copy!{T}(dest::Ptr{T}, src::Ptr{T}, n)
+    # Do not use this to copy data between pointer arrays.
+    # It can't be made safe no matter how carefully you checked.
     ccall(:memmove, Ptr{Void}, (Ptr{Void}, Ptr{Void}, UInt),
           dest, src, n*sizeof(T))
     return dest
@@ -47,16 +47,16 @@ function unsafe_copy!{T}(dest::Array{T}, doffs, src::Array{T}, soffs, n)
     if isbits(T)
         unsafe_copy!(pointer(dest, doffs), pointer(src, soffs), n)
     else
-        for i=0:n-1
-            @inbounds arrayset(dest, src[i+soffs], i+doffs)
-        end
+        ccall(:jl_array_ptr_copy, Void, (Any, Ptr{Void}, Any, Ptr{Void}, Int),
+              dest, pointer(dest, doffs), src, pointer(src, soffs), n)
     end
     return dest
 end
 
 function copy!{T}(dest::Array{T}, doffs::Integer, src::Array{T}, soffs::Integer, n::Integer)
     n == 0 && return dest
-    if n < 0 || soffs < 1 || doffs < 1 || soffs+n-1 > length(src) || doffs+n-1 > length(dest)
+    n > 0 || throw(ArgumentError(string("tried to copy n=", n, " elements, but n should be nonnegative")))
+    if soffs < 1 || doffs < 1 || soffs+n-1 > length(src) || doffs+n-1 > length(dest)
         throw(BoundsError())
     end
     unsafe_copy!(dest, doffs, src, soffs, n)
@@ -64,11 +64,7 @@ end
 
 copy!{T}(dest::Array{T}, src::Array{T}) = copy!(dest, 1, src, 1, length(src))
 
-function copy(a::Array)
-    b = similar(a)
-    ccall(:memcpy, Ptr{Void}, (Ptr{Void}, Ptr{Void}, UInt), b, a, sizeof(a))
-    return b
-end
+copy{T<:Array}(a::T) = ccall(:jl_array_copy, Ref{T}, (Any,), a)
 
 function reinterpret{T,S}(::Type{T}, a::Array{S,1})
     nel = Int(div(length(a)*sizeof(S),sizeof(T)))
@@ -118,34 +114,36 @@ end
 
 ## Constructors ##
 
-similar(a::Array, T::Type, dims::Dims) = Array{T}(dims)
-similar{T}(a::Array{T,1})              = Array{T}(size(a,1))
-similar{T}(a::Array{T,2})              = Array{T}(size(a,1), size(a,2))
-similar{T}(a::Array{T,1}, dims::Dims)  = Array{T}(dims)
-similar{T}(a::Array{T,1}, m::Int)      = Array{T}(m)
-similar{T}(a::Array{T,1}, S::Type)     = Array{S}(size(a,1))
-similar{T}(a::Array{T,2}, dims::Dims)  = Array{T}(dims)
-similar{T}(a::Array{T,2}, m::Int)      = Array{T}(m)
-similar{T}(a::Array{T,2}, S::Type)     = Array{S}(size(a,1), size(a,2))
+similar{T}(a::Array{T,1})                    = Array{T,1}(size(a,1))
+similar{T}(a::Array{T,2})                    = Array{T,2}(size(a,1), size(a,2))
+similar{T}(a::Array{T,1}, S::Type)           = Array{S,1}(size(a,1))
+similar{T}(a::Array{T,2}, S::Type)           = Array{S,2}(size(a,1), size(a,2))
+similar{T}(a::Array{T}, m::Int)              = Array{T,1}(m)
+similar{N}(a::Array, T::Type, dims::Dims{N}) = Array{T,N}(dims)
+similar{T,N}(a::Array{T}, dims::Dims{N})     = Array{T,N}(dims)
 
 # T[x...] constructs Array{T,1}
 function getindex(T::Type, vals...)
-    a = Array{T}(length(vals))
+    a = Array{T,1}(length(vals))
     @inbounds for i = 1:length(vals)
         a[i] = vals[i]
     end
     return a
 end
-getindex(T::Type) = Array{T}(0)
+
+getindex(T::Type) = Array{T,1}(0)
+getindex(T::Type, x) = (a = Array{T,1}(1); @inbounds a[1] = x; a)
+getindex(T::Type, x, y) = (a = Array{T,1}(2); @inbounds (a[1] = x; a[2] = y); a)
+getindex(T::Type, x, y, z) = (a = Array{T,1}(3); @inbounds (a[1] = x; a[2] = y; a[3] = z); a)
 
 function getindex(::Type{Any}, vals::ANY...)
-    a = Array{Any}(length(vals))
+    a = Array{Any,1}(length(vals))
     @inbounds for i = 1:length(vals)
         a[i] = vals[i]
     end
     return a
 end
-getindex(::Type{Any}) = Array{Any}(0)
+getindex(::Type{Any}) = Array{Any,1}(0)
 
 function fill!(a::Union{Array{UInt8}, Array{Int8}}, x::Integer)
     ccall(:memset, Ptr{Void}, (Ptr{Void}, Cint, Csize_t), a, x, length(a))
@@ -195,11 +193,29 @@ convert{T,n}(::Type{Array{T}}, x::Array{T,n}) = x
 convert{T,n}(::Type{Array{T,n}}, x::Array{T,n}) = x
 
 convert{T,n,S}(::Type{Array{T}}, x::AbstractArray{S, n}) = convert(Array{T, n}, x)
-convert{T,n,S}(::Type{Array{T,n}}, x::AbstractArray{S,n}) = copy!(Array{T}(size(x)), x)
+convert{T,n,S}(::Type{Array{T,n}}, x::AbstractArray{S,n}) = copy!(Array{T,n}(size(x)), x)
 
 promote_rule{T,n,S}(::Type{Array{T,n}}, ::Type{Array{S,n}}) = Array{promote_type(T,S),n}
 
 ## copying iterators to containers
+
+"""
+    collect(element_type, collection)
+
+Return an Array with the given element type of all items in a collection or iterable.
+The result has the same shape and number of dimensions as `collection`.
+"""
+collect{T}(::Type{T}, itr) = _collect(T, itr, iteratorsize(itr))
+
+_collect{T}(::Type{T}, itr, isz::HasLength) = copy!(Array{T,1}(Int(length(itr)::Integer)), itr)
+_collect{T}(::Type{T}, itr, isz::HasShape)  = copy!(Array{T}(convert(Dims,size(itr))), itr)
+function _collect{T}(::Type{T}, itr, isz::SizeUnknown)
+    a = Array{T,1}(0)
+    for x in itr
+        push!(a,x)
+    end
+    return a
+end
 
 # make a collection similar to `c` and appropriate for collecting `itr`
 _similar_for(c::AbstractArray, T, itr, ::SizeUnknown) = similar(c, T, 0)
@@ -208,16 +224,11 @@ _similar_for(c::AbstractArray, T, itr, ::HasShape) = similar(c, T, convert(Dims,
 _similar_for(c, T, itr, isz) = similar(c, T)
 
 """
-    collect(element_type, collection)
-
-Return an array of type `Array{element_type,1}` of all items in a collection.
-"""
-collect{T}(::Type{T}, itr) = collect(Generator(T, itr))
-
-"""
     collect(collection)
 
-Return an array of all items in a collection. For associative collections, returns Pair{KeyType, ValType}.
+Return an Array of all items in a collection or iterator. For associative collections, returns
+Pair{KeyType, ValType}. If the argument is array-like or is an iterator with the `HasShape()`
+trait, the result will have the same shape and number of dimensions as the argument.
 """
 collect(itr) = _collect(1:1 #= Array =#, itr, iteratoreltype(itr), iteratorsize(itr))
 
@@ -234,16 +245,41 @@ function _collect(cont, itr, ::HasEltype, isz::SizeUnknown)
     return a
 end
 
-_default_eltype(itr::ANY) = Union{}
-_default_eltype{I,T}(::Generator{I,Type{T}}) = T
+if isdefined(Core, :Inference)
+    function _default_eltype(itrt::ANY)
+        rt = Core.Inference.return_type(first, Tuple{itrt})
+        return isleaftype(rt) ? rt : Union{}
+    end
+else
+    _default_eltype(itr::ANY) = Union{}
+end
+_default_eltype{I,T}(::Type{Generator{I,Type{T}}}) = T
+
+_array_for(T, itr, ::HasLength) = Array{T,1}(Int(length(itr)::Integer))
+_array_for(T, itr, ::HasShape) = Array{T}(convert(Dims,size(itr)))
+
+function collect(itr::Generator)
+    isz = iteratorsize(itr.iter)
+    et = _default_eltype(typeof(itr))
+    if isa(isz, SizeUnknown)
+        return grow_to!(Array{et,1}(0), itr)
+    else
+        st = start(itr)
+        if done(itr,st)
+            return _array_for(et, itr.iter, isz)
+        end
+        v1, st = next(itr, st)
+        collect_to_with_first!(_array_for(typeof(v1), itr.iter, isz), v1, itr, st)
+    end
+end
 
 _collect(c, itr, ::EltypeUnknown, isz::SizeUnknown) =
-    grow_to!(_similar_for(c, _default_eltype(itr), itr, isz), itr)
+    grow_to!(_similar_for(c, _default_eltype(typeof(itr)), itr, isz), itr)
 
 function _collect(c, itr, ::EltypeUnknown, isz::Union{HasLength,HasShape})
     st = start(itr)
     if done(itr,st)
-        return _similar_for(c, _default_eltype(itr), itr, isz)
+        return _similar_for(c, _default_eltype(typeof(itr)), itr, isz)
     end
     v1, st = next(itr, st)
     collect_to_with_first!(_similar_for(c, typeof(v1), itr, isz), v1, itr, st)
@@ -299,8 +335,8 @@ end
 
 ## Iteration ##
 start(A::Array) = 1
-next(a::Array,i) = (a[i],i+1)
-done(a::Array,i) = i == length(a)+1
+next(a::Array,i) = (@_propagate_inbounds_meta; (a[i],i+1))
+done(a::Array,i) = (@_inline_meta; i == length(a)+1)
 
 ## Indexing: getindex ##
 
@@ -386,66 +422,13 @@ setindex!{T, N}(A::Array{T, N}, x::Number, ::Vararg{Colon, N}) = fill!(A, x)
 
 # efficiently grow an array
 
-function _growat!(a::Vector, i::Integer, delta::Integer)
-    n = length(a)
-    if i < div(n,2)
-        _growat_beg!(a, i, delta)
-    else
-        _growat_end!(a, i, delta)
-    end
-    return a
-end
-
-function _growat_beg!(a::Vector, i::Integer, delta::Integer)
-    ccall(:jl_array_grow_beg, Void, (Any, UInt), a, delta)
-    if i > 1
-        ccall(:memmove, Ptr{Void}, (Ptr{Void}, Ptr{Void}, Csize_t),
-              pointer(a, 1), pointer(a, 1+delta), (i-1)*elsize(a))
-    end
-    return a
-end
-
-function _growat_end!(a::Vector, i::Integer, delta::Integer)
-    ccall(:jl_array_grow_end, Void, (Any, UInt), a, delta)
-    n = length(a)
-    if n >= i+delta
-        ccall(:memmove, Ptr{Void}, (Ptr{Void}, Ptr{Void}, Csize_t),
-              pointer(a, i+delta), pointer(a, i), (n-i-delta+1)*elsize(a))
-    end
-    return a
-end
+_growat!(a::Vector, i::Integer, delta::Integer) =
+    ccall(:jl_array_grow_at, Void, (Any, Int, UInt), a, i - 1, delta)
 
 # efficiently delete part of an array
 
-function _deleteat!(a::Vector, i::Integer, delta::Integer)
-    n = length(a)
-    last = i+delta-1
-    if i-1 < n-last
-        _deleteat_beg!(a, i, delta)
-    else
-        _deleteat_end!(a, i, delta)
-    end
-    return a
-end
-
-function _deleteat_beg!(a::Vector, i::Integer, delta::Integer)
-    if i > 1
-        ccall(:memmove, Ptr{Void}, (Ptr{Void}, Ptr{Void}, Csize_t),
-              pointer(a, 1+delta), pointer(a, 1), (i-1)*elsize(a))
-    end
-    ccall(:jl_array_del_beg, Void, (Any, UInt), a, delta)
-    return a
-end
-
-function _deleteat_end!(a::Vector, i::Integer, delta::Integer)
-    n = length(a)
-    if n >= i+delta
-        ccall(:memmove, Ptr{Void}, (Ptr{Void}, Ptr{Void}, Csize_t),
-              pointer(a, i), pointer(a, i+delta), (n-i-delta+1)*elsize(a))
-    end
-    ccall(:jl_array_del_end, Void, (Any, UInt), a, delta)
-    return a
-end
+_deleteat!(a::Vector, i::Integer, delta::Integer) =
+    ccall(:jl_array_del_at, Void, (Any, Int, UInt), a, i - 1, delta)
 
 ## Dequeue functionality ##
 
@@ -525,34 +508,20 @@ function shift!(a::Vector)
 end
 
 function insert!{T}(a::Array{T,1}, i::Integer, item)
-    if !(1 <= i <= length(a)+1)
-        throw(BoundsError())
-    end
-    if i == length(a)+1
-        return push!(a, item)
-    end
-    item = convert(T, item)
+    # Throw convert error before changing the shape of the array
+    _item = convert(T, item)
     _growat!(a, i, 1)
-    a[i] = item
+    # _growat! already did bound check
+    @inbounds a[i] = _item
     return a
 end
 
-function deleteat!(a::Vector, i::Integer)
-    if !(1 <= i <= length(a))
-        throw(BoundsError())
-    end
-    return _deleteat!(a, i, 1)
-end
+deleteat!(a::Vector, i::Integer) = (_deleteat!(a, i, 1); a)
 
 function deleteat!{T<:Integer}(a::Vector, r::UnitRange{T})
     n = length(a)
-    isempty(r) && return a
-    f = first(r)
-    l = last(r)
-    if !(1 <= f && l <= n)
-        throw(BoundsError())
-    end
-    return _deleteat!(a, f, length(r))
+    isempty(r) || _deleteat!(a, first(r), length(r))
+    return a
 end
 
 function deleteat!(a::Vector, inds)
@@ -619,18 +588,9 @@ function splice!{T<:Integer}(a::Vector, r::UnitRange{T}, ins=_default_splice)
 
     if m < d
         delta = d - m
-        if f-1 < n-l
-            _deleteat_beg!(a, f, delta)
-        else
-            _deleteat_end!(a, l-delta+1, delta)
-        end
+        _deleteat!(a, (f - 1 < n - l) ? f : (l - delta + 1), delta)
     elseif m > d
-        delta = m - d
-        if f-1 < n-l
-            _growat_beg!(a, f, delta)
-        else
-            _growat_end!(a, l+1, delta)
-        end
+        _growat!(a, (f - 1 < n - l) ? f : (l + 1), m - d)
     end
 
     k = 1
@@ -650,7 +610,7 @@ end
 function lexcmp(a::Array{UInt8,1}, b::Array{UInt8,1})
     c = ccall(:memcmp, Int32, (Ptr{UInt8}, Ptr{UInt8}, UInt),
               a, b, min(length(a),length(b)))
-    c < 0 ? -1 : c > 0 ? +1 : cmp(length(a),length(b))
+    return c < 0 ? -1 : c > 0 ? +1 : cmp(length(a),length(b))
 end
 
 function reverse(A::AbstractVector, s=1, n=length(A))
@@ -664,7 +624,7 @@ function reverse(A::AbstractVector, s=1, n=length(A))
     for i = n+1:length(A)
         B[i] = A[i]
     end
-    B
+    return B
 end
 reverseind(a::AbstractVector, i::Integer) = length(a) + 1 - i
 
@@ -680,7 +640,7 @@ function reverse!(v::AbstractVector, s=1, n=length(v))
         v[i], v[r] = v[r], v[i]
         r -= 1
     end
-    v
+    return v
 end
 
 function vcat{T}(arrays::Vector{T}...)
@@ -688,19 +648,24 @@ function vcat{T}(arrays::Vector{T}...)
     for a in arrays
         n += length(a)
     end
-    arr = Array{T}(n)
+    arr = Array{T,1}(n)
     ptr = pointer(arr)
-    offset = 0
     if isbits(T)
-        elsz = sizeof(T)
+        elsz = Core.sizeof(T)
     else
         elsz = Core.sizeof(Ptr{Void})
     end
     for a in arrays
-        nba = length(a)*elsz
-        ccall(:memcpy, Ptr{Void}, (Ptr{Void}, Ptr{Void}, UInt),
-              ptr+offset, a, nba)
-        offset += nba
+        na = length(a)
+        nba = na * elsz
+        if isbits(T)
+            ccall(:memcpy, Ptr{Void}, (Ptr{Void}, Ptr{Void}, UInt),
+                  ptr, a, nba)
+        else
+            ccall(:jl_array_ptr_copy, Void, (Any, Ptr{Void}, Any, Ptr{Void}, Int),
+                  arr, ptr, a, pointer(a), na)
+        end
+        ptr += nba
     end
     return arr
 end
@@ -712,7 +677,7 @@ function hcat{T}(V::Vector{T}...)
             throw(DimensionMismatch("vectors must have same lengths"))
         end
     end
-    [ V[j][i]::T for i=1:length(V[1]), j=1:length(V) ]
+    return [ V[j][i]::T for i=1:length(V[1]), j=1:length(V) ]
 end
 
 hcat(A::Matrix...) = typed_hcat(promote_eltype(A...), A...)
@@ -720,6 +685,16 @@ hcat{T}(A::Matrix{T}...) = typed_hcat(T, A...)
 
 vcat(A::Matrix...) = typed_vcat(promote_eltype(A...), A...)
 vcat{T}(A::Matrix{T}...) = typed_vcat(T, A...)
+
+hcat(A::Union{Matrix, Vector}...) = typed_hcat(promote_eltype(A...), A...)
+hcat{T}(A::Union{Matrix{T}, Vector{T}}...) = typed_hcat(T, A...)
+
+
+vcat(A::Union{Matrix, Vector}...) = typed_vcat(promote_eltype(A...), A...)
+vcat{T}(A::Union{Matrix{T}, Vector{T}}...) = typed_vcat(T, A...)
+
+hvcat(rows::Tuple{Vararg{Int}}, xs::Vector...) = typed_hvcat(promote_eltype(xs...), rows, xs...)
+hvcat{T}(rows::Tuple{Vararg{Int}}, xs::Vector{T}...) = typed_hvcat(T, rows, xs...)
 
 hvcat(rows::Tuple{Vararg{Int}}, xs::Matrix...) = typed_hvcat(promote_eltype(xs...), rows, xs...)
 hvcat{T}(rows::Tuple{Vararg{Int}}, xs::Matrix{T}...) = typed_hvcat(T, rows, xs...)
@@ -764,7 +739,7 @@ function findprev(A, start::Integer)
     for i = start:-1:1
         A[i] != 0 && return i
     end
-    0
+    return 0
 end
 findlast(A) = findprev(A, length(A))
 
@@ -773,7 +748,7 @@ function findprev(A, v, start::Integer)
     for i = start:-1:1
         A[i] == v && return i
     end
-    0
+    return 0
 end
 findlast(A, v) = findprev(A, v, length(A))
 
@@ -782,22 +757,22 @@ function findprev(testf::Function, A, start::Integer)
     for i = start:-1:1
         testf(A[i]) && return i
     end
-    0
+    return 0
 end
 findlast(testf::Function, A) = findprev(testf, A, length(A))
 
 function find(testf::Function, A)
     # use a dynamic-length array to store the indexes, then copy to a non-padded
     # array for the return
-    tmpI = Array{Int}(0)
+    tmpI = Array{Int,1}(0)
     for (i,a) = enumerate(A)
         if testf(a)
             push!(tmpI, i)
         end
     end
-    I = Array{Int}(length(tmpI))
+    I = Array{Int,1}(length(tmpI))
     copy!(I, tmpI)
-    I
+    return I
 end
 
 function find(A)
@@ -813,8 +788,8 @@ function find(A)
     return I
 end
 
-find(x::Number) = x == 0 ? Array{Int}(0) : [1]
-find(testf::Function, x::Number) = !testf(x) ? Array{Int}(0) : [1]
+find(x::Number) = x == 0 ? Array{Int,1}(0) : [1]
+find(testf::Function, x::Number) = !testf(x) ? Array{Int,1}(0) : [1]
 
 findn(A::AbstractVector) = find(A)
 
@@ -837,7 +812,7 @@ function findnz{T}(A::AbstractMatrix{T})
     nnzA = countnz(A)
     I = zeros(Int, nnzA)
     J = zeros(Int, nnzA)
-    NZs = Array{T}(nnzA)
+    NZs = Array{T,1}(nnzA)
     count = 1
     if nnzA > 0
         for j=1:size(A,2), i=1:size(A,1)
@@ -900,7 +875,7 @@ function indexin(a::AbstractArray, b::AbstractArray)
 end
 
 function findin(a, b)
-    ind = Array{Int}(0)
+    ind = Array{Int,1}(0)
     bset = Set(b)
     @inbounds for (i,ai) in enumerate(a)
         ai in bset && push!(ind, i)
@@ -909,6 +884,7 @@ function findin(a, b)
 end
 
 # Copying subregions
+# TODO: DEPRECATE FOR #14770
 function indcopy(sz::Dims, I::Vector)
     n = length(I)
     s = sz[n]
@@ -994,7 +970,7 @@ end
 function setdiff(a, b)
     args_type = promote_type(eltype(a), eltype(b))
     bset = Set(b)
-    ret = Array{args_type}(0)
+    ret = Array{args_type,1}(0)
     seen = Set{eltype(a)}()
     for a_elem in a
         if !in(a_elem, seen) && !in(a_elem, bset)

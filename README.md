@@ -48,7 +48,7 @@ developers may find the notes in [CONTRIBUTING](https://github.com/JuliaLang/jul
 <a name="Currently-Supported-Platforms"/>
 ## Currently Supported Platforms
 
-- **GNU/Linux**
+- **Linux**
 - **Darwin/OS X**
 - **FreeBSD**
 - **Windows**
@@ -257,7 +257,6 @@ Building Julia requires that the following software be installed:
 - **[GNU make]**                — building dependencies.
 - **[gcc & g++][gcc]** (>= 4.7) or **[Clang][clang]** (>= 3.1, Xcode 4.3.3 on OS X) — compiling and linking C, C++
 - **[gfortran]**                — compiling and linking Fortran libraries
-- **[git]**                     — version control and package management (version 1.7.3+ required)
 - **[perl]**                    — preprocessing of header files of libraries.
 - **[wget]**, **[curl]**, or **[fetch]** (FreeBSD) — to automatically download external libraries.
 - **[m4]**                      — needed to build GMP.
@@ -283,10 +282,11 @@ Julia uses the following external libraries, which are automatically downloaded 
 - **[PCRE]** (>= 10.00)      — Perl-compatible regular expressions library.
 - **[GMP]** (>= 5.0)         — GNU multiple precision arithmetic library, needed for `BigInt` support.
 - **[MPFR]** (>= 3.0)        — GNU multiple precision floating point library, needed for arbitrary precision floating point (`BigFloat`) support.
-- **[libgit2]** (>= 0.21)    — Git linkable library, used by Julia's package manager
-- **[utf8proc]** (>= 1.3)    — a library for processing UTF-8 encoded Unicode strings
+- **[libgit2]** (>= 0.23)    — Git linkable library, used by Julia's package manager
+- **[libssh2]** (>= 1.7)     — library for SSH transport, used by libgit2 for packages with SSH remotes
+- **[mbedtls]** (>= 2.2)     — library used for cryptography and transport layer security, used by libssh2
+- **[utf8proc]** (>= 2.0)    — a library for processing UTF-8 encoded Unicode strings
 - **[libosxunwind]**         — clone of [libunwind], a library that determines the call-chain of a program
-- **[Rmath-julia]**          — library for commonly used statistical functions from the R project.
 
 For a longer overview of Julia's dependencies, see these [slides](https://github.com/tkelman/BAJUtalk-Dec2014/blob/master/BAJUtalkDec2014.pdf?raw=true).
 
@@ -299,7 +299,6 @@ For a longer overview of Julia's dependencies, see these [slides](https://github
 [gfortran]:     https://gcc.gnu.org/fortran/
 [curl]:         http://curl.haxx.se
 [fetch]:        http://www.freebsd.org/cgi/man.cgi?fetch(1)
-[git]:          http://git-scm.com
 [perl]:         http://www.perl.org
 [cmake]:        http://www.cmake.org
 [OpenLibm]:     https://github.com/JuliaLang/openlibm
@@ -323,8 +322,9 @@ For a longer overview of Julia's dependencies, see these [slides](https://github
 [utf8proc]:     http://julialang.org/utf8proc/
 [libosxunwind]: https://github.com/JuliaLang/libosxunwind
 [libunwind]:    http://www.nongnu.org/libunwind
-[Rmath-julia]:  https://github.com/JuliaLang/Rmath-julia
 [openssl]:      https://www.openssl.org
+[libssh2]:      https://www.libssh2.org
+[mbedtls]:      https://tls.mbed.org/
 
 <a name="System-Provided-Libraries">
 ### System Provided Libraries
@@ -395,6 +395,7 @@ You can read about [getting started](http://julialang.org/manual/getting-started
 
 The following distributions include julia, but the versions may be out of date due to rapid development:
 
+* [Alpine Linux](http://pkgs.alpinelinux.org/package/edge/testing/x86_64/julia)
 * [Arch Linux](https://www.archlinux.org/packages/community/i686/julia/)
 * [Debian GNU/Linux](http://packages.debian.org/sid/julia)
 * [Fedora Linux](https://admin.fedoraproject.org/pkgdb/package/julia/), RHEL/CentOS/OEL/Scientific Linux (EPEL)

@@ -226,7 +226,7 @@ g = parse(BigInt,"-1")
 # from Bill Hart, https://groups.google.com/group/julia-dev/browse_frm/thread/798e2d1322daf633
 function mul(a::Vector{BigInt}, b::Vector{BigInt})
    x = a[2]*b[2]
-   c = Array(BigInt,3)
+   c = Array{BigInt,1}(3)
    c[1] = a[1]*b[1] + x
    c[2] = a[1]*b[2] + a[2]*b[3]
    c[3] = x + a[3]*b[3]
@@ -300,3 +300,14 @@ ndigits(rand(big(-999:999)), big(2)^rand(2:999))
 @test_throws InexactError round(BigInt,Inf)
 @test_throws InexactError floor(BigInt,Inf)
 @test_throws InexactError ceil(BigInt,Inf)
+
+@test bin(big(3)) == "11"
+@test oct(big(9)) == "11"
+@test oct(-big(9)) == "-11"
+@test hex(big(12)) == "c"
+
+@test isqrt(big(4)) == 2
+@test isqrt(big(5)) == 2
+
+@test big(5)^true == big(5)
+@test big(5)^false == one(BigInt)

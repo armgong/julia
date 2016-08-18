@@ -59,9 +59,9 @@ type UVError <: Exception
     UVError(p::AbstractString,code::Integer)=new(p,code)
 end
 
-struverror(err::Int32) = String(ccall(:uv_strerror,Cstring,(Int32,),err))
+struverror(err::Int32) = unsafe_string(ccall(:uv_strerror,Cstring,(Int32,),err))
 struverror(err::UVError) = struverror(err.code)
-uverrorname(err::Int32) = String(ccall(:uv_err_name,Cstring,(Int32,),err))
+uverrorname(err::Int32) = unsafe_string(ccall(:uv_err_name,Cstring,(Int32,),err))
 uverrorname(err::UVError) = uverrorname(err.code)
 
 uv_error(prefix::Symbol, c::Integer) = uv_error(string(prefix),c)
@@ -70,7 +70,7 @@ show(io::IO, e::UVError) = print(io, e.prefix*": "*struverror(e)*" ("*uverrornam
 
 ## event loop ##
 
-eventloop() = global uv_eventloop::Ptr{Void}
+eventloop() = uv_eventloop::Ptr{Void}
 #mkNewEventLoop() = ccall(:jl_new_event_loop,Ptr{Void},()) # this would probably be fine, but is nowhere supported
 
 function run_event_loop()
@@ -99,9 +99,9 @@ function reinit_stdio()
     global uv_jl_timercb       = cfunction(uv_timercb, Void, (Ptr{Void},))
 
     global uv_eventloop = ccall(:jl_global_event_loop, Ptr{Void}, ())
-    global STDIN = init_stdio(ccall(:jl_stdin_stream ,Ptr{Void},()))
-    global STDOUT = init_stdio(ccall(:jl_stdout_stream,Ptr{Void},()))
-    global STDERR = init_stdio(ccall(:jl_stderr_stream,Ptr{Void},()))
+    global STDIN = init_stdio(ccall(:jl_stdin_stream, Ptr{Void}, ()))
+    global STDOUT = init_stdio(ccall(:jl_stdout_stream, Ptr{Void}, ()))
+    global STDERR = init_stdio(ccall(:jl_stderr_stream, Ptr{Void}, ()))
 end
 
 """

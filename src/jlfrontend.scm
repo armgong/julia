@@ -77,7 +77,7 @@
 (define (expand-toplevel-expr-- e)
   (let ((ex0 (julia-expand-macros e)))
     (if (and (pair? ex0) (eq? (car ex0) 'toplevel))
-        `(toplevel ,@(map expand-toplevel-expr (cdr ex0)))
+        ex0
         (let* ((ex (julia-expand0 ex0))
                (gv (toplevel-expr-globals ex))
                (th (julia-expand1
@@ -85,8 +85,8 @@
                              (scope-block
                               (block ,@(map (lambda (v) `(implicit-global ,v)) gv)
                                      ,ex))))))
-          (if (and (null? (car (caddr th)))
-                   (= 0 (caddr (caddr th))))
+          (if (and (null? (cdadr (caddr th)))
+                   (= 0 (cadddr (caddr th))))
               ;; if no locals, return just body of function
               (cadddr th)
               `(thunk ,th))))))
@@ -174,8 +174,14 @@
                              (julia-parse stream)))))
                 (if (eof-object? expr)
                     (cons 'toplevel (reverse! exprs))
-                    (let ((next (list* expr `(line ,lineno) exprs)))
-                      (if (and (pair? expr) (eq? (car expr) 'error))
+                    (let* ((iserr (and (pair? expr) (eq? (car expr) 'error)))
+			   (next (list* expr
+					;; for error, get most recent line number (#16720)
+					(if iserr
+					    `(line ,(input-port-line io))
+					    `(line ,lineno))
+					exprs)))
+                      (if iserr
                           (cons 'toplevel (reverse! next))
                           (loop next))))))))))
    (io.close io)))

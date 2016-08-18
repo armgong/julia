@@ -31,6 +31,9 @@ num2hex(x::Float32) = hex(box(UInt32,unbox(Float32,x)),8)
 num2hex(x::Float64) = hex(box(UInt64,unbox(Float64,x)),16)
 
 function hex2num(s::AbstractString)
+    if length(s) <= 4
+        return box(Float16,unbox(UInt16,parse(UInt16,s,16)))
+    end
     if length(s) <= 8
         return box(Float32,unbox(UInt32,parse(UInt32,s,16)))
     end
@@ -45,6 +48,65 @@ end
 @vectorize_1arg Number isinf
 @vectorize_1arg Number isfinite
 
+"""
+    round([T,] x, [digits, [base]], [r::RoundingMode])
+
+Rounds `x` to an integer value according to the provided
+[`RoundingMode`](:obj:`RoundingMode`), returning a value of the same type as `x`. When not
+specifying a rounding mode the global mode will be used
+(see [`rounding`](:func:`rounding`)), which by default is round to the nearest integer
+([`RoundNearest`](:obj:`RoundNearest`) mode), with ties (fractional values of 0.5) being
+rounded to the nearest even integer.
+
+```jldoctest
+julia> round(1.7)
+2.0
+
+julia> round(1.5)
+2.0
+
+julia> round(2.5)
+2.0
+```
+
+The optional [`RoundingMode`](:obj:`RoundingMode`) argument will change how the number gets
+rounded.
+
+`round(T, x, [r::RoundingMode])` converts the result to type `T`, throwing an
+[`InexactError`](:exc:`InexactError`) if the value is not representable.
+
+`round(x, digits)` rounds to the specified number of digits after the decimal place (or
+before if negative). `round(x, digits, base)` rounds using a base other than 10.
+
+```jldoctest
+julia> round(pi, 2)
+3.14
+
+julia> round(pi, 3, 2)
+3.125
+```
+
+!!! note
+    Rounding to specified digits in bases other than 2 can be inexact when
+    operating on binary floating point numbers. For example, the `Float64`
+    value represented by `1.15` is actually *less* than 1.15, yet will be
+    rounded to 1.2.
+
+    ```jldoctest
+    julia> x = 1.15
+    1.15
+
+    julia> @sprintf "%.20f" x
+    "1.14999999999999991118"
+
+    julia> x < 115//100
+    true
+
+    julia> round(x, 1)
+    1.2
+    ```
+"""
+round(T::Type, x)
 
 round(x::Real, ::RoundingMode{:ToZero}) = trunc(x)
 round(x::Real, ::RoundingMode{:Up}) = ceil(x)

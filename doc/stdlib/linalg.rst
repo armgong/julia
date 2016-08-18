@@ -23,7 +23,9 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Matrix division using a polyalgorithm. For input matrices ``A`` and ``B``\ , the result ``X`` is such that ``A*X == B`` when ``A`` is square.  The solver that is used depends upon the structure of ``A``\ .  A direct solver is used for upper or lower triangular ``A``\ .  For Hermitian ``A`` (equivalent to symmetric ``A`` for non-complex ``A``\ ) the ``BunchKaufman`` factorization is used. Otherwise an LU factorization is used. For rectangular ``A`` the result is the minimum-norm least squares solution computed by a pivoted QR factorization of ``A`` and a rank estimate of ``A`` based on the R factor.
+   Matrix division using a polyalgorithm. For input matrices ``A`` and ``B``\ , the result ``X`` is such that ``A*X == B`` when ``A`` is square. The solver that is used depends upon the structure of ``A``\ .  If ``A`` is upper or lower triangular (or diagonal), no factorization of ``A`` is required and the system is solved with either forward or backward substitution. For non-triangular square matrices, an LU factorization is used.
+
+   For rectangular ``A`` the result is the minimum-norm least squares solution computed by a pivoted QR factorization of ``A`` and a rank estimate of ``A`` based on the R factor.
 
    When ``A`` is sparse, a similar polyalgorithm is used. For indefinite matrices, the ``LDLt`` factorization does not use pivoting during the numerical factorization and therefore the procedure can fail even for invertible matrices.
 
@@ -51,13 +53,150 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Compute a convenient factorization (including LU, Cholesky, Bunch-Kaufman, LowerTriangular, UpperTriangular) of ``A``\ , based upon the type of the input matrix. The return value can then be reused for efficient solving of multiple systems. For example: ``A=factorize(A); x=A\b; y=A\C``\ .
+   Compute a convenient factorization of ``A``\ , based upon the type of the input matrix. ``factorize`` checks ``A`` to see if it is symmetric/triangular/etc. if ``A`` is passed as a generic matrix. ``factorize`` checks every element of ``A`` to verify/rule out each property. It will short-circuit as soon as it can rule out symmetry/triangular structure. The return value can be reused for efficient solving of multiple systems. For example: ``A=factorize(A); x=A\b; y=A\C``\ .
+
+   +----------------------------+--------------------------------------+
+   | Properties of ``A``        | type of factorization                |
+   +============================+======================================+
+   | Positive-definite          | Cholesky (see :func:`cholfact`\ )    |
+   +----------------------------+--------------------------------------+
+   | Dense Symmetric/Hermitian  | Bunch-Kaufman (see :func:`bkfact`\ ) |
+   +----------------------------+--------------------------------------+
+   | Sparse Symmetric/Hermitian | LDLt (see :func:`ldltfact`\ )        |
+   +----------------------------+--------------------------------------+
+   | Triangular                 | Triangular                           |
+   +----------------------------+--------------------------------------+
+   | Diagonal                   | Diagonal                             |
+   +----------------------------+--------------------------------------+
+   | Bidiagonal                 | Bidiagonal                           |
+   +----------------------------+--------------------------------------+
+   | Tridiagonal                | LU (see :func:`lufact`\ )            |
+   +----------------------------+--------------------------------------+
+   | Symmetric real tridiagonal | LDLt (see :func:`ldltfact`\ )        |
+   +----------------------------+--------------------------------------+
+   | General square             | LU (see :func:`lufact`\ )            |
+   +----------------------------+--------------------------------------+
+   | General non-square         | QR (see :func:`qrfact`\ )            |
+   +----------------------------+--------------------------------------+
+
+   If ``factorize`` is called on a Hermitian positive-definite matrix, for instance, then ``factorize`` will return a Cholesky factorization.
+
+   Example:
+
+   .. code-block:: julia
+
+       A = diagm(rand(5)) + diagm(rand(4),1); #A is really bidiagonal
+       factorize(A) #factorize will check to see that A is already factorized
+
+   This returns a ``5×5 Bidiagonal{Float64}``\ , which can now be passed to other linear algebra functions (e.g. eigensolvers) which will use specialized methods for ``Bidiagonal`` types.
 
 .. function:: full(F)
 
    .. Docstring generated from Julia source
 
    Reconstruct the matrix ``A`` from the factorization ``F=factorize(A)``\ .
+
+.. function:: Diagonal(A::AbstractMatrix)
+
+   .. Docstring generated from Julia source
+
+   Constructs a matrix from the diagonal of ``A``\ .
+
+.. function:: Diagonal(V::AbstractVector)
+
+   .. Docstring generated from Julia source
+
+   Constructs a matrix with ``V`` as its diagonal.
+
+.. function:: Bidiagonal(dv, ev, isupper::Bool)
+
+   .. Docstring generated from Julia source
+
+   Constructs an upper (``isupper=true``\ ) or lower (``isupper=false``\ ) bidiagonal matrix using the given diagonal (``dv``\ ) and off-diagonal (``ev``\ ) vectors.  The result is of type ``Bidiagonal`` and provides efficient specialized linear solvers, but may be converted into a regular matrix with :func:`full`\ . ``ev``\ 's length must be one less than the length of ``dv``\ .
+
+   **Example**
+
+   .. code-block:: julia
+
+       dv = rand(5)
+       ev = rand(4)
+       Bu = Bidiagonal(dv, ev, true) #e is on the first superdiagonal
+       Bl = Bidiagonal(dv, ev, false) #e is on the first subdiagonal
+
+.. function:: Bidiagonal(dv, ev, uplo::Char)
+
+   .. Docstring generated from Julia source
+
+   Constructs an upper (``uplo='U'``\ ) or lower (``uplo='L'``\ ) bidiagonal matrix using the given diagonal (``dv``\ ) and off-diagonal (``ev``\ ) vectors.  The result is of type ``Bidiagonal`` and provides efficient specialized linear solvers, but may be converted into a regular matrix with :func:`full`\ . ``ev``\ 's length must be one less than the length of ``dv``\ .
+
+   **Example**
+
+   .. code-block:: julia
+
+       dv = rand(5)
+       ev = rand(4)
+       Bu = Bidiagonal(dv, ev, 'U') #e is on the first superdiagonal
+       Bl = Bidiagonal(dv, ev, 'L') #e is on the first subdiagonal
+
+.. function:: Bidiagonal(A, isupper::Bool)
+
+   .. Docstring generated from Julia source
+
+   Construct a ``Bidiagonal`` matrix from the main diagonal of ``A`` and its first super- (if ``isupper=true``\ ) or sub-diagonal (if ``isupper=false``\ ).
+
+   **Example**
+
+   .. code-block:: julia
+
+       A = rand(5,5)
+       Bu = Bidiagonal(A, true) #contains the main diagonal and first superdiagonal of A
+       Bl = Bidiagonal(A, false) #contains the main diagonal and first subdiagonal of A
+
+.. function:: SymTridiagonal(dv, ev)
+
+   .. Docstring generated from Julia source
+
+   Construct a symmetric tridiagonal matrix from the diagonal and first sub/super-diagonal, respectively. The result is of type ``SymTridiagonal`` and provides efficient specialized eigensolvers, but may be converted into a regular matrix with :func:`full`\ .
+
+.. function:: Tridiagonal(dl, d, du)
+
+   .. Docstring generated from Julia source
+
+   Construct a tridiagonal matrix from the first subdiagonal, diagonal, and first superdiagonal, respectively.  The result is of type ``Tridiagonal`` and provides efficient specialized linear solvers, but may be converted into a regular matrix with :func:`full`\ . The lengths of ``dl`` and ``du`` must be one less than the length of ``d``\ .
+
+.. function:: Symmetric(A, uplo=:U)
+
+   .. Docstring generated from Julia source
+
+   Construct a ``Symmetric`` matrix from the upper (if ``uplo = :U``\ ) or lower (if ``uplo = :L``\ ) triangle of ``A``\ .
+
+   **Example**
+
+   .. code-block:: julia
+
+       A = randn(10,10)
+       Supper = Symmetric(A)
+       Slower = Symmetric(A,:L)
+       eigfact(Supper)
+
+   ``eigfact`` will use a method specialized for matrices known to be symmetric. Note that ``Supper`` will not be equal to ``Slower`` unless ``A`` is itself symmetric (e.g. if ``A == A.'``\ ).
+
+.. function:: Hermitian(A, uplo=:U)
+
+   .. Docstring generated from Julia source
+
+   Construct a ``Hermitian`` matrix from the upper (if ``uplo = :U``\ ) or lower (if ``uplo = :L``\ ) triangle of ``A``\ .
+
+   **Example**
+
+   .. code-block:: julia
+
+       A = randn(10,10)
+       Hupper = Hermitian(A)
+       Hlower = Hermitian(A,:L)
+       eigfact(Hupper)
+
+   ``eigfact`` will use a method specialized for matrices known to be Hermitian. Note that ``Hupper`` will not be equal to ``Hlower`` unless ``A`` is itself Hermitian (e.g. if ``A == A'``\ ).
 
 .. function:: lu(A) -> L, U, p
 
@@ -157,7 +296,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    ``lufact!`` is the same as :func:`lufact`\ , but saves space by overwriting the input ``A``\ , instead of creating a copy. An ``InexactError`` exception is thrown if the factorisation produces a number not representable by the element type of ``A``\ , e.g. for integer types.
 
-.. function:: chol(A::AbstractMatrix) -> U
+.. function:: chol(A) -> U
 
    .. Docstring generated from Julia source
 
@@ -169,49 +308,49 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Compute the square root of a non-negative number ``x``\ .
 
-.. function:: cholfact(A::StridedMatrix, uplo::Symbol, Val{false}) -> Cholesky
+.. function:: cholfact(A, uplo::Symbol, Val{false}) -> Cholesky
 
    .. Docstring generated from Julia source
 
    Compute the Cholesky factorization of a dense symmetric positive definite matrix ``A`` and return a ``Cholesky`` factorization. The ``uplo`` argument may be ``:L`` for using the lower part or ``:U`` for the upper part of ``A``\ . The default is to use ``:U``\ . The triangular Cholesky factor can be obtained from the factorization ``F`` with: ``F[:L]`` and ``F[:U]``\ . The following functions are available for ``Cholesky`` objects: ``size``\ , ``\``\ , ``inv``\ , ``det``\ . A ``PosDefException`` exception is thrown in case the matrix is not positive definite.
 
-.. function:: cholfact(A::StridedMatrix, uplo::Symbol, Val{true}; tol = 0.0) -> CholeskyPivoted
+.. function:: cholfact(A, uplo::Symbol, Val{true}; tol = 0.0) -> CholeskyPivoted
 
    .. Docstring generated from Julia source
 
    Compute the pivoted Cholesky factorization of a dense symmetric positive semi-definite matrix ``A`` and return a ``CholeskyPivoted`` factorization. The ``uplo`` argument may be ``:L`` for using the lower part or ``:U`` for the upper part of ``A``\ . The default is to use ``:U``\ . The triangular Cholesky factor can be obtained from the factorization ``F`` with: ``F[:L]`` and ``F[:U]``\ . The following functions are available for ``PivotedCholesky`` objects: ``size``\ , ``\``\ , ``inv``\ , ``det``\ , and ``rank``\ . The argument ``tol`` determines the tolerance for determining the rank. For negative values, the tolerance is the machine precision.
 
-.. function:: cholfact(::Union{SparseMatrixCSC{<:Real},SparseMatrixCSC{Complex{<:Real}},Symmetric{<:Real,SparseMatrixCSC{<:Real,SuiteSparse_long}},Hermitian{Complex{<:Real},SparseMatrixCSC{Complex{<:Real},SuiteSparse_long}}}; shift = 0.0, perm = Int[]) -> CHOLMOD.Factor
+.. function:: cholfact(A; shift = 0.0, perm = Int[]) -> CHOLMOD.Factor
 
    .. Docstring generated from Julia source
 
-   Compute the Cholesky factorization of a sparse positive definite matrix ``A``\ . A fill-reducing permutation is used. ``F = cholfact(A)`` is most frequently used to solve systems of equations with ``F\b``\ , but also the methods ``diag``\ , ``det``\ , ``logdet`` are defined for ``F``\ . You can also extract individual factors from ``F``\ , using ``F[:L]``\ . However, since pivoting is on by default, the factorization is internally represented as ``A == P'*L*L'*P`` with a permutation matrix ``P``\ ; using just ``L`` without accounting for ``P`` will give incorrect answers. To include the effects of permutation, it's typically preferable to extact "combined" factors like ``PtL = F[:PtL]`` (the equivalent of ``P'*L``\ ) and ``LtP = F[:UP]`` (the equivalent of ``L'*P``\ ).
+   Compute the Cholesky factorization of a sparse positive definite matrix ``A``\ . ``A`` must be a ``SparseMatrixCSC``\ , ``Symmetric{SparseMatrixCSC}``\ , or ``Hermitian{SparseMatrixCSC}``\ . Note that even if ``A`` doesn't have the type tag, it must still be symmetric or Hermitian. A fill-reducing permutation is used. ``F = cholfact(A)`` is most frequently used to solve systems of equations with ``F\b``\ , but also the methods ``diag``\ , ``det``\ , ``logdet`` are defined for ``F``\ . You can also extract individual factors from ``F``\ , using ``F[:L]``\ . However, since pivoting is on by default, the factorization is internally represented as ``A == P'*L*L'*P`` with a permutation matrix ``P``\ ; using just ``L`` without accounting for ``P`` will give incorrect answers. To include the effects of permutation, it's typically preferable to extact "combined" factors like ``PtL = F[:PtL]`` (the equivalent of ``P'*L``\ ) and ``LtP = F[:UP]`` (the equivalent of ``L'*P``\ ).
 
    Setting optional ``shift`` keyword argument computes the factorization of ``A+shift*I`` instead of ``A``\ . If the ``perm`` argument is nonempty, it should be a permutation of ``1:size(A,1)`` giving the ordering to use (instead of CHOLMOD's default AMD ordering).
 
-   ** Note **
+   .. note::
+      This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
 
-   This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
+      Many other functions from CHOLMOD are wrapped but not exported from the ``Base.SparseArrays.CHOLMOD`` module.
 
-   Many other functions from CHOLMOD are wrapped but not exported from the ``Base.SparseArrays.CHOLMOD`` module.
 
-.. function:: cholfact!(F::Factor, A::Union{SparseMatrixCSC{<:Real},SparseMatrixCSC{Complex{<:Real}},Symmetric{<:Real,SparseMatrixCSC{<:Real,SuiteSparse_long}},Hermitian{Complex{<:Real},SparseMatrixCSC{Complex{<:Real},SuiteSparse_long}}}; shift = 0.0) -> CHOLMOD.Factor
+.. function:: cholfact!(F::Factor, A; shift = 0.0) -> CHOLMOD.Factor
 
    .. Docstring generated from Julia source
 
-   Compute the Cholesky (:math:`LL'`\ ) factorization of ``A``\ , reusing the symbolic factorization ``F``\ .
+   Compute the Cholesky (:math:`LL'`\ ) factorization of ``A``\ , reusing the symbolic factorization ``F``\ . ``A`` must be a ``SparseMatrixCSC``\ , ``Symmetric{SparseMatrixCSC}``\ , or ``Hermitian{SparseMatrixCSC}``\ . Note that even if ``A`` doesn't have the type tag, it must still be symmetric or Hermitian.
 
-   ** Note **
+   .. note::
+      This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
 
-   This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
 
-.. function:: cholfact!(A::StridedMatrix, uplo::Symbol, Val{false}) -> Cholesky
+.. function:: cholfact!(A, uplo::Symbol, Val{false}) -> Cholesky
 
    .. Docstring generated from Julia source
 
    The same as ``cholfact``\ , but saves space by overwriting the input ``A``\ , instead of creating a copy. An ``InexactError`` exception is thrown if the factorisation produces a number not representable by the element type of ``A``\ , e.g. for integer types.
 
-.. function:: cholfact!(A::StridedMatrix, uplo::Symbol, Val{true}) -> PivotedCholesky
+.. function:: cholfact!(A, uplo::Symbol, Val{true}; tol = 0.0) -> CholeskyPivoted
 
    .. Docstring generated from Julia source
 
@@ -251,29 +390,29 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Compute an ``LDLt`` factorization of a real symmetric tridiagonal matrix such that ``A = L*Diagonal(d)*L'`` where ``L`` is a unit lower triangular matrix and ``d`` is a vector. The main use of an ``LDLt`` factorization ``F = ldltfact(A)`` is to solve the linear system of equations ``Ax = b`` with ``F\b``\ .
 
-.. function:: ldltfact(::Union{SparseMatrixCSC{<:Real},SparseMatrixCSC{Complex{<:Real}},Symmetric{<:Real,SparseMatrixCSC{<:Real,SuiteSparse_long}},Hermitian{Complex{<:Real},SparseMatrixCSC{Complex{<:Real},SuiteSparse_long}}}; shift = 0.0, perm=Int[]) -> CHOLMOD.Factor
+.. function:: ldltfact(A; shift = 0.0, perm=Int[]) -> CHOLMOD.Factor
 
    .. Docstring generated from Julia source
 
-   Compute the :math:`LDL'` factorization of a sparse symmetric or Hermitian matrix. A fill-reducing permutation is used. ``F = ldltfact(A)`` is most frequently used to solve systems of equations ``A*x = b`` with ``F\b``\ . The returned factorization object ``F`` also supports the methods ``diag``\ , ``det``\ , and ``logdet``\ . You can extract individual factors from ``F`` using ``F[:L]``\ . However, since pivoting is on by default, the factorization is internally represented as ``A == P'*L*D*L'*P`` with a permutation matrix ``P``\ ; using just ``L`` without accounting for ``P`` will give incorrect answers. To include the effects of permutation, it's typically preferable to extact "combined" factors like ``PtL = F[:PtL]`` (the equivalent of ``P'*L``\ ) and ``LtP = F[:UP]`` (the equivalent of ``L'*P``\ ). The complete list of supported factors is ``:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP``\ .
+   Compute the :math:`LDL'` factorization of a sparse matrix ``A``\ . ``A`` must be a ``SparseMatrixCSC``\ , ``Symmetric{SparseMatrixCSC}``\ , or ``Hermitian{SparseMatrixCSC}``\ . Note that even if ``A`` doesn't have the type tag, it must still be symmetric or Hermitian. A fill-reducing permutation is used. ``F = ldltfact(A)`` is most frequently used to solve systems of equations ``A*x = b`` with ``F\b``\ . The returned factorization object ``F`` also supports the methods ``diag``\ , ``det``\ , and ``logdet``\ . You can extract individual factors from ``F`` using ``F[:L]``\ . However, since pivoting is on by default, the factorization is internally represented as ``A == P'*L*D*L'*P`` with a permutation matrix ``P``\ ; using just ``L`` without accounting for ``P`` will give incorrect answers. To include the effects of permutation, it is typically preferable to extact "combined" factors like ``PtL = F[:PtL]`` (the equivalent of ``P'*L``\ ) and ``LtP = F[:UP]`` (the equivalent of ``L'*P``\ ). The complete list of supported factors is ``:L, :PtL, :D, :UP, :U, :LD, :DU, :PtLD, :DUP``\ .
 
    Setting optional ``shift`` keyword argument computes the factorization of ``A+shift*I`` instead of ``A``\ . If the ``perm`` argument is nonempty, it should be a permutation of ``1:size(A,1)`` giving the ordering to use (instead of CHOLMOD's default AMD ordering).
 
-   ** Note **
+   .. note::
+      This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
 
-   This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
+      Many other functions from CHOLMOD are wrapped but not exported from the ``Base.SparseArrays.CHOLMOD`` module.
 
-   Many other functions from CHOLMOD are wrapped but not exported from the ``Base.SparseArrays.CHOLMOD`` module.
 
-.. function:: ldltfact!(F::Factor, A::Union{SparseMatrixCSC{<:Real},SparseMatrixCSC{Complex{<:Real}},Symmetric{<:Real,SparseMatrixCSC{<:Real,SuiteSparse_long}},Hermitian{Complex{<:Real},SparseMatrixCSC{Complex{<:Real},SuiteSparse_long}}}; shift = 0.0) -> CHOLMOD.Factor
+.. function:: ldltfact!(F::Factor, A; shift = 0.0) -> CHOLMOD.Factor
 
    .. Docstring generated from Julia source
 
-   Compute the :math:`LDL'` factorization of ``A``\ , reusing the symbolic factorization ``F``\ .
+   Compute the :math:`LDL'` factorization of ``A``\ , reusing the symbolic factorization ``F``\ . ``A`` must be a ``SparseMatrixCSC``\ , ``Symmetric{SparseMatrixCSC}``\ , or ``Hermitian{SparseMatrixCSC}``\ . Note that even if ``A`` doesn't have the type tag, it must still be symmetric or Hermitian.
 
-   ** Note **
+   .. note::
+      This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
 
-   This method uses the CHOLMOD library from SuiteSparse, which only supports doubles or complex doubles. Input matrices not of those element types will be converted to ``SparseMatrixCSC{Float64}`` or ``SparseMatrixCSC{Complex128}`` as appropriate.
 
 .. function:: ldltfact!(::SymTridiagonal) -> LDLt
 
@@ -361,29 +500,29 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Multiplication with respect to either thin or full ``Q`` is allowed, i.e. both ``F[:Q]*F[:R]`` and ``F[:Q]*A`` are supported. A ``Q`` matrix can be converted into a regular matrix with :func:`full` which has a named argument ``thin``\ .
 
-   **note**
+   .. note::
+      ``qrfact`` returns multiple types because LAPACK uses several representations that minimize the memory storage requirements of products of Householder elementary reflectors, so that the ``Q`` and ``R`` matrices can be stored compactly rather as two separate dense matrices.
 
-   ``qrfact`` returns multiple types because LAPACK uses several representations that minimize the memory storage requirements of products of Householder elementary reflectors, so that the ``Q`` and ``R`` matrices can be stored compactly rather as two separate dense matrices.
+      The data contained in ``QR`` or ``QRPivoted`` can be used to construct the ``QRPackedQ`` type, which is a compact representation of the rotation matrix:
 
-   The data contained in ``QR`` or ``QRPivoted`` can be used to construct the ``QRPackedQ`` type, which is a compact representation of the rotation matrix:
+      .. math::
 
-   .. math::
+          Q = \prod_{i=1}^{\min(m,n)} (I - \tau_i v_i v_i^T)
 
-       Q = \prod_{i=1}^{\min(m,n)} (I - \tau_i v_i v_i^T)
+      where :math:`\tau_i` is the scale factor and :math:`v_i` is the projection vector associated with the :math:`i^{th}` Householder elementary reflector.
 
-   where :math:`\tau_i` is the scale factor and :math:`v_i` is the projection vector associated with the :math:`i^{th}` Householder elementary reflector.
+      The data contained in ``QRCompactWY`` can be used to construct the ``QRCompactWYQ`` type, which is a compact representation of the rotation matrix
 
-   The data contained in ``QRCompactWY`` can be used to construct the ``QRCompactWYQ`` type, which is a compact representation of the rotation matrix
+      .. math::
 
-   .. math::
+          Q = I + Y T Y^T
 
-       Q = I + Y T Y^T
+      where ``Y`` is :math:`m \times r` lower trapezoidal and ``T`` is :math:`r \times r` upper triangular. The *compact WY* representation [Schreiber1989]_ is not to be confused with the older, *WY* representation [Bischof1987]_. (The LAPACK documentation uses ``V`` in lieu of ``Y``\ .)
 
-   where ``Y`` is :math:`m \times r` lower trapezoidal and ``T`` is :math:`r \times r` upper triangular. The *compact WY* representation [Schreiber1989]_ is not to be confused with the older, *WY* representation [Bischof1987]_. (The LAPACK documentation uses ``V`` in lieu of ``Y``\ .)
+      .. [Bischof1987] C Bischof and C Van Loan, "The WY representation for products of Householder matrices", SIAM J Sci Stat Comput 8 (1987), s2-s13. `doi:10.1137/0908009 <http://dx.doi.org/10.1137/0908009>`_
 
-   .. [Bischof1987] C Bischof and C Van Loan, "The WY representation for products of Householder matrices", SIAM J Sci Stat Comput 8 (1987), s2-s13. `doi:10.1137/0908009 <http://dx.doi.org/10.1137/0908009>`_
+      .. [Schreiber1989] R Schreiber and C Van Loan, "A storage-efficient WY representation for products of Householder transformations", SIAM J Sci Stat Comput 10 (1989), 53-57. `doi:10.1137/0910005 <http://dx.doi.org/10.1137/0910005>`_
 
-   .. [Schreiber1989] R Schreiber and C Van Loan, "A storage-efficient WY representation for products of Householder transformations", SIAM J Sci Stat Comput 10 (1989), 53-57. `doi:10.1137/0910005 <http://dx.doi.org/10.1137/0910005>`_
 
 .. function:: qrfact(A) -> SPQR.Factorization
 
@@ -404,6 +543,24 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    Converts an orthogonal or unitary matrix stored as a ``QRCompactWYQ`` object, i.e. in the compact WY format [Bischof1987]_, to a dense matrix.
 
    Optionally takes a ``thin`` Boolean argument, which if ``true`` omits the columns that span the rows of ``R`` in the QR factorization that are zero. The resulting matrix is the ``Q`` in a thin QR factorization (sometimes called the reduced QR factorization). If ``false``\ , returns a ``Q`` that spans all rows of ``R`` in its corresponding QR factorization.
+
+.. function:: lqfact!(A) -> LQ
+
+   .. Docstring generated from Julia source
+
+   Compute the LQ factorization of ``A``\ , using the input matrix as a workspace. See also :func:`lq`\ .
+
+.. function:: lqfact(A) -> LQ
+
+   .. Docstring generated from Julia source
+
+   Compute the LQ factorization of ``A``\ . See also :func:`lq`\ .
+
+.. function:: lq(A; [thin=true]) -> L, Q
+
+   .. Docstring generated from Julia source
+
+   Perform an LQ factorization of ``A`` such that ``A = L*Q``\ . The default is to compute a thin factorization. The LQ factorization is the QR factorization of ``A.'``\ . ``L`` is not extended with zeros if the full ``Q`` is requested.
 
 .. function:: bkfact(A) -> BunchKaufman
 
@@ -429,10 +586,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
        julia> eig([1.0 0.0 0.0; 0.0 3.0 0.0; 0.0 0.0 18.0])
        ([1.0,3.0,18.0],
-       3×3 Array{Float64,2}:
-        1.0  0.0  0.0
-        0.0  1.0  0.0
-        0.0  0.0  1.0)
+       [1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0])
 
    ``eig`` is a wrapper around :func:`eigfact`\ , extracting all parts of the factorization to a tuple; where possible, using :func:`eigfact` is recommended.
 
@@ -538,7 +692,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Reorders the Schur factorization ``F`` of a matrix ``A = Z*T*Z'`` according to the logical array ``select`` returning the reordered factorization ``F`` object. The selected eigenvalues appear in the leading diagonal of ``F[:Schur]`` and the the corresponding leading columns of ``F[:vectors]`` form an orthogonal/unitary basis of the corresponding right invariant subspace. In the real case, a complex conjugate pair of eigenvalues must be either both included or both excluded via ``select``\ .
+   Reorders the Schur factorization ``F`` of a matrix ``A = Z*T*Z'`` according to the logical array ``select`` returning the reordered factorization ``F`` object. The selected eigenvalues appear in the leading diagonal of ``F[:Schur]`` and the corresponding leading columns of ``F[:vectors]`` form an orthogonal/unitary basis of the corresponding right invariant subspace. In the real case, a complex conjugate pair of eigenvalues must be either both included or both excluded via ``select``\ .
 
 .. function:: ordschur!(F::Schur, select::Union{Vector{Bool},BitVector}) -> F::Schur
 
@@ -550,7 +704,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Reorders the Schur factorization of a real matrix ``A = Z*T*Z'`` according to the logical array ``select`` returning the reordered matrices ``T`` and ``Z`` as well as the vector of eigenvalues ``λ``\ . The selected eigenvalues appear in the leading diagonal of ``T`` and the the corresponding leading columns of ``Z`` form an orthogonal/unitary basis of the corresponding right invariant subspace. In the real case, a complex conjugate pair of eigenvalues must be either both included or both excluded via ``select``\ .
+   Reorders the Schur factorization of a real matrix ``A = Z*T*Z'`` according to the logical array ``select`` returning the reordered matrices ``T`` and ``Z`` as well as the vector of eigenvalues ``λ``\ . The selected eigenvalues appear in the leading diagonal of ``T`` and the corresponding leading columns of ``Z`` form an orthogonal/unitary basis of the corresponding right invariant subspace. In the real case, a complex conjugate pair of eigenvalues must be either both included or both excluded via ``select``\ .
 
 .. function:: ordschur!(T::StridedMatrix, Z::StridedMatrix, select::Union{Vector{Bool},BitVector}) -> T::StridedMatrix, Z::StridedMatrix, λ::Vector
 
@@ -651,7 +805,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    * ``F[:U]`` is a M-by-M orthogonal matrix,
    * ``F[:V]`` is a P-by-P orthogonal matrix,
    * ``F[:Q]`` is a N-by-N orthogonal matrix,
-   * ``F[:R0]`` is a (K+L)-by-N matrix whose rightmost (K+L)-by-(K+L) block is            nonsingular upper block triangular,
+   * ``F[:R0]`` is a (K+L)-by-N matrix whose rightmost (K+L)-by-(K+L) block is          nonsingular upper block triangular,
    * ``F[:D1]`` is a M-by-(K+L) diagonal matrix with 1s in the first K entries,
    * ``F[:D2]`` is a P-by-(K+L) matrix whose top right L-by-L block is diagonal,
 
@@ -822,19 +976,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    .. Docstring generated from Julia source
 
-   Construct a tridiagonal matrix from the lower diagonal, diagonal, and upper diagonal, respectively.  The result is of type ``Tridiagonal`` and provides efficient specialized linear solvers, but may be converted into a regular matrix with :func:`full`\ .
-
-.. function:: Bidiagonal(dv, ev, isupper)
-
-   .. Docstring generated from Julia source
-
-   Constructs an upper (``isupper=true``\ ) or lower (``isupper=false``\ ) bidiagonal matrix using the given diagonal (``dv``\ ) and off-diagonal (``ev``\ ) vectors.  The result is of type ``Bidiagonal`` and provides efficient specialized linear solvers, but may be converted into a regular matrix with :func:`full`\ .
-
-.. function:: SymTridiagonal(d, du)
-
-   .. Docstring generated from Julia source
-
-   Construct a real symmetric tridiagonal matrix from the diagonal and upper diagonal, respectively. The result is of type ``SymTridiagonal`` and provides efficient specialized eigensolvers, but may be converted into a regular matrix with :func:`full`\ .
+   Construct a tridiagonal matrix from the first subdiagonal, diagonal, and first superdiagonal, respectively.  The result is of type ``Tridiagonal`` and provides efficient specialized linear solvers, but may be converted into a regular matrix with :func:`full`\ . The lengths of ``dl`` and ``du`` must be one less than the length of ``d``\ .
 
 .. function:: rank(M)
 
@@ -873,7 +1015,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    Output:
 
-   * ``v`` - A unit vector being the input vector, rescaled to have norm 1.         The input vector is modified in-place.
+   * ``v`` - A unit vector being the input vector, rescaled to have norm 1.       The input vector is modified in-place.
 
    See also:
 
@@ -1164,7 +1306,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    The following keyword arguments are supported:
 
    * ``nev``\ : Number of eigenvalues
-   * ``ncv``\ : Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n``   for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the   size of the input matrix ``A``\ . The default is ``ncv = max(20,2*nev+1)``\ . Note that these   restrictions limit the input matrix ``A`` to be of dimension at least 2.
+   * ``ncv``\ : Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrix ``A``\ . The default is ``ncv = max(20,2*nev+1)``\ . Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
    * ``which``\ : type of eigenvalues to compute. See the note below.
 
    +-----------+-----------------------------------------------------------------------------------------------------------------------------+
@@ -1185,35 +1327,34 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    | ``:BE``   | compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only) |
    +-----------+-----------------------------------------------------------------------------------------------------------------------------+
 
-   * ``tol``\ : parameter defining the relative tolerance for convergence of Ritz values (eigenvalue estimates).      A Ritz value :math:`θ` is considered converged when its associated residual      is less than or equal to the product of ``tol`` and :math:`max(ɛ^{2/3}, |θ|)`\ ,      where ``ɛ = eps(real(eltype(A)))/2`` is LAPACK's machine epsilon.      The residual associated with :math:`θ` and its corresponding Ritz vector :math:`v`      is defined as the norm :math:`||Av - vθ||`\ .      The specified value of ``tol`` should be positive; otherwise, it is ignored      and :math:`ɛ` is used instead.      Default: :math:`ɛ`\ .
-
+   * ``tol``\ : parameter defining the relative tolerance for convergence of Ritz values (eigenvalue estimates).    A Ritz value :math:`θ` is considered converged when its associated residual    is less than or equal to the product of ``tol`` and :math:`max(ɛ^{2/3}, |θ|)`\ ,    where ``ɛ = eps(real(eltype(A)))/2`` is LAPACK's machine epsilon.    The residual associated with :math:`θ` and its corresponding Ritz vector :math:`v`    is defined as the norm :math:`||Av - vθ||`\ .    The specified value of ``tol`` should be positive; otherwise, it is ignored    and :math:`ɛ` is used instead.    Default: :math:`ɛ`\ .
    * ``maxiter``\ : Maximum number of iterations (default = 300)
-   * ``sigma``\ : Specifies the level shift used in inverse iteration. If ``nothing`` (default),   defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma``   using shift and invert iterations.
+   * ``sigma``\ : Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
    * ``ritzvec``\ : Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
    * ``v0``\ : starting vector from which to start the iterations
 
    ``eigs`` returns the ``nev`` requested eigenvalues in ``d``\ , the corresponding Ritz vectors ``v`` (only if ``ritzvec=true``\ ), the number of converged eigenvalues ``nconv``\ , the number of iterations ``niter`` and the number of matrix vector multiplications ``nmult``\ , as well as the final residual vector ``resid``\ .
 
-   **note**
+   .. note::
+      The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do *not* necessarily refer to the eigenvalues of ``A``\ , but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``\ .
 
-   The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do _not_ necessarily refer to the eigenvalues of ``A``\ , but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``\ .
+      +-----------------+------------------------------------+------------------------------------+
+      | ``sigma``       | iteration mode                     | ``which`` refers to eigenvalues of |
+      +=================+====================================+====================================+
+      | ``nothing``     | ordinary (forward)                 | :math:`A`                          |
+      +-----------------+------------------------------------+------------------------------------+
+      | real or complex | inverse with level shift ``sigma`` | :math:`(A - \sigma I )^{-1}`       |
+      +-----------------+------------------------------------+------------------------------------+
 
-   +-----------------+------------------------------------+------------------------------------+
-   | ``sigma``       | iteration mode                     | ``which`` refers to eigenvalues of |
-   +=================+====================================+====================================+
-   | ``nothing``     | ordinary (forward)                 | :math:`A`                          |
-   +-----------------+------------------------------------+------------------------------------+
-   | real or complex | inverse with level shift ``sigma`` | :math:`(A - \sigma I )^{-1}`       |
-   +-----------------+------------------------------------+------------------------------------+
 
-   **note**
+   .. note::
+      Although ``tol`` has a default value, the best choice depends strongly on the matrix ``A``\ . We recommend that users _always_ specify a value for ``tol`` which suits their specific needs.
 
-   Although ``tol`` has a default value, the best choice depends strongly on the matrix ``A``\ . We recommend that users _always_ specify a value for ``tol`` which suits their specific needs.
+      For details of how the errors in the computed eigenvalues are estimated, see:
 
-   For details of how the errors in the computed eigenvalues are estimated, see:
+      * B. N. Parlett, "The Symmetric Eigenvalue Problem", SIAM: Philadelphia, 2/e (1998), Ch. 13.2, "Accessing Accuracy in Lanczos Problems", pp. 290-292 ff.
+      * R. B. Lehoucq and D. C. Sorensen, "Deflation Techniques for an Implicitly Restarted Arnoldi Iteration", SIAM Journal on Matrix Analysis and Applications (1996), 17(4), 789–821.  doi:10.1137/S0895479895281484
 
-   * B. N. Parlett, "The Symmetric Eigenvalue Problem", SIAM: Philadelphia, 2/e   (1998), Ch. 13.2, "Accessing Accuracy in Lanczos Problems", pp. 290-292 ff.
-   * R. B. Lehoucq and D. C. Sorensen, "Deflation Techniques for an Implicitly   Restarted Arnoldi Iteration", SIAM Journal on Matrix Analysis and   Applications (1996), 17(4), 789–821.  doi:10.1137/S0895479895281484
 
 .. function:: eigs(A, B; nev=6, ncv=max(20,2*nev+1), which="LM", tol=0.0, maxiter=300, sigma=nothing, ritzvec=true, v0=zeros((0,))) -> (d,[v,],nconv,niter,nmult,resid)
 
@@ -1224,7 +1365,7 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    The following keyword arguments are supported:
 
    * ``nev``\ : Number of eigenvalues
-   * ``ncv``\ : Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n``   for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the   size of the input matrices ``A`` and ``B``\ . The default is ``ncv = max(20,2*nev+1)``\ . Note that   these restrictions limit the input matrix ``A`` to be of dimension at least 2.
+   * ``ncv``\ : Number of Krylov vectors used in the computation; should satisfy ``nev+1 <= ncv <= n`` for real symmetric problems and ``nev+2 <= ncv <= n`` for other problems, where ``n`` is the size of the input matrices ``A`` and ``B``\ . The default is ``ncv = max(20,2*nev+1)``\ . Note that these restrictions limit the input matrix ``A`` to be of dimension at least 2.
    * ``which``\ : type of eigenvalues to compute. See the note below.
 
    +-----------+-----------------------------------------------------------------------------------------------------------------------------+
@@ -1245,25 +1386,32 @@ Linear algebra functions in Julia are largely implemented by calling functions f
    | ``:BE``   | compute half of the eigenvalues from each end of the spectrum, biased in favor of the high end. (real symmetric ``A`` only) |
    +-----------+-----------------------------------------------------------------------------------------------------------------------------+
 
-   * ``tol``\ : relative tolerance used in the convergence criterion for eigenvalues, similar to      ``tol`` in the :func:`eigs` method for the ordinary eigenvalue      problem, but effectively for the eigenvalues of :math:`B^{-1} A` instead of :math:`A`\ .      See the documentation for the ordinary eigenvalue problem in      :func:`eigs` and the accompanying note about ``tol``\ .
+   * ``tol``\ : relative tolerance used in the convergence criterion for eigenvalues, similar to    ``tol`` in the :func:`eigs` method for the ordinary eigenvalue    problem, but effectively for the eigenvalues of :math:`B^{-1} A` instead of :math:`A`\ .    See the documentation for the ordinary eigenvalue problem in    :func:`eigs` and the accompanying note about ``tol``\ .
    * ``maxiter``\ : Maximum number of iterations (default = 300)
-   * ``sigma``\ : Specifies the level shift used in inverse iteration. If ``nothing`` (default),   defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma``   using shift and invert iterations.
+   * ``sigma``\ : Specifies the level shift used in inverse iteration. If ``nothing`` (default), defaults to ordinary (forward) iterations. Otherwise, find eigenvalues close to ``sigma`` using shift and invert iterations.
    * ``ritzvec``\ : Returns the Ritz vectors ``v`` (eigenvectors) if ``true``
    * ``v0``\ : starting vector from which to start the iterations
 
    ``eigs`` returns the ``nev`` requested eigenvalues in ``d``\ , the corresponding Ritz vectors ``v`` (only if ``ritzvec=true``\ ), the number of converged eigenvalues ``nconv``\ , the number of iterations ``niter`` and the number of matrix vector multiplications ``nmult``\ , as well as the final residual vector ``resid``\ .
 
-   **note**
+   **Example**
 
-   The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do _not_ necessarily refer to the eigenvalue problem :math:`Av = Bv\lambda`\ , but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``\ .
+   .. code-block:: julia
 
-   +-----------------+------------------------------------+--------------------------------------+
-   | ``sigma``       | iteration mode                     | ``which`` refers to the problem      |
-   +=================+====================================+======================================+
-   | ``nothing``     | ordinary (forward)                 | :math:`Av = Bv\lambda`               |
-   +-----------------+------------------------------------+--------------------------------------+
-   | real or complex | inverse with level shift ``sigma`` | :math:`(A - \sigma B )^{-1}B = v\nu` |
-   +-----------------+------------------------------------+--------------------------------------+
+       X = sprand(10, 5, 0.2)
+       eigs(X, nsv = 2, tol = 1e-3)
+
+   .. note::
+      The ``sigma`` and ``which`` keywords interact: the description of eigenvalues searched for by ``which`` do *not* necessarily refer to the eigenvalue problem :math:`Av = Bv\lambda`\ , but rather the linear operator constructed by the specification of the iteration mode implied by ``sigma``\ .
+
+      +-----------------+------------------------------------+--------------------------------------+
+      | ``sigma``       | iteration mode                     | ``which`` refers to the problem      |
+      +=================+====================================+======================================+
+      | ``nothing``     | ordinary (forward)                 | :math:`Av = Bv\lambda`               |
+      +-----------------+------------------------------------+--------------------------------------+
+      | real or complex | inverse with level shift ``sigma`` | :math:`(A - \sigma B )^{-1}B = v\nu` |
+      +-----------------+------------------------------------+--------------------------------------+
+
 
 .. function:: svds(A; nsv=6, ritzvec=true, tol=0.0, maxiter=1000, ncv=2*nsv, u0=zeros((0,)), v0=zeros((0,))) -> (SVD([left_sv,] s, [right_sv,]), nconv, niter, nmult, resid)
 
@@ -1273,9 +1421,9 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    **Inputs**
 
-   * ``A``\ : Linear operator whose singular values are desired. ``A`` may be represented   as a subtype of ``AbstractArray``\ , e.g., a sparse matrix, or any other type   supporting the four methods ``size(A)``\ , ``eltype(A)``\ , ``A * vector``\ , and   ``A' * vector``\ .
+   * ``A``\ : Linear operator whose singular values are desired. ``A`` may be represented as a subtype of ``AbstractArray``\ , e.g., a sparse matrix, or any other type supporting the four methods ``size(A)``\ , ``eltype(A)``\ , ``A * vector``\ , and ``A' * vector``\ .
    * ``nsv``\ : Number of singular values. Default: 6.
-   * ``ritzvec``\ : If ``true``\ , return the left and right singular vectors ``left_sv`` and ``right_sv``\ .    If ``false``\ , omit the singular vectors. Default: ``true``\ .
+   * ``ritzvec``\ : If ``true``\ , return the left and right singular vectors ``left_sv`` and ``right_sv``\ .  If ``false``\ , omit the singular vectors. Default: ``true``\ .
    * ``tol``\ : tolerance, see :func:`eigs`\ .
    * ``maxiter``\ : Maximum number of iterations, see :func:`eigs`\ . Default: 1000.
    * ``ncv``\ : Maximum size of the Krylov subspace, see :func:`eigs` (there called ``nev``\ ). Default: ``2*nsv``\ .
@@ -1309,17 +1457,180 @@ Linear algebra functions in Julia are largely implemented by calling functions f
 
    If the keyword argument ``parallel`` is set to ``true``\ , ``peakflops`` is run in parallel on all the worker processors. The flop rate of the entire parallel computer is returned. When running in parallel, only 1 BLAS thread is used. The argument ``n`` still refers to the size of the problem that is solved on each processor.
 
+Low-level matrix operations
+---------------------------
+
+Matrix operations involving transpositions operations like ``A' \ B`` are converted
+by the Julia parser into calls to specially named functions like ``Ac_ldiv_B``.
+If you want to overload these operations for your own types, then it is useful
+to know the names of these functions.
+
+Also, in many cases there are in-place versions of matrix operations that
+allow you to supply a pre-allocated output vector or matrix.  This is useful
+when optimizing critical code in order to avoid the overhead of repeated allocations.
+These in-place operations are suffixed with ``!`` below (e.g. ``A_mul_B!``)
+according to the usual Julia convention.
+
+.. function:: A_ldiv_B!([Y,] A, B) -> Y
+
+   .. Docstring generated from Julia source
+
+   Compute ``A \ B`` in-place and store the result in ``Y``\ , returning the result. If only two arguments are passed, then ``A_ldiv_B!(A, B)`` overwrites ``B`` with the result.
+
+   The argument ``A`` should *not* be a matrix.  Rather, instead of matrices it should be a factorization object (e.g. produced by :func:`factorize` or :func:`cholfact`\ ). The reason for this is that factorization itself is both expensive and typically allocates memory (although it can also be done in-place via, e.g., :func:`lufact!`\ ), and performance-critical situations requiring ``A_ldiv_B!`` usually also require fine-grained control over the factorization of ``A``\ .
+
+.. function:: A_ldiv_Bc(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A` \\ :math:`Bᴴ`\ .
+
+.. function:: A_ldiv_Bt(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A` \\ :math:`Bᵀ`\ .
+
+.. function:: A_mul_B!(Y, A, B) -> Y
+
+   .. Docstring generated from Julia source
+
+   Calculates the matrix-matrix or matrix-vector product :math:`A⋅B` and stores the result in ``Y``\ , overwriting the existing value of ``Y``\ . Note that ``Y`` must not be aliased with either ``A`` or ``B``\ .
+
+   .. doctest::
+
+       julia> A=[1.0 2.0; 3.0 4.0]; B=[1.0 1.0; 1.0 1.0]; Y = similar(B); A_mul_B!(Y, A, B);
+
+       julia> Y
+       2×2 Array{Float64,2}:
+        3.0  3.0
+        7.0  7.0
+
+.. function:: A_mul_Bc(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A⋅Bᴴ`\ .
+
+.. function:: A_mul_Bt(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A⋅Bᵀ`\ .
+
+.. function:: A_rdiv_Bc(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A / Bᴴ`\ .
+
+.. function:: A_rdiv_Bt(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`A / Bᵀ`\ .
+
+.. function:: Ac_ldiv_B(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ` \\ :math:`B`\ .
+
+.. function:: Ac_ldiv_B!([Y,] A, B) -> Y
+
+   .. Docstring generated from Julia source
+
+   Similar to :func:`A_ldiv_B!`\ , but return :math:`Aᴴ` \\ :math:`B`\ , computing the result in-place in ``Y`` (or overwriting ``B`` if ``Y`` is not supplied).
+
+.. function:: Ac_ldiv_Bc(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ` \\ :math:`Bᴴ`\ .
+
+.. function:: Ac_mul_B(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ⋅B`\ .
+
+.. function:: Ac_mul_Bc(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ Bᴴ`\ .
+
+.. function:: Ac_rdiv_B(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ / B`\ .
+
+.. function:: Ac_rdiv_Bc(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᴴ / Bᴴ`\ .
+
+.. function:: At_ldiv_B(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ` \\ :math:`B`\ .
+
+.. function:: At_ldiv_B!([Y,] A, B) -> Y
+
+   .. Docstring generated from Julia source
+
+   Similar to :func:`A_ldiv_B!`\ , but return :math:`Aᵀ` \\ :math:`B`\ , computing the result in-place in ``Y`` (or overwriting ``B`` if ``Y`` is not supplied).
+
+.. function:: At_ldiv_Bt(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ` \\ :math:`Bᵀ`\ .
+
+.. function:: At_mul_B(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ⋅B`\ .
+
+.. function:: At_mul_Bt(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ⋅Bᵀ`\ .
+
+.. function:: At_rdiv_B(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ / B`\ .
+
+.. function:: At_rdiv_Bt(A, B)
+
+   .. Docstring generated from Julia source
+
+   For matrices or vectors :math:`A` and :math:`B`\ , calculates :math:`Aᵀ / Bᵀ`\ .
+
 BLAS Functions
 --------------
 
 .. module:: Base.LinAlg.BLAS
 
-:mod:`Base.LinAlg.BLAS` provides wrappers for some of the BLAS functions for
-linear algebra.  Those BLAS functions that overwrite one of the input
-arrays have names ending in ``'!'``.
+In Julia (as in much of scientific computation), dense linear-algebra operations are
+based on the `LAPACK library <http://www.netlib.org/lapack/>`_, which in turn
+is built on top of basic linear-algebra building-blocks known as the
+`BLAS <http://www.netlib.org/blas/>`_.  There are highly optimized implementations
+of BLAS available for every computer architecture, and sometimes in
+high-performance linear algebra routines it is useful to call the BLAS
+functions directly.
 
-Usually a function has 4 methods defined, one each for ``Float64``,
-``Float32``, ``Complex128`` and ``Complex64`` arrays.
+:mod:`Base.LinAlg.BLAS` provides wrappers for some of the BLAS functions.
+Those BLAS functions that overwrite one of the input
+arrays have names ending in ``'!'``.  Usually, a BLAS function has four methods defined,
+for ``Float64``, ``Float32``, ``Complex128``, and ``Complex64`` arrays.
 
 .. currentmodule:: Base.LinAlg.BLAS
 
@@ -1553,17 +1864,17 @@ Usually a function has 4 methods defined, one each for ``Float64``,
 
    Returns the solution to ``A*X = alpha*B`` or one of the other three variants determined by ``side`` (``A`` on left or right of ``X``\ ) and ``tA`` (transpose ``A``\ ). Only the ``ul`` triangle of ``A`` is used. ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones).
 
-.. function:: trmv!(side, ul, tA, dA, alpha, A, b)
+.. function:: trmv!(ul, tA, dA, A, b)
 
    .. Docstring generated from Julia source
 
-   Update ``b`` as ``alpha*A*b`` or one of the other three variants determined by ``side`` (``A`` on left or right) and ``tA`` (transpose ``A``\ ). Only the ``ul`` triangle of ``A`` is used. ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones). Returns the updated ``b``\ .
+   Returns ``op(A)*b``\ , where ``op`` is determined by ``tA`` (``N`` for identity, ``T`` for transpose ``A``\ , and ``C`` for conjugate transpose ``A``\ ). Only the ``ul`` triangle (``U`` for upper, ``L`` for lower) of ``A`` is used. ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones if ``U``\ , or non-unit if ``N``\ ). The multiplication occurs in-place on ``b``\ .
 
-.. function:: trmv(side, ul, tA, dA, alpha, A, b)
+.. function:: trmv(ul, tA, dA, A, b)
 
    .. Docstring generated from Julia source
 
-   Returns ``alpha*A*b`` or one of the other three variants determined by ``side`` (``A`` on left or right) and ``tA`` (transpose ``A``\ ). Only the ``ul`` triangle of ``A`` is used. ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones).
+   Returns ``op(A)*b``\ , where ``op`` is determined by ``tA`` (``N`` for identity, ``T`` for transpose ``A``\ , and ``C`` for conjugate transpose ``A``\ ). Only the ``ul`` triangle (``U`` for upper, ``L`` for lower) of ``A`` is used. ``dA`` indicates if ``A`` is unit-triangular (the diagonal is assumed to be all ones if ``U``\ , or non-unit if ``N``\ ).
 
 .. function:: trsv!(ul, tA, dA, A, b)
 
@@ -1585,7 +1896,9 @@ Usually a function has 4 methods defined, one each for ``Float64``,
 
 .. data:: I
 
-   An object of type ``UniformScaling``, representing an identity matrix of any size.
+   .. Docstring generated from Julia source
+
+   An object of type ``UniformScaling``\ , representing an identity matrix of any size.
 
 LAPACK Functions
 ----------------
@@ -1983,7 +2296,7 @@ set of functions in future releases.
 
    Computes the (upper if ``uplo = U``\ , lower if ``uplo = L``\ ) pivoted Cholesky decomposition of positive-definite matrix ``A`` with a user-set tolerance ``tol``\ . ``A`` is overwritten by its Cholesky decomposition.
 
-   Returns ``A``\ , the pivots ``piv``\ , the rank of ``A``\ , and an ``info`` code. If ``info = 0``\ , the factorization succeeded. If ``info = i > 0 `, then `A`` is indefinite or rank-deficient.
+   Returns ``A``\ , the pivots ``piv``\ , the rank of ``A``\ , and an ``info`` code. If ``info = 0``\ , the factorization succeeded. If ``info = i > 0``\ , then ``A`` is indefinite or rank-deficient.
 
 .. function:: ptsv!(D, E, B)
 
@@ -2212,3 +2525,4 @@ set of functions in future releases.
    Solves the Sylvester matrix equation ``A * X +/- X * B = scale*C`` where ``A`` and ``B`` are both quasi-upper triangular. If ``transa = N``\ , ``A`` is not modified. If ``transa = T``\ , ``A`` is transposed. If ``transa = C``\ , ``A`` is conjugate transposed. Similarly for ``transb`` and ``B``\ . If ``isgn = 1``\ , the equation ``A * X + X * B = scale * C`` is solved. If ``isgn = -1``\ , the equation ``A * X - X * B = scale * C`` is solved.
 
    Returns ``X`` (overwriting ``C``\ ) and ``scale``\ .
+

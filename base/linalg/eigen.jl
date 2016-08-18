@@ -34,11 +34,13 @@ function eigfact!{T<:BlasReal}(A::StridedMatrix{T}; permute::Bool=true, scale::B
     evec = zeros(Complex{T}, n, n)
     j = 1
     while j <= n
-        if WI[j] == 0.0
-            evec[:,j] = VR[:,j]
+        if WI[j] == 0
+            evec[:,j] = view(VR, :, j)
         else
-            evec[:,j]   = VR[:,j] + im*VR[:,j+1]
-            evec[:,j+1] = VR[:,j] - im*VR[:,j+1]
+            for i = 1:n
+                evec[i,j]   = VR[i,j] + im*VR[i,j+1]
+                evec[i,j+1] = VR[i,j] - im*VR[i,j+1]
+            end
             j += 1
         end
         j += 1
@@ -128,11 +130,13 @@ function eigfact!{T<:BlasReal}(A::StridedMatrix{T}, B::StridedMatrix{T})
     vecs = zeros(Complex{T}, n, n)
     j = 1
     while j <= n
-        if alphai[j] == 0.0
-            vecs[:,j] = vr[:,j]
+        if alphai[j] == 0
+            vecs[:,j] = view(vr, :, j)
         else
-            vecs[:,j  ] = vr[:,j] + im*vr[:,j+1]
-            vecs[:,j+1] = vr[:,j] - im*vr[:,j+1]
+            for i = 1:n
+                vecs[i,j  ] = vr[i,j] + im*vr[i,j+1]
+                vecs[i,j+1] = vr[i,j] - im*vr[i,j+1]
+            end
             j += 1
         end
         j += 1
@@ -178,5 +182,11 @@ end
 
 eigvecs(A::AbstractMatrix, B::AbstractMatrix) = eigvecs(eigfact(A, B))
 
+# Conversion methods
+
 ## Can we determine the source/result is Real?  This is not stored in the type Eigen
-full(F::Eigen) = F.vectors * Diagonal(F.values) / F.vectors
+convert(::Type{AbstractMatrix}, F::Eigen) = F.vectors * Diagonal(F.values) / F.vectors
+convert(::Type{AbstractArray}, F::Eigen) = convert(AbstractMatrix, F)
+convert(::Type{Matrix}, F::Eigen) = convert(Array, convert(AbstractArray, F))
+convert(::Type{Array}, F::Eigen) = convert(Matrix, F)
+full(F::Eigen) = convert(Array, F)

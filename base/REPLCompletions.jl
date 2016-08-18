@@ -57,7 +57,7 @@ function complete_symbol(sym, ffunc)
         # We will exclude the results that the user does not want, as well
         # as excluding Main.Main.Main, etc., because that's most likely not what
         # the user wants
-        p = s->(ffunc(mod, s) && s != module_name(mod))
+        p = s->(!Base.isdeprecated(mod, s) && s != module_name(mod) && ffunc(mod, s))
         # Looking for a binding in a module
         if mod == context_module
             # Also look in modules we got through `using`
@@ -323,10 +323,15 @@ function complete_methods(ex_org::Expr)
     out = String[]
     t_in = Tuple{Core.Typeof(func), args_ex...} # Input types
     na = length(args_ex)+1
-    for method in methods(func)
+    ml = methods(func)
+    kwtype = isdefined(ml.mt, :kwsorter) ? Nullable{DataType}(typeof(ml.mt.kwsorter)) : Nullable{DataType}()
+    io = IOBuffer()
+    for method in ml
         # Check if the method's type signature intersects the input types
-        typeintersect(Tuple{method.sig.parameters[1 : min(na, end)]...}, t_in) != Union{} &&
-            push!(out,string(method))
+        if typeintersect(Tuple{method.sig.parameters[1 : min(na, end)]...}, t_in) != Union{}
+            show(io, method, kwtype=kwtype)
+            push!(out, takebuf_string(io))
+        end
     end
     return out
 end
@@ -381,12 +386,57 @@ function bslash_completions(string, pos)
     return (false, (String[], 0:-1, false))
 end
 
+function dict_identifier_key(str,tag)
+    if tag === :string
+        str_close = str*"\""
+    elseif tag === :cmd
+        str_close = str*"`"
+    else
+        str_close = str
+    end
+
+    frange, end_of_indentifier = find_start_brace(str_close, c_start='[', c_end=']')
+    isempty(frange) && return (nothing, nothing, nothing)
+    obj = Main
+    for name in split(str[frange[1]:end_of_indentifier], '.')
+        Base.isidentifier(name) || return (nothing, nothing, nothing)
+        sym = Symbol(name)
+        isdefined(obj, sym) || return (nothing, nothing, nothing)
+        obj = getfield(obj, sym)
+        # Avoid `isdefined(::Array, ::Symbol)`
+        isa(obj, Array) && return (nothing, nothing, nothing)
+    end
+    begin_of_key = findnext(x->!in(x,whitespace_chars), str, end_of_indentifier+2)
+    begin_of_key==0 && return (true, nothing, nothing)
+    partial_key = str[begin_of_key:end]
+    (isa(obj, Associative) && length(obj) < 1e6) || return (true, nothing, nothing)
+    return (obj, partial_key, begin_of_key)
+end
+
 function completions(string, pos)
     # First parse everything up to the current position
     partial = string[1:pos]
     inc_tag = Base.syntax_deprecation_warnings(false) do
         Base.incomplete_tag(parse(partial, raise=false))
     end
+
+    # if completing a key in a Dict
+    identifier, partial_key, loc = dict_identifier_key(partial,inc_tag)
+    if identifier !== nothing
+        if partial_key !== nothing
+            matches = []
+            for key in keys(identifier)
+                rkey = repr(key)
+                startswith(rkey,partial_key) && push!(matches,rkey)
+            end
+            length(matches)==1 && (length(string) <= pos || string[pos+1] != ']') && (matches[1]*="]")
+            length(matches)>0 && return sort(matches), loc:pos, true
+        else
+            return String[], 0:-1, false
+        end
+    end
+
+    # otherwise...
     if inc_tag in [:cmd, :string]
         m = match(r"[\t\n\r\"'`@\$><=;|&\{]| (?!\\)", reverse(partial))
         startpos = nextind(partial, reverseind(partial, m.offset))
@@ -408,7 +458,7 @@ function completions(string, pos)
     # Make sure that only bslash_completions is working on strings
     inc_tag==:string && return String[], 0:-1, false
 
-     if inc_tag == :other && should_method_complete(partial)
+    if inc_tag == :other && should_method_complete(partial)
         frange, method_name_end = find_start_brace(partial)
         ex = Base.syntax_deprecation_warnings(false) do
             parse(partial[frange] * ")", raise=false)
@@ -479,7 +529,7 @@ function completions(string, pos)
                 elseif c==']'
                     c_start='['; c_end=']'
                 end
-                frange, end_off_indentifier = find_start_brace(string[1:prevind(string, i)], c_start=c_start, c_end=c_end)
+                frange, end_of_indentifier = find_start_brace(string[1:prevind(string, i)], c_start=c_start, c_end=c_end)
                 startpos = start(frange)
                 i = prevind(string, startpos)
             elseif c in ["\'\"\`"...]

@@ -17,12 +17,12 @@ include $(SRCDIR)/llvm-ver.make
 # additionally all targets should be listed in the getall target for easier off-line compilation
 # if you are adding a new target, it can help to copy an similar, existing target
 #
-# autoconf configure-driven scripts: llvm pcre arpack fftw unwind gmp mpfr patchelf libuv git
-# custom Makefile rules: openlibm Rmath-julia dsfmt suitesparse-wrapper suitesparse lapack openblas utf8proc objconv osxunwind
+# autoconf configure-driven scripts: llvm pcre arpack fftw unwind gmp mpfr patchelf libuv
+# custom Makefile rules: openlibm dsfmt suitesparse-wrapper suitesparse lapack openblas utf8proc objconv osxunwind
 # entirely custom: virtualenv
-# CMake libs: libgit2
+# CMake libs: libgit2 libssh2 mbedtls
 #
-# downloaded from git: llvm-svn, libuv, libopenlibm, utf8proc, openspecfun, libgit2
+# downloaded from git: llvm-svn, libuv, libopenlibm, utf8proc, openspecfun, libgit2, libssh2
 #
 # there are rules in this file with the . replaced by a %
 # this is some magic Makefile trick that tells make
@@ -32,7 +32,7 @@ include $(SRCDIR)/llvm-ver.make
 
 ## Some shared configuration options ##
 
-CONFIGURE_COMMON := --prefix=$(abspath $(build_prefix)) --build=$(BUILD_MACHINE) --libdir=$(abspath $(build_libdir)) $(CUSTOM_LD_LIBRARY_PATH)
+CONFIGURE_COMMON := --prefix=$(abspath $(build_prefix)) --build=$(BUILD_MACHINE) --libdir=$(abspath $(build_libdir)) --bindir=$(abspath $(build_depsbindir)) $(CUSTOM_LD_LIBRARY_PATH)
 ifneq ($(XC_HOST),)
 CONFIGURE_COMMON += --host=$(XC_HOST)
 endif
@@ -46,11 +46,12 @@ CONFIGURE_COMMON += F77="$(FC)" CC="$(CC) $(DEPS_CFLAGS)" CXX="$(CXX) $(DEPS_CXX
 CMAKE_CC_ARG := $(CC_ARG) $(DEPS_CFLAGS)
 CMAKE_CXX_ARG := $(CXX_ARG) $(DEPS_CXXFLAGS)
 
-CMAKE_COMMON := -DCMAKE_INSTALL_PREFIX:PATH=$(build_prefix)
+CMAKE_COMMON := -DCMAKE_INSTALL_PREFIX:PATH=$(build_prefix) -DCMAKE_PREFIX_PATH=$(build_prefix)
 ifneq ($(VERBOSE), 0)
 CMAKE_COMMON += -DCMAKE_VERBOSE_MAKEFILE=ON
 endif
-CMAKE_COMMON += -DCMAKE_C_COMPILER="$(CC_BASE)"
+# The call to which here is to work around https://cmake.org/Bug/view.php?id=14366
+CMAKE_COMMON += -DCMAKE_C_COMPILER="$$(which $(CC_BASE))"
 ifneq ($(strip $(CMAKE_CC_ARG)),)
 CMAKE_COMMON += -DCMAKE_C_COMPILER_ARG1="$(CMAKE_CC_ARG)"
 endif
@@ -62,7 +63,7 @@ endif
 ifeq ($(OS),WINNT)
 CMAKE_COMMON += -DCMAKE_SYSTEM_NAME=Windows
 ifneq ($(BUILD_OS),WINNT)
-CMAKE_COMMON += -DCMAKE_RC_COMPILER=`which $(CROSS_COMPILE)windres`
+CMAKE_COMMON += -DCMAKE_RC_COMPILER="$$(which $(CROSS_COMPILE)windres)"
 endif
 endif
 
@@ -79,7 +80,7 @@ endif
 
 # If the top-level Makefile is called with environment variables,
 # they will override the values passed above to ./configure
-MAKE_COMMON := DESTDIR="" prefix=$(build_prefix) bindir=$(build_bindir) libdir=$(build_libdir) libexecdir=$(build_libexecdir) datarootdir=$(build_datarootdir) includedir=$(build_includedir) sysconfdir=$(build_sysconfdir) O=
+MAKE_COMMON := DESTDIR="" prefix=$(build_prefix) bindir=$(build_depsbindir) libdir=$(build_libdir) shlibdir=$(build_shlibdir) libexecdir=$(build_libexecdir) datarootdir=$(build_datarootdir) includedir=$(build_includedir) sysconfdir=$(build_sysconfdir) O=
 
 
 ## Overall configuration of which rules exist and should be run by default ##
@@ -87,13 +88,11 @@ MAKE_COMMON := DESTDIR="" prefix=$(build_prefix) bindir=$(build_bindir) libdir=$
 # prevent installing libs into usr/lib64 on opensuse
 unexport CONFIG_SITE
 
-ifeq ($(USE_GPL_LIBS), 1)
-STAGE1_DEPS :=
-STAGE2_DEPS := Rmath-julia
-STAGE3_DEPS := suitesparse-wrapper
-else
 STAGE1_DEPS :=
 STAGE2_DEPS :=
+ifeq ($(USE_GPL_LIBS), 1)
+STAGE3_DEPS := suitesparse-wrapper
+else
 STAGE3_DEPS :=
 endif
 
@@ -114,7 +113,7 @@ endif
 ifeq ($(OS), Linux)
 ifeq ($(USE_SYSTEM_PATCHELF), 0)
 STAGE1_DEPS += patchelf
-PATCHELF:=$(build_bindir)/patchelf
+PATCHELF:=$(build_depsbindir)/patchelf
 else
 PATCHELF:=patchelf
 endif
@@ -164,8 +163,16 @@ ifeq ($(USE_SYSTEM_GMP), 0)
 STAGE1_DEPS += gmp
 endif
 
+ifeq ($(USE_SYSTEM_MBEDTLS), 0)
+STAGE1_DEPS += mbedtls
+endif
+
+ifeq ($(USE_SYSTEM_LIBSSH2), 0)
+STAGE2_DEPS += libssh2
+endif
+
 ifeq ($(USE_SYSTEM_LIBGIT2), 0)
-STAGE1_DEPS += libgit2
+STAGE3_DEPS += libgit2
 endif
 
 ifeq ($(USE_SYSTEM_MPFR), 0)
@@ -215,11 +222,11 @@ install: $(addprefix install-, $(DEP_LIBS))
 cleanall: $(addprefix clean-, $(DEP_LIBS))
 distcleanall: $(addprefix distclean-, $(DEP_LIBS))
 	rm -rf $(build_prefix)
-getall: get-llvm get-libuv get-pcre get-openlibm get-openspecfun get-dsfmt get-Rmath-julia get-openblas get-lapack get-fftw get-suitesparse get-arpack get-unwind get-osxunwind get-gmp get-mpfr get-patchelf get-utf8proc get-virtualenv get-objconv get-libgit2
+getall: get-llvm get-libuv get-pcre get-openlibm get-openspecfun get-dsfmt get-openblas get-lapack get-fftw get-suitesparse get-arpack get-unwind get-osxunwind get-gmp get-mpfr get-patchelf get-utf8proc get-virtualenv get-objconv get-mbedtls get-libssh2 get-libgit2
 
 ## PATHS ##
 # sort is used to remove potential duplicates
-DIRS := $(sort $(build_bindir) $(build_libdir) $(build_includedir) $(build_sysconfdir) $(build_datarootdir) $(build_staging))
+DIRS := $(sort $(build_bindir) $(build_depsbindir) $(build_libdir) $(build_includedir) $(build_sysconfdir) $(build_datarootdir) $(build_staging))
 
 $(foreach dir,$(DIRS),$(eval $(call dir_target,$(dir))))
 
@@ -252,7 +259,6 @@ include $(SRCDIR)/pcre.mk
 include $(SRCDIR)/openlibm.mk
 include $(SRCDIR)/openspecfun.mk
 include $(SRCDIR)/dsfmt.mk
-include $(SRCDIR)/rmath-julia.mk
 include $(SRCDIR)/objconv.mk
 include $(SRCDIR)/blas.mk
 include $(SRCDIR)/arpack.mk
@@ -263,7 +269,8 @@ include $(SRCDIR)/unwind.mk
 include $(SRCDIR)/gmp.mk
 include $(SRCDIR)/mpfr.mk
 include $(SRCDIR)/patchelf.mk
-include $(SRCDIR)/git.mk
+include $(SRCDIR)/mbedtls.mk
+include $(SRCDIR)/libssh2.mk
 include $(SRCDIR)/libgit2.mk
 include $(SRCDIR)/virtualenv.mk
 

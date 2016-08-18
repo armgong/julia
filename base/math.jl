@@ -42,10 +42,15 @@ clamp{X,L,H}(x::X, lo::L, hi::H) =
 
 clamp{T}(x::AbstractArray{T,1}, lo, hi) = [clamp(xx, lo, hi) for xx in x]
 clamp{T}(x::AbstractArray{T,2}, lo, hi) =
-    [clamp(x[i,j], lo, hi) for i in 1:size(x,1), j in 1:size(x,2)]  # fixme (iter): change to `eachindex` when #15459 is ready
+    [clamp(x[i,j], lo, hi) for i in indices(x,1), j in indices(x,2)]
 clamp{T}(x::AbstractArray{T}, lo, hi) =
     reshape([clamp(xx, lo, hi) for xx in x], size(x))
 
+"""
+    clamp!(array::AbstractArray, lo, hi)
+
+Restrict values in `array` to the specified range, in-place.
+"""
 function clamp!{T}(x::AbstractArray{T}, lo, hi)
     @inbounds for i in eachindex(x)
         x[i] = clamp(x[i], lo, hi)
@@ -278,16 +283,16 @@ end
 
 modf(x) = rem(x,one(x)), trunc(x)
 
-const _modff_temp = Float32[0]
+const _modff_temp = Ref{Float32}()
 function modf(x::Float32)
     f = ccall((:modff,libm), Float32, (Float32,Ptr{Float32}), x, _modff_temp)
-    f, _modff_temp[1]
+    f, _modff_temp[]
 end
 
-const _modf_temp = Float64[0]
+const _modf_temp = Ref{Float64}()
 function modf(x::Float64)
     f = ccall((:modf,libm), Float64, (Float64,Ptr{Float64}), x, _modf_temp)
-    f, _modf_temp[1]
+    f, _modf_temp[]
 end
 
 ^(x::Float64, y::Float64) = nan_dom_err(ccall((:pow,libm),  Float64, (Float64,Float64), x, y), x+y)

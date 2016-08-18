@@ -3,9 +3,9 @@
 ## Test for CESU-8 sequences
 
 let ch = 0x10000
-    for hichar = 0xd800:0xdbff
-        for lochar = 0xdc00:0xdfff
-            @test convert(String, String(Char[hichar, lochar]).data) == string(Char(ch))
+    for hi = 0xd800:0xdbff
+        for lo = 0xdc00:0xdfff
+            @test convert(String, String(Char[hi, lo]).data) == string(Char(ch))
             ch += 1
         end
     end
@@ -27,7 +27,15 @@ end
 @test reverse("a") == "a"
 @test reverse("abc") == "cba"
 @test reverse("xyz\uff\u800\uffff\U10ffff") == "\U10ffff\uffff\u800\uffzyx"
-for str in (b"xyz\xc1", b"xyz\xd0", b"xyz\xe0", b"xyz\xed\x80", b"xyz\xf0", b"xyz\xf0\x80",  b"xyz\xf0\x80\x80")
+for str in [
+    b"xyz\xc1",
+    b"xyz\xd0",
+    b"xyz\xe0",
+    b"xyz\xed\x80",
+    b"xyz\xf0",
+    b"xyz\xf0\x80",
+    b"xyz\xf0\x80\x80"
+]
     @test_throws UnicodeError reverse(String(str))
 end
 

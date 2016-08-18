@@ -1,5 +1,160 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+# Bounds checking
+A = rand(5,4,3)
+@test checkbounds(Bool, A, 1, 1, 1) == true
+@test checkbounds(Bool, A, 5, 4, 3) == true
+@test checkbounds(Bool, A, 0, 1, 1) == false
+@test checkbounds(Bool, A, 1, 0, 1) == false
+@test checkbounds(Bool, A, 1, 1, 0) == false
+@test checkbounds(Bool, A, 6, 4, 3) == false
+@test checkbounds(Bool, A, 5, 5, 3) == false
+@test checkbounds(Bool, A, 5, 4, 4) == false
+@test checkbounds(Bool, A, 1) == true           # linear indexing
+@test checkbounds(Bool, A, 60) == true
+@test checkbounds(Bool, A, 61) == false
+@test checkbounds(Bool, A, 2, 2, 2, 1) == true  # extra indices
+@test checkbounds(Bool, A, 2, 2, 2, 2) == false
+@test checkbounds(Bool, A, 1, 1)  == true       # partial linear indexing (PLI)
+@test checkbounds(Bool, A, 1, 12) == true       # PLI
+@test checkbounds(Bool, A, 5, 12) == true       # PLI
+@test checkbounds(Bool, A, 1, 13) == false      # PLI
+@test checkbounds(Bool, A, 6, 12) == false      # PLI
+
+# single CartesianIndex
+@test checkbounds(Bool, A, CartesianIndex((1, 1, 1))) == true
+@test checkbounds(Bool, A, CartesianIndex((5, 4, 3))) == true
+@test checkbounds(Bool, A, CartesianIndex((0, 1, 1))) == false
+@test checkbounds(Bool, A, CartesianIndex((1, 0, 1))) == false
+@test checkbounds(Bool, A, CartesianIndex((1, 1, 0))) == false
+@test checkbounds(Bool, A, CartesianIndex((6, 4, 3))) == false
+@test checkbounds(Bool, A, CartesianIndex((5, 5, 3))) == false
+@test checkbounds(Bool, A, CartesianIndex((5, 4, 4))) == false
+@test checkbounds(Bool, A, CartesianIndex((1,))) == true
+@test checkbounds(Bool, A, CartesianIndex((60,))) == true
+@test checkbounds(Bool, A, CartesianIndex((61,))) == false
+@test checkbounds(Bool, A, CartesianIndex((2, 2, 2, 1,))) == true
+@test checkbounds(Bool, A, CartesianIndex((2, 2, 2, 2,))) == false
+@test checkbounds(Bool, A, CartesianIndex((1, 1,)))  == true
+@test checkbounds(Bool, A, CartesianIndex((1, 12,))) == true
+@test checkbounds(Bool, A, CartesianIndex((5, 12,))) == true
+@test checkbounds(Bool, A, CartesianIndex((1, 13,))) == false
+@test checkbounds(Bool, A, CartesianIndex((6, 12,))) == false
+
+# mix of CartesianIndex and Int
+@test checkbounds(Bool, A, CartesianIndex((1,)), 1, CartesianIndex((1,))) == true
+@test checkbounds(Bool, A, CartesianIndex((5, 4)), 3)  == true
+@test checkbounds(Bool, A, CartesianIndex((0, 1)), 1)  == false
+@test checkbounds(Bool, A, 1, CartesianIndex((0, 1)))  == false
+@test checkbounds(Bool, A, 1, 1, CartesianIndex((0,))) == false
+@test checkbounds(Bool, A, 6, CartesianIndex((4, 3)))  == false
+@test checkbounds(Bool, A, 5, CartesianIndex((5,)), 3) == false
+@test checkbounds(Bool, A, CartesianIndex((5,)), CartesianIndex((4,)), CartesianIndex((4,)))  == false
+
+# vector indices
+@test checkbounds(Bool, A, 1:5, 1:4, 1:3) == true
+@test checkbounds(Bool, A, 0:5, 1:4, 1:3) == false
+@test checkbounds(Bool, A, 1:5, 0:4, 1:3) == false
+@test checkbounds(Bool, A, 1:5, 1:4, 0:3) == false
+@test checkbounds(Bool, A, 1:6, 1:4, 1:3) == false
+@test checkbounds(Bool, A, 1:5, 1:5, 1:3) == false
+@test checkbounds(Bool, A, 1:5, 1:4, 1:4) == false
+@test checkbounds(Bool, A, 1:60) == true
+@test checkbounds(Bool, A, 1:61) == false
+@test checkbounds(Bool, A, 2, 2, 2, 1:1) == true  # extra indices
+@test checkbounds(Bool, A, 2, 2, 2, 1:2) == false
+@test checkbounds(Bool, A, 1:5, 1:12) == true
+@test checkbounds(Bool, A, 1:5, 1:13) == false
+@test checkbounds(Bool, A, 1:6, 1:12) == false
+
+# logical
+@test checkbounds(Bool, A, trues(5), trues(4), trues(3)) == true
+@test checkbounds(Bool, A, trues(6), trues(4), trues(3)) == false
+@test checkbounds(Bool, A, trues(5), trues(5), trues(3)) == false
+@test checkbounds(Bool, A, trues(5), trues(4), trues(4)) == false
+@test checkbounds(Bool, A, trues(60)) == true
+@test checkbounds(Bool, A, trues(61)) == false
+@test checkbounds(Bool, A, 2, 2, 2, trues(1)) == true  # extra indices
+@test checkbounds(Bool, A, 2, 2, 2, trues(2)) == false
+@test checkbounds(Bool, A, trues(5), trues(12)) == true
+@test checkbounds(Bool, A, trues(5), trues(13)) == false
+@test checkbounds(Bool, A, trues(6), trues(12)) == false
+
+# array of CartesianIndex
+@test checkbounds(Bool, A, [CartesianIndex((1, 1, 1))]) == true
+@test checkbounds(Bool, A, [CartesianIndex((5, 4, 3))]) == true
+@test checkbounds(Bool, A, [CartesianIndex((0, 1, 1))]) == false
+@test checkbounds(Bool, A, [CartesianIndex((1, 0, 1))]) == false
+@test checkbounds(Bool, A, [CartesianIndex((1, 1, 0))]) == false
+@test checkbounds(Bool, A, [CartesianIndex((6, 4, 3))]) == false
+@test checkbounds(Bool, A, [CartesianIndex((5, 5, 3))]) == false
+@test checkbounds(Bool, A, [CartesianIndex((5, 4, 4))]) == false
+@test checkbounds(Bool, A, [CartesianIndex((1, 1))], 1) == true
+@test checkbounds(Bool, A, [CartesianIndex((5, 4))], 3) == true
+@test checkbounds(Bool, A, [CartesianIndex((0, 1))], 1) == false
+@test checkbounds(Bool, A, [CartesianIndex((1, 0))], 1) == false
+@test checkbounds(Bool, A, [CartesianIndex((1, 1))], 0) == false
+@test checkbounds(Bool, A, [CartesianIndex((6, 4))], 3) == false
+@test checkbounds(Bool, A, [CartesianIndex((5, 5))], 3) == false
+@test checkbounds(Bool, A, [CartesianIndex((5, 4))], 4) == false
+
+# sub2ind & ind2sub
+# 0-dimensional
+for i = 1:4
+    @test sub2ind((), i) == i
+end
+@test sub2ind((), 2, 2) == 3
+@test ind2sub((), 1) == ()
+@test_throws BoundsError ind2sub((), 2)
+# 1-dimensional
+for i = 1:4
+    @test sub2ind((3,), i) == i
+    @test ind2sub((3,), i) == (i,)
+end
+@test sub2ind((3,), 2, 2) == 5
+@test_throws MethodError ind2sub((3,), 2, 2)
+#   ambiguity btw cartesian indexing and linear indexing in 1d when
+#   indices may be nontraditional
+@test_throws ArgumentError sub2ind((1:3,), 2)
+@test_throws ArgumentError ind2sub((1:3,), 2)
+# 2-dimensional
+k = 0
+for j = 1:3, i = 1:4
+    @test sub2ind((4,3), i, j) == (k+=1)
+    @test ind2sub((4,3), k) == (i,j)
+    @test sub2ind((1:4,1:3), i, j) == k
+    @test ind2sub((1:4,1:3), k) == (i,j)
+    @test sub2ind((0:3,3:5), i-1, j+2) == k
+    @test ind2sub((0:3,3:5), k) == (i-1, j+2)
+end
+# Delete when partial linear indexing is deprecated (#14770)
+@test sub2ind((4,3), 7) == 7
+@test sub2ind((1:4,1:3), 7) == 7
+@test sub2ind((0:3,3:5), 7) == 8
+# 3-dimensional
+l = 0
+for k = 1:2, j = 1:3, i = 1:4
+    @test sub2ind((4,3,2), i, j, k) == (l+=1)
+    @test ind2sub((4,3,2), l) == (i,j,k)
+    @test sub2ind((1:4,1:3,1:2), i, j, k) == l
+    @test ind2sub((1:4,1:3,1:2), l) == (i,j,k)
+    @test sub2ind((0:3,3:5,-101:-100), i-1, j+2, k-102) == l
+    @test ind2sub((0:3,3:5,-101:-100), l) == (i-1, j+2, k-102)
+end
+
+A = reshape(collect(1:9), (3,3))
+@test ind2sub(size(A), 6) == (3,2)
+@test sub2ind(size(A), 3, 2) == 6
+@test ind2sub(A, 6) == (3,2)
+@test sub2ind(A, 3, 2) == 6
+
+# PR #9256
+function pr9256()
+    m = [1 2 3; 4 5 6; 7 8 9]
+    ind2sub(m, 6)
+end
+@test pr9256() == (3,2)
+
 # token type on which to dispatch testing methods in order to avoid potential
 # name conflicts elsewhere in the base test suite
 type TestAbstractArray end
@@ -229,6 +384,7 @@ function test_primitives{T}(::Type{T}, shape, ::Type{TestAbstractArray})
     @test last(B) == B[length(B)]
 
     # strides(a::AbstractArray)
+    @inferred strides(B)
     strides_B = strides(B)
     for (i, _stride) in enumerate(collect(strides_B))
         @test _stride == stride(B, i)
@@ -254,12 +410,13 @@ end
 
 function test_in_bounds(::Type{TestAbstractArray})
     n = rand(2:5)
-    dims = tuple(rand(2:5, n)...)
-    len = prod(dims)
+    sz = rand(2:5, n)
+    len = prod(sz)
+    A = zeros(sz...)
     for i in 1:len
-        @test checkbounds(Bool, dims, i) == true
+        @test checkbounds(Bool, A, i) == true
     end
-    @test checkbounds(Bool, dims, len + 1) == false
+    @test checkbounds(Bool, A, len + 1) == false
 end
 
 type UnimplementedFastArray{T, N} <: AbstractArray{T, N} end
@@ -408,7 +565,7 @@ Base.done{N}(::GenericIterator{N}, i) = i > N ? true : false
 Base.iteratorsize{N}(::Type{GenericIterator{N}}) = Base.SizeUnknown()
 
 function test_map(::Type{TestAbstractArray})
-    empty_pool = WorkerPool()
+    empty_pool = WorkerPool([myid()])
     pmap_fallback = (f, c...) -> pmap(empty_pool, f, c...)
 
     for mapf in [map, asyncmap, pmap_fallback]
@@ -437,7 +594,7 @@ function test_map(::Type{TestAbstractArray})
         # map with different result types
         let m = mapf(x->x+1, Number[1, 2.0])
             # FIXME why is this different for asyncmap?
-            @test mapf != map || isa(m, Vector{Real})
+            @test mapf !== map || isa(m, Vector{Real})
             @test m == Real[2, 3.0]
         end
 
@@ -468,6 +625,10 @@ end
 
 # issue #15689, mapping an abstract type
 @test isa(map(Set, Array[[1,2],[3,4]]), Vector{Set{Int}})
+
+# mapping over scalars and empty arguments:
+@test map(sin, 1) === sin(1)
+@test map(()->1234) === 1234
 
 function test_UInt_indexing(::Type{TestAbstractArray})
     A = [1:100...]
@@ -525,3 +686,26 @@ A = TSlowNIndexes(rand(2,2))
 #16381
 @inferred size(rand(3,2,1), 2, 1)
 @inferred size(rand(3,2,1), 2, 1, 3)
+
+@test @inferred(indices(rand(3,2)))    == (1:3,1:2)
+@test @inferred(indices(rand(3,2,1)))  == (1:3,1:2,1:1)
+@test @inferred(indices(rand(3,2), 1)) == 1:3
+@test @inferred(indices(rand(3,2), 2)) == 1:2
+@test @inferred(indices(rand(3,2), 3)) == 1:1
+
+#17088
+let
+    n = 10
+    M = rand(n, n)
+    # vector of vectors
+    v = [[M]; [M]] # using vcat
+    @test size(v) == (2,)
+    @test !issparse(v)
+    # matrix of vectors
+    m1 = [[M] [M]] # using hcat
+    m2 = [[M] [M];] # using hvcat
+    @test m1 == m2
+    @test size(m1) == (1,2)
+    @test !issparse(m1)
+    @test !issparse(m2)
+end

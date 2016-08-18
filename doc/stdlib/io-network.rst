@@ -7,19 +7,19 @@
 General I/O
 -----------
 
-.. variable:: STDOUT
+.. data:: STDOUT
 
    .. Docstring generated from Julia source
 
    Global variable referring to the standard out stream.
 
-.. variable:: STDERR
+.. data:: STDERR
 
    .. Docstring generated from Julia source
 
    Global variable referring to the standard error stream.
 
-.. variable:: STDIN
+.. data:: STDIN
 
    .. Docstring generated from Julia source
 
@@ -342,7 +342,7 @@ General I/O
 
    .. Docstring generated from Julia source
 
-   Replace ``STDOUT`` by stream for all C and julia level output to ``STDOUT``\ . Note that ``stream`` must be a TTY, a ``Pipe`` or a ``TCPSocket``\ .
+   Replace ``STDOUT`` by stream for all C and Julia level output to ``STDOUT``\ . Note that ``stream`` must be a TTY, a ``Pipe`` or a ``TCPSocket``\ .
 
 .. function:: redirect_stderr([stream])
 
@@ -360,7 +360,7 @@ General I/O
 
    .. Docstring generated from Julia source
 
-   Read the entirety of ``x`` as a string but remove trailing newlines. Equivalent to ``chomp(readstring(x))``\ .
+   Read the entirety of ``x`` as a string and remove a single trailing newline. Equivalent to ``chomp(readstring(x))``\ .
 
 .. function:: truncate(file,n)
 
@@ -398,28 +398,40 @@ General I/O
 
    Read all available data on the stream, blocking the task only if no data is available. The result is a ``Vector{UInt8,1}``\ .
 
-.. function:: IOContext{<:IO} <: IO
+.. type:: IOContext
 
    .. Docstring generated from Julia source
 
-   IOContext provides a mechanism for passing output-configuration keyword arguments through arbitrary show methods.
+   IOContext provides a mechanism for passing output configuration settings among ``show`` methods.
 
-   In short, it is an immutable Dictionary that is a subclass of IO.
+   In short, it is an immutable dictionary that is a subclass of IO. It supports standard dictionary operations such as ``getindex``\ , and can also be used as an I/O stream.
 
-   .. code-block:: julia
+.. function:: IOContext(io::IO, KV::Pair)
 
-       IOContext(io::IO, KV::Pair)
+   .. Docstring generated from Julia source
 
-   Create a new entry in the IO Dictionary for the key => value pair
+   Create an ``IOContext`` that wraps a given stream, adding the specified key=>value pair to the properties of that stream (note that ``io`` can itself be an ``IOContext``\ ).
 
    * use ``(key => value) in dict`` to see if this particular combination is in the properties set
    * use ``get(dict, key, default)`` to retrieve the most recent value for a particular key
 
-   .. code-block:: julia
+   The following properties are in common use:
 
-       IOContext(io::IO, context::IOContext)
+   * ``:compact``\ : Boolean specifying that small values should be printed more compactly, e.g. that numbers should be printed with fewer digits. This is set when printing array elements.
+   * ``:limit``\ : Boolean specifying that containers should be truncated, e.g. showing ``…`` in place of most elements.
+   * ``:displaysize``\ : A ``Tuple{Int,Int}`` giving the size in rows and columns to use for text output. This can be used to override the display size for called functions, but to get the size of the screen use the ``displaysize`` function.
 
-   Create a IOContext that wraps an alternate IO but inherits the keyword arguments from the context
+.. function:: IOContext(io::IO, context::IOContext)
+
+   .. Docstring generated from Julia source
+
+   Create a IOContext that wraps an alternate IO but inherits the properties of ``context``\ .
+
+.. function:: IOContext(io::IO; properties...)
+
+   .. Docstring generated from Julia source
+
+   The same as ``IOContext(io::IO, KV::Pair)``\ , but accepting properties as keyword arguments.
 
 Text I/O
 --------
@@ -434,9 +446,11 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   Show a more compact representation of a value.
+   Show a compact representation of a value.
 
-   This is used for printing array elements. If a new type has a different compact representation, it should test ``get(io, :compact, false)`` in its normal ``show`` method. A compact representation should skip any type information, which would be redundant with that printed once for the whole array.
+   This is used for printing array elements without repeating type information (which would be redundant with that printed once for the whole array), and without line breaks inside the representation of an element.
+
+   To offer a compact representation different from its standard one, a custom type should test ``get(io, :compact, false)`` in its normal ``show`` method.
 
 .. function:: showall(x)
 
@@ -572,9 +586,7 @@ Text I/O
 
    If ``use_mmap`` is ``true``\ , the file specified by ``source`` is memory mapped for potential speedups. Default is ``true`` except on Windows. On Windows, you may want to specify ``true`` if the file is large, and is only read once and not written to.
 
-   If ``ignore_invalid_chars`` is ``true``\ , bytes in ``source`` with invalid character encoding will be ignored. Otherwise an error is thrown indicating the offending character position.
-
-   If ``quotes`` is ``true``\ , column enclosed within double-quote (") characters are allowed to contain new lines and column delimiters. Double-quote characters within a quoted field must be escaped with another double-quote.  Specifying ``dims`` as a tuple of the expected rows and columns (including header, if any) may speed up reading of large files.  If ``comments`` is ``true``\ , lines beginning with ``comment_char`` and text following ``comment_char`` in any line are ignored.
+   If ``quotes`` is ``true``\ , columns enclosed within double-quote (") characters are allowed to contain new lines and column delimiters. Double-quote characters within a quoted field must be escaped with another double-quote.  Specifying ``dims`` as a tuple of the expected rows and columns (including header, if any) may speed up reading of large files.  If ``comments`` is ``true``\ , lines beginning with ``comment_char`` and text following ``comment_char`` in any line are ignored.
 
 .. function:: readdlm(source, delim::Char, eol::Char; options...)
 
@@ -586,25 +598,25 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   The end of line delimiter is taken as ``n``\ .
+   The end of line delimiter is taken as ``\n``\ .
 
 .. function:: readdlm(source, delim::Char; options...)
 
    .. Docstring generated from Julia source
 
-   The end of line delimiter is taken as ``n``\ . If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings is returned.
+   The end of line delimiter is taken as ``\n``\ . If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings is returned.
 
 .. function:: readdlm(source, T::Type; options...)
 
    .. Docstring generated from Julia source
 
-   The columns are assumed to be separated by one or more whitespaces. The end of line delimiter is taken as ``n``\ .
+   The columns are assumed to be separated by one or more whitespaces. The end of line delimiter is taken as ``\n``\ .
 
 .. function:: readdlm(source; options...)
 
    .. Docstring generated from Julia source
 
-   The columns are assumed to be separated by one or more whitespaces. The end of line delimiter is taken as ``n``\ . If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings is returned.
+   The columns are assumed to be separated by one or more whitespaces. The end of line delimiter is taken as ``\n``\ . If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings is returned.
 
 .. function:: writedlm(f, A, delim='\\t')
 
@@ -716,6 +728,8 @@ Julia environments (such as the IPython-based IJulia notebook).
    The default MIME type is ``MIME"text/plain"``\ . There is a fallback definition for ``text/plain`` output that calls ``show`` with 2 arguments. Therefore, this case should be handled by defining a 2-argument ``show(stream::IO, x::MyType)`` method.
 
    Technically, the ``MIME"mime"`` macro defines a singleton type for the given ``mime`` string, which allows us to exploit Julia's dispatch mechanisms in determining how to display objects of any given type.
+
+   The first argument to ``show`` can be an ``IOContext`` specifying output format properties. See ``IOContext`` for details.
 
 .. function:: mimewritable(mime, x)
 
@@ -872,7 +886,7 @@ Network I/O
 
    .. Docstring generated from Julia source
 
-   Connect to the Named Pipe / Domain Socket at ``path``\ .
+   Connect to the named pipe / UNIX domain socket at ``path``\ .
 
 .. function:: listen([addr,]port) -> TCPServer
 
@@ -884,7 +898,7 @@ Network I/O
 
    .. Docstring generated from Julia source
 
-   Create and listen on a Named Pipe / Domain Socket.
+   Create and listen on a named pipe / UNIX domain socket.
 
 .. function:: getaddrinfo(host)
 
@@ -1012,7 +1026,7 @@ Network I/O
 
    Converts the endianness of a value from that used by the Host to Little-endian.
 
-.. variable:: ENDIAN_BOM
+.. data:: ENDIAN_BOM
 
    .. Docstring generated from Julia source
 

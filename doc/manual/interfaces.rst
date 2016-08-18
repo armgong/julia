@@ -11,16 +11,35 @@ A lot of the power and extensibility in Julia comes from a collection of informa
 Iteration
 ---------
 
-================================= ======================== ===========================================
-Required methods                                           Brief description
-================================= ======================== ===========================================
-:func:`start(iter) <start>`                                Returns the initial iteration state
-:func:`next(iter, state) <next>`                           Returns the current item and the next state
-:func:`done(iter, state) <done>`                           Tests if there are any items remaining
-**Important optional methods**    **Default definition**   **Brief description**
-:func:`eltype(IterType) <eltype>` ``Any``                  The type the items returned by :func:`next`
-:func:`length(iter) <length>`     (*undefined*)            The number of items, if known
-================================= ======================== ===========================================
+================================================== ======================== =====================================================================================
+Required methods                                                            Brief description
+================================================== ======================== =====================================================================================
+:func:`start(iter) <start>`                                                 Returns the initial iteration state
+:func:`next(iter, state) <next>`                                            Returns the current item and the next state
+:func:`done(iter, state) <done>`                                            Tests if there are any items remaining
+**Important optional methods**                     **Default definition**   **Brief description**
+:func:`iteratorsize(IterType) <iteratorsize>`      ``HasLength()``          One of `HasLength()`, `HasShape()`, `IsInfinite()`, or `SizeUnknown()` as appropriate
+:func:`iteratoreltype(IterType) <iteratoreltype>`  ``HasEltype()``          Either `EltypeUnknown()` or `HasEltype()` as appropriate
+:func:`eltype(IterType) <eltype>`                  ``Any``                  The type the items returned by :func:`next`
+:func:`length(iter) <length>`                      (*undefined*)            The number of items, if known
+:func:`size(iter, [dim...]) <size>`                (*undefined*)            The number of items in each dimension, if known
+================================================== ======================== =====================================================================================
+
+================================================================ ======================================================================
+Value returned by :func:`iteratorsize(IterType) <iteratorsize>`  Required Methods
+================================================================ ======================================================================
+`HasLength()`                                                    :func:`length(iter) <length>`
+`HasShape()`                                                     :func:`length(iter) <length>`  and :func:`size(iter, [dim...]) <size>`
+`IsInfinite()`                                                   (*none*)
+`SizeUnknown()`                                                  (*none*)
+================================================================ ======================================================================
+
+==================================================================== ==================================
+Value returned by :func:`iteratoreltype(IterType) <iteratoreltype>`  Required Methods
+==================================================================== ==================================
+`HasEltype()`                                                        :func:`eltype(IterType) <eltype>`
+`EltypeUnknown()`                                                    (*none*)
+==================================================================== ==================================
 
 Sequential iteration is implemented by the methods :func:`start`, :func:`done`, and :func:`next`. Instead of mutating objects as they are iterated over, Julia provides these three methods to keep track of the iteration state externally from the object. The :func:`start(iter) <start>` method returns the initial state for the iterable object ``iter``. That state gets passed along to :func:`done(iter, state) <done>`, which tests if there are any elements remaining, and :func:`next(iter, state) <next>`, which returns a tuple containing the current element and an updated ``state``. The ``state`` object can be anything, and is generally considered to be an implementation detail private to the iterable object.
 
@@ -147,25 +166,29 @@ While this is starting to support more of the :ref:`indexing operations supporte
 Abstract Arrays
 ---------------
 
-============================================================================ ============================================ =======================================================================================
-Methods to implement                                                                                                      Brief description
-============================================================================ ============================================ =======================================================================================
-:func:`size(A) <size>`                                                                                                    Returns a tuple containing the dimensions of A
-:func:`Base.linearindexing{T\<:YourType}(::Type{T}) <Base.linearindexing>`                                                Returns either ``Base.LinearFast()`` or ``Base.LinearSlow()``. See the description below.
-:func:`getindex(A, i::Int) <getindex>`                                                                                    (if ``LinearFast``) Linear scalar indexing
-:func:`getindex(A, I::Vararg{Int, N}) <getindex>`                                                                         (if ``LinearSlow``, where ``N = ndims(A)``) N-dimensional scalar indexing
-:func:`setindex!(A, v, i::Int) <getindex>`                                                                                (if ``LinearFast``) Scalar indexed assignment
-:func:`setindex!(A, v, I::Vararg{Int, N}) <getindex>`                                                                     (if ``LinearSlow``, where ``N = ndims(A)``) N-dimensional scalar indexed assignment
-**Optional methods**                                                         **Default definition**                       **Brief description**
-:func:`getindex(A, I...) <getindex>`                                         defined in terms of scalar :func:`getindex`  :ref:`Multidimensional and nonscalar indexing <man-array-indexing>`
-:func:`setindex!(A, I...) <setindex!>`                                       defined in terms of scalar :func:`setindex!` :ref:`Multidimensional and nonscalar indexed assignment <man-array-indexing>`
-:func:`start`/:func:`next`/:func:`done`                                      defined in terms of scalar :func:`getindex`  Iteration
-:func:`length(A) <length>`                                                   ``prod(size(A))``                            Number of elements
-:func:`similar(A) <similar>`                                                 ``similar(A, eltype(A), size(A))``           Return a mutable array with the same shape and element type
-:func:`similar(A, ::Type{S}) <similar>`                                      ``similar(A, S, size(A))``                   Return a mutable array with the same shape and the specified element type
-:func:`similar(A, dims::NTuple{Int}) <similar>`                              ``similar(A, eltype(A), dims)``              Return a mutable array with the same element type and the specified dimensions
-:func:`similar(A, ::Type{S}, dims::NTuple{Int}) <similar>`                   ``Array{S}(dims)``                           Return a mutable array with the specified element type and dimensions
-============================================================================ ============================================ =======================================================================================
+===================================================================== ============================================ =======================================================================================
+Methods to implement                                                                                               Brief description
+===================================================================== ============================================ =======================================================================================
+:func:`size(A) <size>`                                                                                             Returns a tuple containing the dimensions of ``A``
+:func:`getindex(A, i::Int) <getindex>`                                                                             (if ``LinearFast``) Linear scalar indexing
+:func:`getindex(A, I::Vararg{Int, N}) <getindex>`                                                                  (if ``LinearSlow``, where ``N = ndims(A)``) N-dimensional scalar indexing
+:func:`setindex!(A, v, i::Int) <setindex!>`                                                                        (if ``LinearFast``) Scalar indexed assignment
+:func:`setindex!(A, v, I::Vararg{Int, N}) <setindex!>`                                                             (if ``LinearSlow``, where ``N = ndims(A)``) N-dimensional scalar indexed assignment
+**Optional methods**                                                  **Default definition**                       **Brief description**
+:func:`Base.linearindexing(::Type) <Base.linearindexing>`             ``Base.LinearSlow()``                        Returns either ``Base.LinearFast()`` or ``Base.LinearSlow()``. See the description below.
+:func:`getindex(A, I...) <getindex>`                                  defined in terms of scalar :func:`getindex`  :ref:`Multidimensional and nonscalar indexing <man-array-indexing>`
+:func:`setindex!(A, I...) <setindex!>`                                defined in terms of scalar :func:`setindex!` :ref:`Multidimensional and nonscalar indexed assignment <man-array-indexing>`
+:func:`start`/:func:`next`/:func:`done`                               defined in terms of scalar :func:`getindex`  Iteration
+:func:`length(A) <length>`                                            ``prod(size(A))``                            Number of elements
+:func:`similar(A) <similar>`                                          ``similar(A, eltype(A), size(A))``           Return a mutable array with the same shape and element type
+:func:`similar(A, ::Type{S}) <similar>`                               ``similar(A, S, size(A))``                   Return a mutable array with the same shape and the specified element type
+:func:`similar(A, dims::NTuple{Int}) <similar>`                       ``similar(A, eltype(A), dims)``              Return a mutable array with the same element type and size `dims`
+:func:`similar(A, ::Type{S}, dims::NTuple{Int}) <similar>`            ``Array{S}(dims)``                           Return a mutable array with the specified element type and size
+**Non-traditional indices**                                           **Default definition**                       **Brief description**
+:func:`indices(A) <indices>`                                          ``map(OneTo, size(A))``                      Return the ``AbstractUnitRange`` of valid indices
+:func:`Base.similar(A, ::Type{S}, inds::NTuple{Ind}) <similar>`       ``similar(A, S, Base.to_shape(inds))``       Return a mutable array with the specified indices ``inds`` (see below)
+:func:`Base.similar(T::Union{Type,Function}, inds) <similar>`         ``T(Base.to_shape(inds))``                   Return an array similar to ``T`` with the specified indices ``inds`` (see below)
+===================================================================== ============================================ =======================================================================================
 
 If a type is defined as a subtype of ``AbstractArray``, it inherits a very large set of rich behaviors including iteration and multidimensional indexing built on top of single-element access.  See the :ref:`arrays manual page <man-arrays>` and :ref:`standard library section <stdlib-arrays>` for more supported methods.
 
@@ -261,7 +284,7 @@ The result of indexing an ``AbstractArray`` can itself be an array (for instance
      1.0  4.0  7.0
      2.0  5.0  8.0
 
-In this example it is accomplished by defining ``Base.similar{T}(A::SparseArray, ::Type{T}, dims::Dims)`` to create the appropriate wrapped array. For this to work it's important that ``SparseArray`` is mutable (supports ``setindex!``). :func:`similar` is also used to allocate result arrays for arithmetic on ``AbstractArrays``, for instance:
+In this example it is accomplished by defining ``Base.similar{T}(A::SparseArray, ::Type{T}, dims::Dims)`` to create the appropriate wrapped array. (Note that while ``similar`` supports 1- and 2-argument forms, in most case you only need to specialize the 3-argument form.) For this to work it's important that ``SparseArray`` is mutable (supports ``setindex!``). :func:`similar` is also used to allocate result arrays for arithmetic on ``AbstractArrays``, for instance:
 
 .. doctest::
 
@@ -283,3 +306,10 @@ In addition to all the iterable and indexable methods from above, these types ca
 
     julia> dot(A[:,1],A[:,2])
     32.0
+
+If you are defining an array type that allows non-traditional indexing
+(indices that start at something other than 1), you should specialize
+``indices``.  You should also specialize ``similar`` so that the
+``dims`` argument (ordinarily a ``Dims`` size-tuple) can accept
+``AbstractUnitRange`` objects, perhaps range-types ``Ind`` of your own
+design.  For more information, see :ref:`devdocs-offsetarrays`.

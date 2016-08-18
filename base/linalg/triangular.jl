@@ -48,7 +48,8 @@ imag(A::LowerTriangular) = LowerTriangular(imag(A.data))
 imag(A::UnitLowerTriangular) = LowerTriangular(tril!(imag(A.data),-1))
 imag(A::UnitUpperTriangular) = UpperTriangular(triu!(imag(A.data),1))
 
-full(A::AbstractTriangular) = convert(Matrix, A)
+convert(::Type{Array}, A::AbstractTriangular) = convert(Matrix, A)
+full(A::AbstractTriangular) = convert(Array, A)
 parent(A::AbstractTriangular) = A.data
 
 # then handle all methods that requires specific handling of upper/lower and unit diagonal
@@ -1557,7 +1558,7 @@ for (f, g) in ((:/, :A_rdiv_B!), (:A_rdiv_Bc, :A_rdiv_Bc!), (:A_rdiv_Bt, :A_rdiv
 end
 end
 
-# If these are not defined, the they will fallback to the versions in matmul.jl
+# If these are not defined, they will fallback to the versions in matmul.jl
 # and dispatch to generic_matmatmul! which is very costly to compile. The methods
 # below might compute an unnecessary copy. Eliminating the copy requires adding
 # all the promotion logic here once again. Since these methods are probably relatively
@@ -1825,8 +1826,22 @@ function eigvecs{T}(A::AbstractTriangular{T})
 end
 det{T}(A::UnitUpperTriangular{T}) = one(T)
 det{T}(A::UnitLowerTriangular{T}) = one(T)
+logdet{T}(A::UnitUpperTriangular{T}) = zero(T)
+logdet{T}(A::UnitLowerTriangular{T}) = zero(T)
+logabsdet{T}(A::UnitUpperTriangular{T}) = zero(T), one(T)
+logabsdet{T}(A::UnitLowerTriangular{T}) = zero(T), one(T)
 det{T}(A::UpperTriangular{T}) = prod(diag(A.data))
 det{T}(A::LowerTriangular{T}) = prod(diag(A.data))
+function logabsdet{T}(A::Union{UpperTriangular{T},LowerTriangular{T}})
+    sgn = one(T)
+    abs_det = zero(real(T))
+    @inbounds for i in 1:size(A,1)
+        diag_i = A.data[i,i]
+        sgn *= sign(diag_i)
+        abs_det += log(abs(diag_i))
+    end
+    return abs_det, sgn
+end
 
 eigfact(A::AbstractTriangular) = Eigen(eigvals(A), eigvecs(A))
 

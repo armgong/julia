@@ -187,3 +187,11 @@ end
 # issue #3596
 @test Int128(1)<<0 == 1
 @test repr(Int128(1)<<1) == "2"
+
+# issue #16700
+@test_throws MethodError 1.0 >> 8
+
+# PR #16988
+@test true << 2 === 1 << 2
+@test true >> 2 === 1 >> 2
+@test true >>> 2 === 1 >>> 2

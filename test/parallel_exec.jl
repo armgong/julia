@@ -10,8 +10,12 @@ elseif Base.JLOptions().code_coverage == 2
     cov_flag = `--code-coverage=all`
 end
 
-# Test a `remote` invocation when no workers are present
+# Test a few "remote" invocations when no workers are present
 @test remote(myid)() == 1
+@test pmap(identity, 1:100) == [1:100...]
+@test 100 == @parallel (+) for i in 1:100
+        1
+    end
 
 addprocs(4; exeflags=`$cov_flag $inline_flag --check-bounds=yes --depwarn=error`)
 
@@ -294,7 +298,7 @@ copy!(s, sdata(d))
 a = rand(dims)
 @test sdata(a) == a
 
-d = SharedArray(Int, dims; init = D->fill!(D.loc_subarr_1d, myid()))
+d = SharedArray(Int, dims, init = D->fill!(D.loc_subarr_1d, myid()))
 for p in procs(d)
     idxes_in_p = remotecall_fetch(p, d) do D
         parentindexes(D.loc_subarr_1d)[1]
@@ -305,7 +309,7 @@ for p in procs(d)
     @test d[idxl] == p
 end
 
-d = SharedArray(Float64, (2,3))
+d = @inferred(SharedArray(Float64, (2,3)))
 @test isa(d[:,2], Vector{Float64})
 
 ### SharedArrays from a file
@@ -316,7 +320,7 @@ write(fn, 1:30)
 sz = (6,5)
 Atrue = reshape(1:30, sz)
 
-S = SharedArray(fn, Int, sz)
+S = @inferred(SharedArray(fn, Int, sz))
 @test S == Atrue
 @test length(procs(S)) > 1
 @sync begin
@@ -370,16 +374,16 @@ rm(fn); rm(fn2); rm(fn3)
 ### Utility functions
 
 # construct PR #13514
-S = SharedArray{Int}((1,2,3))
+S = @inferred(SharedArray{Int}((1,2,3)))
 @test size(S) == (1,2,3)
 @test typeof(S) <: SharedArray{Int}
-S = SharedArray{Int}(2)
+S = @inferred(SharedArray{Int}(2))
 @test size(S) == (2,)
 @test typeof(S) <: SharedArray{Int}
-S = SharedArray{Int}(1,2)
+S = @inferred(SharedArray{Int}(1,2))
 @test size(S) == (1,2)
 @test typeof(S) <: SharedArray{Int}
-S = SharedArray{Int}(1,2,3)
+S = @inferred(SharedArray{Int}(1,2,3))
 @test size(S) == (1,2,3)
 @test typeof(S) <: SharedArray{Int}
 
@@ -430,8 +434,8 @@ d[2:4] = 7
 d[5,1:2:4,8] = 19
 
 AA = rand(4,2)
-A = convert(SharedArray, AA)
-B = convert(SharedArray, AA')
+A = @inferred(convert(SharedArray, AA))
+B = @inferred(convert(SharedArray, AA'))
 @test B*A == ctranspose(AA)*AA
 
 d=SharedArray(Int64, (10,10); init = D->fill!(D.loc_subarr_1d, myid()), pids=[id_me, id_other])
@@ -451,6 +455,13 @@ map!(x->1, d)
 # Boundary cases where length(S) <= length(pids)
 @test 2.0 == remotecall_fetch(D->D[2], id_other, Base.shmem_fill(2.0, 2; pids=[id_me, id_other]))
 @test 3.0 == remotecall_fetch(D->D[1], id_other, Base.shmem_fill(3.0, 1; pids=[id_me, id_other]))
+
+# Shared arrays of singleton immutables
+@everywhere immutable ShmemFoo end
+for T in [Void, ShmemFoo]
+    s = @inferred(SharedArray(T, 10))
+    @test T() === remotecall_fetch(x->x[3], workers()[1], s)
+end
 
 # Issue #14664
 d = SharedArray(Int,10)
@@ -530,6 +541,24 @@ function testcpt()
     @test size == 0
 end
 testcpt()
+
+# Test multiple "for" loops waiting on the same channel which
+# is closed after adding a few elements.
+c=Channel()
+results=[]
+@sync begin
+    for i in 1:20
+        @async for i in c
+            push!(results, i)
+        end
+    end
+    sleep(1.0)
+    for i in 1:5
+        put!(c,i)
+    end
+    close(c)
+end
+@test sum(results) == 15
 
 @test_throws ArgumentError sleep(-1)
 @test_throws ArgumentError timedwait(()->false, 0.1, pollint=-0.5)
@@ -664,7 +693,7 @@ let ex
     try
         remotecall_fetch(id_other) do
             @eval module AModuleLocalToOther
-                foo() = error("A.error")
+                foo() = throw(ErrorException("A.error"))
                 foo()
             end
         end
@@ -712,16 +741,16 @@ function walk_args(i)
     if i > length(pmap_args)
         kwargs = []
         for (k,v) in kwdict
-            if v != :default
+            if v !== :default
                 push!(kwargs, (k,v))
             end
         end
 
         data = [1:100...]
 
-        testw = kwdict[:distributed] == false ? [1] : workers()
+        testw = kwdict[:distributed] === false ? [1] : workers()
 
-        if (kwdict[:on_error] == :default) && (kwdict[:retry_n] == :default)
+        if (kwdict[:on_error] === :default) && (kwdict[:retry_n] === :default)
             mapf = x -> (x*2, myid())
             results_test = pmap_res -> begin
                 results = [x[1] for x in pmap_res]
@@ -731,7 +760,7 @@ function walk_args(i)
                     @test p in pids
                 end
             end
-        elseif kwdict[:retry_n] != :default
+        elseif kwdict[:retry_n] !== :default
             mapf = x -> iseven(myid()) ? error("foobar") : (x*2, myid())
             results_test = pmap_res -> begin
                 results = [x[1] for x in pmap_res]
@@ -745,7 +774,7 @@ function walk_args(i)
                     end
                 end
             end
-        else (kwdict[:on_error] != :default) && (kwdict[:retry_n] == :default)
+        else (kwdict[:on_error] !== :default) && (kwdict[:retry_n] === :default)
             mapf = x -> iseven(x) ? error("foobar") : (x*2, myid())
             results_test = pmap_res -> begin
                 w = testw
@@ -794,7 +823,14 @@ end
 @test [1:100...] == pmap(x->x, Base.Generator(x->(sleep(0.0001); x), 1:100))
 
 # Test asyncmap
-@test allunique(asyncmap(x->object_id(current_task()), 1:100))
+@test allunique(asyncmap(x->(sleep(1.0);object_id(current_task())), 1:10))
+
+# CachingPool tests
+wp = CachingPool(workers())
+@test [1:100...] == pmap(wp, x->x, 1:100)
+
+clear!(wp)
+@test length(wp.map_obj2ref) == 0
 
 
 # The below block of tests are usually run only on local development systems, since:
@@ -999,3 +1035,33 @@ retval = @parallel (+) for _ in 1:10
     rand(rng)
 end
 @test retval > 0.0 && retval < 10.0
+
+# serialization tests
+wrkr1 = workers()[1]
+wrkr2 = workers()[end]
+
+@test remotecall_fetch(p->remotecall_fetch(myid, p), wrkr1, wrkr2) == wrkr2
+
+# Send f to wrkr1 and wrkr2. Then try calling f on wrkr2 from wrkr1
+f_myid = ()->myid()
+@test wrkr1 == remotecall_fetch(f_myid, wrkr1)
+@test wrkr2 == remotecall_fetch(f_myid, wrkr2)
+@test wrkr2 == remotecall_fetch((f, p)->remotecall_fetch(f, p), wrkr1, f_myid, wrkr2)
+
+# Deserialization error recovery test
+# locally defined module, but unavailable on workers
+module LocalFoo
+    global foo=1
+end
+
+let
+    @test_throws RemoteException remotecall_fetch(()->LocalFoo.foo, 2)
+
+    bad_thunk = ()->NonexistantModule.f()
+    @test_throws RemoteException remotecall_fetch(bad_thunk, 2)
+
+    # Test that the stream is still usable
+    @test remotecall_fetch(()->:test,2) == :test
+    ref = remotecall(bad_thunk, 2)
+    @test_throws RemoteException fetch(ref)
+end

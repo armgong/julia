@@ -19,12 +19,12 @@ checksum_download() {
   f=$1
   url=$2
   if [ -e "$f" ]; then
-    deps/jlchecksum "$f" 2> /dev/null && return
+    deps/tools/jlchecksum "$f" 2> /dev/null && return
     echo "Checksum for '$f' changed, download again." >&2
   fi
   echo "Downloading '$f'"
   $curlflags -O "$url"
-  deps/jlchecksum "$f"
+  deps/tools/jlchecksum "$f"
 }
 
 # If ARCH environment variable not set, choose based on uname -m
@@ -86,8 +86,6 @@ case $(uname) in
 esac
 
 # Download most recent Julia binary for dependencies
-# Fix directory not found error during decompression on msys2
-mkdir -p usr/Git/usr
 if ! [ -e julia-installer.exe ]; then
   f=julia-latest-win$bits.exe
   echo "Downloading $f"
@@ -95,7 +93,7 @@ if ! [ -e julia-installer.exe ]; then
   echo "Extracting $f"
   $SEVENZIP x -y $f >> get-deps.log
 fi
-for i in bin/*.dll Git/usr/bin/*.dll Git/usr/bin/*.exe; do
+for i in bin/*.dll; do
   $SEVENZIP e -y julia-installer.exe "$i" \
     -ousr\\`dirname $i | sed -e 's|/julia||' -e 's|/|\\\\|g'` >> get-deps.log
 done
@@ -103,8 +101,6 @@ for i in share/julia/base/pcre_h.jl; do
   $SEVENZIP e -y julia-installer.exe "$i" -obase >> get-deps.log
 done
 echo "override PCRE_INCL_PATH =" >> Make.user
-# suppress "bash.exe: warning: could not find /tmp, please create!"
-mkdir -p usr/Git/tmp
 # Remove libjulia.dll if it was copied from downloaded binary
 rm -f usr/bin/libjulia.dll
 rm -f usr/bin/libjulia-debug.dll
@@ -122,7 +118,7 @@ if [ -z "$USEMSVC" ]; then
   fi
   export AR=${CROSS_COMPILE}ar
 
-  f=llvm-3.7.1-$ARCH-w64-mingw32-juliadeps-r04.7z
+  f=llvm-3.7.1-$ARCH-w64-mingw32-juliadeps-r09.7z
 else
   echo "override USEMSVC = 1" >> Make.user
   echo "override ARCH = $ARCH" >> Make.user
@@ -142,8 +138,8 @@ checksum_download \
     "$f" "https://bintray.com/artifact/download/tkelman/generic/$f"
 echo "Extracting $f"
 $SEVENZIP x -y $f >> get-deps.log
-echo 'override LLVM_CONFIG := $(JULIAHOME)/usr/tools/llvm-config.exe' >> Make.user
-echo 'override LLVM_SIZE := $(JULIAHOME)/usr/tools/llvm-size.exe' >> Make.user
+echo 'override LLVM_CONFIG := $(JULIAHOME)/usr/bin/llvm-config.exe' >> Make.user
+echo 'override LLVM_SIZE := $(JULIAHOME)/usr/bin/llvm-size.exe' >> Make.user
 
 if [ -z "`which make 2>/dev/null`" ]; then
   if [ -n "`uname | grep CYGWIN`" ]; then
@@ -160,13 +156,18 @@ if [ -z "`which make 2>/dev/null`" ]; then
   export PATH=$PWD/bin:$PATH
 fi
 
+if ! [ -e usr/bin/busybox.exe ]; then
+  f=busybox-w32-FRP-483-g31277ab.exe
+  echo "Downloading $f"
+  $curlflags -o usr/bin/busybox.exe http://frippery.org/files/busybox/$f
+fi
+
 for lib in SUITESPARSE ARPACK BLAS LAPACK FFTW \
-    GMP MPFR PCRE LIBUNWIND RMATH OPENSPECFUN; do
+    GMP MPFR PCRE LIBUNWIND OPENSPECFUN; do
   echo "USE_SYSTEM_$lib = 1" >> Make.user
 done
 echo 'override LIBLAPACK = $(LIBBLAS)' >> Make.user
 echo 'override LIBLAPACKNAME = $(LIBBLASNAME)' >> Make.user
-echo 'JULIA_SYSIMG_BUILD_FLAGS=--output-ji ../usr/lib/julia/sys.ji' >> Make.user
 
 # Remaining dependencies:
 # libuv since its static lib is no longer included in the binaries

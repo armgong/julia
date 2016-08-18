@@ -147,21 +147,6 @@ immutable FileRedirect
     end
 end
 
-immutable DevNullStream <: IO end
-const DevNull = DevNullStream()
-isreadable(::DevNullStream) = false
-iswritable(::DevNullStream) = true
-isopen(::DevNullStream) = true
-read(::DevNullStream, ::Type{UInt8}) = throw(EOFError())
-write(::DevNullStream, ::UInt8) = 1
-close(::DevNullStream) = nothing
-flush(::DevNullStream) = nothing
-wait_connected(::DevNullStream) = nothing
-wait_readnb(::DevNullStream) = wait()
-wait_readbyte(::DevNullStream) = wait()
-wait_close(::DevNullStream) = wait()
-eof(::DevNullStream) = true
-
 uvhandle(::DevNullStream) = C_NULL
 uvtype(::DevNullStream) = UV_STREAM
 
@@ -325,8 +310,8 @@ function _jl_spawn(cmd, argv, loop::Ptr{Void}, pp::Process,
     proc = Libc.malloc(_sizeof_uv_process)
     disassociate_julia_struct(proc)
     error = ccall(:jl_spawn, Int32,
-        (Ptr{UInt8}, Ptr{Ptr{UInt8}}, Ptr{Void}, Ptr{Void}, Any, Int32,
-         Ptr{Void}, Int32, Ptr{Void}, Int32, Ptr{Void}, Int32, Ptr{Ptr{UInt8}}, Ptr{UInt8}, Ptr{Void}),
+        (Cstring, Ptr{Cstring}, Ptr{Void}, Ptr{Void}, Any, Int32,
+         Ptr{Void}, Int32, Ptr{Void}, Int32, Ptr{Void}, Int32, Ptr{Cstring}, Cstring, Ptr{Void}),
         cmd, argv, loop, proc, pp, uvtype(in),
         uvhandle(in), uvtype(out), uvhandle(out), uvtype(err), uvhandle(err),
         pp.cmd.flags, pp.cmd.env === nothing ? C_NULL : pp.cmd.env, isempty(pp.cmd.dir) ? C_NULL : pp.cmd.dir,
@@ -709,7 +694,7 @@ function arg_gen(head, tail...)
     for h = head, t = tail
         push!(vals, cstr(string(h,t)))
     end
-    vals
+    return vals
 end
 
 function cmd_gen(parsed)
@@ -717,11 +702,11 @@ function cmd_gen(parsed)
     for arg in parsed
         append!(args, arg_gen(arg...))
     end
-    Cmd(args)
+    return Cmd(args)
 end
 
 macro cmd(str)
-    :(cmd_gen($(shell_parse(str)[1])))
+    return :(cmd_gen($(shell_parse(str)[1])))
 end
 
 wait(x::Process)      = if !process_exited(x); stream_wait(x, x.exitnotify); end

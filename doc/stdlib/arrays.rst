@@ -31,6 +31,18 @@ Basic functions
        julia> size(A,3,2)
        (4,3)
 
+.. function:: indices(A)
+
+   .. Docstring generated from Julia source
+
+   Returns the tuple of valid indices for array ``A``\ .
+
+.. function:: indices(A, d)
+
+   .. Docstring generated from Julia source
+
+   Returns the valid range of indices for array ``A`` along dimension ``d``\ .
+
 .. function:: length(A) -> Integer
 
    .. Docstring generated from Julia source
@@ -71,6 +83,14 @@ Basic functions
        A[iter] = 0
 
    If you supply more than one ``AbstractArray`` argument, ``eachindex`` will create an iterable object that is fast for all arguments (a ``UnitRange`` if all inputs have fast linear indexing, a CartesianRange otherwise).  If the arrays have different sizes and/or dimensionalities, ``eachindex`` returns an iterable that spans the largest range along each dimension.
+
+.. function:: linearindices(A)
+
+   .. Docstring generated from Julia source
+
+   Returns a ``UnitRange`` specifying the valid range of indices for ``A[i]`` where ``i`` is an ``Int``\ . For arrays with conventional indexing (indices start at 1), or any multidimensional array, this is ``1:length(A)``\ ; however, for one-dimensional arrays with unconventional indices, this is ``indices(A, 1)``\ .
+
+   Calling this function is the "safe" way to write algorithms that exploit linear indexing.
 
 .. function:: Base.linearindexing(A)
 
@@ -114,7 +134,13 @@ Basic functions
 
    Returns a tuple of subscripts into an array with dimensions ``dims``\ , corresponding to the linear index ``index``\ .
 
-   **Example**: ``i, j, ... = ind2sub(size(A), indmax(A))`` provides the indices of the maximum element
+   **Example**:
+
+   .. code-block:: julia
+
+       i, j, ... = ind2sub(size(A), indmax(A))
+
+   provides the indices of the maximum element.
 
 .. function:: ind2sub(a, index) -> subscripts
 
@@ -251,6 +277,32 @@ Constructors
         2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
         2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
 
+.. function:: similar(storagetype, indices)
+
+   .. Docstring generated from Julia source
+
+   Create an uninitialized mutable array analogous to that specified by ``storagetype``\ , but with ``indices`` specified by the last argument. ``storagetype`` might be a type or a function.
+
+   **Examples**:
+
+   .. code-block:: julia
+
+       similar(Array{Int}, indices(A))
+
+   creates an array that "acts like" an ``Array{Int}`` (and might indeed be backed by one), but which is indexed identically to ``A``\ . If ``A`` has conventional indexing, this will be identical to ``Array{Int}(size(A))``\ , but if ``A`` has unconventional indexing then the indices of the result will match ``A``\ .
+
+   .. code-block:: julia
+
+       similar(BitArray, (indices(A, 2),))
+
+   would create a 1-dimensional logical array whose indices match those of the columns of ``A``\ .
+
+   .. code-block:: julia
+
+       similar(dims->zeros(Int, dims), indices(A))
+
+   would create an array of ``Int``\ , initialized to zero, matching the indices of ``A``\ .
+
 .. function:: reinterpret(type, A)
 
    .. Docstring generated from Julia source
@@ -319,11 +371,17 @@ Indexing, Assignment, and Concatenation
 
    Returns a subset of array ``A`` as specified by ``inds``\ , where each ``ind`` may be an ``Int``\ , a ``Range``\ , or a ``Vector``\ . See the manual section on :ref:`array indexing <man-array-indexing>` for details.
 
-.. function:: sub(A, inds...)
+.. function:: view(A, inds...)
 
    .. Docstring generated from Julia source
 
    Like :func:`getindex`\ , but returns a view into the parent array ``A`` with the given indices instead of making a copy.  Calling :func:`getindex` or :func:`setindex!` on the returned :obj:`SubArray` computes the indices to the parent array on the fly without checking bounds.
+
+.. function:: @view A[inds...]
+
+   .. Docstring generated from Julia source
+
+   Creates a ``SubArray`` from an indexing expression. This can only be applied directly to a reference expression (e.g. ``@view A[1,2:end]``\ ), and should *not* be used as the target of an assignment (e.g. ``@view(A[1,2:end]) = ...``\ ).
 
 .. function:: parent(A)
 
@@ -343,12 +401,6 @@ Indexing, Assignment, and Concatenation
 
    Return all the data of ``A`` where the index for dimension ``d`` equals ``i``\ . Equivalent to ``A[:,:,...,i,:,:,...]`` where ``i`` is in position ``d``\ .
 
-.. function:: slice(A, inds...)
-
-   .. Docstring generated from Julia source
-
-   Returns a view of array ``A`` with the given indices like :func:`sub`\ , but drops all dimensions indexed with scalars.
-
 .. function:: setindex!(A, X, inds...)
 
    .. Docstring generated from Julia source
@@ -366,6 +418,12 @@ Indexing, Assignment, and Concatenation
    .. Docstring generated from Julia source
 
    Broadcasts the ``X`` and ``inds`` arrays to a common size and stores the value from each position in ``X`` at the indices given by the same positions in ``inds``\ .
+
+.. function:: isassigned(array, i) -> Bool
+
+   .. Docstring generated from Julia source
+
+   Tests whether the given array has a value associated with index ``i``\ . Returns ``false`` if the index is out of bounds, or has an undefined reference.
 
 .. function:: cat(dims, A...)
 
@@ -564,17 +622,25 @@ Indexing, Assignment, and Concatenation
 
    Check two array shapes for compatibility, allowing trailing singleton dimensions, and return whichever shape has more dimensions.
 
-.. function:: checkbounds(array, indexes...)
+.. function:: checkbounds(A, I...)
 
    .. Docstring generated from Julia source
 
-   Throw an error if the specified indexes are not in bounds for the given array. Subtypes of ``AbstractArray`` should specialize this method if they need to provide custom bounds checking behaviors.
+   Throw an error if the specified indices ``I`` are not in bounds for the given array ``A``\ .
 
-.. function:: checkbounds(::Type{Bool}, dimlength::Integer, index)
+.. function:: checkbounds(Bool, A, I...)
 
    .. Docstring generated from Julia source
 
-   Return a ``Bool`` describing if the given index is within the bounds of the given dimension length. Custom types that would like to behave as indices for all arrays can extend this method in order to provide a specialized bounds checking implementation.
+   Return ``true`` if the specified indices ``I`` are in bounds for the given array ``A``\ . Subtypes of ``AbstractArray`` should specialize this method if they need to provide custom bounds checking behaviors; however, in many cases one can rely on ``A``\ 's indices and ``checkindex``\ .
+
+   See also ``checkindex``\ .
+
+.. function:: checkindex(Bool, inds::AbstractUnitRange, index)
+
+   .. Docstring generated from Julia source
+
+   Return ``true`` if the given ``index`` is within the bounds of ``inds``\ . Custom types that would like to behave as indices for all arrays can extend this method in order to provide a specialized bounds checking implementation.
 
 .. function:: randsubseq(A, p) -> Vector
 
@@ -928,18 +994,6 @@ dense counterparts. The following functions are specific to sparse arrays.
 
    Create a random sparse vector of length ``m`` or sparse matrix of size ``m`` by ``n`` with the specified (independent) probability ``p`` of any entry being nonzero, where nonzero values are sampled from the normal distribution. The optional ``rng`` argument specifies a random number generator, see :ref:`Random Numbers <random-numbers>`\ .
 
-.. function:: etree(A[, post])
-
-   .. Docstring generated from Julia source
-
-   Compute the elimination tree of a symmetric sparse matrix ``A`` from ``triu(A)`` and, optionally, its post-ordering permutation.
-
-.. function:: symperm(A, p)
-
-   .. Docstring generated from Julia source
-
-   Return the symmetric permutation of ``A``\ , which is ``A[p,p]``\ . ``A`` should be symmetric, sparse, and only contain nonzeros in the upper triangular part of the matrix is stored. This algorithm ignores the lower triangular part of the matrix. Only the upper triangular part of the result is returned.
-
 .. function:: nonzeros(A)
 
    .. Docstring generated from Julia source
@@ -971,4 +1025,65 @@ dense counterparts. The following functions are specific to sparse arrays.
              # perform sparse wizardry...
           end
        end
+
+.. function:: dropzeros!(A::SparseMatrixCSC, trim::Bool = true)
+
+   .. Docstring generated from Julia source
+
+   Removes stored numerical zeros from ``A``\ , optionally trimming resulting excess space from ``A.rowval`` and ``A.nzval`` when ``trim`` is ``true``\ .
+
+   For an out-of-place version, see :func:`Base.SparseArrays.dropzeros`\ . For algorithmic information, see :func:`Base.SparseArrays.fkeep!`\ .
+
+.. function:: dropzeros(A::SparseMatrixCSC, trim::Bool = true)
+
+   .. Docstring generated from Julia source
+
+   Generates a copy of ``A`` and removes stored numerical zeros from that copy, optionally trimming excess space from the result's ``rowval`` and ``nzval`` arrays when ``trim`` is ``true``\ .
+
+   For an in-place version and algorithmic information, see :func:`Base.SparseArrays.dropzeros!`\ .
+
+.. function:: dropzeros!(x::SparseVector, trim::Bool = true)
+
+   .. Docstring generated from Julia source
+
+   Removes stored numerical zeros from ``x``\ , optionally trimming resulting excess space from ``x.nzind`` and ``x.nzval`` when ``trim`` is ``true``\ .
+
+   For an out-of-place version, see :func:`Base.SparseArrays.dropzeros`\ . For algorithmic information, see :func:`Base.SparseArrays.fkeep!`\ .
+
+.. function:: dropzeros(x::SparseVector, trim::Bool = true)
+
+   .. Docstring generated from Julia source
+
+   Generates a copy of ``x`` and removes numerical zeros from that copy, optionally trimming excess space from the result's ``nzind`` and ``nzval`` arrays when ``trim`` is ``true``\ .
+
+   For an in-place version and algorithmic information, see :func:`Base.SparseArrays.dropzeros!`\ .
+
+.. function:: permute{Tv,Ti,Tp<:Integer,Tq<:Integer}(A::SparseMatrixCSC{Tv,Ti}, p::AbstractVector{Tp},
+                  q::AbstractVector{Tq})
+
+   .. Docstring generated from Julia source
+
+   Bilaterally permute ``A``\ , returning ``PAQ`` (``A[p,q]``\ ). Column-permutation ``q``\ 's length must match ``A``\ 's column count (``length(q) == A.n``\ ). Row-permutation ``p``\ 's length must match ``A``\ 's row count (``length(p) == A.m``\ ).
+
+   For expert drivers and additional information, see :func:`Base.SparseArrays.permute!`\ .
+
+.. function:: permute!{Tv,Ti,Tp<:Integer,Tq<:Integer}(X::SparseMatrixCSC{Tv,Ti}, A::SparseMatrixCSC{Tv,Ti},
+                  p::AbstractVector{Tp}, q::AbstractVector{Tq}[, C::SparseMatrixCSC{Tv,Ti}])
+
+   .. Docstring generated from Julia source
+
+   Bilaterally permute ``A``\ , storing result ``PAQ`` (``A[p,q]``\ ) in ``X``\ . Stores intermediate result ``(AQ)^T`` (``transpose(A[:,q])``\ ) in optional argument ``C`` if present. Requires that none of ``X``\ , ``A``\ , and, if present, ``C`` alias each other; to store result ``PAQ`` back into ``A``\ , use the following method lacking ``X``\ :
+
+   .. code-block:: julia
+
+       permute!{Tv,Ti,Tp<:Integer,Tq<:Integer}(A::SparseMatrixCSC{Tv,Ti}, p::AbstractVector{Tp},
+           q::AbstractVector{Tq}[, C::SparseMatrixCSC{Tv,Ti}[, workcolptr::Vector{Ti}]])
+
+   ``X``\ 's dimensions must match those of ``A`` (``X.m == A.m`` and ``X.n == A.n``\ ), and ``X`` must have enough storage to accommodate all allocated entries in ``A`` (``length(X.rowval) >= nnz(A)`` and ``length(X.nzval) >= nnz(A)``\ ). Column-permutation ``q``\ 's length must match ``A``\ 's column count (``length(q) == A.n``\ ). Row-permutation ``p``\ 's length must match ``A``\ 's row count (``length(p) == A.m``\ ).
+
+   ``C``\ 's dimensions must match those of ``transpose(A)`` (``C.m == A.n`` and ``C.n == A.m``\ ), and ``C`` must have enough storage to accommodate all allocated entries in ``A`` (``length(C.rowval)`` >= nnz(A)``and``\ length(C.nzval) >= nnz(A)`).
+
+   For additional (algorithmic) information, and for versions of these methods that forgo argument checking, see (unexported) parent methods :func:`Base.SparseArrays.unchecked_noalias_permute!` and :func:`Base.SparseArrays.unchecked_aliasing_permute!`\ .
+
+   See also: :func:`Base.SparseArrays.permute`
 

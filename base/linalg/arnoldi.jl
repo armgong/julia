@@ -50,30 +50,29 @@ The following keyword arguments are supported:
 iterations `niter` and the number of matrix vector multiplications `nmult`, as well as the
 final residual vector `resid`.
 
-**note**
+!!! note
+    The `sigma` and `which` keywords interact: the description of eigenvalues
+    searched for by `which` do *not* necessarily refer to the eigenvalues of
+    `A`, but rather the linear operator constructed by the specification of the
+    iteration mode implied by `sigma`.
 
-The `sigma` and `which` keywords interact: the description of eigenvalues searched for by
-`which` do _not_ necessarily refer to the eigenvalues of `A`, but rather the linear operator
-constructed by the specification of the iteration mode implied by `sigma`.
+    | `sigma`         | iteration mode                   | `which` refers to eigenvalues of |
+    |:----------------|:---------------------------------|:---------------------------------|
+    | `nothing`       | ordinary (forward)               | ``A``                            |
+    | real or complex | inverse with level shift `sigma` | ``(A - \\sigma I )^{-1}``        |
 
-| `sigma`         | iteration mode                   | `which` refers to eigenvalues of |
-|:----------------|:---------------------------------|:---------------------------------|
-| `nothing`       | ordinary (forward)               | ``A``                            |
-| real or complex | inverse with level shift `sigma` | ``(A - \\sigma I )^{-1}``        |
+!!! note
+    Although `tol` has a default value, the best choice depends strongly on the
+    matrix `A`. We recommend that users _always_ specify a value for `tol`
+    which suits their specific needs.
 
-**note**
+    For details of how the errors in the computed eigenvalues are estimated, see:
 
-Although `tol` has a default value, the best choice depends strongly on the
-matrix `A`. We recommend that users _always_ specify a value for `tol` which
-suits their specific needs.
-
-For details of how the errors in the computed eigenvalues are estimated, see:
-
-* B. N. Parlett, "The Symmetric Eigenvalue Problem", SIAM: Philadelphia, 2/e
-  (1998), Ch. 13.2, "Accessing Accuracy in Lanczos Problems", pp. 290-292 ff.
-* R. B. Lehoucq and D. C. Sorensen, "Deflation Techniques for an Implicitly
-  Restarted Arnoldi Iteration", SIAM Journal on Matrix Analysis and
-  Applications (1996), 17(4), 789–821.  doi:10.1137/S0895479895281484
+    * B. N. Parlett, "The Symmetric Eigenvalue Problem", SIAM: Philadelphia, 2/e
+      (1998), Ch. 13.2, "Accessing Accuracy in Lanczos Problems", pp. 290-292 ff.
+    * R. B. Lehoucq and D. C. Sorensen, "Deflation Techniques for an Implicitly
+      Restarted Arnoldi Iteration", SIAM Journal on Matrix Analysis and
+      Applications (1996), 17(4), 789–821.  doi:10.1137/S0895479895281484
 """
 eigs(A; kwargs...) = eigs(A, I; kwargs...)
 eigs{T<:BlasFloat}(A::AbstractMatrix{T}, ::UniformScaling; kwargs...) = _eigs(A, I; kwargs...)
@@ -132,16 +131,23 @@ The following keyword arguments are supported:
 iterations `niter` and the number of matrix vector multiplications `nmult`, as well as the
 final residual vector `resid`.
 
-**note**
+**Example**
 
-The `sigma` and `which` keywords interact: the description of eigenvalues searched for by
-`which` do _not_ necessarily refer to the eigenvalue problem ``Av = Bv\\lambda``, but rather
-the linear operator constructed by the specification of the iteration mode implied by `sigma`.
+```julia
+X = sprand(10, 5, 0.2)
+eigs(X, nsv = 2, tol = 1e-3)
+```
 
-| `sigma`         | iteration mode                   | `which` refers to the problem      |
-|:----------------|:---------------------------------|:-----------------------------------|
-| `nothing`       | ordinary (forward)               | ``Av = Bv\\lambda``                |
-| real or complex | inverse with level shift `sigma` | ``(A - \\sigma B )^{-1}B = v\\nu`` |
+!!! note
+
+    The `sigma` and `which` keywords interact: the description of eigenvalues searched for by
+    `which` do *not* necessarily refer to the eigenvalue problem ``Av = Bv\\lambda``, but rather
+    the linear operator constructed by the specification of the iteration mode implied by `sigma`.
+
+    | `sigma`         | iteration mode                   | `which` refers to the problem      |
+    |:----------------|:---------------------------------|:-----------------------------------|
+    | `nothing`       | ordinary (forward)               | ``Av = Bv\\lambda``                |
+    | real or complex | inverse with level shift `sigma` | ``(A - \\sigma B )^{-1}B = v\\nu`` |
 """
 eigs(A, B; kwargs...) = _eigs(A, B; kwargs...)
 function _eigs(A, B;
@@ -237,7 +243,7 @@ function _eigs(A, B;
     end
 
     # Refer to ex-*.doc files in ARPACK/DOCUMENTS for calling sequence
-    matvecA(x) = A * x
+    matvecA!(y, x) = A_mul_B!(y, A, x)
     if !isgeneral           # Standard problem
         matvecB = x -> x
         if !isshift         #    Regular mode
@@ -263,7 +269,7 @@ function _eigs(A, B;
 
     # Compute the Ritz values and Ritz vectors
     (resid, v, ldv, iparam, ipntr, workd, workl, lworkl, rwork, TOL) =
-       ARPACK.aupd_wrapper(T, matvecA, matvecB, solveSI, n, sym, iscmplx, bmat, nev, ncv, whichstr, tol, maxiter, mode, v0)
+       ARPACK.aupd_wrapper(T, matvecA!, matvecB, solveSI, n, sym, iscmplx, bmat, nev, ncv, whichstr, tol, maxiter, mode, v0)
 
     # Postprocessing to get eigenvalues and eigenvectors
     output = ARPACK.eupd_wrapper(T, n, sym, iscmplx, bmat, nev, whichstr, ritzvec, TOL,
@@ -294,8 +300,12 @@ function SVDOperator{T}(A::AbstractMatrix{T})
     SVDOperator{Tnew,typeof(Anew)}(Anew)
 end
 
-## v = [ left_singular_vector; right_singular_vector ]
-*{T,S}(s::SVDOperator{T,S}, v::Vector{T}) = [s.X * v[s.m+1:end]; s.X' * v[1:s.m]]
+function A_mul_B!{T,S}(u::StridedVector{T}, s::SVDOperator{T,S}, v::StridedVector{T})
+    a, b = s.m, length(v)
+    A_mul_B!(view(u,1:a), s.X, view(v,a+1:b)) # left singular vector
+    Ac_mul_B!(view(u,a+1:b), s.X, view(v,1:a)) # right singular vector
+    u
+end
 size(s::SVDOperator)  = s.m + s.n, s.m + s.n
 issymmetric(s::SVDOperator) = true
 

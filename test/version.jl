@@ -116,6 +116,7 @@ import Base.issupbuild
 # basic comparison
 VersionNumber(2, 3, 1) == VersionNumber(Int8(2), UInt32(3), Int32(1)) == v"2.3.1"
 @test v"2.3.0" < v"2.3.1" < v"2.4.8" < v"3.7.2"
+@test v"0.6.0-" < v"0.6.0-dev" < v"0.6.0-dev.123" < v"0.6.0-dev.unknown" < v"0.6.0-pre" < v"0.6.0"
 
 #lowerbound and upperbound
 import Base: lowerbound, upperbound
@@ -237,6 +238,6 @@ io = IOBuffer()
 @test VersionNumber(true, 0x2) == v"1.2"
 @test VersionNumber(true, 0x2, Int128(3)) == v"1.2.3"
 @test VersionNumber(true, 0x2, Int128(3)) == v"1.2.3"
-@test VersionNumber(true, 0x2, Int128(3), (utf16("rc"), 0x1)) == v"1.2.3-rc.1"
-@test VersionNumber(true, 0x2, Int128(3), (utf16("rc"), 0x1)) == v"1.2.3-rc.1"
-@test VersionNumber(true, 0x2, Int128(3), (), (utf16("sp"), 0x2)) == v"1.2.3+sp.2"
+@test VersionNumber(true, 0x2, Int128(3), (GenericString("rc"), 0x1)) == v"1.2.3-rc.1"
+@test VersionNumber(true, 0x2, Int128(3), (GenericString("rc"), 0x1)) == v"1.2.3-rc.1"
+@test VersionNumber(true, 0x2, Int128(3), (), (GenericString("sp"), 0x2)) == v"1.2.3+sp.2"

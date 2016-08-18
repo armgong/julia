@@ -62,8 +62,8 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
                 v = vv
                 U = UU
             else
-                v = sub(vv, 1:n)
-                U = sub(UU, 1:n, 1:2)
+                v = view(vv, 1:n)
+                U = view(UU, 1:n, 1:2)
             end
 
             debug && println("Linear solve")
@@ -81,7 +81,7 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
                 b = sparse(b)
                 @test A_ldiv_B!(D,copy(b)) ≈ full(D)\full(b)
                 @test_throws SingularException A_ldiv_B!(Diagonal(zeros(elty,n)),copy(b))
-                b = sub(rand(elty,n),collect(1:n))
+                b = view(rand(elty,n),collect(1:n))
                 b2 = copy(b)
                 c = A_ldiv_B!(D,b)
                 d = full(D)\b2
@@ -92,7 +92,7 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
                 b = rand(elty,n+1,n+1)
                 b = sparse(b)
                 @test_throws DimensionMismatch A_ldiv_B!(D,copy(b))
-                b = sub(rand(elty,n+1),collect(1:n+1))
+                b = view(rand(elty,n+1),collect(1:n+1))
                 @test_throws DimensionMismatch A_ldiv_B!(D,b)
             end
 
@@ -115,6 +115,9 @@ for relty in (Float32, Float64, BigFloat), elty in (relty, Complex{relty})
                 @test At_mul_B!(copy(D), copy(b)) ≈ full(D).'*full(b)
                 @test Ac_mul_B!(copy(D), copy(b)) ≈ full(D)'*full(b)
             end
+
+            @test U.'*D ≈ U.'*full(D)
+            @test U'*D ≈ U'*full(D)
 
             #division of two Diagonals
             @test D/D2 ≈ Diagonal(D.diag./D2.diag)
@@ -246,3 +249,24 @@ end
 
 # Issue 15401
 @test eye(5) \ Diagonal(ones(5)) == eye(5)
+
+# Triangular and Diagonal
+for T in (LowerTriangular(randn(5,5)), LinAlg.UnitLowerTriangular(randn(5,5)))
+    D = Diagonal(randn(5))
+    @test T*D   == Array(T)*Array(D)
+    @test T'D   == Array(T)'*Array(D)
+    @test T.'D  == Array(T).'*Array(D)
+    @test D*T'  == Array(D)*Array(T)'
+    @test D*T.' == Array(D)*Array(T).'
+    @test D*T   == Array(D)*Array(T)
+end
+
+let D1 = Diagonal(rand(5)), D2 = Diagonal(rand(5))
+    @test_throws MethodError A_mul_B!(D1,D2)
+    @test_throws MethodError At_mul_B!(D1,D2)
+    @test_throws MethodError Ac_mul_B!(D1,D2)
+end
+
+# Diagonal and Q
+Q = qrfact(randn(5,5))[:Q]
+@test D*Q' == Array(D)*Q'

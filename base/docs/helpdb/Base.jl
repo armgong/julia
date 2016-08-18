@@ -96,32 +96,6 @@ Get the step size of a [`Range`](:obj:`Range`) object.
 step
 
 """
-    utf32(s)
-
-Create a UTF-32 string from a byte array, array of `Char` or `UInt32`, or any other string
-type. (Conversions of byte arrays check for a byte-order marker in the first four bytes, and
-do not include it in the resulting string.)
-
-Note that the resulting `UTF32String` data is terminated by the NUL codepoint (32-bit zero),
-which is not treated as a character in the string (so that it is mostly invisible in Julia);
-this allows the string to be passed directly to external functions requiring NUL-terminated
-data. This NUL is appended automatically by the `utf32(s)` conversion function. If you have
-a `Char` or `UInt32` array `A` that is already NUL-terminated UTF-32 data, then you can
-instead use `UTF32String(A)` to construct the string without making a copy of the data and
-treating the NUL as a terminator rather than as part of the string.
-"""
-utf32(s)
-
-"""
-    utf32(::Union{Ptr{Char},Ptr{UInt32},Ptr{Int32}} [, length])
-
-Create a string from the address of a NUL-terminated UTF-32 string. A copy is made; the
-pointer can be safely freed. If `length` is specified, the string does not have to be
-NUL-terminated.
-"""
-utf32(::Union{Ptr{Char},Ptr{UInt32},Ptr{Int32}}, length=?)
-
-"""
     takebuf_array(b::IOBuffer)
 
 Obtain the contents of an `IOBuffer` as an array, without copying. Afterwards, the
@@ -193,7 +167,7 @@ typeintersect
 """
     pointer(array [, index])
 
-Get the native address of an array or string element. Be careful to ensure that a julia
+Get the native address of an array or string element. Be careful to ensure that a Julia
 reference to `a` exists as long as this pointer will be used. This function is "unsafe" like
 `unsafe_convert`.
 
@@ -362,18 +336,6 @@ Returns `true` if `path` is a regular file, `false` otherwise.
 isfile
 
 """
-    symlink(target, link)
-
-Creates a symbolic link to `target` with the name `link`.
-
-**note**
-
-This function raises an error under operating systems that do not support soft symbolic
-links, such as Windows XP.
-"""
-symlink
-
-"""
     task_local_storage(symbol)
 
 Look up the value of a symbol in the current task's task-local storage.
@@ -522,8 +484,13 @@ promote_type
 Returns a tuple of subscripts into an array with dimensions `dims`,
 corresponding to the linear index `index`.
 
-**Example**: `i, j, ... = ind2sub(size(A), indmax(A))` provides the
-indices of the maximum element
+**Example**:
+
+```
+i, j, ... = ind2sub(size(A), indmax(A))
+```
+
+provides the indices of the maximum element.
 """
 ind2sub(dims::Tuple, index::Int)
 
@@ -593,7 +560,7 @@ valtype
     edit(path::AbstractString, [line])
 
 Edit a file or directory optionally providing a line number to edit the file at. Returns to
-the julia prompt when you quit the editor.
+the `julia` prompt when you quit the editor.
 """
 edit(path::AbstractString, line=?)
 
@@ -911,15 +878,6 @@ Get the local machine's host name.
 gethostname
 
 """
-    code_typed(f, types; optimize=true)
-
-Returns an array of lowered and type-inferred ASTs for the methods matching the given
-generic function and type signature. The keyword argument `optimize` controls whether
-additional optimizations, such as inlining, are also applied.
-"""
-code_typed
-
-"""
     hankelh1x(nu, x)
 
 Scaled Bessel function of the third kind of order `nu`, ``H^{(1)}_\\nu(x) e^{-x i}``.
@@ -937,14 +895,6 @@ If `pat` is a regular expression and `r` is a `SubstitutionString`, then capture
 references in `r` are replaced with the corresponding matched text.
 """
 replace
-
-"""
-    randexp([rng], [dims...])
-
-Generate a random number according to the exponential distribution with scale 1. Optionally
-generate an array of such random numbers.
-"""
-randexp
 
 """
     chop(string)
@@ -967,7 +917,7 @@ julia> Float32(1/3, RoundUp)
 0.33333334f0
 ```
 
-See `rounding` for available rounding modes.
+See [`RoundingMode`](:obj:`RoundingMode`) for available rounding modes.
 """
 Float32
 
@@ -1210,13 +1160,6 @@ functionloc(f, types)
 Returns a tuple `(filename,line)` giving the location of a `Method` definition.
 """
 functionloc(m)
-
-"""
-    stride(A, k)
-
-Returns the distance in memory (in number of elements) between adjacent elements in dimension `k`.
-"""
-stride
 
 """
     last(coll)
@@ -1495,8 +1438,10 @@ current `include` path but does not use it to search for files (see help for `in
 This function is typically used to load library code, and is implicitly called by `using` to
 load packages.
 
-When searching for files, `require` first looks for package code under `Pkg.dir()`, then tries
-paths in the global array `LOAD_PATH`.
+When searching for files, `require` first looks for package code under `Pkg.dir()`,
+then tries paths in the global array `LOAD_PATH`. `require` is case-sensitive on
+all platforms, including those with case-insensitive filesystems like macOS and
+Windows.
 """
 require
 
@@ -1620,7 +1565,7 @@ connect(host=?, port)
 """
     connect(path) -> PipeEndpoint
 
-Connect to the Named Pipe / Domain Socket at `path`.
+Connect to the named pipe / UNIX domain socket at `path`.
 """
 connect(path)
 
@@ -1963,14 +1908,6 @@ sort(A,dim,?,?,?,?)
 Kronecker tensor product of two vectors or two matrices.
 """
 kron
-
-"""
-    randn([rng], [dims...])
-
-Generate a normally-distributed random number with mean 0 and standard deviation 1.
-Optionally generate an array of normally-distributed random numbers.
-"""
-randn
 
 """
     process_exited(p::Process)
@@ -2326,86 +2263,11 @@ For matrices or vectors ``A`` and ``B``, calculates ``A / Bᴴ``.
 A_rdiv_Bc
 
 """
-    round([T,] x, [digits, [base]], [r::RoundingMode])
-
-`round(x)` rounds `x` to an integer value according to the default rounding mode (see
-[`rounding`](:func:`rounding`)), returning a value of the same type as `x`. By default
-([`RoundNearest`](:obj:`RoundNearest`)), this will round to the nearest integer, with ties
-(fractional values of 0.5) being rounded to the even integer.
-
-```jldoctest
-julia> round(1.7)
-2.0
-
-julia> round(1.5)
-2.0
-
-julia> round(2.5)
-2.0
-```
-
-The optional [`RoundingMode`](:obj:`RoundingMode`) argument will change how the number gets
-rounded.
-
-`round(T, x, [r::RoundingMode])` converts the result to type `T`, throwing an
-[`InexactError`](:exc:`InexactError`) if the value is not representable.
-
-`round(x, digits)` rounds to the specified number of digits after the decimal place (or
-before if negative). `round(x, digits, base)` rounds using a base other than 10.
-
-```jldoctest
-julia> round(pi, 2)
-3.14
-
-julia> round(pi, 3, 2)
-3.125
-```
-
-**note**
-
-Rounding to specified digits in bases other than 2 can be inexact when operating on binary
-floating point numbers. For example, the `Float64` value represented by `1.15` is actually
-*less* than 1.15, yet will be rounded to 1.2.
-
-```jldoctest
-julia> x = 1.15
-1.15
-
-julia> @sprintf "%.20f" x
-"1.14999999999999991118"
-
-julia> x < 115//100
-true
-
-julia> round(x, 1)
-1.2
-```
-"""
-round(T::Type, x)
-
-"""
-    round(z, RoundingModeReal, RoundingModeImaginary)
-
-Returns the nearest integral value of the same type as the complex-valued `z` to `z`,
-breaking ties using the specified [`RoundingMode`](:obj:`RoundingMode`)s. The first
-[`RoundingMode`](:obj:`RoundingMode`) is used for rounding the real components while the
-second is used for rounding the imaginary components.
-"""
-round(z::Real, ::Type{RoundingMode}, ::Type{RoundingMode})
-
-"""
     strwidth(s)
 
 Gives the number of columns needed to print a string.
 """
 strwidth
-
-"""
-    function_module(f::Function, types) -> Module
-
-Determine the module containing a given definition of a generic function.
-"""
-function_module
 
 """
     hex(n, [pad])
@@ -2783,15 +2645,6 @@ Equivalent to `writedlm` with `delim` set to comma.
 writecsv
 
 """
-    wstring(s)
-
-This is a synonym for either `utf32(s)` or `utf16(s)`, depending on whether `Cwchar_t` is 32
-or 16 bits, respectively. The synonym `WString` for `UTF32String` or `UTF16String` is also
-provided.
-"""
-wstring
-
-"""
     withenv(f::Function, kv::Pair...)
 
 Execute `f()` in an environment that is temporarily modified (not replaced as in `setenv`)
@@ -2855,12 +2708,14 @@ Show an expression and result, returning the result.
 """
     showcompact(x)
 
-Show a more compact representation of a value.
+Show a compact representation of a value.
 
-This is used for printing array elements. If a new type has a different compact representation,
-it should test `get(io, :compact, false)` in its normal `show` method.
-A compact representation should skip any type information, which would be redundant
-with that printed once for the whole array.
+This is used for printing array elements without repeating type information (which would
+be redundant with that printed once for the whole array), and without line breaks inside
+the representation of an element.
+
+To offer a compact representation different from its standard one, a custom type should
+test `get(io, :compact, false)` in its normal `show` method.
 """
 showcompact
 
@@ -3059,16 +2914,9 @@ julia> Float64(pi, RoundUp)
 3.1415926535897936
 ```
 
-See `rounding` for available rounding modes.
+See [`RoundingMode`](:obj:`RoundingMode`) for available rounding modes.
 """
 Float64
-
-"""
-    function_name(f::Function) -> Symbol
-
-Get the name of a generic `Function` as a symbol, or `:anonymous`.
-"""
-function_name
 
 """
 ```
@@ -3097,7 +2945,7 @@ addprocs()
 addprocs(machines; keyword_args...) -> List of process identifiers
 ```
 
-Add processes on remote machines via SSH. Requires julia to be installed in the same
+Add processes on remote machines via SSH. Requires `julia` to be installed in the same
 location on each node, or to be available via a shared file system.
 
 `machines` is a vector of machine specifications.  Worker are started for each specification.
@@ -3119,7 +2967,9 @@ Keyword arguments:
 
 * `sshflags`: specifies additional ssh options, e.g.
 
-    sshflags=`-i /home/foo/bar.pem`
+  ```
+  sshflags=`-i /home/foo/bar.pem`
+  ```
 
 * `max_parallel`: specifies the maximum number of workers connected to in parallel at a host.
                   Defaults to 10.
@@ -3127,7 +2977,7 @@ Keyword arguments:
 * `dir`: specifies the working directory on the workers. Defaults to the host's current
          directory (as found by `pwd()`)
 
-* `exename`: name of the julia executable. Defaults to `"\$JULIA_HOME/julia"` or
+* `exename`: name of the `julia` executable. Defaults to `"\$JULIA_HOME/julia"` or
              `"\$JULIA_HOME/julia-debug"` as the case may be.
 
 * `exeflags`: additional flags passed to the worker processes.
@@ -3480,7 +3330,7 @@ Convert `x` to a value of type `T`
 In cases where `convert` would need to take a Julia object and turn it into a `Ptr`, this
 function should be used to define and perform that conversion.
 
-Be careful to ensure that a julia reference to `x` exists as long as the result of this
+Be careful to ensure that a Julia reference to `x` exists as long as the result of this
 function will be used. Accordingly, the argument `x` to this function should never be an
 expression, only a variable name or field reference. For example, `x=a.b.c` is acceptable,
 but `x=[a,b,c]` is not.
@@ -3634,10 +3484,7 @@ If `use_mmap` is `true`, the file specified by `source` is memory mapped for pot
 speedups. Default is `true` except on Windows. On Windows, you may want to specify `true` if
 the file is large, and is only read once and not written to.
 
-If `ignore_invalid_chars` is `true`, bytes in `source` with invalid character encoding will
-be ignored. Otherwise an error is thrown indicating the offending character position.
-
-If `quotes` is `true`, column enclosed within double-quote (\") characters are allowed to
+If `quotes` is `true`, columns enclosed within double-quote (\") characters are allowed to
 contain new lines and column delimiters. Double-quote characters within a quoted field must
 be escaped with another double-quote.  Specifying `dims` as a tuple of the expected rows and
 columns (including header, if any) may speed up reading of large files.  If `comments` is
@@ -3657,14 +3504,14 @@ readdlm(source, delim::Char, eol::Char)
 """
     readdlm(source, delim::Char, T::Type; options...)
 
-The end of line delimiter is taken as `n`.
+The end of line delimiter is taken as `\\n`.
 """
 readdlm(source, delim::Char, T::Type)
 
 """
     readdlm(source, delim::Char; options...)
 
-The end of line delimiter is taken as `n`. If all data is numeric, the result will be a
+The end of line delimiter is taken as `\\n`. If all data is numeric, the result will be a
 numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of
 numbers and strings is returned.
 """
@@ -3674,7 +3521,7 @@ readdlm(source, delim::Char)
     readdlm(source, T::Type; options...)
 
 The columns are assumed to be separated by one or more whitespaces. The end of line
-delimiter is taken as `n`.
+delimiter is taken as `\\n`.
 """
 readdlm(source, T::Type)
 
@@ -3682,7 +3529,7 @@ readdlm(source, T::Type)
     readdlm(source; options...)
 
 The columns are assumed to be separated by one or more whitespaces. The end of line
-delimiter is taken as `n`. If all data is numeric, the result will be a numeric array. If
+delimiter is taken as `\\n`. If all data is numeric, the result will be a numeric array. If
 some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings
 is returned.
 """
@@ -3701,32 +3548,6 @@ filesize
 Compute ``\\sin(\\pi x) / (\\pi x)`` if ``x \\neq 0``, and ``1`` if ``x = 0``.
 """
 sinc
-
-"""
-    utf16(s)
-
-Create a UTF-16 string from a byte array, array of `UInt16`, or any other string type. (Data
-must be valid UTF-16. Conversions of byte arrays check for a byte-order marker in the first
-two bytes, and do not include it in the resulting string.)
-
-Note that the resulting `UTF16String` data is terminated by the NUL codepoint (16-bit zero),
-which is not treated as a character in the string (so that it is mostly invisible in Julia);
-this allows the string to be passed directly to external functions requiring NUL-terminated
-data. This NUL is appended automatically by the `utf16(s)` conversion function. If you have
-a `UInt16` array `A` that is already NUL-terminated valid UTF-16 data, then you can instead
-use `UTF16String(A)` to construct the string without making a copy of the data and treating
-the NUL as a terminator rather than as part of the string.
-"""
-utf16(s)
-
-"""
-    utf16(::Union{Ptr{UInt16},Ptr{Int16}} [, length])
-
-Create a string from the address of a NUL-terminated UTF-16 string. A copy is made; the
-pointer can be safely freed. If `length` is specified, the string does not have to be
-NUL-terminated.
-"""
-utf16(::Union{Ptr{UInt16},Ptr{Int16}}, length=?)
 
 """
     median(v[, region])
@@ -3907,15 +3728,6 @@ Compute the logarithm of `x` to base 2. Throws `DomainError` for negative `Real`
 log2
 
 """
-    SymTridiagonal(d, du)
-
-Construct a real symmetric tridiagonal matrix from the diagonal and upper diagonal,
-respectively. The result is of type `SymTridiagonal` and provides efficient specialized
-eigensolvers, but may be converted into a regular matrix with [`full`](:func:`full`).
-"""
-SymTridiagonal
-
-"""
     colon(start, [step], stop)
 
 Called by `:` syntax for constructing ranges.
@@ -4063,24 +3875,6 @@ Element-wise less-than-or-equals comparison operator.
 Base.:(.<=)
 
 """
-    checkbounds(array, indexes...)
-
-Throw an error if the specified indexes are not in bounds for the given array. Subtypes of
-`AbstractArray` should specialize this method if they need to provide custom bounds checking
-behaviors.
-"""
-checkbounds(array, indexes...)
-
-"""
-    checkbounds(::Type{Bool}, dimlength::Integer, index)
-
-Return a `Bool` describing if the given index is within the bounds of the given dimension
-length. Custom types that would like to behave as indices for all arrays can extend this
-method in order to provide a specialized bounds checking implementation.
-"""
-checkbounds(::Type{Bool}, ::Integer, index)
-
-"""
     asec(x)
 
 Compute the inverse secant of `x`, where the output is in radians.
@@ -4187,13 +3981,6 @@ Compute the cross product of two 3-vectors.
 cross
 
 """
-    strides(A)
-
-Returns a tuple of the memory strides in each dimension.
-"""
-strides
-
-"""
     keys(collection)
 
 Return an iterator over all keys in a collection. `collect(keys(d))` returns an array of keys.
@@ -4252,9 +4039,7 @@ rand
 """
     base(base, n, [pad])
 
-Convert an integer to a string in the given base, optionally specifying a number of digits
-to pad to. The base can be specified as either an integer, or as a `UInt8` array of
-character values to use as digit symbols.
+Convert an integer to a string in the given base, optionally specifying a number of digits to pad to.
 """
 base
 
@@ -4399,7 +4184,7 @@ position
 """
     selectperm(v, k, [alg=<algorithm>,] [by=<transform>,] [lt=<comparison>,] [rev=false])
 
-Return a partial permutation of the the vector `v`, according to the order specified by
+Return a partial permutation of the vector `v`, according to the order specified by
 `by`, `lt` and `rev`, so that `v[output]` returns the first `k` (or range of adjacent values
 if `k` is a range) values of a fully sorted version of `v`. If `k` is a single index
 (Integer), an array of the first `k` indices is returned; if `k` is a range, an array of
@@ -4463,33 +4248,6 @@ Bitwise not.
 Bessel function of the third kind of order `nu`, ``H^{(1)}_\\nu(x)``.
 """
 hankelh1
-
-"""
-    gcdx(x,y)
-
-Computes the greatest common (positive) divisor of `x` and `y` and their Bézout
-coefficients, i.e. the integer coefficients `u` and `v` that satisfy
-``ux+vy = d = gcd(x,y)``.
-
-```jldoctest
-julia> gcdx(12, 42)
-(6,-3,1)
-```
-
-```jldoctest
-julia> gcdx(240, 46)
-(2,-9,47)
-```
-
-**note**
-
-Bézout coefficients are *not* uniquely defined. `gcdx` returns the minimal Bézout
-coefficients that are computed by the extended Euclid algorithm. (Ref: D. Knuth, TAoCP, 2/e,
-p. 325, Algorithm X.) These coefficients `u` and `v` are minimal in the sense that
-``|u| < |\\frac y d`` and ``|v| < |\\frac x d``. Furthermore, the signs of `u` and `v` are
-chosen so that `d` is positive.
-"""
-gcdx
 
 """
     rem(x, y)
@@ -5011,14 +4769,6 @@ Airy function derivative ``\\operatorname{Ai}'(x)``.
 airyaiprime
 
 """
-    besselh(nu, k, x)
-
-Bessel function of the third kind of order `nu` (Hankel function). `k` is either 1 or 2,
-selecting `hankelh1` or `hankelh2`, respectively.
-"""
-besselh
-
-"""
     prepend!(collection, items) -> collection
 
 Insert the elements of `items` to the beginning of `collection`.
@@ -5139,13 +4889,6 @@ clipboard
 Send a printed form of `x` to the operating system clipboard ("copy").
 """
 clipboard(x)
-
-"""
-    code_lowered(f, types)
-
-Returns an array of lowered ASTs for the methods matching the given generic function and type signature.
-"""
-code_lowered
 
 """
     values(collection)
@@ -5391,38 +5134,6 @@ Determine whether a stream is read-only.
 isreadonly
 
 """
-    rounding(T)
-
-Get the current floating point rounding mode for type `T`, controlling the rounding of basic
-arithmetic functions ([`+`](:func:`+`), [`-`](:func:`-`), [`*`](:func:`*`), [`/`](:func:`/`)
-and [`sqrt`](:func:`sqrt`)) and type conversion.
-
-Valid modes are `RoundNearest`, `RoundToZero`, `RoundUp`, `RoundDown`, and `RoundFromZero`
-(`BigFloat` only).
-"""
-rounding
-
-"""
-    code_llvm(f, types)
-
-Prints the LLVM bitcodes generated for running the method matching the given generic
-function and type signature to [`STDOUT`](:const:`STDOUT`).
-
-All metadata and dbg.* calls are removed from the printed bitcode. Use code_llvm_raw for the full IR.
-"""
-code_llvm
-
-"""
-    Bidiagonal(dv, ev, isupper)
-
-Constructs an upper (`isupper=true`) or lower (`isupper=false`) bidiagonal matrix using the
-given diagonal (`dv`) and off-diagonal (`ev`) vectors.  The result is of type `Bidiagonal`
-and provides efficient specialized linear solvers, but may be converted into a regular
-matrix with [`full`](:func:`full`).
-"""
-Bidiagonal
-
-"""
     notify(condition, val=nothing; all=true, error=false)
 
 Wake up tasks waiting for a condition, passing them `val`. If `all` is `true` (the default),
@@ -5432,14 +5143,14 @@ is raised as an exception in the woken tasks.
 notify
 
 """
-    sub(A, inds...)
+    view(A, inds...)
 
 Like [`getindex`](:func:`getindex`), but returns a view into the parent array `A` with the
 given indices instead of making a copy.  Calling [`getindex`](:func:`getindex`) or
 [`setindex!`](:func:`setindex!`) on the returned [`SubArray`](:obj:`SubArray`) computes the
 indices to the parent array on the fly without checking bounds.
 """
-sub
+view
 
 """
     expanduser(path::AbstractString) -> AbstractString
@@ -5461,22 +5172,6 @@ haskey
 Compute the cotangent of `x`, where `x` is in radians.
 """
 cot
-
-"""
-    get(x)
-
-Attempt to access the value of the `Nullable` object, `x`. Returns the value if it is
-present; otherwise, throws a `NullException`.
-"""
-get(x)
-
-"""
-    get(x, y)
-
-Attempt to access the value of the `Nullable{T}` object, `x`. Returns
-the value if it is present; otherwise, returns `convert(T, y)`.
-"""
-get(x,y)
 
 """
     get(collection, key, default)
@@ -5596,45 +5291,6 @@ The largest power of two not greater than `n`. Returns 0 for `n==0`, and returns
 prevpow2
 
 """
-    code_warntype(f, types)
-
-Displays lowered and type-inferred ASTs for the methods matching the given generic function
-and type signature. The ASTs are annotated in such a way as to cause "non-leaf" types to be
-emphasized (if color is available, displayed in red). This serves as a warning of potential
-type instability. Not all non-leaf types are particularly problematic for performance, so
-the results need to be used judiciously. See [Manual](:ref:`man-code-warntype`) for more
-information.
-"""
-code_warntype
-
-"""
-    setrounding(T, mode)
-
-Set the rounding mode of floating point type `T`, controlling the rounding of basic
-arithmetic functions ([`+`](:func:`+`), [`-`](:func:`-`), [`*`](:func:`*`), [`/`](:func:`/`)
-and [`sqrt`](:func:`sqrt`)) and type conversion.
-
-Note that this may affect other types, for instance changing the rounding mode of `Float64`
-will change the rounding mode of `Float32`. See `rounding` for available modes
-"""
-setrounding(T, mode)
-
-"""
-    setrounding(f::Function, T, mode)
-
-Change the rounding mode of floating point type `T` for the duration of `f`. It is logically
-equivalent to:
-
-    old = rounding(T)
-    setrounding(T, mode)
-    f()
-    setrounding(T, old)
-
-See `rounding` for available rounding modes.
-"""
-setrounding(f::Function, T, mode)
-
-"""
     Mmap.sync!(array)
 
 Forces synchronization between the in-memory version of a memory-mapped `Array` or
@@ -5717,7 +5373,8 @@ julia> deleteat!([6, 5, 4, 3, 2, 1], 1:2:5)
 
 julia> deleteat!([6, 5, 4, 3, 2, 1], (2, 2))
 ERROR: ArgumentError: indices must be unique and sorted
- in deleteat! at array.jl:543
+ in deleteat!(::Array{Int64,1}, ::Tuple{Int64,Int64}) at ./array.jl:534
+ ...
 ```
 """
 deleteat!(collection, itr)
@@ -5831,14 +5488,6 @@ total bytes allocated, garbage collection time, and an object with various memor
 counters.
 """
 :@timed
-
-"""
-    code_native(f, types)
-
-Prints the native assembly instructions generated for running the method matching the given
-generic function and type signature to `STDOUT`.
-"""
-code_native
 
 """
     symdiff(s1,s2...)
@@ -5965,7 +5614,7 @@ besselk
 """
     readchomp(x)
 
-Read the entirety of `x` as a string but remove trailing newlines. Equivalent to `chomp(readstring(x))`.
+Read the entirety of `x` as a string and remove a single trailing newline. Equivalent to `chomp(readstring(x))`.
 """
 readchomp
 
@@ -6088,43 +5737,6 @@ A character is classified as numeric if it belongs to the Unicode general catego
 i.e. a character whose category code begins with 'N'.
 """
 isnumber
-
-"""
-    similar(array, [element_type=eltype(array)], [dims=size(array)])
-
-Create an uninitialized mutable array with the given element type and size, based upon the
-given source array. The second and third arguments are both optional, defaulting to the
-given array's `eltype` and `size`. The dimensions may be specified either as a single tuple
-argument or as a series of integer arguments.
-
-Custom AbstractArray subtypes may choose which specific array type is best-suited to return
-for the given element type and dimensionality. If they do not specialize this method, the
-default is an `Array{element_type}(dims...)`.
-
-For example, `similar(1:10, 1, 4)` returns an uninitialized `Array{Int,2}` since ranges are
-neither mutable nor support 2 dimensions:
-
-    julia> similar(1:10, 1, 4)
-    1×4 Array{Int64,2}:
-     4419743872  4374413872  4419743888  0
-
-Conversely, `similar(trues(10,10), 2)` returns an uninitialized `BitVector` with two
-elements since `BitArray`s are both mutable and can support 1-dimensional arrays:
-
-    julia> similar(trues(10,10), 2)
-    2-element BitArray{1}:
-     false
-     false
-
-Since `BitArray`s can only store elements of type `Bool`, however, if you request a
-different element type it will create a regular `Array` instead:
-
-    julia> similar(falses(10), Float64, 2, 4)
-    2×4 Array{Float64,2}:
-     2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
-     2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
-"""
-similar
 
 """
     copy(x)
@@ -6413,13 +6025,6 @@ the topmost backend that does not throw a `MethodError`).
 pushdisplay
 
 """
-    randexp!([rng], A::Array{Float64,N})
-
-Fill the array `A` with random numbers following the exponential distribution (with scale 1).
-"""
-randexp!
-
-"""
     prevind(str, i)
 
 Get the previous valid string index before `i`. Returns a value less than `1` at the
@@ -6598,6 +6203,9 @@ defining a 2-argument `show(stream::IO, x::MyType)` method.
 Technically, the `MIME"mime"` macro defines a singleton type for the given `mime` string,
 which allows us to exploit Julia's dispatch mechanisms in determining how to display objects
 of any given type.
+
+The first argument to `show` can be an `IOContext` specifying output format properties.
+See `IOContext` for details.
 """
 show(stream, mime, x)
 
@@ -6682,7 +6290,7 @@ error
     less(file::AbstractString, [line])
 
 Show a file using the default pager, optionally providing a starting line number. Returns to
-the julia prompt when you quit the pager.
+the `julia` prompt when you quit the pager.
 """
 less(f::AbstractString, ?)
 
@@ -6719,7 +6327,7 @@ Convolution of two vectors. Uses FFT algorithm.
 conv
 
 """
-    unsafe_store!(p::Ptr{T},x,i::Integer)
+    unsafe_store!(p::Ptr{T}, x, [i::Integer=1])
 
 Store a value of type `T` to the address of the ith element (1-indexed) starting at `p`.
 This is equivalent to the C expression `p[i-1] = x`.
@@ -7105,13 +6713,6 @@ If `n` is not an `Integer`, `factorial(n)` is equivalent to [`gamma(n+1)`](:func
 factorial(n)
 
 """
-    factorial(n,k)
-
-Compute `factorial(n)/factorial(k)`.
-"""
-factorial(n,k)
-
-"""
     bitrand([rng], [dims...])
 
 Generate a `BitArray` of random boolean values.
@@ -7162,15 +6763,6 @@ of a string. A character is classified as uppercase if it belongs to Unicode cat
 Letter: Uppercase, or Lt, Letter: Titlecase.
 """
 isupper
-
-"""
-    pointer_to_array(pointer, dims[, take_ownership::Bool])
-
-Wrap a native pointer as a Julia Array object. The pointer element type determines the array
-element type. `own` optionally specifies whether Julia should take ownership of the memory,
-calling `free` on the pointer when the array is no longer referenced.
-"""
-pointer_to_array
 
 """
     show(x)
@@ -7464,23 +7056,6 @@ Matrix multiplication.
 Base.:(*)(::AbstractMatrix, ::AbstractMatrix)
 
 """
-    \\(A, B)
-
-Matrix division using a polyalgorithm. For input matrices `A` and `B`, the result `X` is
-such that `A*X == B` when `A` is square.  The solver that is used depends upon the structure
-of `A`.  A direct solver is used for upper or lower triangular `A`.  For Hermitian `A`
-(equivalent to symmetric `A` for non-complex `A`) the `BunchKaufman` factorization is used.
-Otherwise an LU factorization is used. For rectangular `A` the result is the minimum-norm
-least squares solution computed by a pivoted QR factorization of `A` and a rank estimate of
-`A` based on the R factor.
-
-When `A` is sparse, a similar polyalgorithm is used. For indefinite matrices, the `LDLt`
-factorization does not use pivoting during the numerical factorization and therefore the
-procedure can fail even for invertible matrices.
-"""
-Base.:(\)(A,B)
-
-"""
     .\\(x, y)
 
 Element-wise left division operator.
@@ -7518,14 +7093,6 @@ julia> "Hello " * "world"
 ```
 """
 Base.:(*)(s::AbstractString, t::AbstractString)
-
-"""
-    slice(A, inds...)
-
-Returns a view of array `A` with the given indices like [`sub`](:func:`sub`), but drops all
-dimensions indexed with scalars.
-"""
-slice
 
 """
     time()
@@ -7605,7 +7172,7 @@ listenany
 """
     getpid() -> Int32
 
-Get julia's process ID.
+Get Julia's process ID.
 """
 getpid
 
@@ -7615,15 +7182,6 @@ getpid
 Return ``x^{1/3}``.  The prefix operator `∛` is equivalent to `cbrt`.
 """
 cbrt
-
-"""
-    Tridiagonal(dl, d, du)
-
-Construct a tridiagonal matrix from the lower diagonal, diagonal, and upper diagonal,
-respectively.  The result is of type `Tridiagonal` and provides efficient specialized linear
-solvers, but may be converted into a regular matrix with [`full`](:func:`full`).
-"""
-Tridiagonal
 
 """
     findprev(A, i)
@@ -7711,7 +7269,7 @@ listen(addr,port)
 """
     listen(path) -> PipeServer
 
-Create and listen on a Named Pipe / Domain Socket.
+Create and listen on a named pipe / UNIX domain socket.
 """
 listen(path)
 
@@ -8094,15 +7652,6 @@ Return the index of the first element of `A` for which `predicate` returns `true
 findfirst
 
 """
-    factorize(A)
-
-Compute a convenient factorization (including LU, Cholesky, Bunch-Kaufman, LowerTriangular,
-UpperTriangular) of `A`, based upon the type of the input matrix. The return value can then
-be reused for efficient solving of multiple systems. For example: `A=factorize(A); x=A\\b; y=A\\C`.
-"""
-factorize
-
-"""
     promote_rule(type1, type2)
 
 Specifies what type should be used by `promote` when given values of types `type1` and
@@ -8337,7 +7886,7 @@ throw this exception.
 ProcessExitedException
 
 """
-    unsafe_load(p::Ptr{T},i::Integer)
+    unsafe_load(p::Ptr{T}, [i::Integer=1])
 
 Load a value of type `T` from the address of the ith element (1-indexed) starting at `p`.
 This is equivalent to the C expression `p[i-1]`.
@@ -8415,7 +7964,7 @@ filt!
     ascii(s::AbstractString)
 
 Convert a string to `String` type and check that it contains only ASCII data, otherwise
-throwing an `ArugmentError` indicating the position of the first non-ASCII byte.
+throwing an `ArgumentError` indicating the position of the first non-ASCII byte.
 """
 ascii(s)
 
@@ -8455,7 +8004,8 @@ julia> convert(Int, 3.0)
 
 julia> convert(Int, 3.5)
 ERROR: InexactError()
- in convert at int.jl:209
+ in convert(::Type{Int64}, ::Float64) at ./int.jl:239
+ ...
 ```
 
 If `T` is a [`AbstractFloat`](:obj:`AbstractFloat`) or [`Rational`](:obj:`Rational`) type,
@@ -8473,6 +8023,38 @@ julia> convert(Rational{Int32}, x)
 
 julia> convert(Rational{Int64}, x)
 6004799503160661//18014398509481984
+```
+
+If `T` is a collection type and `x` a collection, the result of `convert(T, x)` may alias
+`x`.
+```jldoctest
+julia> x = Int[1,2,3];
+
+julia> y = convert(Vector{Int}, x);
+
+julia> y === x
+true
+```
+Similarly, if `T` is a composite type and `x` a related instance, the result of
+`convert(T, x)` may alias part or all of `x`.
+```jldoctest
+julia> x = speye(5);
+
+julia> typeof(x)
+SparseMatrixCSC{Float64,Int64}
+
+julia> y = convert(SparseMatrixCSC{Float64,Int64}, x);
+
+julia> z = convert(SparseMatrixCSC{Float32,Int64}, y);
+
+julia> y === x
+true
+
+julia> z === x
+false
+
+julia> z.colptr === x.colptr
+true
 ```
 """
 convert
@@ -8565,7 +8147,7 @@ escape_string(str)
     significand(x)
 
 Extract the `significand(s)` (a.k.a. mantissa), in binary representation, of a
-floating-point number or array. If `x` is a non-zero finite number, than the result will be
+floating-point number or array. If `x` is a non-zero finite number, then the result will be
 a number of the same type on the interval ``[1,2)``. Otherwise `x` is returned.
 
 ```jldoctest
@@ -8779,72 +8361,6 @@ eigvecs
 Converts the endianness of a value from Network byte order (big-endian) to that used by the Host.
 """
 ntoh
-
-"""
-    qrfact(A [,pivot=Val{false}]) -> F
-
-Computes the QR factorization of `A`. The return type of `F` depends on the element type of
-`A` and whether pivoting is specified (with `pivot==Val{true}`).
-
-| Return type   | `eltype(A)`     | `pivot`      | Relationship between `F` and `A` |
-|:--------------|:----------------|:-------------|:---------------------------------|
-| `QR`          | not `BlasFloat` | either       | `A==F[:Q]*F[:R]`                 |
-| `QRCompactWY` | `BlasFloat`     | `Val{false}` | `A==F[:Q]*F[:R]`                 |
-| `QRPivoted`   | `BlasFloat`     | `Val{true}`  | `A[:,F[:p]]==F[:Q]*F[:R]`        |
-
-`BlasFloat` refers to any of: `Float32`, `Float64`, `Complex64` or `Complex128`.
-
-The individual components of the factorization `F` can be accessed by indexing:
-
-| Component | Description                               | `QR`            | `QRCompactWY`      | `QRPivoted`     |
-|:----------|:------------------------------------------|:----------------|:-------------------|:----------------|
-| `F[:Q]`   | `Q` (orthogonal/unitary) part of `QR`     | ✓ (`QRPackedQ`) | ✓ (`QRCompactWYQ`) | ✓ (`QRPackedQ`) |
-| `F[:R]`   | `R` (upper right triangular) part of `QR` | ✓               | ✓                  | ✓               |
-| `F[:p]`   | pivot `Vector`                            |                 |                    | ✓               |
-| `F[:P]`   | (pivot) permutation `Matrix`              |                 |                    | ✓               |
-
-The following functions are available for the `QR` objects: `size`, `\\`. When `A` is
-rectangular, `\\` will return a least squares solution and if the solution is not unique,
-the one with smallest norm is returned.
-
-Multiplication with respect to either thin or full `Q` is allowed, i.e. both `F[:Q]*F[:R]`
-and `F[:Q]*A` are supported. A `Q` matrix can be converted into a regular matrix with
-[`full`](:func:`full`) which has a named argument `thin`.
-
-**note**
-
-`qrfact` returns multiple types because LAPACK uses several representations that minimize
-the memory storage requirements of products of Householder elementary reflectors, so that
-the `Q` and `R` matrices can be stored compactly rather as two separate dense matrices.
-
-The data contained in `QR` or `QRPivoted` can be used to construct the `QRPackedQ` type,
-which is a compact representation of the rotation matrix:
-
-```math
-Q = \\prod_{i=1}^{\\min(m,n)} (I - \\tau_i v_i v_i^T)
-```
-
-where ``\\tau_i`` is the scale factor and ``v_i`` is the projection vector associated with
-the ``i^{th}`` Householder elementary reflector.
-
-The data contained in `QRCompactWY` can be used to construct the `QRCompactWYQ` type,
-which is a compact representation of the rotation matrix
-
-```math
-Q = I + Y T Y^T
-```
-
-where `Y` is ``m \\times r`` lower trapezoidal and `T` is ``r \\times r`` upper
-triangular. The *compact WY* representation [^Schreiber1989] is not to be confused with the
-older, *WY* representation [^Bischof1987]. (The LAPACK documentation uses `V` in lieu of `Y`.)
-
-[^Bischof1987]: C Bischof and C Van Loan, "The WY representation for products of Householder matrices", SIAM J Sci Stat Comput 8 (1987), s2-s13. [doi:10.1137/0908009](http://dx.doi.org/10.1137/0908009)
-
-[^Schreiber1989]: R Schreiber and C Van Loan, "A storage-efficient WY representation for products of Householder transformations", SIAM J Sci Stat Comput 10 (1989), 53-57. [doi:10.1137/0910005](http://dx.doi.org/10.1137/0910005)
-
-"""
-qrfact(A,?)
-
 
 """
     qrfact(A) -> SPQR.Factorization
@@ -9082,7 +8598,7 @@ redirect_stdout
 """
     redirect_stdout(stream)
 
-Replace `STDOUT` by stream for all C and julia level output to `STDOUT`. Note that `stream`
+Replace `STDOUT` by stream for all C and Julia level output to `STDOUT`. Note that `stream`
 must be a TTY, a `Pipe` or a `TCPSocket`.
 """
 redirect_stdout(stream)
@@ -9224,19 +8740,17 @@ vecnorm
 """
     isvalid(value) -> Bool
 
-Returns `true` if the given value is valid for its type, which currently can be one of
-`Char`, `String`, `UTF16String`, or `UTF32String`.
+Returns `true` if the given value is valid for its type, which currently can be either
+`Char` or `String`.
 """
 isvalid(value)
 
 """
     isvalid(T, value) -> Bool
 
-Returns `true` if the given value is valid for that type. Types currently can be `Char`,
-`String`, `UTF16String`, or `UTF32String` Values for `Char` can be of
-type `Char` or `UInt32` Values for `String` can be of that type, or
-`Vector{UInt8}` Values for `UTF16String` can be `UTF16String` or `Vector{UInt16}` Values for
-`UTF32String` can be `UTF32String`, `Vector{Char}` or `Vector{UInt32}`
+Returns `true` if the given value is valid for that type. Types currently can
+be either `Char` or `String`. Values for `Char` can be of type `Char` or `UInt32`.
+Values for `String` can be of that type, or `Vector{UInt8}`.
 """
 isvalid(T,value)
 
@@ -9443,14 +8957,6 @@ no effect outside of compilation.
 include_dependency
 
 """
-    randn!([rng], A::Array{Float64,N})
-
-Fill the array `A` with normally-distributed (mean 0, standard deviation 1) random numbers.
-Also see the rand function.
-"""
-randn!
-
-"""
     ldexp(x, n)
 
 Compute ``x \\times 2^n``.
@@ -9539,10 +9045,7 @@ on the `permute` and `scale` keyword arguments. The eigenvectors are returned co
 ```jldoctest
 julia> eig([1.0 0.0 0.0; 0.0 3.0 0.0; 0.0 0.0 18.0])
 ([1.0,3.0,18.0],
-3×3 Array{Float64,2}:
- 1.0  0.0  0.0
- 0.0  1.0  0.0
- 0.0  0.0  1.0)
+[1.0 0.0 0.0; 0.0 1.0 0.0; 0.0 0.0 1.0])
 ```
 
 `eig` is a wrapper around [`eigfact`](:func:`eigfact`), extracting all parts of the
@@ -9995,7 +9498,7 @@ unsafe_pointer_to_objref
 """
     chomp(string)
 
-Remove a trailing newline from a string.
+Remove a single trailing newline from a string.
 """
 chomp
 

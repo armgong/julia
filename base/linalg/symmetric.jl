@@ -5,11 +5,45 @@ immutable Symmetric{T,S<:AbstractMatrix} <: AbstractMatrix{T}
     data::S
     uplo::Char
 end
+"""
+    Symmetric(A, uplo=:U)
+
+Construct a `Symmetric` matrix from the upper (if `uplo = :U`) or lower (if `uplo = :L`) triangle of `A`.
+
+**Example**
+
+```julia
+A = randn(10,10)
+Supper = Symmetric(A)
+Slower = Symmetric(A,:L)
+eigfact(Supper)
+```
+
+`eigfact` will use a method specialized for matrices known to be symmetric.
+Note that `Supper` will not be equal to `Slower` unless `A` is itself symmetric (e.g. if `A == A.'`).
+"""
 Symmetric(A::AbstractMatrix, uplo::Symbol=:U) = (checksquare(A);Symmetric{eltype(A),typeof(A)}(A, char_uplo(uplo)))
 immutable Hermitian{T,S<:AbstractMatrix} <: AbstractMatrix{T}
     data::S
     uplo::Char
 end
+"""
+    Hermitian(A, uplo=:U)
+
+Construct a `Hermitian` matrix from the upper (if `uplo = :U`) or lower (if `uplo = :L`) triangle of `A`.
+
+**Example**
+
+```julia
+A = randn(10,10)
+Hupper = Hermitian(A)
+Hlower = Hermitian(A,:L)
+eigfact(Hupper)
+```
+
+`eigfact` will use a method specialized for matrices known to be Hermitian.
+Note that `Hupper` will not be equal to `Hlower` unless `A` is itself Hermitian (e.g. if `A == A'`).
+"""
 function Hermitian(A::AbstractMatrix, uplo::Symbol=:U)
     n = checksquare(A)
     for i=1:n
@@ -46,8 +80,11 @@ function similar{T}(A::Hermitian, ::Type{T})
     return Hermitian(B)
 end
 
-full(A::Symmetric) = copytri!(copy(A.data), A.uplo)
-full(A::Hermitian) = copytri!(copy(A.data), A.uplo, true)
+# Conversion
+convert(::Type{Matrix}, A::Symmetric) = copytri!(convert(Matrix, copy(A.data)), A.uplo)
+convert(::Type{Matrix}, A::Hermitian) = copytri!(convert(Matrix, copy(A.data)), A.uplo, true)
+convert(::Type{Array}, A::Union{Symmetric,Hermitian}) = convert(Matrix, A)
+full(A::Union{Symmetric,Hermitian}) = convert(Array, A)
 parent(A::HermOrSym) = A.data
 convert{T,S<:AbstractMatrix}(::Type{Symmetric{T,S}},A::Symmetric{T,S}) = A
 convert{T,S<:AbstractMatrix}(::Type{Symmetric{T,S}},A::Symmetric) = Symmetric{T,S}(convert(S,A.data),A.uplo)
@@ -55,6 +92,7 @@ convert{T}(::Type{AbstractMatrix{T}}, A::Symmetric) = Symmetric(convert(Abstract
 convert{T,S<:AbstractMatrix}(::Type{Hermitian{T,S}},A::Hermitian{T,S}) = A
 convert{T,S<:AbstractMatrix}(::Type{Hermitian{T,S}},A::Hermitian) = Hermitian{T,S}(convert(S,A.data),A.uplo)
 convert{T}(::Type{AbstractMatrix{T}}, A::Hermitian) = Hermitian(convert(AbstractMatrix{T}, A.data), Symbol(A.uplo))
+
 copy{T,S}(A::Symmetric{T,S}) = (B = copy(A.data); Symmetric{T,typeof(B)}(B,A.uplo))
 copy{T,S}(A::Hermitian{T,S}) = (B = copy(A.data); Hermitian{T,typeof(B)}(B,A.uplo))
 ishermitian(A::Hermitian) = true

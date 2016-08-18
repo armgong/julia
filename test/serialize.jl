@@ -2,6 +2,11 @@
 
 using Base.Test
 
+# Check that serializer hasn't gone out-of-frame
+@test Serializer.sertag(Symbol) == 2
+@test Serializer.sertag(()) == 44
+@test Serializer.sertag(false) == 120
+
 function create_serialization_stream(f::Function)
     s = IOBuffer()
     f(s)
@@ -222,9 +227,9 @@ end
 
 # SubArray
 create_serialization_stream() do s # slices
-    slc1 = slice(ones(UInt8, 4), 2:3)
+    slc1 = view(ones(UInt8, 4), 2:3)
     serialize(s, slc1)
-    slc2 = slice(ones(UInt8, 4, 4) .+ [0x00, 0x01, 0x02, 0x03], 1, 2:4)
+    slc2 = view(ones(UInt8, 4, 4) .+ [0x00, 0x01, 0x02, 0x03], 1, 2:4)
     serialize(s, slc2)
 
     seek(s, 0)
@@ -238,6 +243,7 @@ module ArrayWrappers
 immutable ArrayWrapper{T,N,A<:AbstractArray} <: AbstractArray{T,N}
     data::A
 end
+ArrayWrapper{T,N}(data::AbstractArray{T,N}) = ArrayWrapper{T,N,typeof(data)}(data)
 Base.size(A::ArrayWrapper) = size(A.data)
 Base.size(A::ArrayWrapper, d) = size(A.data, d)
 Base.getindex(A::ArrayWrapper, i::Real...) = getindex(A.data, i...)
@@ -245,8 +251,8 @@ Base.getindex(A::ArrayWrapper, i::Real...) = getindex(A.data, i...)
 end
 
 let A = rand(3,4)
-    for B in (sub(A, :, 2:4), slice(A, 2, 1:3))
-        C = ArrayWrappers.ArrayWrapper{Float64,2,typeof(B)}(B)
+    for B in (view(A, :, 2:4), view(A, 2, 1:3))
+        C = ArrayWrappers.ArrayWrapper(B)
         io = IOBuffer()
         serialize(io, C)
         seek(io, 0)
@@ -386,4 +392,23 @@ let b = IOBuffer()
     serialize(b, vt)
     seekstart(b)
     @test deserialize(b) == vt
+end
+
+# issue #1770
+let
+    a = ['T', 'e', 's', 't']
+    f = IOBuffer()
+    serialize(f, a)
+    seek(f, 0)
+    @test deserialize(f) == a
+    f = IOBuffer()
+    serialize(f, a)
+    seek(f, 0)
+    @test deserialize(f) == a
+
+    # issue #4414
+    seek(f,0)
+    serialize(f, :β)
+    seek(f,0)
+    @test deserialize(f) === :β
 end

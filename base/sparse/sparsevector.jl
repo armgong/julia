@@ -197,12 +197,7 @@ function setindex!{Tv,Ti<:Integer}(x::SparseVector{Tv,Ti}, v::Tv, i::Ti)
     m = length(nzind)
     k = searchsortedfirst(nzind, i)
     if 1 <= k <= m && nzind[k] == i  # i found
-        if v == 0
-            deleteat!(nzind, k)
-            deleteat!(nzval, k)
-        else
-            nzval[k] = v
-        end
+        nzval[k] = v
     else  # i not found
         if v != 0
             insert!(nzind, k, i)
@@ -214,6 +209,28 @@ end
 
 setindex!{Tv, Ti<:Integer}(x::SparseVector{Tv,Ti}, v, i::Integer) =
     setindex!(x, convert(Tv, v), convert(Ti, i))
+
+
+### dropstored!
+"""
+    dropstored!(x::SparseVector, i::Integer)
+
+Drop entry `x[i]` from `x` if `x[i]` is stored and otherwise do nothing.
+"""
+function dropstored!(x::SparseVector, i::Integer)
+    if !(1 <= i <= x.n)
+        throw(BoundsError(x, i))
+    end
+    searchk = searchsortedfirst(x.nzind, i)
+    if searchk <= length(x.nzind) && x.nzind[searchk] == i
+        # Entry x[i] is stored. Drop and return.
+        deleteat!(x.nzind, searchk)
+        deleteat!(x.nzval, searchk)
+    end
+    return x
+end
+# TODO: Implement linear collection indexing methods for dropstored! ?
+# TODO: Implement logical indexing methods for dropstored! ?
 
 
 ### Conversion
@@ -607,23 +624,25 @@ getindex(x::AbstractSparseVector, ::Colon) = copy(x)
 
 ### show and friends
 
+function show(io::IO, ::MIME"text/plain", x::AbstractSparseVector)
+    println(io, summary(x))
+    show(io, x)
+end
+
 function show(io::IO, x::AbstractSparseVector)
+    # TODO: make this a one-line form
     n = length(x)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     xnnz = length(nzind)
 
-    if get(io, :multiline, false)
-        println(io, summary(x))
-    end
-
     limit::Bool = get(io, :limit, false)
     half_screen_rows = limit ? div(displaysize(io)[1] - 8, 2) : typemax(Int)
     pad = ndigits(n)
     sep = "\n\t"
-    io = IOContext(io, multiline=false)
+    io = IOContext(io)
     if !haskey(io, :compact)
-        io = IOContext(io, compact=true)
+        io = IOContext(io, :compact => true)
     end
     for k = 1:length(nzind)
         if k < half_screen_rows || k > xnnz - half_screen_rows
@@ -662,20 +681,23 @@ convert{TvD,Tv,Ti}(::Type{SparseMatrixCSC{TvD}}, x::AbstractSparseVector{Tv,Ti})
 convert{Tv,Ti}(::Type{SparseMatrixCSC}, x::AbstractSparseVector{Tv,Ti}) =
     convert(SparseMatrixCSC{Tv,Ti}, x)
 
-
-### Array manipulation
-
-function full{Tv}(x::AbstractSparseVector{Tv})
+function convert{Tv}(::Type{Vector}, x::AbstractSparseVector{Tv})
     n = length(x)
-    n == 0 && return Array{Tv}(0)
+    n == 0 && return Vector{Tv}(0)
     nzind = nonzeroinds(x)
     nzval = nonzeros(x)
     r = zeros(Tv, n)
-    for i = 1:length(nzind)
-        r[nzind[i]] = nzval[i]
+    for k in 1:nnz(x)
+        i = nzind[k]
+        v = nzval[k]
+        r[i] = v
     end
     return r
 end
+convert(::Type{Array}, x::AbstractSparseVector) = convert(Vector, x)
+full(x::AbstractSparseVector) = convert(Array, x)
+
+### Array manipulation
 
 vec(x::AbstractSparseVector) = x
 copy(x::AbstractSparseVector) =
@@ -754,6 +776,11 @@ function vcat{Tv,Ti}(X::AbstractSparseVector{Tv,Ti}...)
     end
     SparseVector(len, rnzind, rnzval)
 end
+
+hcat(Xin::Union{AbstractSparseVector, SparseMatrixCSC}...) = hcat(map(SparseMatrixCSC, Xin)...)
+vcat(Xin::Union{AbstractSparseVector, SparseMatrixCSC}...) = vcat(map(SparseMatrixCSC, Xin)...)
+hcat(Xin::Union{Vector, AbstractSparseVector}...) = hcat(map(sparse, Xin)...)
+vcat(Xin::Union{Vector, AbstractSparseVector}...) = vcat(map(sparse, Xin)...)
 
 ### math functions
 
@@ -1360,8 +1387,7 @@ end
 ### BLAS-2 / sparse A * sparse x -> dense y
 
 function densemv(A::SparseMatrixCSC, x::AbstractSparseVector; trans::Char='N')
-    xlen::Int
-    ylen::Int
+    local xlen::Int, ylen::Int
     m, n = size(A)
     if trans == 'N' || trans == 'n'
         xlen = n; ylen = m
@@ -1538,14 +1564,17 @@ for isunittri in (true, false), islowertri in (true, false)
                 :(typeof(zero(TA)*zero(Tb) + zero(TA)*zero(Tb))) :
                 :(typeof((zero(TA)*zero(Tb) + zero(TA)*zero(Tb))/one(TA))) )
             r = convert(Array{TAb}, b)
-            # this operation involves only b[nzrange], so we extract
-            # and operate on solely that section for efficiency
-            nzrange = $( (islowertri && !istrans) || (!islowertri && istrans) ?
-                :(b.nzind[1]:b.n) :
-                :(1:b.nzind[end]) )
-            nzrangeviewr = sub(r, nzrange)
-            nzrangeviewA = $tritype(sub(A.data, nzrange, nzrange))
-            ($ipfunc)(convert(AbstractArray{TAb}, nzrangeviewA), nzrangeviewr)
+            # If b has no nonzero entries, then r is necessarily zero. If b has nonzero
+            # entries, then the operation involves only b[nzrange], so we extract and
+            # operate on solely b[nzrange] for efficiency.
+            if nnz(b) != 0
+                nzrange = $( (islowertri && !istrans) || (!islowertri && istrans) ?
+                    :(b.nzind[1]:b.n) :
+                    :(1:b.nzind[end]) )
+                nzrangeviewr = view(r, nzrange)
+                nzrangeviewA = $tritype(view(A.data, nzrange, nzrange))
+                ($ipfunc)(convert(AbstractArray{TAb}, nzrangeviewA), nzrangeviewr)
+            end
             r
         end
 
@@ -1563,22 +1592,26 @@ for isunittri in (true, false), islowertri in (true, false)
         # we can achieve greater efficiency where the triangular matrix provides
         # good view support. hence the StridedMatrix restriction.
         @eval function ($func){TA,Tb,S<:StridedMatrix}(A::$tritype{TA,S}, b::SparseVector{Tb})
-            # densify the relevant part of b in one shot rather
-            # than potentially repeatedly reallocating during the solve
-            $( (islowertri && !istrans) || (!islowertri && istrans) ?
-                :(_densifyfirstnztoend!(b)) :
-                :(_densifystarttolastnz!(b)) )
-            # this operation involves only the densified section, so
-            # for efficiency we extract and operate on solely that section
-            # furthermore we operate on that section as a dense vector
-            # such that dispatch has a chance to exploit, e.g., tuned BLAS
-            nzrange = $( (islowertri && !istrans) || (!islowertri && istrans) ?
-                :(b.nzind[1]:b.n) :
-                :(1:b.nzind[end]) )
-            nzrangeviewbnz = sub(b.nzval, nzrange - b.nzind[1] + 1)
-            nzrangeviewA = $tritype(sub(A.data, nzrange, nzrange))
-            ($func)(nzrangeviewA, nzrangeviewbnz)
-            # could strip any miraculous zeros here perhaps
+            # If b has no nonzero entries, the result is necessarily zero and this call
+            # reduces to a no-op. If b has nonzero entries, then...
+            if nnz(b) != 0
+                # densify the relevant part of b in one shot rather
+                # than potentially repeatedly reallocating during the solve
+                $( (islowertri && !istrans) || (!islowertri && istrans) ?
+                    :(_densifyfirstnztoend!(b)) :
+                    :(_densifystarttolastnz!(b)) )
+                # this operation involves only the densified section, so
+                # for efficiency we extract and operate on solely that section
+                # furthermore we operate on that section as a dense vector
+                # such that dispatch has a chance to exploit, e.g., tuned BLAS
+                nzrange = $( (islowertri && !istrans) || (!islowertri && istrans) ?
+                    :(b.nzind[1]:b.n) :
+                    :(1:b.nzind[end]) )
+                nzrangeviewbnz = view(b.nzval, nzrange - b.nzind[1] + 1)
+                nzrangeviewA = $tritype(view(A.data, nzrange, nzrange))
+                ($func)(nzrangeviewA, nzrangeviewbnz)
+                # could strip any miraculous zeros here perhaps
+            end
             b
         end
     end
@@ -1677,8 +1710,26 @@ end
 
 droptol!(x::SparseVector, tol, trim::Bool = true) = fkeep!(x, (i, x) -> abs(x) > tol, trim)
 
+"""
+    dropzeros!(x::SparseVector, trim::Bool = true)
+
+Removes stored numerical zeros from `x`, optionally trimming resulting excess space from
+`x.nzind` and `x.nzval` when `trim` is `true`.
+
+For an out-of-place version, see [`dropzeros`](:func:`Base.SparseArrays.dropzeros`). For
+algorithmic information, see [`Base.SparseArrays.fkeep!`](:func:`Base.SparseArrays.fkeep!`).
+"""
 dropzeros!(x::SparseVector, trim::Bool = true) = fkeep!(x, (i, x) -> x != 0, trim)
+"""
+    dropzeros(x::SparseVector, trim::Bool = true)
+
+Generates a copy of `x` and removes numerical zeros from that copy, optionally trimming
+excess space from the result's `nzind` and `nzval` arrays when `trim` is `true`.
+
+For an in-place version and algorithmic information, see [`dropzeros!`](:func:`Base.SparseArrays.dropzeros!`).
+"""
 dropzeros(x::SparseVector, trim::Bool = true) = dropzeros!(copy(x), trim)
+
 
 function _fillnonzero!{Tv,Ti}(arr::SparseMatrixCSC{Tv, Ti}, val)
     m, n = size(arr)

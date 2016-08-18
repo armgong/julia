@@ -203,7 +203,7 @@ function tempdir()
         error("GetTempPath failed: $(Libc.FormatMessage())")
     end
     resize!(temppath,lentemppath)
-    return String(utf16to8(temppath))
+    return transcode(String, temppath)
 end
 tempname(uunique::UInt32=UInt32(0)) = tempname(tempdir(), uunique)
 const temp_prefix = cwstring("jl_")
@@ -216,7 +216,7 @@ function tempname(temppath::AbstractString,uunique::UInt32)
         error("GetTempFileName failed: $(Libc.FormatMessage())")
     end
     resize!(tname,lentname)
-    return String(utf16to8(tname))
+    return transcode(String, tname)
 end
 function mktemp(parent=tempdir())
     filename = tempname(parent, UInt32(0))
@@ -244,7 +244,7 @@ function tempname()
     d = get(ENV, "TMPDIR", C_NULL) # tempnam ignores TMPDIR on darwin
     p = ccall(:tempnam, Cstring, (Cstring,Cstring), d, :julia)
     systemerror(:tempnam, p == C_NULL)
-    s = String(p)
+    s = unsafe_string(p)
     Libc.free(p)
     return s
 end
@@ -265,7 +265,7 @@ function mktempdir(parent=tempdir())
     b = joinpath(parent, "tmpXXXXXX")
     p = ccall(:mkdtemp, Cstring, (Cstring,), b)
     systemerror(:mktempdir, p == C_NULL)
-    return String(p)
+    return unsafe_string(p)
 end
 
 end # os-test
@@ -307,7 +307,7 @@ function readdir(path::AbstractString)
     entries = String[]
     ent = Ref{uv_dirent_t}()
     while Base.UV_EOF != ccall(:uv_fs_scandir_next, Cint, (Ptr{Void}, Ptr{uv_dirent_t}), uv_readdir_req, ent)
-        push!(entries, String(ent[].name))
+        push!(entries, unsafe_string(ent[].name))
     end
 
     # Clean up the request string
@@ -422,6 +422,16 @@ end
 if is_windows()
     const UV_FS_SYMLINK_JUNCTION = 0x0002
 end
+
+"""
+    symlink(target, link)
+
+Creates a symbolic link to `target` with the name `link`.
+
+!!! note
+    This function raises an error under operating systems that do not support
+    soft symbolic links, such as Windows XP.
+"""
 function symlink(p::AbstractString, np::AbstractString)
     @static if is_windows()
         if Sys.windows_version() < Sys.WINDOWS_VISTA_VER
@@ -455,7 +465,7 @@ function readlink(path::AbstractString)
             uv_error("readlink", ret)
             assert(false)
         end
-        tgt = String(ccall(:jl_uv_fs_t_ptr, Ptr{Cchar}, (Ptr{Void}, ), req))
+        tgt = unsafe_string(ccall(:jl_uv_fs_t_ptr, Ptr{Cchar}, (Ptr{Void}, ), req))
         ccall(:uv_fs_req_cleanup, Void, (Ptr{Void}, ), req)
         return tgt
     finally

@@ -123,7 +123,7 @@ for elty1 in (Float32, Float64, BigFloat, Complex64, Complex128, Complex{BigFloa
         @test factorize(A1) == A1
 
         # [c]transpose[!] (test views as well, see issue #14317)
-        let vrange = 1:n-1, viewA1 = t1(sub(A1.data, vrange, vrange))
+        let vrange = 1:n-1, viewA1 = t1(view(A1.data, vrange, vrange))
             # transpose
             @test full(A1.') == full(A1).'
             @test full(viewA1.') == full(viewA1).'
@@ -132,10 +132,10 @@ for elty1 in (Float32, Float64, BigFloat, Complex64, Complex128, Complex{BigFloa
             @test full(viewA1') == full(viewA1)'
             # transpose!
             @test transpose!(copy(A1)) == A1.'
-            @test transpose!(t1(sub(copy(A1).data, vrange, vrange))) == viewA1.'
+            @test transpose!(t1(view(copy(A1).data, vrange, vrange))) == viewA1.'
             # ctranspose!
             @test ctranspose!(copy(A1)) == A1'
-            @test ctranspose!(t1(sub(copy(A1).data, vrange, vrange))) == viewA1'
+            @test ctranspose!(t1(view(copy(A1).data, vrange, vrange))) == viewA1'
         end
 
         # diag
@@ -150,7 +150,7 @@ for elty1 in (Float32, Float64, BigFloat, Complex64, Complex128, Complex{BigFloa
         @test full(-A1) == -full(A1)
 
         # copy and copy! (test views as well, see issue #14317)
-        let vrange = 1:n-1, viewA1 = t1(sub(A1.data, vrange, vrange))
+        let vrange = 1:n-1, viewA1 = t1(view(A1.data, vrange, vrange))
             # copy
             @test copy(A1) == copy(full(A1))
             @test copy(viewA1) == copy(full(viewA1))
@@ -215,16 +215,17 @@ for elty1 in (Float32, Float64, BigFloat, Complex64, Complex128, Complex{BigFloa
         @test 0.5\A1 == 0.5\full(A1)
 
         # inversion
-        @test_approx_eq inv(A1) inv(lufact(full(A1)))
+        @test inv(A1) ≈ inv(lufact(full(A1)))
         inv(full(A1)) # issue #11298
         @test isa(inv(A1), t1)
         # make sure the call to LAPACK works right
         if elty1 <: BlasFloat
-            @test_approx_eq Base.LinAlg.inv!(copy(A1)) inv(lufact(full(A1)))
+            @test Base.LinAlg.inv!(copy(A1)) ≈ inv(lufact(full(A1)))
         end
 
         # Determinant
         @test_approx_eq_eps det(A1) det(lufact(full(A1))) sqrt(eps(real(float(one(elty1)))))*n*n
+        @test_approx_eq_eps logdet(A1) logdet(lufact(full(A1))) sqrt(eps(real(float(one(elty1)))))*n*n
 
         # Matrix square root
         @test sqrtm(A1) |> t -> t*t ≈ A1
@@ -278,15 +279,15 @@ for elty1 in (Float32, Float64, BigFloat, Complex64, Complex128, Complex{BigFloa
                 @test full(A1 - A2) == full(A1) - full(A2)
 
                 # Triangular-Triangualar multiplication and division
-                @test_approx_eq full(A1*A2) full(A1)*full(A2)
-                @test_approx_eq full(A1.'A2) full(A1).'full(A2)
-                @test_approx_eq full(A1'A2) full(A1)'full(A2)
-                @test_approx_eq full(A1*A2.') full(A1)*full(A2).'
-                @test_approx_eq full(A1*A2') full(A1)*full(A2)'
-                @test_approx_eq full(A1.'A2.') full(A1).'full(A2).'
-                @test_approx_eq full(A1'A2') full(A1)'full(A2)'
-                @test_approx_eq full(A1/A2) full(A1)/full(A2)
-                @test_approx_eq full(A1\A2) full(A1)\full(A2)
+                @test full(A1*A2) ≈ full(A1)*full(A2)
+                @test full(A1.'A2) ≈ full(A1).'full(A2)
+                @test full(A1'A2) ≈ full(A1)'full(A2)
+                @test full(A1*A2.') ≈ full(A1)*full(A2).'
+                @test full(A1*A2') ≈ full(A1)*full(A2)'
+                @test full(A1.'A2.') ≈ full(A1).'full(A2).'
+                @test full(A1'A2') ≈ full(A1)'full(A2)'
+                @test full(A1/A2) ≈ full(A1)/full(A2)
+                @test full(A1\A2) ≈ full(A1)\full(A2)
                 @test_throws DimensionMismatch eye(n+1)/A2
                 @test_throws DimensionMismatch eye(n+1)/A2.'
                 @test_throws DimensionMismatch eye(n+1)/A2'
@@ -307,34 +308,34 @@ for elty1 in (Float32, Float64, BigFloat, Complex64, Complex128, Complex{BigFloa
 
             if !(eltyB in (BigFloat, Complex{BigFloat})) # rand does not support BigFloat and Complex{BigFloat} as of Dec 2015
                 Tri = Tridiagonal(rand(eltyB,n-1),rand(eltyB,n),rand(eltyB,n-1))
-                @test_approx_eq Base.LinAlg.A_mul_B!(Tri,copy(A1)) Tri*full(A1)
+                @test Base.LinAlg.A_mul_B!(Tri,copy(A1)) ≈ Tri*full(A1)
             end
 
             # Triangular-dense Matrix/vector multiplication
-            @test_approx_eq A1*B[:,1] full(A1)*B[:,1]
-            @test_approx_eq A1*B full(A1)*B
-            @test_approx_eq A1.'B[:,1] full(A1).'B[:,1]
-            @test_approx_eq A1'B[:,1] full(A1)'B[:,1]
-            @test_approx_eq A1.'B full(A1).'B
-            @test_approx_eq A1'B full(A1)'B
-            @test_approx_eq A1*B.' full(A1)*B.'
-            @test_approx_eq A1*B' full(A1)*B'
-            @test_approx_eq B*A1 B*full(A1)
-            @test_approx_eq B[:,1].'A1 B[:,1].'full(A1)
-            @test_approx_eq B[:,1]'A1 B[:,1]'full(A1)
-            @test_approx_eq B.'A1 B.'full(A1)
-            @test_approx_eq B'A1 B'full(A1)
-            @test_approx_eq B*A1.' B*full(A1).'
-            @test_approx_eq B*A1' B*full(A1)'
-            @test_approx_eq B[:,1].'A1.' B[:,1].'full(A1).'
-            @test_approx_eq B[:,1]'A1' B[:,1]'full(A1)'
-            @test_approx_eq B.'A1.' B.'full(A1).'
-            @test_approx_eq B'A1' B'full(A1)'
+            @test A1*B[:,1] ≈ full(A1)*B[:,1]
+            @test A1*B ≈ full(A1)*B
+            @test A1.'B[:,1] ≈ full(A1).'B[:,1]
+            @test A1'B[:,1] ≈ full(A1)'B[:,1]
+            @test A1.'B ≈ full(A1).'B
+            @test A1'B ≈ full(A1)'B
+            @test A1*B.' ≈ full(A1)*B.'
+            @test A1*B' ≈ full(A1)*B'
+            @test B*A1 ≈ B*full(A1)
+            @test B[:,1].'A1 ≈ B[:,1].'full(A1)
+            @test B[:,1]'A1 ≈ B[:,1]'full(A1)
+            @test B.'A1 ≈ B.'full(A1)
+            @test B'A1 ≈ B'full(A1)
+            @test B*A1.' ≈ B*full(A1).'
+            @test B*A1' ≈ B*full(A1)'
+            @test B[:,1].'A1.' ≈ B[:,1].'full(A1).'
+            @test B[:,1]'A1' ≈ B[:,1]'full(A1)'
+            @test B.'A1.' ≈ B.'full(A1).'
+            @test B'A1' ≈ B'full(A1)'
 
             if eltyB == elty1
-                @test_approx_eq A_mul_B!(zeros(B),A1,B) A1*B
-                @test_approx_eq A_mul_Bc!(zeros(B),A1,B) A1*B'
-                @test_approx_eq A_mul_Bt!(zeros(B),A1,B) A1*B.'
+                @test A_mul_B!(zeros(B),A1,B) ≈ A1*B
+                @test A_mul_Bc!(zeros(B),A1,B) ≈ A1*B'
+                @test A_mul_Bt!(zeros(B),A1,B) ≈ A1*B.'
             end
             #error handling
             @test_throws DimensionMismatch Base.LinAlg.A_mul_B!(A1, ones(eltyB,n+1))
@@ -345,29 +346,29 @@ for elty1 in (Float32, Float64, BigFloat, Complex64, Complex128, Complex{BigFloa
             @test_throws DimensionMismatch Base.LinAlg.A_mul_Bt!(ones(eltyB,n+1,n+1),A1)
 
             # ... and division
-            @test_approx_eq A1\B[:,1] full(A1)\B[:,1]
-            @test_approx_eq A1\B full(A1)\B
-            @test_approx_eq A1.'\B[:,1] full(A1).'\B[:,1]
-            @test_approx_eq A1'\B[:,1] full(A1)'\B[:,1]
-            @test_approx_eq A1.'\B full(A1).'\B
-            @test_approx_eq A1'\B full(A1)'\B
-            @test_approx_eq A1\B.' full(A1)\B.'
-            @test_approx_eq A1\B' full(A1)\B'
-            @test_approx_eq A1.'\B.' full(A1).'\B.'
-            @test_approx_eq A1'\B' full(A1)'\B'
+            @test A1\B[:,1] ≈ full(A1)\B[:,1]
+            @test A1\B ≈ full(A1)\B
+            @test A1.'\B[:,1] ≈ full(A1).'\B[:,1]
+            @test A1'\B[:,1] ≈ full(A1)'\B[:,1]
+            @test A1.'\B ≈ full(A1).'\B
+            @test A1'\B ≈ full(A1)'\B
+            @test A1\B.' ≈ full(A1)\B.'
+            @test A1\B' ≈ full(A1)\B'
+            @test A1.'\B.' ≈ full(A1).'\B.'
+            @test A1'\B' ≈ full(A1)'\B'
             @test_throws DimensionMismatch A1\ones(elty1,n+2)
             @test_throws DimensionMismatch A1'\ones(elty1,n+2)
             @test_throws DimensionMismatch A1.'\ones(elty1,n+2)
             if t1 == UpperTriangular || t1 == LowerTriangular
                 @test_throws Base.LinAlg.SingularException naivesub!(t1(zeros(elty1,n,n)),ones(eltyB,n))
             end
-            @test_approx_eq B/A1 B/full(A1)
-            @test_approx_eq B/A1.' B/full(A1).'
-            @test_approx_eq B/A1' B/full(A1)'
-            @test_approx_eq B.'/A1 B.'/full(A1)
-            @test_approx_eq B'/A1 B'/full(A1)
-            @test_approx_eq B.'/A1.' B.'/full(A1).'
-            @test_approx_eq B'/A1' B'/full(A1)'
+            @test B/A1 ≈ B/full(A1)
+            @test B/A1.' ≈ B/full(A1).'
+            @test B/A1' ≈ B/full(A1)'
+            @test B.'/A1 ≈ B.'/full(A1)
+            @test B'/A1 ≈ B'/full(A1)
+            @test B.'/A1.' ≈ B.'/full(A1).'
+            @test B'/A1' ≈ B'/full(A1)'
 
             # Error bounds
             !(elty1 in (BigFloat, Complex{BigFloat})) && !(eltyB in (BigFloat, Complex{BigFloat})) && errorbounds(A1, A1\B, B)
@@ -493,4 +494,4 @@ end
 @test_throws ArgumentError UpperTriangular(LowerTriangular(randn(3,3)))
 
 # Issue 16196
-@test UpperTriangular(eye(3)) \ sub(ones(3), [1,2,3]) == ones(3)
+@test UpperTriangular(eye(3)) \ view(ones(3), [1,2,3]) == ones(3)

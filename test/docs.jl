@@ -29,7 +29,7 @@ macro macro_doctest() end
 @doc "Helps test if macros can be documented with `@doc \"...\" -> @...`." ->
 :@macro_doctest
 
-@test (@doc @macro_doctest) != nothing
+@test (@doc @macro_doctest) !== nothing
 
 # issue #11548
 
@@ -45,7 +45,7 @@ end
 
 # General tests for docstrings.
 
-const LINE_NUMBER = @__LINE__
+const LINE_NUMBER = @__LINE__+1
 "DocsTest"
 module DocsTest
 
@@ -181,6 +181,10 @@ let f = @var(DocsTest.f)
     md = meta(DocsTest)[f]
     @test docstrings_equal(md.docs[Tuple{Any}], doc"f-1")
     @test docstrings_equal(md.docs[Tuple{Any,Any}], doc"f-2")
+    @test md.docs[Tuple{Any}].data[:binding] === f
+    @test md.docs[Tuple{Any}].data[:typesig] === Tuple{Any}
+    @test md.docs[Tuple{Any,Any}].data[:binding] === f
+    @test md.docs[Tuple{Any,Any}].data[:typesig] === Tuple{Any,Any}
 end
 
 let s = @var(DocsTest.s)
@@ -861,6 +865,18 @@ end
 let x = Binding(Main, :bindingdoesnotexist)
     @test defined(x) == false
     @test @var(bindingdoesnotexist) == x
+end
+
+let x = Binding(Main, :+)
+    @test parse(string(x)) == :(Base.:+)
+end
+
+let x = Binding(Base, :parse)
+    @test parse(string(x)) == :(Base.parse)
+end
+
+let x = Binding(Main, :⊕)
+    @test parse(string(x)) == :(⊕)
 end
 
 # Docs.helpmode tests: we test whether the correct expressions are being generated here,

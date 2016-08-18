@@ -159,12 +159,12 @@ function check_reducedims(R, A)
     #   it will be size(A, 1) or size(A, 1) * size(A, 2).
     # - Otherwise, e.g. sum(A, 2) or sum(A, (1, 3)), it returns 0.
     #
-    ndims(R) <= ndims(A) || throw(DimensionMismatch("Cannot reduce $(ndims(A))-dimensional array to $(ndims(R)) dimensions"))
+    ndims(R) <= ndims(A) || throw(DimensionMismatch("cannot reduce $(ndims(A))-dimensional array to $(ndims(R)) dimensions"))
     lsiz = 1
     had_nonreduc = false
     for i = 1:ndims(A)
-        sRi = size(R, i)
-        sAi = size(A, i)
+        Ri, Ai = indices(R, i), indices(A, i)
+        sRi, sAi = length(Ri), length(Ai)
         if sRi == 1
             if sAi > 1
                 if had_nonreduc
@@ -174,8 +174,7 @@ function check_reducedims(R, A)
                 end
             end
         else
-            sRi == sAi ||
-                throw(DimensionMismatch("Reduction on array of size $(size(A)) with output of size $(size(R))"))
+            Ri == Ai || throw(DimensionMismatch("reduction on array with indices $(indices(A)) with output with indices $(indices(R))"))
             had_nonreduc = true
         end
     end
@@ -185,34 +184,34 @@ end
 function _mapreducedim!{T,N}(f, op, R::AbstractArray, A::AbstractArray{T,N})
     lsiz = check_reducedims(R,A)
     isempty(A) && return R
-    sizA1 = size(A, 1)
 
     if has_fast_linear_indexing(A) && lsiz > 16
         # use mapreduce_impl, which is probably better tuned to achieve higher performance
-        nslices = div(length(A), lsiz)
-        ibase = 0
+        nslices = div(_length(A), lsiz)
+        ibase = first(linearindices(A))-1
         for i = 1:nslices
             @inbounds R[i] = op(R[i], mapreduce_impl(f, op, A, ibase+1, ibase+lsiz))
             ibase += lsiz
         end
-    elseif size(R, 1) == 1 && sizA1 > 1
+        return R
+    end
+    indsAt, indsRt = safe_tail(indices(A)), safe_tail(indices(R)) # handle d=1 manually
+    keep, Idefault = Broadcast.newindexer(indsAt, indsRt)
+    if reducedim1(R, A)
         # keep the accumulator as a local variable when reducing along the first dimension
-        sizeR1 = size_skip1(size(R), A)
-        sizeA1 = size_skip1(size(A), A)
-        @inbounds for IA in CartesianRange(sizeA1)
-            IR = min(sizeR1, IA)
-            r = R[1,IR]
-            @simd for i = 1:size(A, 1)  # fixme (iter): update when #15459 is implemented (and if it does't affect @simd)
+        i1 = first(indices1(R))
+        @inbounds for IA in CartesianRange(indsAt)
+            IR = Broadcast.newindex(IA, keep, Idefault)
+            r = R[i1,IR]
+            @simd for i in indices(A, 1)
                 r = op(r, f(A[i, IA]))
             end
-            R[1,IR] = r
+            R[i1,IR] = r
         end
     else
-        sizeR1 = Base.size_skip1(size(R), A)
-        sizeA1 = Base.size_skip1(size(A), A)
-        @inbounds for IA in CartesianRange(sizeA1)
-            IR = min(IA, sizeR1)
-            @simd for i = 1:size(A, 1)  # fixme (iter): update when #15459 is implemented (and if it does't affect @simd)
+        @inbounds for IA in CartesianRange(indsAt)
+            IR = Broadcast.newindex(IA, keep, Idefault)
+            @simd for i in indices(A, 1)
                 R[i,IR] = op(R[i,IR], f(A[i,IA]))
             end
         end
@@ -271,22 +270,22 @@ end
 
 function findminmax!{T,N}(f, Rval, Rind, A::AbstractArray{T,N})
     (isempty(Rval) || isempty(A)) && return Rval, Rind
-    (ndims(Rval) <= N && ndims(Rind) <= N) || throw(DimensionMismatch("Cannot find-reduce $(ndims(A))-dimensional array to $(ndims(Rval)),$(ndims(Rind)) dimensions"))
+    lsiz = check_reducedims(Rval, A)
     for i = 1:N
-        (size(Rval, i) == size(A, i) || size(Rval, i) == 1) || throw(DimensionMismatch("Find-reduction on array of size $(size(A)) with output of size $(size(Rval))"))
-        size(Rval, i) == size(Rind, i) || throw(DimensionMismatch("Find-reduction: outputs must be of the same size"))
+        indices(Rval, i) == indices(Rind, i) || throw(DimensionMismatch("Find-reduction: outputs must have the same indices"))
     end
     # If we're reducing along dimension 1, for efficiency we can make use of a temporary.
     # Otherwise, keep the result in Rval/Rind so that we traverse A in storage order.
-    sizeR1 = size_skip1(size(Rval), A)
-    sizeA1 = size_skip1(size(A), A)
+    indsAt, indsRt = safe_tail(indices(A)), safe_tail(indices(Rval))
+    keep, Idefault = Broadcast.newindexer(indsAt, indsRt)
     k = 0
-    if size(Rval, 1) < size(A, 1)
-        @inbounds for IA in CartesianRange(sizeA1)
-            IR = min(sizeR1, IA)
-            tmpRv = Rval[1,IR]
-            tmpRi = Rind[1,IR]
-            for i = 1:size(A,1)  # fixme (iter): update when #15459 is implemented (and if it does't affect @simd)
+    if reducedim1(Rval, A)
+        i1 = first(indices1(Rval))
+        @inbounds for IA in CartesianRange(indsAt)
+            IR = Broadcast.newindex(IA, keep, Idefault)
+            tmpRv = Rval[i1,IR]
+            tmpRi = Rind[i1,IR]
+            for i in indices(A,1)
                 k += 1
                 tmpAv = A[i,IA]
                 if f(tmpAv, tmpRv)
@@ -294,13 +293,13 @@ function findminmax!{T,N}(f, Rval, Rind, A::AbstractArray{T,N})
                     tmpRi = k
                 end
             end
-            Rval[1,IR] = tmpRv
-            Rind[1,IR] = tmpRi
+            Rval[i1,IR] = tmpRv
+            Rind[i1,IR] = tmpRi
         end
     else
-        @inbounds for IA in CartesianRange(sizeA1)
-            IR = min(sizeR1, IA)
-            for i = 1:size(A, 1)  # fixme (iter): update when #15459 is implemented (and if it does't affect @simd)
+        @inbounds for IA in CartesianRange(indsAt)
+            IR = Broadcast.newindex(IA, keep, Idefault)
+            for i in indices(A, 1)
                 k += 1
                 tmpAv = A[i,IA]
                 if f(tmpAv, Rval[i,IR])
@@ -358,7 +357,4 @@ function findmax{T}(A::AbstractArray{T}, region)
             zeros(Int, reduced_dims0(A, region)), A)
 end
 
-size_skip1{T}(dims::Tuple{}, Aref::AbstractArray{T,0}) = CartesianIndex(())
-size_skip1{T,N}(dims::NTuple{N,Int}, Aref::AbstractArray{T,N}) = CartesianIndex(skip1(dims...))
-@inline size_skip1{T,M,N}(dims::NTuple{M,Int}, Aref::AbstractArray{T,N}) = size_skip1(tuple(dims..., 1), Aref)
-skip1(x, t...) = t
+reducedim1(R, A) = length(indices1(R)) == 1

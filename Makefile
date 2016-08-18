@@ -19,7 +19,7 @@ default: $(JULIA_BUILD_MODE) # contains either "debug" or "release"
 all: debug release
 
 # sort is used to remove potential duplicates
-DIRS := $(sort $(build_bindir) $(build_libdir) $(build_private_libdir) $(build_libexecdir) $(build_sysconfdir)/julia $(build_datarootdir)/julia $(build_man1dir))
+DIRS := $(sort $(build_bindir) $(build_depsbindir) $(build_libdir) $(build_private_libdir) $(build_libexecdir) $(build_sysconfdir)/julia $(build_datarootdir)/julia $(build_man1dir))
 ifneq ($(BUILDROOT),$(JULIAHOME))
 BUILDDIRS := $(BUILDROOT) $(addprefix $(BUILDROOT)/,base src ui doc deps test test/perf)
 BUILDDIRMAKE := $(addsuffix /Makefile,$(BUILDDIRS))
@@ -213,24 +213,24 @@ BASE_SRCS := $(shell find $(JULIAHOME)/base -name \*.jl)
 
 $(build_private_libdir)/inference.ji: $(CORE_SRCS) | $(build_private_libdir)
 	@$(call PRINT_JULIA, cd $(JULIAHOME)/base && \
-	$(call spawn,$(JULIA_EXECUTABLE)) -C $(JULIA_CPU_TARGET) --output-ji $(call cygpath_w,$@) -f \
-		coreimg.jl)
+	$(call spawn,$(JULIA_EXECUTABLE)) -C $(JULIA_CPU_TARGET) --output-ji $(call cygpath_w,$@) \
+		--startup-file=no coreimg.jl)
 
 RELBUILDROOT := $(shell $(JULIAHOME)/contrib/relative_path.sh "$(JULIAHOME)/base" "$(BUILDROOT)/base/")
 COMMA:=,
 define sysimg_builder
 $$(build_private_libdir)/sys$1.o: $$(build_private_libdir)/inference.ji $$(JULIAHOME)/VERSION $$(BASE_SRCS)
 	@$$(call PRINT_JULIA, cd $$(JULIAHOME)/base && \
-	$$(call spawn,$3) $2 -C $$(JULIA_CPU_TARGET) --output-o $$(call cygpath_w,$$@) $$(JULIA_SYSIMG_BUILD_FLAGS) -f \
-		-J $$(call cygpath_w,$$<) sysimg.jl $$(RELBUILDROOT) \
+	$$(call spawn,$3) $2 -C $$(JULIA_CPU_TARGET) --output-o $$(call cygpath_w,$$@) $$(JULIA_SYSIMG_BUILD_FLAGS) \
+		--startup-file=no --sysimage $$(call cygpath_w,$$<) sysimg.jl $$(RELBUILDROOT) \
 		|| { echo '*** This error is usually fixed by running `make clean`. If the error persists$$(COMMA) try `make cleanall`. ***' && false; } )
 .SECONDARY: $(build_private_libdir)/sys$1.o
 endef
 $(eval $(call sysimg_builder,,-O3,$(JULIA_EXECUTABLE_release)))
 $(eval $(call sysimg_builder,-debug,-O0,$(JULIA_EXECUTABLE_debug)))
 
-$(build_bindir)/stringreplace: $(JULIAHOME)/contrib/stringreplace.c | $(build_bindir)
-	@$(call PRINT_CC, $(HOSTCC) -o $(build_bindir)/stringreplace $(JULIAHOME)/contrib/stringreplace.c)
+$(build_depsbindir)/stringreplace: $(JULIAHOME)/contrib/stringreplace.c | $(build_depsbindir)
+	@$(call PRINT_CC, $(HOSTCC) -o $(build_depsbindir)/stringreplace $(JULIAHOME)/contrib/stringreplace.c)
 
 
 # public libraries, that are installed in $(prefix)/lib
@@ -239,7 +239,7 @@ JL_LIBS := julia julia-debug
 # private libraries, that are installed in $(prefix)/lib/julia
 JL_PRIVATE_LIBS := ccalltest
 ifeq ($(USE_GPL_LIBS), 1)
-JL_PRIVATE_LIBS += suitesparse_wrapper Rmath-julia
+JL_PRIVATE_LIBS += suitesparse_wrapper
 endif
 ifeq ($(USE_SYSTEM_FFTW),0)
 ifeq ($(USE_GPL_LIBS), 1)
@@ -271,6 +271,12 @@ endif
 ifeq ($(USE_SYSTEM_MPFR),0)
 JL_PRIVATE_LIBS += mpfr
 endif
+ifeq ($(USE_SYSTEM_MBEDTLS),0)
+JL_PRIVATE_LIBS += mbedtls mbedcrypto mbedx509
+endif
+ifeq ($(USE_SYSTEM_LIBSSH2),0)
+JL_PRIVATE_LIBS += ssh2
+endif
 ifeq ($(USE_SYSTEM_LIBGIT2),0)
 JL_PRIVATE_LIBS += git2
 endif
@@ -297,9 +303,11 @@ endif
 
 ifeq ($(OS),WINNT)
 define std_dll
-julia-deps: | $$(build_bindir)/lib$(1).dll
+julia-deps: | $$(build_bindir)/lib$(1).dll $$(build_depsbindir)/lib$(1).dll
 $$(build_bindir)/lib$(1).dll: | $$(build_bindir)
-	cp $$(call pathsearch,lib$(1).dll,$$(STD_LIB_PATH)) $$(build_bindir) ;
+	cp $$(call pathsearch,lib$(1).dll,$$(STD_LIB_PATH)) $$(build_bindir)
+$$(build_depsbindir)/lib$(1).dll: | $$(build_depsbindir)
+	cp $$(call pathsearch,lib$(1).dll,$$(STD_LIB_PATH)) $$(build_depsbindir)
 JL_LIBS += $(1)
 endef
 $(eval $(call std_dll,gfortran-3))
@@ -313,10 +321,10 @@ endif
 $(eval $(call std_dll,ssp-0))
 endif
 define stringreplace
-	$(build_bindir)/stringreplace $$(strings -t x - $1 | grep '$2' | awk '{print $$1;}') '$3' 255 "$(call cygpath_w,$1)"
+	$(build_depsbindir)/stringreplace $$(strings -t x - $1 | grep '$2' | awk '{print $$1;}') '$3' 255 "$(call cygpath_w,$1)"
 endef
 
-install: $(build_bindir)/stringreplace $(BUILDROOT)/doc/_build/html
+install: $(build_depsbindir)/stringreplace $(BUILDROOT)/doc/_build/html
 	@$(MAKE) $(QUIET_MAKE) all
 	@for subdir in $(bindir) $(libexecdir) $(datarootdir)/julia/site/$(VERSDIR) $(docdir) $(man1dir) $(includedir)/julia $(libdir) $(private_libdir) $(sysconfdir); do \
 		mkdir -p $(DESTDIR)$$subdir; \
@@ -424,12 +432,6 @@ distclean dist-clean:
 dist:
 	@echo \'dist\' target is deprecated: use \'binary-dist\' instead.
 
-ifeq ($(ARCH),x86_64)
-GITCONFIG := $(BUILDROOT)/julia-$(JULIA_COMMIT)/Git/mingw64/etc/gitconfig
-else
-GITCONFIG := $(BUILDROOT)/julia-$(JULIA_COMMIT)/Git/mingw32/etc/gitconfig
-endif
-
 binary-dist: distclean
 ifeq ($(USE_SYSTEM_BLAS),0)
 ifeq ($(ISX86),1)
@@ -466,11 +468,7 @@ endif
 
 ifeq ($(OS), WINNT)
 	[ ! -d $(JULIAHOME)/dist-extras ] || ( cd $(JULIAHOME)/dist-extras && \
-		cp 7z.exe 7z.dll libexpat-1.dll zlib1.dll libgfortran-3.dll libquadmath-0.dll libstdc++-6.dll libgcc_s_s*-1.dll libssp-0.dll $(BUILDROOT)/julia-$(JULIA_COMMIT)/bin && \
-	    mkdir $(BUILDROOT)/julia-$(JULIA_COMMIT)/Git && \
-	    7z x PortableGit.7z -o"$(BUILDROOT)/julia-$(JULIA_COMMIT)/Git" && \
-	    echo "[core] eol = lf" >> "$(GITCONFIG)" && \
-	    sed -i "s/\bautocrlf = true$$/autocrlf = input/" "$(GITCONFIG)" )
+		cp 7z.exe 7z.dll busybox.exe libexpat-1.dll zlib1.dll libgfortran-3.dll libquadmath-0.dll libstdc++-6.dll libgcc_s_s*-1.dll libssp-0.dll $(BUILDROOT)/julia-$(JULIA_COMMIT)/bin )
 	cd $(BUILDROOT)/julia-$(JULIA_COMMIT)/bin && rm -f llvm* llc.exe lli.exe opt.exe LTO.dll bugpoint.exe macho-dump.exe
 
 	# create file listing for uninstall. note: must have Windows path separators and line endings.
@@ -532,7 +530,7 @@ clean: | $(CLEAN_TARGETS)
 	@-$(MAKE) -C $(BUILDROOT)/test clean
 	-rm -f $(BUILDROOT)/julia
 	-rm -f $(BUILDROOT)/*.tar.gz
-	-rm -f $(build_bindir)/stringreplace \
+	-rm -f $(build_depsbindir)/stringreplace \
 	   $(BUILDROOT)/light-source-dist.tmp $(BUILDROOT)/light-source-dist.tmp1 \
 	   $(BUILDROOT)/full-source-dist.tmp $(BUILDROOT)/full-source-dist.tmp1
 	-rm -fr $(build_private_libdir)
@@ -598,13 +596,12 @@ ifneq (,$(filter $(ARCH), i386 i486 i586 i686))
 		"mingw32-libexpat1 mingw32-zlib1" && \
 	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libgfortran3-5.3.0-1.1.noarch.rpm && \
 	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libquadmath0-5.3.0-1.1.noarch.rpm && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libstdc++6-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libstdc%2B%2B6-5.3.0-1.1.noarch.rpm && \
 	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libgcc_s_sjlj1-5.3.0-1.1.noarch.rpm && \
 	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw32-libssp0-5.3.0-1.1.noarch.rpm && \
 	for i in *.rpm; do 7z x -y $$i; done && \
 	for i in *.cpio; do 7z x -y $$i; done && \
-	cp usr/i686-w64-mingw32/sys-root/mingw/bin/*.dll . && \
-	$(JLDOWNLOAD) PortableGit.7z https://github.com/git-for-windows/git/releases/download/v2.6.1.windows.1/PortableGit-2.6.1-32-bit.7z.exe
+	cp usr/i686-w64-mingw32/sys-root/mingw/bin/*.dll .
 else ifeq ($(ARCH),x86_64)
 	cd $(JULIAHOME)/dist-extras && \
 	$(JLDOWNLOAD) 7z920-x64.msi http://downloads.sourceforge.net/sevenzip/7z920-x64.msi && \
@@ -615,29 +612,30 @@ else ifeq ($(ARCH),x86_64)
 		"mingw64-libexpat1 mingw64-zlib1" && \
 	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libgfortran3-5.3.0-1.1.noarch.rpm && \
 	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libquadmath0-5.3.0-1.1.noarch.rpm && \
-	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libstdc++6-5.3.0-1.1.noarch.rpm && \
+	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libstdc%2B%2B6-5.3.0-1.1.noarch.rpm && \
 	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libgcc_s_seh1-5.3.0-1.1.noarch.rpm && \
 	$(JLDOWNLOAD) https://juliacache.s3.amazonaws.com/mingw64-libssp0-5.3.0-1.1.noarch.rpm && \
 	for i in *.rpm; do 7z x -y $$i; done && \
 	for i in *.cpio; do 7z x -y $$i; done && \
-	cp usr/x86_64-w64-mingw32/sys-root/mingw/bin/*.dll . && \
-	$(JLDOWNLOAD) PortableGit.7z https://github.com/git-for-windows/git/releases/download/v2.6.1.windows.1/PortableGit-2.6.1-64-bit.7z.exe
+	cp usr/x86_64-w64-mingw32/sys-root/mingw/bin/*.dll .
 else
 	$(error no win-extras target for ARCH=$(ARCH))
 endif
 	cd $(JULIAHOME)/dist-extras && \
 	$(JLDOWNLOAD) http://downloads.sourceforge.net/sevenzip/7z920_extra.7z && \
 	$(JLDOWNLOAD) https://unsis.googlecode.com/files/nsis-2.46.5-Unicode-setup.exe && \
+	$(JLDOWNLOAD) busybox.exe http://frippery.org/files/busybox/busybox-w32-FRP-483-g31277ab.exe && \
 	chmod a+x 7z.exe && \
 	chmod a+x 7z.dll && \
 	$(call spawn,./7z.exe) x -y -onsis nsis-2.46.5-Unicode-setup.exe && \
-	chmod a+x ./nsis/makensis.exe
+	chmod a+x ./nsis/makensis.exe && \
+	chmod a+x busybox.exe
 
 # various statistics about the build that may interest the user
 ifeq ($(USE_SYSTEM_LLVM), 1)
 LLVM_SIZE := llvm-size$(EXE)
 else
-LLVM_SIZE := $(build_bindir)/llvm-size$(EXE)
+LLVM_SIZE := $(build_depsbindir)/llvm-size$(EXE)
 endif
 build-stats:
 	@echo $(JULCOLOR)' ==> ./julia binary sizes'$(ENDCOLOR)

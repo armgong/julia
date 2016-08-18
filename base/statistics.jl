@@ -2,20 +2,29 @@
 
 ##### mean #####
 
-function mean(iterable)
+"""
+    mean(f::Function, v)
+
+Apply the function `f` to each element of `v` and take the mean.
+"""
+function mean(f::Callable, iterable)
     state = start(iterable)
     if done(iterable, state)
         throw(ArgumentError("mean of empty collection undefined: $(repr(iterable))"))
     end
     count = 1
-    total, state = next(iterable, state)
+    value, state = next(iterable, state)
+    f_value = f(value)
+    total = f_value + zero(f_value)
     while !done(iterable, state)
         value, state = next(iterable, state)
-        total += value
+        total += f(value)
         count += 1
     end
     return total/count
 end
+mean(iterable) = mean(identity, iterable)
+mean(f::Callable, A::AbstractArray) = sum(f, A) / length(A)
 mean(A::AbstractArray) = sum(A) / length(A)
 
 function mean!{T}(R::AbstractArray{T}, A::AbstractArray)
@@ -76,66 +85,49 @@ function var(iterable; corrected::Bool=true, mean=nothing)
     end
 end
 
-function varzm{T}(A::AbstractArray{T}; corrected::Bool=true)
-    n = length(A)
-    n == 0 && return convert(real(momenttype(T)), NaN)
-    return sumabs2(A) / (n - Int(corrected))
-end
-
-function varzm!{S}(R::AbstractArray{S}, A::AbstractArray; corrected::Bool=true)
-    if isempty(A)
-        fill!(R, convert(S, NaN))
-    else
-        rn = div(length(A), length(r)) - Int(corrected)
-        scale!(sumabs2!(R, A; init=true), convert(S, 1/rn))
-    end
-    return R
-end
-
-varzm{T}(A::AbstractArray{T}, region; corrected::Bool=true) =
-    varzm!(reducedim_initarray(A, region, 0, real(momenttype(T))), A; corrected=corrected)
-
 centralizedabs2fun(m::Number) = x -> abs2(x - m)
 centralize_sumabs2(A::AbstractArray, m::Number) =
     mapreduce(centralizedabs2fun(m), +, A)
 centralize_sumabs2(A::AbstractArray, m::Number, ifirst::Int, ilast::Int) =
     mapreduce_impl(centralizedabs2fun(m), +, A, ifirst, ilast)
 
-@generated function centralize_sumabs2!{S,T,N}(R::AbstractArray{S}, A::AbstractArray{T,N}, means::AbstractArray)
-    quote
-        # following the implementation of _mapreducedim! at base/reducedim.jl
-        lsiz = check_reducedims(R,A)
-        isempty(R) || fill!(R, zero(S))
-        isempty(A) && return R
-        @nextract $N sizeR d->size(R,d)
-        sizA1 = size(A, 1)
+function centralize_sumabs2!{S,T,N}(R::AbstractArray{S}, A::AbstractArray{T,N}, means::AbstractArray)
+    # following the implementation of _mapreducedim! at base/reducedim.jl
+    lsiz = check_reducedims(R,A)
+    isempty(R) || fill!(R, zero(S))
+    isempty(A) && return R
 
-        if has_fast_linear_indexing(A) && lsiz > 16
-            # use centralize_sumabs2, which is probably better tuned to achieve higher performance
-            nslices = div(length(A), lsiz)
-            ibase = 0
-            for i = 1:nslices
-                @inbounds R[i] = centralize_sumabs2(A, means[i], ibase+1, ibase+lsiz)
-                ibase += lsiz
-            end
-        elseif size(R, 1) == 1 && sizA1 > 1
-            # keep the accumulator as a local variable when reducing along the first dimension
-            @nloops $N i d->(d>1? (1:size(A,d)) : (1:1)) d->(j_d = sizeR_d==1 ? 1 : i_d) begin
-                @inbounds r = (@nref $N R j)
-                @inbounds m = (@nref $N means j)
-                for i_1 = 1:sizA1                # fixme (iter): change when #15459 is done
-                    @inbounds r += abs2((@nref $N A i) - m)
-                end
-                @inbounds (@nref $N R j) = r
-            end
-        else
-            # general implementation
-            @nloops $N i A d->(j_d = sizeR_d==1 ? 1 : i_d) begin
-                @inbounds (@nref $N R j) += abs2((@nref $N A i) - (@nref $N means j))
-            end
+    if has_fast_linear_indexing(A) && lsiz > 16
+        nslices = div(_length(A), lsiz)
+        ibase = first(linearindices(A))-1
+        for i = 1:nslices
+            @inbounds R[i] = centralize_sumabs2(A, means[i], ibase+1, ibase+lsiz)
+            ibase += lsiz
         end
         return R
     end
+    indsAt, indsRt = safe_tail(indices(A)), safe_tail(indices(R)) # handle d=1 manually
+    keep, Idefault = Broadcast.newindexer(indsAt, indsRt)
+    if reducedim1(R, A)
+        i1 = first(indices1(R))
+        @inbounds for IA in CartesianRange(indsAt)
+            IR = Broadcast.newindex(IA, keep, Idefault)
+            r = R[i1,IR]
+            m = means[i1,IR]
+            @simd for i in indices(A, 1)
+                r += abs2(A[i,IA] - m)
+            end
+            R[i1,IR] = r
+        end
+    else
+        @inbounds for IA in CartesianRange(indsAt)
+            IR = Broadcast.newindex(IA, keep, Idefault)
+            @simd for i in indices(A, 1)
+                R[i,IR] += abs2(A[i,IA] - means[i,IR])
+            end
+        end
+    end
+    return R
 end
 
 function varm{T}(A::AbstractArray{T}, m::Number; corrected::Bool=true)
@@ -159,20 +151,12 @@ varm{T}(A::AbstractArray{T}, m::AbstractArray, region; corrected::Bool=true) =
     varm!(reducedim_initarray(A, region, 0, real(momenttype(T))), A, m; corrected=corrected)
 
 
-function var{T}(A::AbstractArray{T}; corrected::Bool=true, mean=nothing)
+var{T}(A::AbstractArray{T}; corrected::Bool=true, mean=nothing) =
     convert(real(momenttype(T)),
-            mean == 0 ? varzm(A; corrected=corrected) :
-            mean === nothing ? varm(A, Base.mean(A); corrected=corrected) :
-            isa(mean, Number) ? varm(A, mean::Number; corrected=corrected) :
-            throw(ArgumentError("invalid value of mean, $(mean)::$(typeof(mean))")))::real(momenttype(T))
-end
+            varm(A, mean === nothing ? Base.mean(A) : mean; corrected=corrected))
 
-function var(A::AbstractArray, region; corrected::Bool=true, mean=nothing)
-    mean == 0 ? varzm(A, region; corrected=corrected) :
-    mean === nothing ? varm(A, Base.mean(A, region), region; corrected=corrected) :
-    isa(mean, AbstractArray) ? varm(A, mean::AbstractArray, region; corrected=corrected) :
-    throw(ArgumentError("invalid value of mean, $(mean)::$(typeof(mean))"))
-end
+var(A::AbstractArray, region; corrected::Bool=true, mean=nothing) =
+    varm(A, mean === nothing ? Base.mean(A, region) : mean, region; corrected=corrected)
 
 varm(iterable, m::Number; corrected::Bool=true) =
     var(iterable, corrected=corrected, mean=m)
@@ -384,25 +368,6 @@ function corzm(x::AbstractMatrix, vardim::Int=1)
     c = unscaled_covzm(x, vardim)
     return cov2cor!(c, sqrt!(diag(c)))
 end
-function corzm(x::AbstractVector, y::AbstractVector)
-    n = length(x)
-    length(y) == n || throw(DimensionMismatch("inconsistent lengths"))
-    x1 = x[1]
-    y1 = y[1]
-    xx = abs2(x1)
-    yy = abs2(y1)
-    xy = x1 * conj(y1)
-    i = 1
-    while i < n
-        i += 1
-        @inbounds xi = x[i]
-        @inbounds yi = y[i]
-        xx += abs2(xi)
-        yy += abs2(yi)
-        xy += xi * conj(yi)
-    end
-    return xy / (sqrt(xx) * sqrt(yy))
-end
 corzm(x::AbstractVector, y::AbstractMatrix, vardim::Int=1) =
     cov2cor!(unscaled_covzm(x, y, vardim), sqrt(sumabs2(x)), sqrt!(sumabs2(y, vardim)))
 corzm(x::AbstractMatrix, y::AbstractVector, vardim::Int=1) =
@@ -414,7 +379,27 @@ corzm(x::AbstractMatrix, y::AbstractMatrix, vardim::Int=1) =
 
 corm{T}(x::AbstractVector{T}, xmean) = one(real(T))
 corm(x::AbstractMatrix, xmean, vardim::Int=1) = corzm(x .- xmean, vardim)
-corm(x::AbstractVector, xmean, y::AbstractVector, ymean) = corzm(x .- xmean, y .- ymean)
+function corm(x::AbstractVector, mx::Number, y::AbstractVector, my::Number)
+    n = length(x)
+    length(y) == n || throw(DimensionMismatch("inconsistent lengths"))
+    n > 0 || throw(ArgumentError("correlation only defined for non-empty vectors"))
+
+    @inbounds begin
+        # Initialize the accumulators
+        xx = zero(sqrt(x[1] * x[1]))
+        yy = zero(sqrt(y[1] * y[1]))
+        xy = zero(xx * yy)
+
+        @simd for i = 1:n
+            xi = x[i] - mx
+            yi = y[i] - my
+            xx += abs2(xi)
+            yy += abs2(yi)
+            xy += xi * yi'
+        end
+    end
+    return clamp(xy / max(xx, yy) / sqrt(min(xx, yy) / max(xx, yy)), -1, 1)
+end
 corm(x::AbstractVecOrMat, xmean, y::AbstractVecOrMat, ymean, vardim::Int=1) =
     corzm(x .- xmean, y .- ymean, vardim)
 
@@ -506,8 +491,8 @@ function median!{T}(v::AbstractVector{T})
     end
 end
 median!{T}(v::AbstractArray{T}) = median!(vec(v))
+median{T}(v::AbstractArray{T}) = median!(copy!(Array{T,1}(length(v)), v))
 
-median{T}(v::AbstractArray{T}) = median!(copy!(Array(T, length(v)), v))
 median{T}(v::AbstractArray{T}, region) = mapslices(median!, v, region)
 
 # for now, use the R/S definition of quantile; may want variants later

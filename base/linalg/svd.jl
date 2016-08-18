@@ -95,7 +95,7 @@ svdvals{T, Tr}(S::SVD{T, Tr}) = (S[:S])::Vector{Tr}
 # SVD least squares
 function A_ldiv_B!{Ta,Tb}(A::SVD{Ta}, B::StridedVecOrMat{Tb})
     k = searchsortedlast(A.S, eps(real(Ta))*A.S[1], rev=true)
-    sub(A.Vt,1:k,:)' * (sub(A.S,1:k) .\ (sub(A.U,:,1:k)' * B))
+    view(A.Vt,1:k,:)' * (view(A.S,1:k) .\ (view(A.U,:,1:k)' * B))
 end
 
 # Generalized svd
@@ -236,4 +236,9 @@ function svdvals{TA,TB}(A::StridedMatrix{TA}, B::StridedMatrix{TB})
     return svdvals!(copy_oftype(A, S), copy_oftype(B, S))
 end
 
-full(F::SVD) = (F.U * Diagonal(F.S)) * F.Vt
+# Conversion
+convert(::Type{AbstractMatrix}, F::SVD) = (F.U * Diagonal(F.S)) * F.Vt
+convert(::Type{AbstractArray}, F::SVD) = convert(AbstractMatrix, F)
+convert(::Type{Matrix}, F::SVD) = convert(Array, convert(AbstractArray, F))
+convert(::Type{Array}, F::SVD) = convert(Matrix, F)
+full(F::SVD) = convert(Array, F)

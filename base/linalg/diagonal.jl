@@ -5,7 +5,17 @@
 immutable Diagonal{T} <: AbstractMatrix{T}
     diag::Vector{T}
 end
+"""
+    Diagonal(A::AbstractMatrix)
+
+Constructs a matrix from the diagonal of `A`.
+"""
 Diagonal(A::AbstractMatrix) = Diagonal(diag(A))
+"""
+    Diagonal(V::AbstractVector)
+
+Constructs a matrix with `V` as its diagonal.
+"""
 Diagonal(V::AbstractVector) = Diagonal(collect(V))
 
 convert{T}(::Type{Diagonal{T}}, D::Diagonal{T}) = D
@@ -13,6 +23,9 @@ convert{T}(::Type{Diagonal{T}}, D::Diagonal) = Diagonal{T}(convert(Vector{T}, D.
 convert{T}(::Type{AbstractMatrix{T}}, D::Diagonal) = convert(Diagonal{T}, D)
 convert{T}(::Type{UpperTriangular}, A::Diagonal{T}) = UpperTriangular(A)
 convert{T}(::Type{LowerTriangular}, A::Diagonal{T}) = LowerTriangular(A)
+convert(::Type{Matrix}, D::Diagonal) = diagm(D.diag)
+convert(::Type{Array}, D::Diagonal) = convert(Matrix, D)
+full(D::Diagonal) = convert(Array, D)
 
 function similar{T}(D::Diagonal, ::Type{T})
     return Diagonal{T}(similar(D.diag, T))
@@ -28,8 +41,6 @@ function size(D::Diagonal,d::Integer)
     end
     return d<=2 ? length(D.diag) : 1
 end
-
-full(D::Diagonal) = diagm(D.diag)
 
 @inline function getindex(D::Diagonal, i::Int, j::Int)
     @boundscheck checkbounds(D, i, j)
@@ -104,31 +115,85 @@ end
 /{T<:Number}(D::Diagonal, x::T) = Diagonal(D.diag / x)
 *(Da::Diagonal, Db::Diagonal) = Diagonal(Da.diag .* Db.diag)
 *(D::Diagonal, V::AbstractVector) = D.diag .* V
-# To avoid ambiguity in the definitions below
-for uplo in (:LowerTriangular, :UpperTriangular)
-    @eval begin
-        (*)(A::$uplo, D::Diagonal) = $uplo(A.data * D)
 
-        function (*)(A::$(Symbol(:Unit, uplo)), D::Diagonal)
-            B = A.data * D
-            for i = 1:size(A, 1)
-                B[i,i] = D.diag[i]
-            end
-            return $uplo(B)
-        end
-    end
-end
-(*)(A::AbstractTriangular, D::Diagonal) = error("this method should never be reached")
-(*)(D::Diagonal, A::AbstractTriangular) = error("this method should never be reached")
+(*)(A::AbstractTriangular, D::Diagonal) = A_mul_B!(copy(A), D)
+(*)(D::Diagonal, B::AbstractTriangular) = A_mul_B!(D, copy(B))
 
 (*)(A::AbstractMatrix, D::Diagonal) =
     scale!(similar(A, promote_op(*, eltype(A), eltype(D.diag))), A, D.diag)
 (*)(D::Diagonal, A::AbstractMatrix) =
     scale!(similar(A, promote_op(*, eltype(A), eltype(D.diag))), D.diag, A)
 
-A_mul_B!(A::Diagonal,B::AbstractMatrix) = scale!(A.diag,B)
-At_mul_B!(A::Diagonal,B::AbstractMatrix)= scale!(A.diag,B)
-Ac_mul_B!(A::Diagonal,B::AbstractMatrix)= scale!(conj(A.diag),B)
+A_mul_B!(A::Union{LowerTriangular,UpperTriangular}, D::Diagonal) =
+    typeof(A)(A_mul_B!(A.data, D))
+function A_mul_B!(A::UnitLowerTriangular, D::Diagonal)
+    A_mul_B!(A.data, D)
+    for i = 1:size(A, 1)
+        A.data[i,i] = D.diag[i]
+    end
+    LowerTriangular(A.data)
+end
+function A_mul_B!(A::UnitUpperTriangular, D::Diagonal)
+    A_mul_B!(A.data, D)
+    for i = 1:size(A, 1)
+        A.data[i,i] = D.diag[i]
+    end
+    UpperTriangular(A.data)
+end
+function A_mul_B!(D::Diagonal, B::UnitLowerTriangular)
+    A_mul_B!(D, B.data)
+    for i = 1:size(B, 1)
+        B.data[i,i] = D.diag[i]
+    end
+    LowerTriangular(B.data)
+end
+function A_mul_B!(D::Diagonal, B::UnitUpperTriangular)
+    A_mul_B!(D, B.data)
+    for i = 1:size(B, 1)
+        B.data[i,i] = D.diag[i]
+    end
+    UpperTriangular(B.data)
+end
+
+Ac_mul_B(A::AbstractTriangular, D::Diagonal) = A_mul_B!(ctranspose(A), D)
+function Ac_mul_B(A::AbstractMatrix, D::Diagonal)
+    Ac = similar(A, promote_op(*, eltype(A), eltype(D.diag)), (size(A, 2), size(A, 1)))
+    ctranspose!(Ac, A)
+    A_mul_B!(Ac, D)
+end
+
+At_mul_B(A::AbstractTriangular, D::Diagonal) = A_mul_B!(transpose(A), D)
+function At_mul_B(A::AbstractMatrix, D::Diagonal)
+    At = similar(A, promote_op(*, eltype(A), eltype(D.diag)), (size(A, 2), size(A, 1)))
+    transpose!(At, A)
+    A_mul_B!(At, D)
+end
+
+A_mul_Bc(D::Diagonal, B::AbstractTriangular) = A_mul_B!(D, ctranspose(B))
+A_mul_Bc(D::Diagonal, Q::Union{Base.LinAlg.QRCompactWYQ,Base.LinAlg.QRPackedQ}) = A_mul_Bc!(Array(D), Q)
+function A_mul_Bc(D::Diagonal, A::AbstractMatrix)
+    Ac = similar(A, promote_op(*, eltype(A), eltype(D.diag)), (size(A, 2), size(A, 1)))
+    ctranspose!(Ac, A)
+    A_mul_B!(D, Ac)
+end
+
+A_mul_Bt(D::Diagonal, B::AbstractTriangular) = A_mul_B!(D, transpose(B))
+function A_mul_Bt(D::Diagonal, A::AbstractMatrix)
+    At = similar(A, promote_op(*, eltype(A), eltype(D.diag)), (size(A, 2), size(A, 1)))
+    transpose!(At, A)
+    A_mul_B!(D, At)
+end
+
+A_mul_B!(A::Diagonal,B::Diagonal)  = throw(MethodError(A_mul_B!, Tuple{Diagonal,Diagonal}))
+At_mul_B!(A::Diagonal,B::Diagonal) = throw(MethodError(At_mul_B!, Tuple{Diagonal,Diagonal}))
+Ac_mul_B!(A::Diagonal,B::Diagonal) = throw(MethodError(Ac_mul_B!, Tuple{Diagonal,Diagonal}))
+A_mul_B!(A::Base.LinAlg.QRPackedQ, D::Diagonal) = throw(MethodError(A_mul_B!, Tuple{Diagonal,Diagonal}))
+A_mul_B!(A::Diagonal,B::AbstractMatrix)  = scale!(A.diag,B)
+At_mul_B!(A::Diagonal,B::AbstractMatrix) = scale!(A.diag,B)
+Ac_mul_B!(A::Diagonal,B::AbstractMatrix) = scale!(conj(A.diag),B)
+A_mul_B!(A::AbstractMatrix,B::Diagonal)  = scale!(A,B.diag)
+A_mul_Bt!(A::AbstractMatrix,B::Diagonal) = scale!(A,B.diag)
+A_mul_Bc!(A::AbstractMatrix,B::Diagonal) = scale!(A,conj(B.diag))
 
 /(Da::Diagonal, Db::Diagonal) = Diagonal(Da.diag ./ Db.diag )
 function A_ldiv_B!{T}(D::Diagonal{T}, v::AbstractVector{T})

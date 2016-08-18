@@ -1,14 +1,67 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+module TestBroadcastInternals
+
+using Base.Broadcast: broadcast_shape, check_broadcast_shape, newindex, _bcs, _bcsm
+using Base: Test, OneTo
+
+@test @inferred(_bcs((), (3,5), (3,5))) == (3,5)
+@test @inferred(_bcs((), (3,1), (3,5))) == (3,5)
+@test @inferred(_bcs((), (3,),  (3,5))) == (3,5)
+@test @inferred(_bcs((), (3,5), (3,)))  == (3,5)
+@test_throws DimensionMismatch _bcs((), (3,5), (4,5))
+@test_throws DimensionMismatch _bcs((), (3,5), (3,4))
+@test @inferred(_bcs((), (-1:1, 2:5), (-1:1, 2:5))) == (-1:1, 2:5)
+@test @inferred(_bcs((), (-1:1, 2:5), (1, 2:5)))    == (-1:1, 2:5)
+@test @inferred(_bcs((), (-1:1, 1),   (1, 2:5)))    == (-1:1, 2:5)
+@test @inferred(_bcs((), (-1:1,),     (-1:1, 2:5))) == (-1:1, 2:5)
+@test_throws DimensionMismatch _bcs((), (-1:1, 2:6), (-1:1, 2:5))
+@test_throws DimensionMismatch _bcs((), (-1:1, 2:5), (2, 2:5))
+
+@test @inferred(broadcast_shape(zeros(3,4), zeros(3,4))) == (OneTo(3),OneTo(4))
+@test @inferred(broadcast_shape(zeros(3,4), zeros(3)))   == (OneTo(3),OneTo(4))
+@test @inferred(broadcast_shape(zeros(3),   zeros(3,4))) == (OneTo(3),OneTo(4))
+@test @inferred(broadcast_shape(zeros(3), zeros(1,4), zeros(1))) == (OneTo(3),OneTo(4))
+
+check_broadcast_shape((OneTo(3),OneTo(5)), zeros(3,5))
+check_broadcast_shape((OneTo(3),OneTo(5)), zeros(3,1))
+check_broadcast_shape((OneTo(3),OneTo(5)), zeros(3))
+check_broadcast_shape((OneTo(3),OneTo(5)), zeros(3,5), zeros(3))
+check_broadcast_shape((OneTo(3),OneTo(5)), zeros(3,5), 1)
+check_broadcast_shape((OneTo(3),OneTo(5)), 5, 2)
+@test_throws DimensionMismatch check_broadcast_shape((OneTo(3),OneTo(5)), zeros(2,5))
+@test_throws DimensionMismatch check_broadcast_shape((OneTo(3),OneTo(5)), zeros(3,4))
+@test_throws DimensionMismatch check_broadcast_shape((OneTo(3),OneTo(5)), zeros(3,4,2))
+@test_throws DimensionMismatch check_broadcast_shape((OneTo(3),OneTo(5)), zeros(3,5), zeros(2))
+
+check_broadcast_shape((-1:1, 6:9), (-1:1, 6:9))
+check_broadcast_shape((-1:1, 6:9), (-1:1, 1))
+check_broadcast_shape((-1:1, 6:9), (1, 6:9))
+@test_throws DimensionMismatch check_broadcast_shape((-1:1, 6:9), (-1, 6:9))
+@test_throws DimensionMismatch check_broadcast_shape((-1:1, 6:9), (-1:1, 6))
+check_broadcast_shape((-1:1, 6:9), 1)
+
+ci(x) = CartesianIndex(x)
+@test @inferred(newindex(ci((2,2)), (true, true), (-1,-1)))   == ci((2,2))
+@test @inferred(newindex(ci((2,2)), (true, false), (-1,-1)))  == ci((2,-1))
+@test @inferred(newindex(ci((2,2)), (false, true), (-1,-1)))  == ci((-1,2))
+@test @inferred(newindex(ci((2,2)), (false, false), (-1,-1))) == ci((-1,-1))
+@test @inferred(newindex(ci((2,2)), (true,), (-1,-1)))   == ci((2,))
+@test @inferred(newindex(ci((2,2)), (true,), (-1,)))   == ci((2,))
+@test @inferred(newindex(ci((2,2)), (false,), (-1,))) == ci((-1,))
+@test @inferred(newindex(ci((2,2)), (), ())) == ci(())
+
+end
+
 function as_sub(x::AbstractVector)
     y = similar(x, eltype(x), tuple(([size(x)...]*2)...))
-    y = sub(y, 2:2:length(y))
+    y = view(y, 2:2:length(y))
     y[:] = x[:]
     y
 end
 function as_sub(x::AbstractMatrix)
     y = similar(x, eltype(x), tuple(([size(x)...]*2)...))
-    y = sub(y, 2:2:size(y,1), 2:2:size(y,2))
+    y = view(y, 2:2:size(y,1), 2:2:size(y,2))
     for j=1:size(x,2)
         for i=1:size(x,1)
             y[i,j] = x[i,j]
@@ -18,7 +71,7 @@ function as_sub(x::AbstractMatrix)
 end
 function as_sub{T}(x::AbstractArray{T,3})
     y = similar(x, eltype(x), tuple(([size(x)...]*2)...))
-    y = sub(y, 2:2:size(y,1), 2:2:size(y,2), 2:2:size(y,3))
+    y = view(y, 2:2:size(y,1), 2:2:size(y,2), 2:2:size(y,3))
     for k=1:size(x,3)
         for j=1:size(x,2)
             for i=1:size(x,1)
@@ -106,13 +159,13 @@ ratio = [1,1/2,1/3,1/4,1/5]
 @test r1./r2 == ratio
 m = [1:2;]'
 @test m.*r2 == [1:5 2:2:10]
-@test_approx_eq m./r2 [ratio 2ratio]
-@test_approx_eq m./[r2;] [ratio 2ratio]
+@test m./r2 ≈ [ratio 2ratio]
+@test m./[r2;] ≈ [ratio 2ratio]
 
 @test @inferred([0,1.2].+reshape([0,-2],1,1,2)) == reshape([0 -2; 1.2 -0.8],2,1,2)
 rt = Base.return_types(.+, Tuple{Array{Float64, 3}, Array{Int, 1}})
 @test length(rt) == 1 && rt[1] == Array{Float64, 3}
-rt = Base.return_types(broadcast, Tuple{Function, Array{Float64, 3}, Array{Int, 1}})
+rt = Base.return_types(broadcast, Tuple{typeof(.+), Array{Float64, 3}, Array{Int, 3}})
 @test length(rt) == 1 && rt[1] == Array{Float64, 3}
 rt = Base.return_types(broadcast!, Tuple{Function, Array{Float64, 3}, Array{Float64, 3}, Array{Int, 1}})
 @test length(rt) == 1 && rt[1] == Array{Float64, 3}
@@ -142,4 +195,92 @@ end
 # issue 16164
 let a = broadcast(Float32, [3, 4, 5])
     @test eltype(a) == Float32
+end
+
+# broadcasting scalars:
+@test sin.(1) === broadcast(sin, 1) === sin(1)
+@test (()->1234).() === broadcast(()->1234) === 1234
+
+# issue #4883
+@test isa(broadcast(tuple, [1 2 3], ["a", "b", "c"]), Matrix{Tuple{Int,String}})
+@test isa(broadcast((x,y)->(x==1?1.0:x,y), [1 2 3], ["a", "b", "c"]), Matrix{Tuple{Real,String}})
+let a = length.(["foo", "bar"])
+    @test isa(a, Vector{Int})
+    @test a == [3, 3]
+end
+let a = sin.([1, 2])
+    @test isa(a, Vector{Float64})
+    @test a ≈ [0.8414709848078965, 0.9092974268256817]
+end
+
+# PR #17300: loop fusion
+@test (x->x+1).((x->x+2).((x->x+3).(1:10))) == collect(7:16)
+let A = [sqrt(i)+j for i = 1:3, j=1:4]
+    @test atan2.(log.(A), sum(A,1)) == broadcast(atan2, broadcast(log, A), sum(A, 1))
+end
+let x = sin.(1:10)
+    @test atan2.((x->x+1).(x), (x->x+2).(x)) == atan2(x+1, x+2) == atan2(x.+1, x.+2)
+    @test sin.(atan2.([x+1,x+2]...)) == sin.(atan2.(x+1,x+2))
+    @test sin.(atan2.(x, 3.7)) == broadcast(x -> sin(atan2(x,3.7)), x)
+    @test atan2.(x, 3.7) == broadcast(x -> atan2(x,3.7), x) == broadcast(atan2, x, 3.7)
+end
+# Use side effects to check for loop fusion.  Note that, due to #17314,
+# a broadcasted function is currently called an extra time with an argument 1.
+let g = Int[]
+    f17300(x) = begin; push!(g, x); x+1; end
+    f17300.(f17300.(f17300.(1:3)))
+    @test g == [1,2,3, 1,2,3, 2,3,4, 3,4,5]
+end
+# fusion with splatted args:
+let x = sin.(1:10), a = [x]
+    @test cos.(x) == cos.(a...)
+    @test atan2.(x,x) == atan2.(a..., a...) == atan2.([x, x]...)
+    @test atan2.(x, cos.(x)) == atan2.(a..., cos.(x)) == atan2(x, cos.(a...)) == atan2(a..., cos.(a...))
+    @test ((args...)->cos(args[1])).(x) == cos.(x) == ((y,args...)->cos(y)).(x)
+end
+@test atan2.(3,4) == atan2(3,4) == (() -> atan2(3,4)).()
+# fusion with keyword args:
+let x = [1:4;]
+    f17300kw(x; y=0) = x + y
+    @test f17300kw.(x) == x
+    @test f17300kw.(x, y=1) == f17300kw.(x; y=1) == f17300kw.(x; [(:y,1)]...) == x .+ 1
+    @test f17300kw.(sin.(x), y=1) == f17300kw.(sin.(x); y=1) == sin.(x) .+ 1
+    @test sin.(f17300kw.(x, y=1)) == sin.(f17300kw.(x; y=1)) == sin.(x .+ 1)
+end
+
+# PR #17510: Fused in-place assignment
+let x = [1:4;], y = x
+    y .= 2:5
+    @test y === x == [2:5;]
+    y .= factorial.(x)
+    @test y === x == [2,6,24,120]
+    y .= 7
+    @test y === x == [7,7,7,7]
+    y .= factorial.(3)
+    @test y === x == [6,6,6,6]
+    f17510() = 9
+    y .= f17510.()
+    @test y === x == [9,9,9,9]
+    y .-= 1
+    @test y === x == [8,8,8,8]
+    y .-= 1:4
+    @test y === x == [7,6,5,4]
+    x[1:2] .= 1
+    @test y === x == [1,1,5,4]
+    x[1:2] .+= [2,3]
+    @test y === x == [3,4,5,4]
+    x[:] .= 0
+    @test y === x == [0,0,0,0]
+    x[2:end] .= 1:3
+    @test y === x == [0,1,2,3]
+end
+
+# PR 16988
+@test Base.promote_op(+, Bool) === Int
+@test isa(broadcast(+, [true]), Array{Int,1})
+@test Base.promote_op(Float64, Bool) === Float64
+
+# issue #17304
+let foo = [[1,2,3],[4,5,6],[7,8,9]]
+    @test max.(foo...) == broadcast(max, foo...) == [7,8,9]
 end

@@ -80,12 +80,12 @@ if vendor() == :openblas64
     macro blasfunc(x)
         return Expr(:quote, Symbol(x, "64_"))
     end
-    openblas_get_config() = strip(String( ccall((:openblas_get_config64_, Base.libblas_name), Ptr{UInt8}, () )))
+    openblas_get_config() = strip(unsafe_string(ccall((:openblas_get_config64_, Base.libblas_name), Ptr{UInt8}, () )))
 else
     macro blasfunc(x)
         return Expr(:quote, x)
     end
-    openblas_get_config() = strip(String( ccall((:openblas_get_config, Base.libblas_name), Ptr{UInt8}, () )))
+    openblas_get_config() = strip(unsafe_string(ccall((:openblas_get_config, Base.libblas_name), Ptr{UInt8}, () )))
 end
 
 """
@@ -740,21 +740,26 @@ end
 ### trmv, Triangular matrix-vector multiplication
 
 """
-    trmv(side, ul, tA, dA, alpha, A, b)
+    trmv(ul, tA, dA, A, b)
 
-Returns `alpha*A*b` or one of the other three variants determined by `side` (`A` on left or
-right) and `tA` (transpose `A`). Only the `ul` triangle of `A` is used. `dA` indicates if
-`A` is unit-triangular (the diagonal is assumed to be all ones).
+Returns `op(A)*b`, where `op` is determined by `tA`
+(`N` for identity, `T` for transpose `A`, and `C` for conjugate
+transpose `A`). Only the `ul` triangle (`U` for upper, `L`
+for lower) of `A` is used. `dA` indicates if `A` is
+unit-triangular (the diagonal is assumed to be all ones if `U`,
+or non-unit if `N`).
 """
 function trmv end
 
 """
-    trmv!(side, ul, tA, dA, alpha, A, b)
+    trmv!(ul, tA, dA, A, b)
 
-Update `b` as `alpha*A*b` or one of the other three variants determined by `side` (`A` on
-left or right) and `tA` (transpose `A`). Only the `ul` triangle of `A` is used. `dA`
-indicates if `A` is unit-triangular (the diagonal is assumed to be all ones). Returns the
-updated `b`.
+Returns `op(A)*b`, where `op` is determined by `tA`
+(`N` for identity, `T` for transpose `A`, and `C` for conjugate
+transpose `A`). Only the `ul` triangle (`U` for upper, `L`
+for lower) of `A` is used. `dA` indicates if `A` is
+unit-triangular (the diagonal is assumed to be all ones if `U`,
+or non-unit if `N`). The multiplication occurs in-place on `b`.
 """
 function trmv! end
 
@@ -955,10 +960,11 @@ for (gemm, elty) in
 #               error("gemm!: BLAS module requires contiguous matrix columns")
 #           end  # should this be checked on every call?
             m = size(A, transA == 'N' ? 1 : 2)
-            k = size(A, transA == 'N' ? 2 : 1)
+            ka = size(A, transA == 'N' ? 2 : 1)
+            kb = size(B, transB == 'N' ? 1 : 2)
             n = size(B, transB == 'N' ? 2 : 1)
-            if m != size(C,1) || n != size(C,2)
-                throw(DimensionMismatch("A has size ($m,$k), B has size ($k,$n), C has size $(size(C))"))
+            if ka != kb || m != size(C,1) || n != size(C,2)
+                throw(DimensionMismatch("A has size ($m,$ka), B has size ($kb,$n), C has size $(size(C))"))
             end
             ccall((@blasfunc($gemm), libblas), Void,
                 (Ptr{UInt8}, Ptr{UInt8}, Ptr{BlasInt}, Ptr{BlasInt},
@@ -966,7 +972,7 @@ for (gemm, elty) in
                  Ptr{$elty}, Ptr{BlasInt}, Ptr{$elty}, Ptr{$elty},
                  Ptr{BlasInt}),
                  &transA, &transB, &m, &n,
-                 &k, &alpha, A, &max(1,stride(A,2)),
+                 &ka, &alpha, A, &max(1,stride(A,2)),
                  B, &max(1,stride(B,2)), &beta, C,
                  &max(1,stride(C,2)))
             C

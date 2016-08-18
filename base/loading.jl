@@ -60,7 +60,7 @@ elseif is_apple()
                 continue
             end
             casepreserved_basename =
-              sub(buf, (header_size+1):(header_size+filename_length-1))
+              view(buf, (header_size+1):(header_size+filename_length-1))
             break
         end
         # Hack to compensate for inability to create a string from a subarray with no allocations.
@@ -171,7 +171,7 @@ function _require_from_serialized(node::Int, mod::Symbol, path_to_try::String, t
         end
     elseif node == myid()
         myid() == 1 && recompile_stale(mod, path_to_try)
-        restored = ccall(:jl_restore_incremental, Any, (Ptr{UInt8},), path_to_try)
+        restored = ccall(:jl_restore_incremental, Any, (Cstring,), path_to_try)
     else
         content = remotecall_fetch(open, node, read, path_to_try)
         restored = _include_from_serialized(content)
@@ -378,8 +378,8 @@ end
 # remote/parallel load
 
 include_string(txt::String, fname::String) =
-    ccall(:jl_load_file_string, Any, (Ptr{UInt8},Csize_t,Ptr{UInt8},Csize_t),
-          txt, sizeof(txt), fname, sizeof(fname))
+    ccall(:jl_load_file_string, Any, (Ptr{UInt8},Csize_t,Cstring),
+          txt, sizeof(txt), fname)
 
 include_string(txt::AbstractString, fname::AbstractString="string") =
     include_string(String(txt), String(fname))
@@ -455,7 +455,7 @@ function create_expr_cache(input::AbstractString, output::AbstractString)
             eval(Main, deserialize(STDIN))
         end
         """
-    io, pobj = open(pipeline(detach(`$(julia_cmd())
+    io, pobj = open(pipeline(detach(`$(julia_cmd()) -O0
                                     --output-ji $output --output-incremental=yes
                                     --startup-file=no --history-file=no
                                     --color=$(have_color ? "yes" : "no")
@@ -509,7 +509,7 @@ end
 
 module_uuid(m::Module) = ccall(:jl_module_uuid, UInt64, (Any,), m)
 
-isvalid_cache_header(f::IOStream) = 0 != ccall(:jl_deserialize_verify_header, Cint, (Ptr{Void},), f.ios)
+isvalid_cache_header(f::IOStream) = 0 != ccall(:jl_read_verify_header, Cint, (Ptr{Void},), f.ios)
 
 function cache_dependencies(f::IO)
     modules = Tuple{Symbol,UInt64}[]

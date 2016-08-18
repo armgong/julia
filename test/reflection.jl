@@ -38,7 +38,16 @@ test_code_reflections(test_ast_reflection, code_lowered)
 test_code_reflections(test_ast_reflection, code_typed)
 test_code_reflections(test_bin_reflection, code_llvm)
 test_code_reflections(test_bin_reflection, code_native)
+
+# Issue #16326
+mktemp() do f, io
+    OLDSTDOUT = STDOUT
+    redirect_stdout(io)
+    @test try @code_native map(y->abs(y), rand(3)); true; catch false; end
+    redirect_stdout(OLDSTDOUT)
 end
+
+end # module ReflectionTest
 
 # code_warntype
 module WarnType
@@ -114,6 +123,18 @@ end
 @test isbits(Float32)
 @test isbits(Int)
 @test !isbits(AbstractString)
+@test isbits(Tuple{Int, Vararg{Int, 2}})
+@test !isbits(Tuple{Int, Vararg{Int}})
+@test !isbits(Tuple{Integer, Vararg{Int, 2}})
+@test isbits(Tuple{Int, Vararg{Any, 0}})
+@test isbits(Tuple{Vararg{Any, 0}})
+
+# issue #16670
+@test isleaftype(Tuple{Int, Vararg{Int, 2}})
+@test !isleaftype(Tuple{Integer, Vararg{Int, 2}})
+@test !isleaftype(Tuple{Int, Vararg{Int}})
+@test isleaftype(Type{Tuple{Integer, Vararg{Int}}})
+@test isleaftype(Type{Vector})
 
 # issue #10165
 i10165(::DataType) = 0
@@ -142,60 +163,75 @@ not_const = 1
 
 module TestMod7648
 using Base.Test
-export a9475, c7648, foo7648
+export a9475, foo9475, c7648, foo7648, foo7648_nomethods, Foo7648
 
 const c7648 = 8
 d7648 = 9
 const f7648 = 10
 foo7648(x) = x
+function foo7648_nomethods end
+type Foo7648 end
 
     module TestModSub9475
     using Base.Test
     using ..TestMod7648
-    export a9475
+    export a9475, foo9475
     a9475 = 5
     b9475 = 7
+    foo9475(x) = x
     let
-        @test Base.binding_module(:a9475)==current_module()
-        @test Base.binding_module(:c7648)==TestMod7648
-        @test Base.module_name(current_module())==:TestModSub9475
-        @test Base.fullname(current_module())==(:TestMod7648, :TestModSub9475)
-        @test Base.module_parent(current_module())==TestMod7648
+        @test Base.binding_module(:a9475) == current_module()
+        @test Base.binding_module(:c7648) == TestMod7648
+        @test Base.module_name(current_module()) == :TestModSub9475
+        @test Base.fullname(current_module()) == (:TestMod7648, :TestModSub9475)
+        @test Base.module_parent(current_module()) == TestMod7648
     end
     end # module TestModSub9475
 
 using .TestModSub9475
 
 let
-    @test Base.binding_module(:d7648)==current_module()
-    @test Base.binding_module(:a9475)==TestModSub9475
-    @test Base.module_name(current_module())==:TestMod7648
-    @test Base.module_parent(current_module())==Main
+    @test Base.binding_module(:d7648) == current_module()
+    @test Base.binding_module(:a9475) == TestModSub9475
+    @test Base.module_name(current_module()) == :TestMod7648
+    @test Base.module_parent(current_module()) == Main
 end
 end # module TestMod7648
 
 let
-    @test Base.binding_module(TestMod7648, :d7648)==TestMod7648
-    @test Base.binding_module(TestMod7648, :a9475)==TestMod7648.TestModSub9475
-    @test Base.binding_module(TestMod7648.TestModSub9475, :b9475)==TestMod7648.TestModSub9475
-    @test Set(names(TestMod7648))==Set([:TestMod7648, :a9475, :c7648, :foo7648])
+    @test Base.binding_module(TestMod7648, :d7648) == TestMod7648
+    @test Base.binding_module(TestMod7648, :a9475) == TestMod7648.TestModSub9475
+    @test Base.binding_module(TestMod7648.TestModSub9475, :b9475) == TestMod7648.TestModSub9475
+    @test Set(names(TestMod7648))==Set([:TestMod7648, :a9475, :foo9475, :c7648, :foo7648, :foo7648_nomethods, :Foo7648])
+    @test Set(names(TestMod7648, true)) == Set([:TestMod7648, :TestModSub9475, :a9475, :foo9475, :c7648, :d7648, :f7648,
+                                                :foo7648, Symbol("#foo7648"), :foo7648_nomethods, Symbol("#foo7648_nomethods"),
+                                                :Foo7648, :eval, Symbol("#eval")])
     @test isconst(TestMod7648, :c7648)
     @test !isconst(TestMod7648, :d7648)
 end
 
 let
     using TestMod7648
-    @test Base.binding_module(:a9475)==TestMod7648.TestModSub9475
-    @test Base.binding_module(:c7648)==TestMod7648
-    @test Base.function_name(foo7648)==:foo7648
-    @test Base.function_module(foo7648, (Any,))==TestMod7648
+    @test Base.binding_module(:a9475) == TestMod7648.TestModSub9475
+    @test Base.binding_module(:c7648) == TestMod7648
+    @test Base.function_name(foo7648) == :foo7648
+    @test Base.function_module(foo7648, (Any,)) == TestMod7648
+    @test Base.function_module(foo7648) == TestMod7648
+    @test Base.function_module(foo7648_nomethods) == TestMod7648
+    @test Base.function_module(foo9475, (Any,)) == TestMod7648.TestModSub9475
+    @test Base.function_module(foo9475) == TestMod7648.TestModSub9475
+    @test Base.datatype_module(Foo7648) == TestMod7648
     @test basename(functionloc(foo7648, (Any,))[1]) == "reflection.jl"
     @test first(methods(TestMod7648.TestModSub9475.foo7648)) == @which foo7648(5)
-    @test TestMod7648==@which foo7648
-    @test TestMod7648.TestModSub9475==@which a9475
+    @test TestMod7648 == @which foo7648
+    @test TestMod7648.TestModSub9475 == @which a9475
 end
 
 @test_throws ArgumentError which(is, Tuple{Int, Int})
+@test_throws ArgumentError code_typed(is, Tuple{Int, Int})
+@test_throws ArgumentError code_llvm(is, Tuple{Int, Int})
+@test_throws ArgumentError code_native(is, Tuple{Int, Int})
+@test_throws ArgumentError Base.return_types(is, Tuple{Int, Int})
 
 module TestingExported
 using Base.Test
@@ -349,13 +385,10 @@ function test_typed_ast_printing(f::ANY, types::ANY, must_used_vars)
     for name in must_used_vars
         @test name in slotnames
     end
-    for str in (sprint(io->code_warntype(io, f, types)),
-                sprint(io->show(io, li)))
+    for str in (sprint(code_warntype, f, types),
+                stringmime("text/plain", li))
         # Test to make sure the clearing of file path below works
-        # If we don't store the full path in line number node/ast printing
-        # anymore, the test and the string replace below should be fixed.
-        @test contains(str, @__FILE__)
-        str = replace(str, @__FILE__, "")
+        @test string(li.def.file) == @__FILE__
         for var in must_used_vars
             @test contains(str, string(var))
         end
@@ -378,7 +411,7 @@ function test_typed_ast_printing(f::ANY, types::ANY, must_used_vars)
         end
     end
     # Make sure printing an AST outside LambdaInfo still works.
-    str = sprint(io->show(io, Base.uncompressed_ast(li)))
+    str = sprint(show, Base.uncompressed_ast(li))
     # Check that we are printing the slot numbers when we don't have the context
     # Use the variable names that we know should be present in the optimized AST
     for i in 2:length(li.slotnames)
@@ -394,6 +427,16 @@ test_typed_ast_printing(g15714, Tuple{Vector{Float32}},
                         [:array_var15714, :index_var15714])
 @test used_dup_var_tested15714
 @test used_unique_var_tested15714
+
+let li = typeof(getfield).name.mt.cache.func::LambdaInfo,
+    lrepr = string(li),
+    mrepr = string(li.def),
+    lmime = stringmime("text/plain", li)
+
+    @test lrepr == "LambdaInfo template for getfield(...)"
+    @test mrepr == "getfield(...)"
+end
+
 
 # Linfo Tracing test
 tracefoo(x, y) = x+y
@@ -425,8 +468,10 @@ ccall(:jl_register_newmeth_tracer, Void, (Ptr{Void},), C_NULL)
 for i = 1:100; @eval fLargeTable(::Val{$i}, ::Any) = 1; end
 for i = 1:100; @eval fLargeTable(::Any, ::Val{$i}) = 2; end
 fLargeTable(::Any...) = 3
+@test length(methods(fLargeTable, Tuple{})) == 1
 fLargeTable(::Complex, ::Complex) = 4
 fLargeTable(::Union{Complex64, Complex128}...) = 5
+@test length(methods(fLargeTable, Tuple{})) == 1
 fLargeTable() = 4
 @test length(methods(fLargeTable)) == 204
 @test length(methods(fLargeTable, Tuple{})) == 1
@@ -439,3 +484,51 @@ fLargeTable() = 4
 # issue #15280
 function f15280(x) end
 @test functionloc(f15280)[2] > 0
+
+# bug found in #16850, Base.url with backslashes on Windows
+function module_depth(from::Module, to::Module)
+    if from === to
+        return 0
+    else
+        return 1 + module_depth(from, module_parent(to))
+    end
+end
+function has_backslashes(mod::Module)
+    for n in names(mod, true, true)
+        isdefined(mod, n) || continue
+        Base.isdeprecated(mod, n) && continue
+        f = getfield(mod, n)
+        if isa(f, Module) && module_depth(Main, f) <= module_depth(Main, mod)
+            continue
+        end
+        h = has_backslashes(f)
+        isnull(h) || return h
+    end
+    return Nullable{Method}()
+end
+function has_backslashes(f::Function)
+    for m in methods(f)
+        h = has_backslashes(m)
+        isnull(h) || return h
+    end
+    return Nullable{Method}()
+end
+function has_backslashes(meth::Method)
+    if '\\' in string(meth.file)
+        return Nullable{Method}(meth)
+    else
+        return Nullable{Method}()
+    end
+end
+has_backslashes(x) = Nullable{Method}()
+h16850 = has_backslashes(Base)
+if is_windows()
+    if isnull(h16850)
+        warn("No methods found in Base with backslashes in file name, ",
+             "skipping test for Base.url")
+    else
+        @test !('\\' in Base.url(get(h16850)))
+    end
+else
+    @test isnull(h16850)
+end

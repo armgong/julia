@@ -1,5 +1,8 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+import .Serializer: reset_state
+
+
 # todo:
 # * fetch/wait latency seems to be excessive
 # * message aggregation
@@ -24,9 +27,9 @@ let REF_ID::Int = 1
     next_ref_id() = (id = REF_ID; REF_ID += 1; id)
 end
 
-type RRID
-    whence
-    id
+immutable RRID
+    whence::Int
+    id::Int
 
     RRID() = RRID(myid(),next_ref_id())
     RRID(whence, id) = new(whence,id)
@@ -34,68 +37,117 @@ end
 hash(r::RRID, h::UInt) = hash(r.whence, hash(r.id, h))
 ==(r::RRID, s::RRID) = (r.whence==s.whence && r.id==s.id)
 
+## Wire format description
+#
+# Each message has three parts, which are written in order to the worker's stream.
+#  1) A header of type MsgHeader is serialized to the stream (via `serialize`).
+#  2) A message of type AbstractMsg is then serialized.
+#  3) Finally, a fixed bounday of 10 bytes is written.
 
-type CallMsg{Mode} <: AbstractMsg
-    f::Function
-    args::Tuple
-    kwargs::Array
-    response_oid::RRID
-end
-type CallWaitMsg <: AbstractMsg
-    f::Function
-    args::Tuple
-    kwargs::Array
+# Message header stored separately from body to be able to send back errors if
+# a deserialization error occurs when reading the message body.
+immutable MsgHeader
     response_oid::RRID
     notify_oid::RRID
+    MsgHeader(respond_oid=RRID(0,0), notify_oid=RRID(0,0)) =
+        new(respond_oid, notify_oid)
 end
-type RemoteDoMsg <: AbstractMsg
+
+# Special oid (0,0) uses to indicate a null ID.
+# Used instead of Nullable to decrease wire size of header.
+null_id(id) =  id == RRID(0, 0)
+
+immutable CallMsg{Mode} <: AbstractMsg
     f::Function
     args::Tuple
     kwargs::Array
 end
-type ResultMsg <: AbstractMsg
-    response_oid::RRID
+immutable CallWaitMsg <: AbstractMsg
+    f::Function
+    args::Tuple
+    kwargs::Array
+end
+immutable RemoteDoMsg <: AbstractMsg
+    f::Function
+    args::Tuple
+    kwargs::Array
+end
+immutable ResultMsg <: AbstractMsg
     value::Any
 end
 
+
 # Worker initialization messages
-type IdentifySocketMsg <: AbstractMsg
+immutable IdentifySocketMsg <: AbstractMsg
     from_pid::Int
 end
-type IdentifySocketAckMsg <: AbstractMsg
+
+immutable IdentifySocketAckMsg <: AbstractMsg
 end
-type JoinPGRPMsg <: AbstractMsg
+
+immutable JoinPGRPMsg <: AbstractMsg
     self_pid::Int
     other_workers::Array
-    notify_oid::RRID
     topology::Symbol
     worker_pool
 end
-type JoinCompleteMsg <: AbstractMsg
-    notify_oid::RRID
+immutable JoinCompleteMsg <: AbstractMsg
     cpu_cores::Int
     ospid::Int
 end
 
+# Avoiding serializing AbstractMsg containers results in a speedup
+# of approximately 10%. Can be removed once module Serializer
+# has been suitably improved.
 
-function send_msg_unknown(s::IO, msg)
+# replace  CallMsg{Mode} with specific invocations
+const msgtypes = filter!(x->x!=CallMsg, subtypes(AbstractMsg))
+push!(msgtypes, CallMsg{:call}, CallMsg{:call_fetch})
+
+for (idx, tname) in enumerate(msgtypes)
+    nflds = length(fieldnames(tname))
+    @eval begin
+        function serialize(s::AbstractSerializer, o::$tname)
+            write(s.io, UInt8($idx))
+            for fld in fieldnames($tname)
+                serialize(s, getfield(o, fld))
+            end
+        end
+
+        function deserialize_msg(s::AbstractSerializer, ::Type{$tname})
+            data=Array{Any,1}($nflds)
+            for i in 1:$nflds
+                data[i] = deserialize(s)
+            end
+            return $tname(data...)
+        end
+    end
+end
+
+function deserialize_msg(s)
+    idx = read(s.io, UInt8)
+    t = msgtypes[idx]
+    return deserialize_msg(s, t)
+end
+
+function send_msg_unknown(s::IO, header, msg)
     error("attempt to send to unknown socket")
 end
 
-function send_msg(s::IO, msg)
+function send_msg(s::IO, header, msg)
     id = worker_id_from_socket(s)
     if id > -1
-        return send_msg(worker_from_id(id), msg)
+        return send_msg(worker_from_id(id), header, msg)
     end
-    send_msg_unknown(s, msg)
+    send_msg_unknown(s, header, msg)
 end
 
-function send_msg_now(s::IO, msg::AbstractMsg)
+function send_msg_now(s::IO, header, msg::AbstractMsg)
     id = worker_id_from_socket(s)
     if id > -1
-        return send_msg_now(worker_from_id(id), msg)
+        return send_msg_now(worker_from_id(id), header, msg)
     end
-    send_msg_unknown(s, msg)
+    send_msg_unknown(s, header, msg)
 end
 
 abstract ClusterManager
@@ -157,6 +209,8 @@ type Worker
 
     r_stream::IO
     w_stream::IO
+    w_serializer::ClusterSerializer  # writes can happen from any task hence store the
+                                     # serializer as part of the Worker object
     manager::ClusterManager
     config::WorkerConfig
     version::Nullable{VersionNumber}  # Julia version of the remote process
@@ -166,6 +220,7 @@ type Worker
         w = Worker(id)
         w.r_stream = r_stream
         w.w_stream = buffer_writes(w_stream)
+        w.w_serializer = ClusterSerializer(w.w_stream)
         w.manager = manager
         w.config = config
         w.version = version
@@ -192,12 +247,12 @@ function set_worker_state(w, state)
     notify(w.c_state; all=true)
 end
 
-function send_msg_now(w::Worker, msg)
-    send_msg_(w, msg, true)
+function send_msg_now(w::Worker, header, msg)
+    send_msg_(w, header, msg, true)
 end
 
-function send_msg(w::Worker, msg)
-    send_msg_(w, msg, false)
+function send_msg(w::Worker, header, msg)
+    send_msg_(w, header, msg, false)
 end
 
 function flush_gc_msgs(w::Worker)
@@ -205,15 +260,18 @@ function flush_gc_msgs(w::Worker)
         return
     end
     w.gcflag = false
-    msgs = copy(w.add_msgs)
+    new_array = Any[]
+    msgs = w.add_msgs
+    w.add_msgs = new_array
     if !isempty(msgs)
-        empty!(w.add_msgs)
         remote_do(add_clients, w, msgs)
     end
 
-    msgs = copy(w.del_msgs)
+    # del_msgs gets populated by finalizers, so be very careful here about ordering of allocations
+    new_array = Any[]
+    msgs = w.del_msgs
+    w.del_msgs = new_array
     if !isempty(msgs)
-        empty!(w.del_msgs)
         #print("sending delete of $msgs\n")
         remote_do(del_clients, w, msgs)
     end
@@ -236,13 +294,32 @@ function check_worker_state(w::Worker)
     end
 end
 
+# Boundary inserted between messages on the wire, used for recovering
+# from deserialization errors. Picked arbitrarily.
+# A size of 10 bytes indicates ~ ~1e24 possible boundaries, so chance of collision
+# with message contents is negligible.
+const MSG_BOUNDARY = UInt8[0x79, 0x8e, 0x8e, 0xf5, 0x6e, 0x9b, 0x2e, 0x97, 0xd5, 0x7d]
 
-function send_msg_(w::Worker, msg, now::Bool)
+# Faster serialization/deserialization of MsgHeader and RRID
+function serialize_hdr_raw(io, hdr)
+    write(io, hdr.response_oid.whence, hdr.response_oid.id, hdr.notify_oid.whence, hdr.notify_oid.id)
+end
+
+function deserialize_hdr_raw(io)
+    data = Array{Int,1}(4)
+    read!(io, data)
+    return MsgHeader(RRID(data[1], data[2]), RRID(data[3], data[4]))
+end
+
+function send_msg_(w::Worker, header, msg, now::Bool)
     check_worker_state(w)
     io = w.w_stream
     lock(io.lock)
     try
-        serialize(io, msg)
+        reset_state(w.w_serializer)
+        serialize_hdr_raw(io, header)
+        serialize(w.w_serializer, msg)  # io is wrapped in w_serializer
+        write(io, MSG_BOUNDARY)
 
         if !now && w.gcflag
             flush_gc_msgs(w)
@@ -271,7 +348,6 @@ function send_connection_hdr(w::Worker, cookie=true)
     # For a connection initiated from the remote side to us, we only send the version,
     # else when we initiate a connection we first send the cookie followed by our version.
     # The remote side validates the cookie.
-
     if cookie
         write(w.w_stream, LPROC.cookie)
     end
@@ -535,7 +611,7 @@ end
 
 function test_existing_ref(r::AbstractRemoteRef)
     found = getkey(client_refs, r, false)
-    if !is(found,false)
+    if found !== false
         if client_refs[r] == true
             @assert r.where > 0
             if isa(r, Future) && isnull(found.v) && !isnull(r.v)
@@ -640,7 +716,7 @@ function del_client(pg, id, client)
 # 14445 is fixed.
     @async begin
         rv = get(pg.refs, id, false)
-        if rv != false
+        if rv !== false
             delete!(rv.clientset, client)
             if isempty(rv.clientset)
                 delete!(pg.refs, id)
@@ -704,29 +780,29 @@ end
 
 channel_type{T}(rr::RemoteChannel{T}) = T
 
-serialize(s::SerializationState, f::Future) = serialize(s, f, isnull(f.v))
-serialize(s::SerializationState, rr::RemoteChannel) = serialize(s, rr, true)
-function serialize(s::SerializationState, rr::AbstractRemoteRef, addclient)
+serialize(s::AbstractSerializer, f::Future) = serialize(s, f, isnull(f.v))
+serialize(s::AbstractSerializer, rr::RemoteChannel) = serialize(s, rr, true)
+function serialize(s::AbstractSerializer, rr::AbstractRemoteRef, addclient)
     if addclient
         p = worker_id_from_socket(s.io)
         (p !== rr.where) && send_add_client(rr, p)
     end
-    invoke(serialize, Tuple{SerializationState, Any}, s, rr)
+    invoke(serialize, Tuple{AbstractSerializer, Any}, s, rr)
 end
 
-function deserialize{T<:Future}(s::SerializationState, t::Type{T})
+function deserialize{T<:Future}(s::AbstractSerializer, t::Type{T})
     f = deserialize_rr(s,t)
     Future(f.where, RRID(f.whence, f.id), f.v) # ctor adds to client_refs table
 end
 
-function deserialize{T<:RemoteChannel}(s::SerializationState, t::Type{T})
+function deserialize{T<:RemoteChannel}(s::AbstractSerializer, t::Type{T})
     rr = deserialize_rr(s,t)
     # call ctor to make sure this rr gets added to the client_refs table
     RemoteChannel{channel_type(rr)}(rr.where, RRID(rr.whence, rr.id))
 end
 
 function deserialize_rr(s, t)
-    rr = invoke(deserialize, Tuple{SerializationState, DataType}, s, t)
+    rr = invoke(deserialize, Tuple{AbstractSerializer, DataType}, s, t)
     if rr.where == myid()
         # send_add_client() is not executed when the ref is being
         # serialized to where it exists
@@ -761,7 +837,6 @@ function showerror(io::IO, re::RemoteException)
     (re.pid != myid()) && print(io, "On worker ", re.pid, ":\n")
     showerror(io, re.captured)
 end
-
 
 function run_work_thunk(thunk, print_error)
     local result
@@ -805,7 +880,7 @@ end
 function remotecall(f, w::Worker, args...; kwargs...)
     rr = Future(w)
     #println("$(myid()) asking for $rr")
-    send_msg(w, CallMsg{:call}(f, args, kwargs, remoteref_id(rr)))
+    send_msg(w, MsgHeader(remoteref_id(rr)), CallMsg{:call}(f, args, kwargs))
     rr
 end
 
@@ -823,7 +898,7 @@ function remotecall_fetch(f, w::Worker, args...; kwargs...)
     oid = RRID()
     rv = lookup_ref(oid)
     rv.waitingfor = w.id
-    send_msg(w, CallMsg{:call_fetch}(f, args, kwargs, oid))
+    send_msg(w, MsgHeader(RRID(0,0), oid), CallMsg{:call_fetch}(f, args, kwargs))
     v = take!(rv)
     delete!(PGRP.refs, oid)
     isa(v, RemoteException) ? throw(v) : v
@@ -840,7 +915,7 @@ function remotecall_wait(f, w::Worker, args...; kwargs...)
     rv = lookup_ref(prid)
     rv.waitingfor = w.id
     rr = Future(w)
-    send_msg(w, CallWaitMsg(f, args, kwargs, remoteref_id(rr), prid))
+    send_msg(w, MsgHeader(remoteref_id(rr), prid), CallWaitMsg(f, args, kwargs))
     v = fetch(rv.c)
     delete!(PGRP.refs, prid)
     isa(v, RemoteException) && throw(v)
@@ -860,7 +935,7 @@ function remote_do(f, w::LocalProcess, args...; kwargs...)
 end
 
 function remote_do(f, w::Worker, args...; kwargs...)
-    send_msg(w, RemoteDoMsg(f, args, kwargs))
+    send_msg(w, MsgHeader(), RemoteDoMsg(f, args, kwargs))
     nothing
 end
 
@@ -946,13 +1021,13 @@ close(rr::RemoteChannel) = call_on_owner(close_ref, rr)
 
 function deliver_result(sock::IO, msg, oid, value)
     #print("$(myid()) sending result $oid\n")
-    if is(msg,:call_fetch) || isa(value, RemoteException)
+    if is(msg, :call_fetch) || isa(value, RemoteException)
         val = value
     else
         val = :OK
     end
     try
-        send_msg_now(sock, ResultMsg(oid, val))
+        send_msg_now(sock, MsgHeader(oid), ResultMsg(val))
     catch e
         # terminate connection in case of serialization error
         # otherwise the reading end would hang
@@ -990,26 +1065,73 @@ function process_messages(r_stream::IO, w_stream::IO, incoming=true)
 end
 
 function message_handler_loop(r_stream::IO, w_stream::IO, incoming::Bool)
+    wpid=0          # the worker r_stream is connected to.
+    boundary = similar(MSG_BOUNDARY)
     try
         version = process_hdr(r_stream, incoming)
+        serializer = ClusterSerializer(r_stream)
+
+        # The first message will associate wpid with r_stream
+        header = deserialize_hdr_raw(r_stream)
+        msg = deserialize_msg(serializer)
+        handle_msg(msg, header, r_stream, w_stream, version)
+        wpid = worker_id_from_socket(r_stream)
+        @assert wpid > 0
+
+        readbytes!(r_stream, boundary, length(MSG_BOUNDARY))
+
         while true
-            msg = deserialize(r_stream)
-            # println("got msg: ", msg)
-            handle_msg(msg, r_stream, w_stream, version)
+            reset_state(serializer)
+            header = deserialize_hdr_raw(r_stream)
+            # println("header: ", header)
+
+            try
+                msg = deserialize_msg(serializer)
+            catch e
+                # Deserialization error; discard bytes in stream until boundary found
+                boundary_idx = 1
+                while true
+                    # This may throw an EOF error if the terminal boundary was not written
+                    # correctly, triggering the higher-scoped catch block below
+                    byte = read(r_stream, UInt8)
+                    if byte == MSG_BOUNDARY[boundary_idx]
+                        boundary_idx += 1
+                        if boundary_idx > length(MSG_BOUNDARY)
+                            break
+                        end
+                    else
+                        boundary_idx = 1
+                    end
+                end
+                remote_err = RemoteException(myid(), CapturedException(e, catch_backtrace()))
+                # println("Deserialization error. ", remote_err)
+                if !null_id(header.response_oid)
+                    ref = lookup_ref(header.response_oid)
+                    put!(ref, remote_err)
+                end
+                if !null_id(header.notify_oid)
+                    deliver_result(w_stream, :call_fetch, header.notify_oid, remote_err)
+                end
+                continue
+            end
+            readbytes!(r_stream, boundary, length(MSG_BOUNDARY))
+
+            # println("got msg: ", typeof(msg))
+            handle_msg(msg, header, r_stream, w_stream, version)
         end
     catch e
-        # println(STDERR, "Process($(myid())) - Exception ", e)
-        iderr = worker_id_from_socket(r_stream)
-        if (iderr < 1)
-            println(STDERR, e)
+        # Check again as it may have been set in a message handler but not propagated to the calling block above
+        wpid = worker_id_from_socket(r_stream)
+        if (wpid < 1)
+            println(STDERR, e, CapturedException(e, catch_backtrace()))
             println(STDERR, "Process($(myid())) - Unknown remote, closing connection.")
         else
-            werr = worker_from_id(iderr)
+            werr = worker_from_id(wpid)
             oldstate = werr.state
             set_worker_state(werr, W_TERMINATED)
 
-            # If error occured talking to pid 1, commit harakiri
-            if iderr == 1
+            # If unhandleable error occured talking to pid 1, exit
+            if wpid == 1
                 if isopen(w_stream)
                     print(STDERR, "fatal error on ", myid(), ": ")
                     display_error(e, catch_backtrace())
@@ -1020,15 +1142,15 @@ function message_handler_loop(r_stream::IO, w_stream::IO, incoming::Bool)
             # Will treat any exception as death of node and cleanup
             # since currently we do not have a mechanism for workers to reconnect
             # to each other on unhandled errors
-            deregister_worker(iderr)
+            deregister_worker(wpid)
         end
 
         isopen(r_stream) && close(r_stream)
         isopen(w_stream) && close(w_stream)
 
-        if (myid() == 1) && (iderr > 1)
+        if (myid() == 1) && (wpid > 1)
             if oldstate != W_TERMINATING
-                println(STDERR, "Worker $iderr terminated.")
+                println(STDERR, "Worker $wpid terminated.")
                 rethrow(e)
             end
         end
@@ -1040,6 +1162,10 @@ end
 function process_hdr(s, validate_cookie)
     if validate_cookie
         cookie = read(s, HDR_COOKIE_LEN)
+        if length(cookie) < HDR_COOKIE_LEN
+            error("Cookie read failed. Connection closed by peer.")
+        end
+
         self_cookie = cluster_cookie()
         for i in 1:HDR_COOKIE_LEN
             if UInt8(self_cookie[i]) != cookie[i]
@@ -1051,47 +1177,52 @@ function process_hdr(s, validate_cookie)
     # When we have incompatible julia versions trying to connect to each other,
     # and can be detected, raise an appropriate error.
     # For now, just return the version.
-    return VersionNumber(strip(String(read(s, HDR_VERSION_LEN))))
+    version = read(s, HDR_VERSION_LEN)
+    if length(version) < HDR_VERSION_LEN
+        error("Version read failed. Connection closed by peer.")
+    end
+
+    return VersionNumber(strip(String(version)))
 end
 
-function handle_msg(msg::CallMsg{:call}, r_stream, w_stream, version)
-    schedule_call(msg.response_oid, ()->msg.f(msg.args...; msg.kwargs...))
+function handle_msg(msg::CallMsg{:call}, header, r_stream, w_stream, version)
+    schedule_call(header.response_oid, ()->msg.f(msg.args...; msg.kwargs...))
 end
-function handle_msg(msg::CallMsg{:call_fetch}, r_stream, w_stream, version)
+function handle_msg(msg::CallMsg{:call_fetch}, header, r_stream, w_stream, version)
     @schedule begin
         v = run_work_thunk(()->msg.f(msg.args...; msg.kwargs...), false)
-        deliver_result(w_stream, :call_fetch, msg.response_oid, v)
+        deliver_result(w_stream, :call_fetch, header.notify_oid, v)
     end
 end
 
-function handle_msg(msg::CallWaitMsg, r_stream, w_stream, version)
+function handle_msg(msg::CallWaitMsg, header, r_stream, w_stream, version)
     @schedule begin
-        rv = schedule_call(msg.response_oid, ()->msg.f(msg.args...; msg.kwargs...))
-        deliver_result(w_stream, :call_wait, msg.notify_oid, fetch(rv.c))
+        rv = schedule_call(header.response_oid, ()->msg.f(msg.args...; msg.kwargs...))
+        deliver_result(w_stream, :call_wait, header.notify_oid, fetch(rv.c))
     end
 end
 
-function handle_msg(msg::RemoteDoMsg, r_stream, w_stream, version)
+function handle_msg(msg::RemoteDoMsg, header, r_stream, w_stream, version)
     @schedule run_work_thunk(()->msg.f(msg.args...; msg.kwargs...), true)
 end
 
-function handle_msg(msg::ResultMsg, r_stream, w_stream, version)
-    put!(lookup_ref(msg.response_oid), msg.value)
+function handle_msg(msg::ResultMsg, header, r_stream, w_stream, version)
+    put!(lookup_ref(header.response_oid), msg.value)
 end
 
-function handle_msg(msg::IdentifySocketMsg, r_stream, w_stream, version)
+function handle_msg(msg::IdentifySocketMsg, header, r_stream, w_stream, version)
     # register a new peer worker connection
     w=Worker(msg.from_pid, r_stream, w_stream, cluster_manager; version=version)
     send_connection_hdr(w, false)
-    send_msg_now(w, IdentifySocketAckMsg())
+    send_msg_now(w, MsgHeader(), IdentifySocketAckMsg())
 end
 
-function handle_msg(msg::IdentifySocketAckMsg, r_stream, w_stream, version)
+function handle_msg(msg::IdentifySocketAckMsg, header, r_stream, w_stream, version)
     w = map_sock_wrkr[r_stream]
     w.version = version
 end
 
-function handle_msg(msg::JoinPGRPMsg, r_stream, w_stream, version)
+function handle_msg(msg::JoinPGRPMsg, header, r_stream, w_stream, version)
     LPROC.id = msg.self_pid
     controller = Worker(1, r_stream, w_stream, cluster_manager; version=version)
     register_worker(LPROC)
@@ -1112,7 +1243,7 @@ function handle_msg(msg::JoinPGRPMsg, r_stream, w_stream, version)
 
     set_default_worker_pool(msg.worker_pool)
     send_connection_hdr(controller, false)
-    send_msg_now(controller, JoinCompleteMsg(msg.notify_oid, Sys.CPU_CORES, getpid()))
+    send_msg_now(controller, MsgHeader(RRID(0,0), header.notify_oid), JoinCompleteMsg(Sys.CPU_CORES, getpid()))
 end
 
 function connect_to_peer(manager::ClusterManager, rpid::Int, wconfig::WorkerConfig)
@@ -1121,7 +1252,7 @@ function connect_to_peer(manager::ClusterManager, rpid::Int, wconfig::WorkerConf
         w = Worker(rpid, r_s, w_s, manager; config=wconfig)
         process_messages(w.r_stream, w.w_stream, false)
         send_connection_hdr(w, true)
-        send_msg_now(w, IdentifySocketMsg(myid()))
+        send_msg_now(w, MsgHeader(), IdentifySocketMsg(myid()))
     catch e
         display_error(e, catch_backtrace())
         println(STDERR, "Error [$e] on $(myid()) while connecting to peer $rpid. Exiting.")
@@ -1129,7 +1260,7 @@ function connect_to_peer(manager::ClusterManager, rpid::Int, wconfig::WorkerConf
     end
 end
 
-function handle_msg(msg::JoinCompleteMsg, r_stream, w_stream, version)
+function handle_msg(msg::JoinCompleteMsg, header, r_stream, w_stream, version)
     w = map_sock_wrkr[r_stream]
     environ = get(w.config.environ, Dict())
     environ[:cpu_cores] = msg.cpu_cores
@@ -1137,10 +1268,10 @@ function handle_msg(msg::JoinCompleteMsg, r_stream, w_stream, version)
     w.config.ospid = msg.ospid
     w.version = version
 
-    ntfy_channel = lookup_ref(msg.notify_oid)
+    ntfy_channel = lookup_ref(header.notify_oid)
     put!(ntfy_channel, w.id)
 
-    put!(default_worker_pool(), w)
+    push!(default_worker_pool(), w)
 end
 
 function disable_threaded_libs()
@@ -1357,7 +1488,7 @@ function setup_launched_worker(manager, wconfig, launched_q)
     # process on the remote machine, with a request to start additional workers of the
     # same type. This is done by setting an appropriate value to `WorkerConfig.cnt`.
     cnt = get(wconfig.count, 1)
-    if cnt == :auto
+    if cnt === :auto
         cnt = get(wconfig.environ)[:cpu_cores]
     end
     cnt = cnt - 1   # Removing self from the requested number
@@ -1461,7 +1592,7 @@ function create_worker(manager, wconfig)
 
     all_locs = map(x -> isa(x, Worker) ? (get(x.config.connect_at, ()), x.id) : ((), x.id, true), join_list)
     send_connection_hdr(w, true)
-    send_msg_now(w, JoinPGRPMsg(w.id, all_locs, ntfy_oid, PGRP.topology, default_worker_pool()))
+    send_msg_now(w, MsgHeader(RRID(0,0), ntfy_oid), JoinPGRPMsg(w.id, all_locs, PGRP.topology, default_worker_pool()))
 
     @schedule manage(w.manager, w.id, w.config, :register)
     wait(rr_ntfy_join)
@@ -1748,12 +1879,12 @@ function terminate_all_workers()
 
     if nprocs() > 1
         ret = rmprocs(workers(); waitfor=0.5)
-        if ret != :ok
+        if ret !== :ok
             warn("Forcibly interrupting busy workers")
             # Might be computation bound, interrupt them and try again
             interrupt(workers())
             ret = rmprocs(workers(); waitfor=0.5)
-            if ret != :ok
+            if ret !== :ok
                 warn("Unable to terminate all workers")
             end
         end

@@ -117,11 +117,17 @@ function pushmeta!(ex::Expr, sym::Symbol, args::Any...)
     else
         tag = Expr(sym, args...)
     end
-    idx, exargs = findmeta(ex)
+
+    inner = ex
+    while inner.head == :macrocall
+        inner = inner.args[end]::Expr
+    end
+
+    idx, exargs = findmeta(inner)
     if idx != 0
         push!(exargs[idx].args, tag)
     else
-        body::Expr = ex.args[2]
+        body::Expr = inner.args[2]
         unshift!(body.args, Expr(:meta, tag))
     end
     ex
@@ -133,25 +139,31 @@ function popmeta!(body::Expr, sym::Symbol)
 end
 popmeta!(arg, sym) = (false, [])
 function popmeta!(body::Array{Any,1}, sym::Symbol)
-    idx, args = findmeta_block(body)
+    idx, blockargs = findmeta_block(body, args -> findmetaarg(args,sym)!=0)
     if idx == 0
         return false, []
     end
-    metaex = args[idx]
-    metaargs = metaex.args
+    metaargs = blockargs[idx].args
+    i = findmetaarg(blockargs[idx].args, sym)
+    if i == 0
+        return false, []
+    end
+    ret = isa(metaargs[i], Expr) ? (metaargs[i]::Expr).args : []
+    deleteat!(metaargs, i)
+    isempty(metaargs) && deleteat!(blockargs, idx)
+    true, ret
+end
+
+# Find index of `sym` in a meta expression argument list, or 0.
+function findmetaarg(metaargs, sym)
     for i = 1:length(metaargs)
-        if isa(metaargs[i], Symbol) && (metaargs[i]::Symbol) == sym
-            deleteat!(metaargs, i)
-            isempty(metaargs) && deleteat!(args, idx)
-            return true, []
-        elseif isa(metaargs[i], Expr) && (metaargs[i]::Expr).head == sym
-            ret = (metaargs[i]::Expr).args
-            deleteat!(metaargs, i)
-            isempty(metaargs) && deleteat!(args, idx)
-            return true, ret
+        arg = metaargs[i]
+        if (isa(arg, Symbol) && (arg::Symbol)    == sym) ||
+           (isa(arg, Expr)   && (arg::Expr).head == sym)
+            return i
         end
     end
-    false, []
+    return 0
 end
 
 function findmeta(ex::Expr)
@@ -165,14 +177,14 @@ end
 
 findmeta(ex::Array{Any,1}) = findmeta_block(ex)
 
-function findmeta_block(exargs)
+function findmeta_block(exargs, argsmatch=args->true)
     for i = 1:length(exargs)
         a = exargs[i]
         if isa(a, Expr)
-            if (a::Expr).head == :meta
+            if (a::Expr).head == :meta && argsmatch((a::Expr).args)
                 return i, exargs
             elseif (a::Expr).head == :block
-                idx, exa = findmeta_block(a.args)
+                idx, exa = findmeta_block(a.args, argsmatch)
                 if idx != 0
                     return idx, exa
                 end

@@ -114,8 +114,8 @@ function eval_user_input(ast::ANY, show_value)
                 errcount, lasterr = 0, ()
             else
                 ast = expand(ast)
-                value = eval(Main,ast)
-                eval(Main, :(ans = $(Expr(:quote, value))))
+                value = eval(Main, ast)
+                eval(Main, Expr(:(=), :ans, Expr(:call, ()->value)))
                 if !is(value,nothing) && show_value
                     if have_color
                         print(answer_color())
@@ -202,11 +202,7 @@ try_include(path::AbstractString) = isfile(path) && include(path)
 function process_options(opts::JLOptions)
     if !isempty(ARGS)
         idxs = find(x -> x == "--", ARGS)
-        if length(idxs) > 1
-            println(STDERR, "julia: redundant option terminator `--`")
-            exit(1)
-        end
-        deleteat!(ARGS, idxs)
+        length(idxs) > 0 && deleteat!(ARGS, idxs[1])
     end
     repl                  = true
     startup               = (opts.startupfile != 2)
@@ -221,7 +217,7 @@ function process_options(opts::JLOptions)
 
         # startup worker
         if opts.worker != C_NULL
-            start_worker(String(opts.worker)) # does not return
+            start_worker(unsafe_string(opts.worker)) # does not return
         end
         # add processors
         if opts.nprocs > 0
@@ -229,37 +225,37 @@ function process_options(opts::JLOptions)
         end
         # load processes from machine file
         if opts.machinefile != C_NULL
-            addprocs(load_machine_file(String(opts.machinefile)))
+            addprocs(load_machine_file(unsafe_string(opts.machinefile)))
         end
         # load file immediately on all processors
         if opts.load != C_NULL
             @sync for p in procs()
-                @async remotecall_fetch(include, p, String(opts.load))
+                @async remotecall_fetch(include, p, unsafe_string(opts.load))
             end
         end
         # eval expression
         if opts.eval != C_NULL
             repl = false
-            eval(Main, parse_input_line(String(opts.eval)))
+            eval(Main, parse_input_line(unsafe_string(opts.eval)))
             break
         end
         # eval expression and show result
         if opts.print != C_NULL
             repl = false
-            show(eval(Main, parse_input_line(String(opts.print))))
+            show(eval(Main, parse_input_line(unsafe_string(opts.print))))
             println()
             break
         end
         # eval expression but don't disable interactive mode
         if opts.postboot != C_NULL
-            eval(Main, parse_input_line(String(opts.postboot)))
+            eval(Main, parse_input_line(unsafe_string(opts.postboot)))
         end
         # load file
         if !isempty(ARGS) && !isempty(ARGS[1])
             # program
             repl = false
             # remove filename from ARGS
-            global PROGRAM_FILE = String(shift!(ARGS))
+            global PROGRAM_FILE = shift!(ARGS)
             if !is_interactive
                 ccall(:jl_exit_on_sigint, Void, (Cint,), 1)
             end

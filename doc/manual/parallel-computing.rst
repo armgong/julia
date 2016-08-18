@@ -167,7 +167,7 @@ the following code::
 
     end
 
-Starting julia with ``julia -p 2``, you can use this to verify the following:
+Starting Julia with ``julia -p 2``, you can use this to verify the following:
 
 - :func:`include("DummyModule.jl") <include>` loads the file on just a single process (whichever one executes the statement).
 - ``using DummyModule`` causes the module to be loaded on all processes; however, the module is brought into scope only on the one executing the statement.
@@ -202,7 +202,7 @@ The base Julia installation has in-built support for two types of clusters:
 - A local cluster specified with the ``-p`` option as shown above.
 
 - A cluster spanning machines using the ``--machinefile`` option. This uses a passwordless
-  ``ssh`` login to start julia worker processes (from the same path as the current host)
+  ``ssh`` login to start Julia worker processes (from the same path as the current host)
   on the specified machines.
 
 Functions :func:`addprocs`, :func:`rmprocs`, :func:`workers`, and others are available as a programmatic means of
@@ -282,7 +282,7 @@ The function ``count_heads`` simply adds together ``n`` random bits.
 Here is how we can perform some trials on two machines, and add together the
 results::
 
-    require("count_heads")
+    @everywhere include("count_heads.jl")
 
     a = @spawn count_heads(100000000)
     b = @spawn count_heads(100000000)
@@ -729,15 +729,15 @@ handles mapping the shared segment being released sooner.
 ClusterManagers
 ---------------
 
-The launching, management and networking of julia processes into a logical
+The launching, management and networking of Julia processes into a logical
 cluster is done via cluster managers. A :obj:`ClusterManager` is responsible for
 
 - launching worker processes in a cluster environment
 - managing events during the lifetime of each worker
 - optionally, a cluster manager can also provide data transport
 
-A julia cluster has the following characteristics:
-- The initial julia process, also called the ``master`` is special and has a julia id of 1.
+A Julia cluster has the following characteristics:
+- The initial Julia process, also called the ``master`` is special and has a id of 1.
 - Only the ``master`` process can add or remove worker processes.
 - All processes can directly communicate with each other.
 
@@ -750,11 +750,11 @@ Connections between workers (using the in-built TCP/IP transport) is established
 - The cluster manager captures the stdout's of each worker and makes it available to the master process
 - The master process parses this information and sets up TCP/IP connections to each worker
 - Every worker is also notified of other workers in the cluster
-- Each worker connects to all workers whose julia id is less than its own id
+- Each worker connects to all workers whose id is less than its own id
 - In this way a mesh network is established, wherein every worker is directly connected with every other worker
 
 
-While the default transport layer uses plain TCP sockets, it is possible for a julia cluster to provide
+While the default transport layer uses plain TCP sockets, it is possible for a Julia cluster to provide
 its own transport.
 
 Julia provides two in-built cluster managers:
@@ -860,7 +860,7 @@ If ``io`` is not specified, ``host`` and ``port`` are used to connect.
 For example, a cluster manager may launch a single worker per node, and use that to launch
 additional workers. ``count`` with an integer value ``n`` will launch a total of ``n`` workers,
 while a value of ``:auto`` will launch as many workers as cores on that machine.
-``exename`` is the name of the julia executable including the full path.
+``exename`` is the name of the ``julia`` executable including the full path.
 ``exeflags`` should be set to the required command line arguments for new workers.
 
 ``tunnel``, ``bind_addr``, ``sshflags`` and ``max_parallel`` are used when a ssh tunnel is
@@ -884,14 +884,14 @@ Cluster Managers with custom transports
 ---------------------------------------
 
 Replacing the default TCP/IP all-to-all socket connections with a custom transport layer is a little more involved.
-Each julia process has as many communication tasks as the workers it is connected to. For example, consider a julia cluster of
+Each Julia process has as many communication tasks as the workers it is connected to. For example, consider a Julia cluster of
 32 processes in a all-to-all mesh network:
 
-- Each julia process thus has 31 communication tasks
+- Each Julia process thus has 31 communication tasks
 - Each task handles all incoming messages from a single remote worker in a message processing loop
 - The message processing loop waits on an ``AsyncStream`` object - for example, a TCP socket in the default implementation, reads an entire
   message, processes it and waits for the next one
-- Sending messages to a process is done directly from any julia task - not just communication tasks - again, via the appropriate
+- Sending messages to a process is done directly from any Julia task - not just communication tasks - again, via the appropriate
   ``AsyncStream`` object
 
 Replacing the default transport involves the new implementation to setup connections to remote workers, and to provide appropriate
@@ -904,17 +904,17 @@ The default implementation (which uses TCP/IP sockets) is implemented as ``conne
 
 ``connect`` should return a pair of ``AsyncStream`` objects, one for reading data sent from worker ``pid``,
 and the other to write data that needs to be sent to worker ``pid``. Custom cluster managers can use an in-memory ``BufferStream``
-as the plumbing to proxy data between the custom, possibly non-AsyncStream transport and julia's in-built parallel infrastructure.
+as the plumbing to proxy data between the custom, possibly non-AsyncStream transport and Julia's in-built parallel infrastructure.
 
 A ``BufferStream`` is an in-memory ``IOBuffer`` which behaves like an ``AsyncStream``.
 
-Folder ``examples/clustermanager/0mq`` is an example of using ZeroMQ is connect julia workers in a star network with a 0MQ broker in the middle.
-Note: The julia processes are still all *logically* connected to each other - any worker can message any other worker directly without any
+Folder ``examples/clustermanager/0mq`` is an example of using ZeroMQ is connect Julia workers in a star network with a 0MQ broker in the middle.
+Note: The Julia processes are still all *logically* connected to each other - any worker can message any other worker directly without any
 awareness of 0MQ being used as the transport layer.
 
 When using custom transports:
 
-- julia workers must NOT be started with ``--worker``. Starting with ``--worker`` will result in the newly launched
+- Julia workers must NOT be started with ``--worker``. Starting with ``--worker`` will result in the newly launched
   workers defaulting to the TCP/IP socket transport implementation
 - For every incoming logical connection with a worker, ``Base.process_messages(rd::AsyncStream, wr::AsyncStream)`` must be called.
   This launches a new task that handles reading and writing of messages from/to the worker represented by the ``AsyncStream`` objects
@@ -996,6 +996,86 @@ Keyword argument ``topology`` to ``addprocs`` is used to specify how the workers
 
 Currently sending a message between unconnected workers results in an error. This behaviour, as also the
 functionality and interface should be considered experimental in nature and may change in future releases.
+
+Multi-threading (Experimental)
+-------------------------------
+In addition to tasks, remote calls and remote references, Julia from v0.5 will natively support
+multi-threading. Note that this section is experimental and the interfaces may change in the
+future.
+
+Setup
+=====
+
+By default, Julia starts up with a single thread of execution. This can be verified by
+using the command :obj:`Threads.nthreads()`::
+
+    julia> Threads.nthreads()
+    1
+
+The number of threads Julia starts up with is controlled by an environment variable
+called ``JULIA_NUM_THREADS``. Now, let's start up Julia with 4 threads::
+
+    export JULIA_NUM_THREADS=4
+
+(The above command works on bourne shells on Linux and OSX. Note that if you're using
+a C shell on these platforms, you should use the keyword ``set`` instead of ``export``.
+If you're on Windows, start up the command line in the location of ``julia.exe`` and
+use ``set`` instead of ``export``.)
+
+Let's verify there are 4 threads at our disposal. ::
+
+    julia> Threads.nthreads()
+    4
+
+But we are currently on the master thread. To check, we use the command :obj:`Threads.threadid()` ::
+
+    julia> Threads.threadid()
+    1
+
+The ``@threads`` Macro
+=======================
+
+Let's work a simple example using our native threads. Let us create an array of zeros::
+
+    julia> a = zeros(10)
+    10-element Array{Float64,1}:
+     0.0
+     0.0
+     0.0
+     0.0
+     0.0
+     0.0
+     0.0
+     0.0
+     0.0
+     0.0
+
+Let us operate on this array simultaneously using 4 threads. We'll have each thread write
+its thread ID into each location.
+
+Julia supports parallel loops using the :obj:`Threads.@threads` macro. This macro is affixed in front
+of a ``for`` loop to indicate to Julia that the loop is a multi-threaded region. ::
+
+    Threads.@threads for i = 1:10
+        a[i] = threadid()
+    end
+
+The iteration space is split amongst the threads, after which each thread writes its thread ID to its assigned locations.::
+
+    julia> a
+    10-element Array{Float64,1}:
+     1.0
+     1.0
+     1.0
+     2.0
+     2.0
+     2.0
+     3.0
+     3.0
+     4.0
+     4.0
+
+Note that :obj:`Threads.@threads` does not have an optional reduction parameter like :obj:`@parallel`.
 
 .. rubric:: Footnotes
 

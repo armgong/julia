@@ -25,6 +25,7 @@ convert(   ::Type{Nullable   }, ::Void) = Nullable{Union{}}()
 
 promote_rule{S,T}(::Type{Nullable{S}}, ::Type{T}) = Nullable{promote_type(S, T)}
 promote_rule{S,T}(::Type{Nullable{S}}, ::Type{Nullable{T}}) = Nullable{promote_type(S, T)}
+promote_op{S,T}(op::Any, ::Type{Nullable{S}}, ::Type{Nullable{T}}) = Nullable{promote_op(op, S, T)}
 
 function show{T}(io::IO, x::Nullable{T})
     if get(io, :compact, false)
@@ -34,23 +35,31 @@ function show{T}(io::IO, x::Nullable{T})
             show(io, x.value)
         end
     else
-        print(io, "Nullable{", T, "}(")
+        print(io, "Nullable{")
+        showcompact(io, eltype(x))
+        print(io, "}(")
         if !isnull(x)
-            show(io, x.value)
+            showcompact(io, x.value)
         end
         print(io, ')')
     end
 end
 
-get(x::Nullable) = x.isnull ? throw(NullException()) : x.value
+"""
+    get(x::Nullable[, y])
 
-@inline function get{T}(x::Nullable{T}, y)
-    if isbits(T)
-        ifelse(x.isnull, convert(T, y), x.value)
+Attempt to access the value of `x`. Returns the value if it is present;
+otherwise, returns `y` if provided, or throws a `NullException` if not.
+"""
+@inline function get{S,T}(x::Nullable{S}, y::T)
+    if isbits(S)
+        ifelse(x.isnull, y, x.value)
     else
-        x.isnull ? convert(T, y) : x.value
+        x.isnull ? y : x.value
     end
 end
+
+get(x::Nullable) = x.isnull ? throw(NullException()) : x.value
 
 isnull(x::Nullable) = x.isnull
 

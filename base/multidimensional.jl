@@ -5,13 +5,10 @@ module IteratorsMD
 
 import Base: eltype, length, size, start, done, next, last, getindex, setindex!, linearindexing, min, max, zero, one, isless, eachindex, ndims, iteratorsize
 importall ..Base.Operators
-import Base: simd_outer_range, simd_inner_length, simd_index, @generated
-import Base: @nref, @ncall, @nif, @nexprs, LinearFast, LinearSlow, to_index, AbstractCartesianIndex
+import Base: simd_outer_range, simd_inner_length, simd_index
+using Base: LinearFast, LinearSlow, AbstractCartesianIndex, fill_to_length, tail
 
 export CartesianIndex, CartesianRange
-
-# Traits for linear indexing
-linearindexing{A<:BitArray}(::Type{A}) = LinearFast()
 
 # CartesianIndex
 immutable CartesianIndex{N} <: AbstractCartesianIndex{N}
@@ -21,27 +18,21 @@ end
 
 CartesianIndex{N}(index::NTuple{N,Integer}) = CartesianIndex{N}(index)
 (::Type{CartesianIndex})(index::Integer...) = CartesianIndex(index)
-(::Type{CartesianIndex{N}}){N}(index::Integer...) = CartesianIndex{N}(index)
+(::Type{CartesianIndex{N}}){N}(index::Vararg{Integer,N}) = CartesianIndex{N}(index)
 # Allow passing tuples smaller than N
-@generated function (::Type{CartesianIndex{N}}){N,M}(index::NTuple{M,Integer})
-    M == N && return :(CartesianIndex(index))
-    M > N && return :(throw(DimensionMismatch("Cannot create CartesianIndex{$N} from $M indexes")))
-    args = [i <= M ? :(index[$i]) : 1 for i = 1:N]
-    :(CartesianIndex(tuple($(args...))))
-end
+(::Type{CartesianIndex{N}}){N}(index::Tuple) = CartesianIndex{N}(fill_to_length(index, 1, Val{N}))
+(::Type{CartesianIndex{N}}){N}(index::Integer...) = CartesianIndex{N}(index)
+(::Type{CartesianIndex{N}}){N}() = CartesianIndex{N}(())
 # Un-nest passed CartesianIndexes
-CartesianIndex(index::Union{Integer, CartesianIndex}...) = CartesianIndex(index)
-@generated function CartesianIndex{N}(index::NTuple{N, Union{Integer, CartesianIndex}})
-    ex = Expr(:tuple)
-    for (i, T) in enumerate(index.parameters)
-        if T <: Integer
-            push!(ex.args, :(index[$i]))
-        else
-            push!(ex.args, Expr(:..., :(index[$i].I)))
-        end
-    end
-    :($(Expr(:meta, :inline)); CartesianIndex($ex))
-end
+CartesianIndex(index::Union{Integer, CartesianIndex}...) = CartesianIndex(flatten(index))
+flatten(I::Tuple{}) = I
+flatten(I::Tuple{Any}) = I
+flatten{N}(I::Tuple{CartesianIndex{N}}) = I[1].I
+@inline flatten(I) = _flatten(I...)
+@inline _flatten() = ()
+@inline _flatten(i, I...)                 = (i, _flatten(I...)...)
+@inline _flatten(i::CartesianIndex, I...) = (i.I..., _flatten(I...)...)
+CartesianIndex(index::Tuple{Vararg{Union{Integer, CartesianIndex}}}) = CartesianIndex(index...)
 
 # length
 length{N}(::CartesianIndex{N})=N
@@ -57,27 +48,17 @@ one{N}(::CartesianIndex{N}) = one(CartesianIndex{N})
 one{N}(::Type{CartesianIndex{N}}) = CartesianIndex(ntuple(x -> 1, Val{N}))
 
 # arithmetic, min/max
-for op in (:+, :-, :min, :max)
-    @eval begin
-        @generated function ($op){N}(index1::CartesianIndex{N}, index2::CartesianIndex{N})
-            I = index1
-            args = [:($($op)(index1[$d],index2[$d])) for d = 1:N]
-            :($I($(args...)))
-        end
-    end
-end
+(+){N}(index1::CartesianIndex{N}, index2::CartesianIndex{N}) = CartesianIndex{N}(map(+, index1.I, index2.I))
+(-){N}(index1::CartesianIndex{N}, index2::CartesianIndex{N}) = CartesianIndex{N}(map(-, index1.I, index2.I))
+min{N}(index1::CartesianIndex{N}, index2::CartesianIndex{N}) = CartesianIndex{N}(map(min, index1.I, index2.I))
+max{N}(index1::CartesianIndex{N}, index2::CartesianIndex{N}) = CartesianIndex{N}(map(max, index1.I, index2.I))
 
 (+){N}(index::CartesianIndex{N}, i::Integer) = CartesianIndex{N}(map(x->x+i, index.I))
 (+){N}(i::Integer, index::CartesianIndex{N}) = index+i
 (-){N}(index::CartesianIndex{N}, i::Integer) = CartesianIndex{N}(map(x->x-i, index.I))
 (-){N}(i::Integer, index::CartesianIndex{N}) = CartesianIndex{N}(map(x->i-x, index.I))
-
-@generated function *{N}(a::Integer, index::CartesianIndex{N})
-    I = index
-    args = [:(a*index[$d]) for d = 1:N]
-    :($I($(args...)))
-end
-*(index::CartesianIndex,a::Integer)=*(a,index)
+(*){N}(a::Integer, index::CartesianIndex{N}) = CartesianIndex{N}(map(x->a*x, index.I))
+(*)(index::CartesianIndex,a::Integer)=*(a,index)
 
 # comparison
 @inline isless{N}(I1::CartesianIndex{N}, I2::CartesianIndex{N}) = _isless(0, I1.I, I2.I)
@@ -94,143 +75,128 @@ immutable CartesianRange{I<:CartesianIndex}
     stop::I
 end
 
-@generated function CartesianRange{N}(I::CartesianIndex{N})
-    startargs = fill(1, N)
-    :(CartesianRange($I($(startargs...)), I))
-end
+CartesianRange{N}(index::CartesianIndex{N}) = CartesianRange(one(index), index)
 CartesianRange(::Tuple{}) = CartesianRange{CartesianIndex{0}}(CartesianIndex{0}(()),CartesianIndex{0}(()))
 CartesianRange{N}(sz::NTuple{N,Int}) = CartesianRange(CartesianIndex(sz))
-CartesianRange{N}(rngs::NTuple{N,Union{Int,UnitRange{Int}}}) = CartesianRange(CartesianIndex(map(r->first(r), rngs)), CartesianIndex(map(r->last(r), rngs)))
+CartesianRange{N}(rngs::NTuple{N,Union{Integer,AbstractUnitRange}}) = CartesianRange(CartesianIndex(map(r->first(r), rngs)), CartesianIndex(map(r->last(r), rngs)))
 
 ndims(R::CartesianRange) = length(R.start)
 ndims{I<:CartesianIndex}(::Type{CartesianRange{I}}) = length(I)
 
-@generated function eachindex{T,N}(::LinearSlow, A::AbstractArray{T,N})
-    startargs = fill(1, N)
-    stopargs = [:(size(A,$i)) for i=1:N]
-    meta = Expr(:meta, :inline)
-    :($meta; CartesianRange(CartesianIndex{$N}($(startargs...)), CartesianIndex{$N}($(stopargs...))))
-end
+eachindex(::LinearSlow, A::AbstractArray) = CartesianRange(indices(A))
 
-@generated function eachindex(::LinearSlow, A::AbstractArray, B::AbstractArray...)
-    K = max(ndims(A), map(ndims, B)...)
-    startargs = fill(1, K)
-    stopargs = Array{Expr}(K)
-    for i = 1:K
-        Bargs = [:(size(B[$j],$i)) for j = 1:length(B)]
-        stopargs[i] = :(max(size(A,$i),$(Bargs...)))
-    end
-    meta = Expr(:meta, :inline)
-    :($meta; CartesianRange(CartesianIndex{$K}($(startargs...)), CartesianIndex{$K}($(stopargs...))))
-end
+@inline eachindex(::LinearSlow, A::AbstractArray, B::AbstractArray...) = CartesianRange(maxsize((), A, B...))
+maxsize(sz) = sz
+@inline maxsize(sz, A, B...) = maxsize(maxt(sz, size(A)), B...)
+@inline maxt(a::Tuple{}, b::Tuple{}) = ()
+@inline maxt(a::Tuple{}, b::Tuple)   = b
+@inline maxt(a::Tuple,   b::Tuple{}) = a
+@inline maxt(a::Tuple,   b::Tuple)   = (max(a[1], b[1]), maxt(tail(a), tail(b))...)
 
 eltype{I}(::Type{CartesianRange{I}}) = I
 iteratorsize{I}(::Type{CartesianRange{I}}) = Base.HasShape()
 
-@generated function start{I<:CartesianIndex}(iter::CartesianRange{I})
-    N = length(I)
-    cmp = [:(iter.start[$d] > iter.stop[$d]) for d = 1:N]
-    extest = Expr(:||, cmp...)
-    inc = [d < N ? :(iter.start[$d]) : :(iter.stop[$N]+1) for d = 1:N]
-    exstop = :(CartesianIndex{$N}($(inc...)))
-    meta = Expr(:meta, :inline)
-    quote
-        $meta
-        $extest ? $exstop : iter.start
+@inline function start{I<:CartesianIndex}(iter::CartesianRange{I})
+    if any(map(>, iter.start.I, iter.stop.I))
+        return iter.stop+1
     end
+    iter.start
 end
-@generated function next{I<:CartesianIndex}(iter::CartesianRange{I}, state)
-    N = length(I)
-    meta = Expr(:meta, :inline)
-    quote
-        $meta
-        index=state
-        @nif $N d->(index[d] < iter.stop[d]) d->(@nexprs($N, k->(ind_k = ifelse(k>=d, index[k] + (k==d), iter.start[k]))))
-        newindex = @ncall $N $I ind
-        index, newindex
+@inline function next{I<:CartesianIndex}(iter::CartesianRange{I}, state)
+    state, I(inc(state.I, iter.start.I, iter.stop.I))
+end
+# increment & carry
+@inline inc(::Tuple{}, ::Tuple{}, ::Tuple{}) = ()
+@inline inc(state::Tuple{Int}, start::Tuple{Int}, stop::Tuple{Int}) = (state[1]+1,)
+@inline function inc(state, start, stop)
+    if state[1] < stop[1]
+        return (state[1]+1,tail(state)...)
     end
+    newtail = inc(tail(state), tail(start), tail(stop))
+    (start[1], newtail...)
 end
-@generated function done{I<:CartesianIndex}(iter::CartesianRange{I}, state)
-    N = length(I)
-    :(state[$N] > iter.stop[$N])
-end
+@inline done{I<:CartesianIndex}(iter::CartesianRange{I}, state) = state.I[end] > iter.stop.I[end]
 
 # 0-d cartesian ranges are special-cased to iterate once and only once
 start{I<:CartesianIndex{0}}(iter::CartesianRange{I}) = false
 next{I<:CartesianIndex{0}}(iter::CartesianRange{I}, state) = iter.start, true
 done{I<:CartesianIndex{0}}(iter::CartesianRange{I}, state) = state
 
-@generated function size{I<:CartesianIndex}(iter::CartesianRange{I})
-    N = length(I)
-    N == 0 && return ()
-    args = [:(iter.stop[$i]-iter.start[$i]+1) for i=1:N]
-    Expr(:tuple,args...)
-end
+size{I<:CartesianIndex}(iter::CartesianRange{I}) = map(dimlength, iter.start.I, iter.stop.I)
+dimlength(start, stop) = stop-start+1
 
 length(iter::CartesianRange) = prod(size(iter))
 
 last(iter::CartesianRange) = iter.stop
 
-@generated function simd_outer_range{I}(iter::CartesianRange{I})
-    N = length(I)
-    N == 0 && return :(CartesianRange(CartesianIndex{0}(),CartesianIndex{0}()))
-    startargs = [:(iter.start[$i]) for i=2:N]
-    stopargs  = [:(iter.stop[$i]) for i=2:N]
-    :(CartesianRange(CartesianIndex{$(N-1)}($(startargs...)), CartesianIndex{$(N-1)}($(stopargs...))))
+simd_outer_range(iter::CartesianRange{CartesianIndex{0}}) = iter
+function simd_outer_range{I}(iter::CartesianRange{I})
+    start = CartesianIndex(tail(iter.start.I))
+    stop  = CartesianIndex(tail(iter.stop.I))
+    CartesianRange(start, stop)
 end
 
 simd_inner_length{I<:CartesianIndex{0}}(iter::CartesianRange{I}, ::CartesianIndex) = 1
 simd_inner_length(iter::CartesianRange, I::CartesianIndex) = iter.stop[1]-iter.start[1]+1
 
 simd_index{I<:CartesianIndex{0}}(iter::CartesianRange{I}, ::CartesianIndex, I1::Int) = iter.start
-@generated function simd_index{N}(iter::CartesianRange, Ilast::CartesianIndex{N}, I1::Int)
-    args = [d == 1 ? :(I1+iter.start[1]) : :(Ilast[$(d-1)]) for d = 1:N+1]
-    meta = Expr(:meta, :inline)
-    :($meta; CartesianIndex{$(N+1)}($(args...)))
+@inline function simd_index{N}(iter::CartesianRange, Ilast::CartesianIndex{N}, I1::Int)
+    CartesianIndex((I1+iter.start[1], Ilast.I...))
 end
+
+# Split out the first N elements of a tuple
+@inline split{N}(t, V::Type{Val{N}}) = _split((), t, V)
+@inline _split(tN, trest, V) = _split((tN..., trest[1]), tail(trest), V)
+# exit either when we've exhausted the input tuple or when tN has length N
+@inline _split{N}(tN::NTuple{N}, ::Tuple{}, ::Type{Val{N}}) = tN, ()  # ambig.
+@inline _split{N}(tN,            ::Tuple{}, ::Type{Val{N}}) = tN, ()
+@inline _split{N}(tN::NTuple{N},  trest,    ::Type{Val{N}}) = tN, trest
 
 end  # IteratorsMD
 
 using .IteratorsMD
 
-# Bounds-checking specialization
-# Specializing for a fixed number of arguments provides a ~25%
-# improvement over the general definitions in abstractarray.jl
+## Bounds-checking with CartesianIndex
+@inline checkbounds_indices(::Type{Bool}, ::Tuple{},   I::Tuple{CartesianIndex,Vararg{Any}}) =
+    checkbounds_indices(Bool, (), (I[1].I..., tail(I)...))
+@inline checkbounds_indices(::Type{Bool}, IA::Tuple{Any}, I::Tuple{CartesianIndex,Vararg{Any}}) =
+    checkbounds_indices(Bool, IA, (I[1].I..., tail(I)...))
+@inline checkbounds_indices(::Type{Bool}, IA::Tuple, I::Tuple{CartesianIndex,Vararg{Any}}) =
+    checkbounds_indices(Bool, IA, (I[1].I..., tail(I)...))
 
-# This is annoying, but we must first define logical indexing to avoid ambiguities
-_internal_checkbounds(A::AbstractVector, I::AbstractVector{Bool}) = length(A) == length(I) || throw_boundserror(A, I)
-_internal_checkbounds(A::AbstractVector, I::AbstractArray{Bool}) = size(A) == size(I) || throw_boundserror(A, I)
+# Support indexing with an array of CartesianIndex{N}s
+# Here we try to consume N of the indices (if there are that many available)
+# The first two simply handle ambiguities
+@inline function checkbounds_indices{N}(::Type{Bool}, ::Tuple{}, I::Tuple{AbstractArray{CartesianIndex{N}},Vararg{Any}})
+    checkindex(Bool, (), I[1]) & checkbounds_indices(Bool, (), tail(I))
+end
+@inline function checkbounds_indices{N}(::Type{Bool}, IA::Tuple{Any}, I::Tuple{AbstractArray{CartesianIndex{N}},Vararg{Any}})
+    checkindex(Bool, IA, I[1]) & checkbounds_indices(Bool, (), tail(I))
+end
+@inline function checkbounds_indices{N}(::Type{Bool}, IA::Tuple, I::Tuple{AbstractArray{CartesianIndex{N}},Vararg{Any}})
+    IA1, IArest = IteratorsMD.split(IA, Val{N})
+    checkindex(Bool, IA1, I[1]) & checkbounds_indices(Bool, IArest, tail(I))
+end
 
-for N = 1:5
-    args = [:($(Symbol(:I, d))) for d = 1:N]
-    targs = [:($(Symbol(:I, d))::Union{Colon,Number,AbstractArray}) for d = 1:N]  # prevent co-opting the CartesianIndex version
-    exs = [:(checkbounds(Bool, size(A, $d), $(args[d]))) for d = 1:N]
-    cbexpr = exs[1]
-    for d = 2:N
-        cbexpr = :($(exs[d]) & $cbexpr)
+function checkindex{N}(::Type{Bool}, inds::Tuple, I::AbstractArray{CartesianIndex{N}})
+    b = true
+    for i in I
+        b &= checkbounds_indices(Bool, inds, (i,))
     end
-    @eval begin
-        function checkbounds(A::AbstractArray, $(args...))
-            @_inline_meta
-            _internal_checkbounds(A, $(args...))
-        end
-        function _internal_checkbounds{T}(A::AbstractArray{T,$N}, $(targs...))
-            @_inline_meta
-            ($cbexpr) || throw_boundserror(A, ($(args...),))
-        end
-    end
+    b
 end
 
-# Bounds-checking with CartesianIndex
-@inline function checkbounds(::Type{Bool}, ::Tuple{}, I1::CartesianIndex)
-    checkbounds(Bool, (), I1.I...)
+# combined dimensionality of all indices, including CartesianIndex and
+# AbstractArray{CartesianIndex}
+# rather than returning N, it returns an NTuple{N,Bool} so the result is inferrable
+@inline index_ndims(i1, I...) = (true, index_ndims(I...)...)
+@inline function index_ndims{N}(i1::CartesianIndex{N}, I...)
+    (map(x->true, i1.I)..., index_ndims(I...)...)
 end
-@inline function checkbounds(::Type{Bool}, sz::Tuple{}, I1::CartesianIndex, I...)
-    checkbounds(Bool, (), I1.I..., I...)
+@inline function index_ndims{N}(i1::AbstractArray{CartesianIndex{N}}, I...)
+    (ntuple(x->true, Val{N})..., index_ndims(I...)...)
 end
-@inline function checkbounds(::Type{Bool}, sz::Dims, I1::CartesianIndex, I...)
-    checkbounds(Bool, sz, I1.I..., I...)
-end
+index_ndims() = ()
 
 # Recursively compute the lengths of a list of indices, without dropping scalars
 # These need to be inlined for more than 3 indexes
@@ -238,26 +204,57 @@ index_lengths(A::AbstractArray, I::Colon) = (length(A),)
 @inline index_lengths(A::AbstractArray, I...) = index_lengths_dim(A, 1, I...)
 index_lengths_dim(A, dim) = ()
 index_lengths_dim(A, dim, ::Colon) = (trailingsize(A, dim),)
-@inline index_lengths_dim(A, dim, ::Colon, i, I...) = (size(A, dim), index_lengths_dim(A, dim+1, i, I...)...)
+@inline index_lengths_dim(A, dim, ::Colon, i, I...) = (_length(indices(A, dim)), index_lengths_dim(A, dim+1, i, I...)...)
 @inline index_lengths_dim(A, dim, ::Real, I...) = (1, index_lengths_dim(A, dim+1, I...)...)
-@inline index_lengths_dim{N}(A, dim, ::CartesianIndex{N}, I...) = (1, index_shape_dim(A, dim+N, I...)...)
+@inline index_lengths_dim{N}(A, dim, ::CartesianIndex{N}, I...) = (1, index_lengths_dim(A, dim+N, I...)...)
 @inline index_lengths_dim(A, dim, i::AbstractArray, I...) = (length(i), index_lengths_dim(A, dim+1, I...)...)
 @inline index_lengths_dim(A, dim, i::AbstractArray{Bool}, I...) = (sum(i), index_lengths_dim(A, dim+1, I...)...)
 @inline index_lengths_dim{N}(A, dim, i::AbstractArray{CartesianIndex{N}}, I...) = (length(i), index_lengths_dim(A, dim+N, I...)...)
 
 # shape of array to create for getindex() with indexes I, dropping scalars
-index_shape(A::AbstractArray, I::Colon) = (length(A),)
-@inline index_shape(A::AbstractArray, I...) = index_shape_dim(A, 1, I...)
-index_shape_dim(A, dim, I::Real...) = ()
-index_shape_dim(A, dim, ::Colon) = (trailingsize(A, dim),)
-@inline index_shape_dim(A, dim, ::Colon, i, I...) = (size(A, dim), index_shape_dim(A, dim+1, i, I...)...)
-@inline index_shape_dim(A, dim, ::Real, I...) = (index_shape_dim(A, dim+1, I...)...)
-@inline index_shape_dim{N}(A, dim, ::CartesianIndex{N}, I...) = (index_shape_dim(A, dim+N, I...)...)
-@inline index_shape_dim(A, dim, i::AbstractArray, I...) = (size(i)..., index_shape_dim(A, dim+1, I...)...)
-@inline index_shape_dim(A, dim, i::AbstractArray{Bool}, I...) = (sum(i), index_shape_dim(A, dim+1, I...)...)
-@inline index_shape_dim{N}(A, dim, i::AbstractArray{CartesianIndex{N}}, I...) = (size(i)..., index_shape_dim(A, dim+N, I...)...)
+# returns a Tuple{Vararg{AbstractUnitRange}} of indices
+index_shape(A::AbstractArray,  I::Colon)    = (linearindices(A),)
+@inline index_shape(A::AbstractArray, I...) = index_shape_dim(indices(A), I...)
+@inline index_shape_dim(inds::Tuple{Any}, ::Colon)          = inds
+@inline index_shape_dim(inds,             ::Colon)          = (OneTo(trailingsize(inds)),)
+@inline function index_shape_dim(inds,    ::Colon, i, I...)
+    inds1, indstail = IteratorsMD.split(inds, Val{1})
+    (inds1..., index_shape_dim(indstail, i, I...)...)
+end
+@inline index_shape_dim(inds,  ::Real...)             = ()
+@inline index_shape_dim(inds,  ::Real, I...)          = index_shape_dim(safe_tail(inds), I...)
+@inline index_shape_dim(inds, i::AbstractArray, I...) =
+    (indices(i)..., index_shape_dim(safe_tail(inds), I...)...)
+@inline index_shape_dim(inds, i::AbstractArray{Bool}, I...) =
+    (OneTo(sum(i)), index_shape_dim(safe_tail(inds), I...)...)
+# single CartesianIndex version not needed because of call to flatten in _getindex...
+# ...but array of CartesianIndex is not covered
+@inline function index_shape_dim{N}(inds, i::AbstractArray{CartesianIndex{N}}, I...)
+    indsN, indstail = IteratorsMD.split(inds, Val{N})
+    (indices(i)..., index_shape_dim(indstail, I...)...)
+end
+
+# Convert Colon indices into explicit indices
+@inline decolon(A::AbstractArray, ::Colon) = (linearindices(A),)
+@inline decolon(A::AbstractArray, I...) = decolon_dim(indices(A), I...)
+@inline decolon_dim(inds)  = ()
+@inline decolon_dim(inds::Tuple{Any}, ::Colon)       = inds
+@inline decolon_dim(inds,             ::Colon)       = (OneTo(trailingsize(inds)),)
+@inline function decolon_dim(inds,    ::Colon, I...)
+    inds1, indstail = IteratorsMD.split(inds, Val{1})
+    (maybe_oneto(inds1...), decolon_dim(indstail, I...)...)
+end
+@inline decolon_dim(inds, i1, I...) = (i1, decolon_dim(safe_tail(inds), I...)...)
+@inline function decolon_dim{N}(inds, i1::AbstractArray{CartesianIndex{N}}, I...)
+    indsN, indstail = IteratorsMD.split(inds, Val{N})
+    (i1, decolon_dim(indstail, I...)...)
+end
+maybe_oneto(i) = i
+maybe_oneto() = OneTo(1)
 
 ### From abstractarray.jl: Internal multidimensional indexing definitions ###
+getindex(x::Number, i::CartesianIndex{0}) = x
+
 # These are not defined on directly on getindex to avoid
 # ambiguities for AbstractArray subtypes. See the note in abstractarray.jl
 
@@ -269,16 +266,18 @@ end
 # Explicitly allow linear indexing with one non-scalar index
 @inline function _getindex(l::LinearIndexing, A::AbstractArray, i::Union{Real, AbstractArray, Colon})
     @boundscheck checkbounds(A, i)
-    _unsafe_getindex(l, _maybe_linearize(l, A), i)
+    _unsafe_getindex(l, _maybe_reshape(l, A, (i,)), i)
 end
 # But we can speed up LinearSlow arrays by reshaping them to vectors:
-_maybe_linearize(::LinearFast, A::AbstractArray) = A
-_maybe_linearize(::LinearSlow, A::AbstractVector) = A
-_maybe_linearize(::LinearSlow, A::AbstractArray) = reshape(A, length(A))
+_maybe_reshape(::LinearFast, A::AbstractArray, i) = A
+_maybe_reshape(::LinearSlow, A::AbstractVector, i) = A
+@inline _maybe_reshape(::LinearSlow, A::AbstractArray, i) = _maybe_reshape(LinearSlow(), index_ndims(i...), A)
+@inline _maybe_reshape{T,N}(::LinearIndexing, ::NTuple{N}, A::AbstractArray{T,N}) = A
+@inline _maybe_reshape{N}(::LinearIndexing, ::NTuple{N}, A) = reshape(A, Val{N})
 
 @inline function _getindex{N}(l::LinearIndexing, A::AbstractArray, I::Vararg{Union{Real, AbstractArray, Colon},N}) # TODO: DEPRECATE FOR #14770
     @boundscheck checkbounds(A, I...)
-    _unsafe_getindex(l, reshape(A, Val{N}), I...)
+    _unsafe_getindex(l, _maybe_reshape(l, A, I), I...)
 end
 
 @generated function _unsafe_getindex(::LinearIndexing, A::AbstractArray, I::Union{Real, AbstractArray, Colon}...)
@@ -288,7 +287,7 @@ end
         @nexprs $N d->(I_d = to_index(I[d]))
         shape = @ncall $N index_shape A I
         dest = similar(A, shape)
-        size(dest) == shape || throw_checksize_error(dest, shape)
+        map(unsafe_length, indices(dest)) == map(unsafe_length, shape) || throw_checksize_error(dest, shape)
         @ncall $N _unsafe_getindex! dest A I
     end
 end
@@ -297,15 +296,33 @@ end
 function _unsafe_getindex(::LinearIndexing, src::AbstractArray, I::AbstractArray{Bool})
     shape = index_shape(src, I)
     dest = similar(src, shape)
-    size(dest) == shape || throw_checksize_error(dest, shape)
+    map(unsafe_length, indices(dest)) == map(unsafe_length, shape) || throw_checksize_error(dest, shape)
 
     D = eachindex(dest)
     Ds = start(D)
-    for (i, s) in zip(eachindex(I), eachindex(src))
-        @inbounds Ii = I[i]
-        if Ii
+    for (b, s) in zip(I, eachindex(src))
+        @inbounds if b
             d, Ds = next(D, Ds)
-            @inbounds dest[d] = src[s]
+            dest[d] = src[s]
+        end
+    end
+    dest
+end
+
+# specialized form for LinearFast
+function _unsafe_getindex(::LinearFast, src::AbstractArray, I::AbstractArray{Bool})
+    shape = index_shape(src, I)
+    dest = similar(src, shape)
+    map(unsafe_length, indices(dest)) == map(unsafe_length, shape) || throw_checksize_error(dest, shape)
+
+    D = eachindex(dest)
+    Ds = start(D)
+    s = 0
+    for i in eachindex(I)
+        s += 1
+        @inbounds if I[i]
+            d, Ds = next(D, Ds)
+            dest[d] = src[s]
         end
     end
     dest
@@ -316,12 +333,14 @@ end
     N = length(I)
     quote
         $(Expr(:meta, :inline))
+        @nexprs $N d->(I_d = I[d])
+        J = @ncall $N decolon src I
+        @nexprs $N d->(J_d = J[d])
         D = eachindex(dest)
         Ds = start(D)
-        idxlens = index_lengths(src, I...)
-        @nloops $N i d->(1:idxlens[d]) d->(@inbounds j_d = getindex(I[d], i_d)) begin
+        @inbounds @nloops $N j d->J_d begin
             d, Ds = next(D, Ds)
-            @inbounds dest[d] = @ncall $N getindex src j
+            dest[d] = @ncall $N getindex src j
         end
         dest
     end
@@ -341,12 +360,12 @@ _iterable(v) = repeated(v)
 end
 @inline function _setindex!(l::LinearIndexing, A::AbstractArray, x, j::Union{Real,AbstractArray,Colon})
     @boundscheck checkbounds(A, j)
-    _unsafe_setindex!(l, _maybe_linearize(l, A), x, j)
+    _unsafe_setindex!(l, _maybe_reshape(l, A, (j,)), x, j)
     A
 end
 @inline function _setindex!{N}(l::LinearIndexing, A::AbstractArray, x, J::Vararg{Union{Real, AbstractArray, Colon},N}) # TODO: DEPRECATE FOR #14770
     @boundscheck checkbounds(A, J...)
-    _unsafe_setindex!(l, reshape(A, Val{N}), x, J...)
+    _unsafe_setindex!(l, _maybe_reshape(l, A, J), x, J...)
     A
 end
 
@@ -359,12 +378,31 @@ function _unsafe_setindex!(::LinearIndexing, A::AbstractArray, x, I::AbstractArr
     X = _iterable(x)
     Xs = start(X)
     c = 0
-    for (iA, i) in zip(eachindex(A), eachindex(I))
-        @inbounds Ii = I[i]
+    @inbounds for (iA, i) in zip(eachindex(A), eachindex(I))
+        Ii = I[i]
         if Ii
             done(X, Xs) && throw_setindex_mismatch(x, c+1)
             (v, Xs) = next(X, Xs)
-            @inbounds A[iA] = v
+            A[iA] = v
+            c += 1
+        end
+    end
+    setindex_shape_check(X, c)
+    A
+end
+
+# specialized form for LinearFast
+function _unsafe_setindex!(::LinearFast, A::AbstractArray, x, I::AbstractArray{Bool})
+    X = _iterable(x)
+    Xs = start(X)
+    iA = 0
+    c = 0
+    for i in eachindex(I)
+        iA += 1
+        @inbounds if I[i]
+            done(X, Xs) && throw_setindex_mismatch(x, c+1)
+            (v, Xs) = next(X, Xs)
+            A[iA] = v
             c += 1
         end
     end
@@ -378,39 +416,23 @@ end
         @nexprs $N d->(I_d = I[d])
         idxlens = @ncall $N index_lengths A I
         @ncall $N setindex_shape_check X (d->idxlens[d])
+        J = @ncall $N decolon A I
+        @nexprs $N d->(J_d = J[d])
         Xs = start(X)
-        @nloops $N i d->(1:idxlens[d]) d->(@inbounds j_d = I_d[i_d]) begin
+        @inbounds @nloops $N j d->J_d begin
             v, Xs = next(X, Xs)
-            @inbounds @ncall $N setindex! A v j
+            @ncall $N setindex! A v j
         end
         A
     end
 end
 
-# Cartesian indexing
-function cartindex_exprs(indexes, syms)
-    exprs = Any[]
-    for (i,ind) in enumerate(indexes)
-        if ind <: CartesianIndex
-            for j = 1:length(ind)
-                push!(exprs, :($syms[$i][$j]))
-            end
-        else
-            push!(exprs, :($syms[$i]))
-        end
-    end
-    if isempty(exprs)
-        push!(exprs, 1)  # Handle the zero-dimensional case
-    end
-    exprs
+@propagate_inbounds function _getindex{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, I::Union{Real,AbstractArray,Colon,CartesianIndex}...)
+    getindex(A, IteratorsMD.flatten(I)...)
 end
-@generated function _getindex{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, I::Union{Real,AbstractArray,Colon,CartesianIndex}...)
-    :(@_propagate_inbounds_meta; getindex(A, $(cartindex_exprs(I, :I)...)))
+@propagate_inbounds function _setindex!{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, v, I::Union{Real,AbstractArray,Colon,CartesianIndex}...)
+    setindex!(A, v, IteratorsMD.flatten(I)...)
 end
-@generated function _setindex!{T,N}(l::LinearIndexing, A::AbstractArray{T,N}, v, I::Union{Real,AbstractArray,Colon,CartesianIndex}...)
-    :(@_propagate_inbounds_meta; setindex!(A, v, $(cartindex_exprs(I, :I)...)))
-end
-
 
 ##
 
@@ -443,21 +465,26 @@ for (f, fmod, op) = ((:cummin, :_cummin!, :min), (:cummax, :_cummax!, :max))
     end
 
     @eval function ($f)(A::AbstractArray, axis::Integer)
+        axis > 0 || throw(ArgumentError("axis must be a positive integer"))
         res = similar(A)
-        if size(A, axis) < 1
+        axis > ndims(A) && return copy!(res, A)
+        inds = indices(A)
+        if isempty(inds[axis])
             return res
         end
-        R1 = CartesianRange(size(A)[1:axis-1])
-        R2 = CartesianRange(size(A)[axis+1:end])
+        R1 = CartesianRange(inds[1:axis-1])
+        R2 = CartesianRange(inds[axis+1:end])
         ($fmod)(res, A, R1, R2, axis)
     end
 
     @eval @noinline function ($fmod)(res, A::AbstractArray, R1::CartesianRange, R2::CartesianRange, axis::Integer)
+        inds = indices(A, axis)
+        i1 = first(inds)
         for I2 in R2
             for I1 in R1
-                res[I1, 1, I2] = A[I1, 1, I2]
+                res[I1, i1, I2] = A[I1, i1, I2]
             end
-            for i = 2:size(A, axis)
+            for i = i1+1:last(inds)
                 for I1 in R1
                     res[I1, i, I2] = ($op)(A[I1, i, I2], res[I1, i-1, I2])
                 end
@@ -474,42 +501,46 @@ cumsum!(B, A::AbstractArray) = cumsum!(B, A, 1)
 cumprod(A::AbstractArray, axis::Integer=1) = cumprod!(similar(A), A, axis)
 cumprod!(B, A) = cumprod!(B, A, 1)
 
-for (f, op) in ((:cumsum!, :+),
-                (:cumprod!, :*))
-    @eval begin
-        @generated function ($f){T,N}(B, A::AbstractArray{T,N}, axis::Integer)
-            quote
-                if size(B, axis) < 1
-                    return B
-                end
-                size(B) == size(A) || throw(DimensionMismatch("Size of B must match A"))
-                if axis > N
-                    copy!(B, A)
-                    return B
-                end
-                if axis == 1
-                    # We can accumulate to a temporary variable, which allows register usage and will be slightly faster
-                    @inbounds @nloops $N i d->(d > 1 ? (1:size(A,d)) : (1:1)) begin
-                        tmp = convert(eltype(B), @nref($N, A, i))
-                        @nref($N, B, i) = tmp
-                        for i_1 = 2:size(A,1)
-                            tmp = ($($op))(tmp, @nref($N, A, i))
-                            @nref($N, B, i) = tmp
-                        end
-                    end
-                else
-                    @nexprs $N d->(isaxis_d = axis == d)
-                    # Copy the initial element in each 1d vector along dimension `axis`
-                    @inbounds @nloops $N i d->(d == axis ? (1:1) : (1:size(A,d))) @nref($N, B, i) = @nref($N, A, i)
-                    # Accumulate
-                    @inbounds @nloops $N i d->((1+isaxis_d):size(A, d)) d->(j_d = i_d - isaxis_d) begin
-                        @nref($N, B, i) = ($($op))(@nref($N, B, j), @nref($N, A, i))
-                    end
-                end
-                B
+cumsum!(B, A, axis::Integer) = cumop!(+, B, A, axis)
+cumprod!(B, A, axis::Integer) = cumop!(*, B, A, axis)
+
+function cumop!(op, B, A, axis::Integer)
+    axis > 0 || throw(ArgumentError("axis must be a positive integer"))
+    inds_t = indices(A)
+    indices(B) == inds_t || throw(DimensionMismatch("shape of B must match A"))
+    axis > ndims(A) && return copy!(B, A)
+    isempty(inds_t[axis]) && return B
+    if axis == 1
+        # We can accumulate to a temporary variable, which allows
+        # register usage and will be slightly faster
+        ind1 = inds_t[1]
+        @inbounds for I in CartesianRange(tail(inds_t))
+            tmp = convert(eltype(B), A[first(ind1), I])
+            B[first(ind1), I] = tmp
+            for i_1 = first(ind1)+1:last(ind1)
+                tmp = op(tmp, A[i_1, I])
+                B[i_1, I] = tmp
             end
         end
+    else
+        R1 = CartesianRange(indices(A)[1:axis-1])   # not type-stable
+        R2 = CartesianRange(indices(A)[axis+1:end])
+        _cumop!(op, B, A, R1, inds_t[axis], R2) # use function barrier
     end
+    return B
+end
+
+@noinline function _cumop!(op, B, A, R1, ind, R2)
+    # Copy the initial element in each 1d vector along dimension `axis`
+    i = first(ind)
+    @inbounds for J in R2, I in R1
+        B[I, i, J] = A[I, i, J]
+    end
+    # Accumulate
+    @inbounds for J in R2, i in first(ind)+1:last(ind), I in R1
+        B[I, i, J] = op(B[I, i-1, J], A[I, i, J])
+    end
+    B
 end
 
 ### from abstractarray.jl
@@ -523,12 +554,13 @@ function fill!{T}(A::AbstractArray{T}, x)
 end
 
 function copy!{T,N}(dest::AbstractArray{T,N}, src::AbstractArray{T,N})
-    length(dest) >= length(src) || throw(BoundsError())
-    for (Isrc, Idest) in zip(eachindex(src), eachindex(dest))
-        @inbounds dest[Idest] = src[Isrc]
+    @boundscheck checkbounds(dest, indices(src)...)
+    for I in eachindex(linearindexing(src,dest), src)
+        @inbounds dest[I] = src[I]
     end
     dest
 end
+
 
 ### BitArrays
 
@@ -537,7 +569,7 @@ end
 # contiguous multidimensional indexing: if the first dimension is a range,
 # we can get some performance from using copy_chunks!
 @inline function _unsafe_getindex!(X::BitArray, B::BitArray, I0::Union{UnitRange{Int},Colon})
-    copy_chunks!(X.chunks, 1, B.chunks, first(I0), index_lengths(B, I0)[1])
+    copy_chunks!(X.chunks, 1, B.chunks, indexoffset(I0)+1, index_lengths(B, I0)[1])
     return X
 end
 
@@ -548,7 +580,7 @@ end
         $(Expr(:meta, :inline))
         @nexprs $N d->(I_d = I[d])
 
-        f0 = first(I0)
+        f0 = indexoffset(I0)+1
         l0 = size(X, 1)
 
         gap_lst_1 = 0
@@ -558,7 +590,7 @@ end
         @nexprs $N d->begin
             stride *= size(B, d)
             stride_lst_d = stride
-            ind += stride * (first(I_d) - 1)
+            ind += stride * indexoffset(I_d)
             gap_lst_{d+1} *= stride
         end
 
@@ -607,7 +639,7 @@ end
     l0 = index_lengths(B, I0)[1]
     setindex_shape_check(X, l0)
     l0 == 0 && return B
-    f0 = first(I0)
+    f0 = indexoffset(I0)+1
     copy_to_bitarray_chunks!(B.chunks, f0, X, 1, l0)
     return B
 end
@@ -617,7 +649,7 @@ end
     y = Bool(x)
     l0 = index_lengths(B, I0)[1]
     l0 == 0 && return B
-    f0 = first(I0)
+    f0 = indexoffset(I0)+1
     fill_chunks!(B.chunks, y, f0, l0)
     return B
 end
@@ -628,12 +660,12 @@ end
 end
 @generated function _unsafe_setindex!(B::BitArray, X::Union{BitArray,Array}, I0::Union{Colon,UnitRange{Int}}, I::Union{Int,UnitRange{Int},Colon}...)
     N = length(I)
-    rangeexp = [I[d] == Colon ? :(1:size(B, $(d+1))) : :(I[$d]) for d = 1:N]
+    rangeexp = [I[d] === Colon ? :(1:size(B, $(d+1))) : :(I[$d]) for d = 1:N]
     quote
         idxlens = @ncall $N index_lengths B I0 d->I[d]
         @ncall $N setindex_shape_check X idxlens[1] d->idxlens[d+1]
         isempty(X) && return B
-        f0 = first(I0)
+        f0 = indexoffset(I0)+1
         l0 = idxlens[1]
 
         gap_lst_1 = 0
@@ -643,7 +675,7 @@ end
         @nexprs $N d->begin
             stride *= size(B, d)
             stride_lst_d = stride
-            ind += stride * (first(I[d]) - 1)
+            ind += stride * indexoffset(I[d])
             gap_lst_{d+1} *= stride
         end
 
@@ -667,12 +699,12 @@ end
 end
 @generated function _unsafe_setindex!(B::BitArray, x, I0::Union{Colon,UnitRange{Int}}, I::Union{Int,UnitRange{Int},Colon}...)
     N = length(I)
-    rangeexp = [I[d] == Colon ? :(1:size(B, $(d+1))) : :(I[$d]) for d = 1:N]
+    rangeexp = [I[d] === Colon ? :(1:size(B, $(d+1))) : :(I[$d]) for d = 1:N]
     quote
         y = Bool(x)
         idxlens = @ncall $N index_lengths B I0 d->I[d]
 
-        f0 = first(I0)
+        f0 = indexoffset(I0)+1
         l0 = idxlens[1]
         l0 == 0 && return B
         @nexprs $N d->(isempty(I[d]) && return B)
@@ -684,7 +716,7 @@ end
         @nexprs $N d->begin
             stride *= size(B, d)
             stride_lst_d = stride
-            ind += stride * (first(I[d]) - 1)
+            ind += stride * indexoffset(I[d])
             gap_lst_{d+1} *= stride
         end
 
@@ -749,12 +781,12 @@ function permutedims(B::StridedArray, perm)
 end
 
 function checkdims_perm{TP,TB,N}(P::AbstractArray{TP,N}, B::AbstractArray{TB,N}, perm)
-    dimsB = size(B)
+    indsB = indices(B)
     length(perm) == N || throw(ArgumentError("expected permutation of size $N, but length(perm)=$(length(perm))"))
     isperm(perm) || throw(ArgumentError("input is not a permutation"))
-    dimsP = size(P)
+    indsP = indices(P)
     for i = 1:length(perm)
-        dimsP[i] == dimsB[perm[i]] || throw(DimensionMismatch("destination tensor of incorrect size"))
+        indsP[i] == indsB[perm[i]] || throw(DimensionMismatch("destination tensor of incorrect size"))
     end
     nothing
 end
@@ -811,7 +843,7 @@ If `dim` is specified, returns unique regions of the array `itr` along `dim`.
 @generated function unique{T,N}(A::AbstractArray{T,N}, dim::Int)
     quote
         1 <= dim <= $N || return copy(A)
-        hashes = zeros(UInt, size(A, dim))
+        hashes = similar(inds->zeros(UInt, inds), indices(A, dim))
 
         # Compute hash for each row
         k = 0
@@ -820,15 +852,15 @@ If `dim` is specified, returns unique regions of the array `itr` along `dim`.
         end
 
         # Collect index of first row for each hash
-        uniquerow = Array{Int}(size(A, dim))
+        uniquerow = similar(Array{Int}, indices(A, dim))
         firstrow = Dict{Prehashed,Int}()
-        for k = 1:size(A, dim)   # fixme (iter): use `eachindex(A, dim)` after #15459 is implemented
+        for k = indices(A, dim)
             uniquerow[k] = get!(firstrow, Prehashed(hashes[k]), k)
         end
         uniquerows = collect(values(firstrow))
 
         # Check for collisions
-        collided = falses(size(A, dim))
+        collided = similar(falses, indices(A, dim))
         @inbounds begin
             @nloops $N i A d->(if d == dim
                 k = i_d
@@ -843,11 +875,11 @@ If `dim` is specified, returns unique regions of the array `itr` along `dim`.
         end
 
         if any(collided)
-            nowcollided = BitArray(size(A, dim))
+            nowcollided = similar(BitArray, indices(A, dim))
             while any(collided)
                 # Collect index of first row for each collided hash
                 empty!(firstrow)
-                for j = 1:size(A, dim)  # fixme (iter): use `eachindex(A, dim)` after #15459 is implemented
+                for j = indices(A, dim)
                     collided[j] || continue
                     uniquerow[j] = get!(firstrow, Prehashed(hashes[j]), j)
                 end
@@ -874,6 +906,9 @@ If `dim` is specified, returns unique regions of the array `itr` along `dim`.
             end
         end
 
-        @nref $N A d->d == dim ? sort!(uniquerows) : (1:size(A, d))
+        @nref $N A d->d == dim ? sort!(uniquerows) : (indices(A, d))
     end
 end
+
+indexoffset(i) = first(i)-1
+indexoffset(::Colon) = 0

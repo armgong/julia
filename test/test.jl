@@ -1,15 +1,27 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-using Base.Test
-
-# test file to test testing
-
 # Test @test
 @test true
 @test 1 == 1
 @test 1 != 2
 @test strip("\t  hi   \n") == "hi"
 @test strip("\t  this should fail   \n") != "hi"
+
+# Test @test_broken with fail
+@test_broken false
+@test_broken 1 == 2
+@test_broken 1 != 1
+@test_broken strip("\t  hi   \n") != "hi"
+@test_broken strip("\t  this should fail   \n") == "hi"
+# Test @test_broken with errors
+@test_broken error()
+@test_broken absolute_nonsense
+
+#Test @test_skip
+@test_skip error()
+@test_skip true
+@test_skip false
+@test_skip gobbeldygook
 
 a = Array(Float64, 2, 2, 2, 2, 2)
 a[1,1,1,1,1] = 10
@@ -42,6 +54,8 @@ fails = @testset NoThrowTestSet begin
     @test_throws OverflowError 1 + 1
     # Fail - comparison
     @test 1+1 == 2+2
+    # Error - unexpected pass
+    @test_broken true
 end
 for i in 1:3
     @test isa(fails[i], Base.Test.Fail)
@@ -49,14 +63,16 @@ end
 @test contains(sprint(show, fails[1]), "Thrown: ErrorException")
 @test contains(sprint(show, fails[2]), "No exception thrown")
 @test contains(sprint(show, fails[3]), "Evaluated: 2 == 4")
+@test contains(sprint(show, fails[4]), "Unexpected Pass")
 
 # Test printing of a TestSetException
-tse_str = sprint(show, Test.TestSetException(1,2,3))
+tse_str = sprint(show, Test.TestSetException(1,2,3,4))
 @test contains(tse_str, "1 passed")
 @test contains(tse_str, "2 failed")
 @test contains(tse_str, "3 errored")
+@test contains(tse_str, "4 broken")
 
-@test Test.finish(Test.FallbackTestSet()) != nothing
+@test Test.finish(Test.FallbackTestSet()) !== nothing
 
 OLD_STDOUT = STDOUT
 catch_out = IOStream("")
@@ -76,9 +92,7 @@ end
     end
 end
 
-try
-
-@testset "outer" begin
+try @testset "outer" begin
     @testset "inner1" begin
         @test true
         @test false
@@ -134,15 +148,15 @@ try
         end
     end
 end
-    # These lines shouldn't be called
-    redirect_stdout(OLD_STDOUT)
-    error("No exception was thrown!")
+# These lines shouldn't be called
+redirect_stdout(OLD_STDOUT)
+error("No exception was thrown!")
 catch ex
-
     @test isa(ex, Test.TestSetException)
-    @test ex.pass  == 24
-    @test ex.fail  == 6
-    @test ex.error == 6
+    @test ex.pass   == 24
+    @test ex.fail   == 6
+    @test ex.error  == 6
+    @test ex.broken == 0
 end
 
 # Test @test_approx_eq
@@ -264,6 +278,38 @@ for i in 1:6
     @test typeof(tss[i].results[4].results[1]) == (iseven(i) ? Pass : Fail)
 end
 
+# test @inferred
+function uninferrable_function(i)
+    q = [1, "1"]
+    return q[i]
+end
+
+@test_throws ErrorException @inferred(uninferrable_function(1))
+@test @inferred(identity(1)) == 1
+
+# Ensure @inferred only evaluates the arguments once
+inferred_test_global = 0
+function inferred_test_function()
+    global inferred_test_global
+    inferred_test_global += 1
+    true
+end
+@test @inferred inferred_test_function()
+@test inferred_test_global == 1
+
 # Issue #14928
 # Make sure abstract error type works.
 @test_throws Exception error("")
+
+# Issue #17105
+# @inferred with kwargs
+function inferrable_kwtest(x; y=1)
+    2x
+end
+function uninferrable_kwtest(x; y=1)
+    2x+y
+end
+@test @inferred(inferrable_kwtest(1)) == 2
+@test @inferred(inferrable_kwtest(1; y=1)) == 2
+@test @inferred(uninferrable_kwtest(1)) == 3
+@test_throws ErrorException @inferred(uninferrable_kwtest(1; y=2)) == 2

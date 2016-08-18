@@ -194,22 +194,29 @@ JL_CALLABLE(jl_f_throw)
 
 JL_DLLEXPORT void jl_enter_handler(jl_handler_t *eh)
 {
+    jl_ptls_t ptls = jl_get_ptls_states();
+    jl_task_t *current_task = ptls->current_task;
     // Must have no safepoint
-    eh->prev = jl_current_task->eh;
-    eh->gcstack = jl_pgcstack;
+    eh->prev = current_task->eh;
+    eh->gcstack = ptls->pgcstack;
 #ifdef JULIA_ENABLE_THREADING
-    eh->gc_state = jl_gc_state();
-    eh->locks_len = jl_current_task->locks.len;
+    eh->gc_state = ptls->gc_state;
+    eh->locks_len = current_task->locks.len;
 #endif
-    eh->defer_signal = jl_get_ptls_states()->defer_signal;
-    jl_current_task->eh = eh;
+    eh->defer_signal = ptls->defer_signal;
+    eh->finalizers_inhibited = ptls->finalizers_inhibited;
+    current_task->eh = eh;
+#ifdef ENABLE_TIMINGS
+    eh->timing_stack = current_task->timing_stack;
+#endif
 }
 
 JL_DLLEXPORT void jl_pop_handler(int n)
 {
+    jl_ptls_t ptls = jl_get_ptls_states();
     if (__unlikely(n <= 0))
         return;
-    jl_handler_t *eh = jl_current_task->eh;
+    jl_handler_t *eh = ptls->current_task->eh;
     while (--n > 0)
         eh = eh->prev;
     jl_eh_restore_state(eh);
@@ -278,7 +285,7 @@ static int NOINLINE compare_fields(jl_value_t *a, jl_value_t *b, jl_datatype_t *
         }
         else {
             jl_datatype_t *ft = (jl_datatype_t*)jl_field_type(dt, f);
-            if (!ft->haspadding) {
+            if (!ft->layout->haspadding) {
                 eq = bits_equal(ao, bo, jl_field_size(dt, f));
             }
             else {
@@ -390,6 +397,27 @@ JL_CALLABLE(jl_f_typeassert)
     return args[0];
 }
 
+// perform f(args...) on stack
+JL_DLLEXPORT jl_value_t *jl_apply_2va(jl_value_t *f, jl_value_t **args, uint32_t nargs)
+{
+    nargs++;
+    int onstack = (nargs < jl_page_size/sizeof(jl_value_t*));
+    jl_value_t **newargs;
+    JL_GC_PUSHARGS(newargs, onstack ? nargs : 1);
+    jl_svec_t *arg_heap = NULL;
+    newargs[0] = f;  // make sure f is rooted
+    if (!onstack) {
+        arg_heap = jl_alloc_svec(nargs);
+        newargs[0] = (jl_value_t*)arg_heap;
+        newargs = jl_svec_data(arg_heap);
+        newargs[0] = f;
+    }
+    memcpy(&newargs[1], args, (nargs-1)*sizeof(jl_value_t*));
+    jl_value_t *ret = jl_apply_generic(newargs, nargs);
+    JL_GC_POP();
+    return ret;
+}
+
 static jl_function_t *jl_append_any_func;
 
 JL_CALLABLE(jl_f__apply)
@@ -456,7 +484,7 @@ JL_CALLABLE(jl_f__apply)
         newargs[0] = (jl_value_t*)arg_heap;
         newargs = jl_svec_data(arg_heap);
     }
-    // GC Note: here we assume that the the return value of `jl_svecref`,
+    // GC Note: here we assume that the return value of `jl_svecref`,
     //          `jl_array_ptr_ref` will not be young if `arg_heap` becomes old
     //          since they are allocated before `arg_heap`. Otherwise,
     //          we need to add write barrier for !onstack
@@ -516,6 +544,7 @@ JL_DLLEXPORT jl_value_t *jl_toplevel_eval_in(jl_module_t *m, jl_value_t *ex)
 
 jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex, int delay_warn)
 {
+    jl_ptls_t ptls = jl_get_ptls_states();
     static int jl_warn_on_eval = 0;
     int last_delay_warn = jl_warn_on_eval;
     if (m == NULL)
@@ -524,8 +553,8 @@ jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex, int delay_w
         return jl_eval_global_var(m, (jl_sym_t*)ex);
     jl_value_t *v=NULL;
     int last_lineno = jl_lineno;
-    jl_module_t *last_m = jl_current_module;
-    jl_module_t *task_last_m = jl_current_task->current_module;
+    jl_module_t *last_m = ptls->current_module;
+    jl_module_t *task_last_m = ptls->current_task->current_module;
     if (!delay_warn && jl_options.incremental && jl_generating_output()) {
         if (m != last_m) {
             jl_printf(JL_STDERR, "WARNING: eval from module %s to %s:    \n",
@@ -543,27 +572,28 @@ jl_value_t *jl_toplevel_eval_in_warn(jl_module_t *m, jl_value_t *ex, int delay_w
         jl_error("eval cannot be used in a generated function");
     JL_TRY {
         jl_warn_on_eval = delay_warn && (jl_warn_on_eval || m != last_m); // compute whether a warning was suppressed
-        jl_current_task->current_module = jl_current_module = m;
+        ptls->current_task->current_module = ptls->current_module = m;
         v = jl_toplevel_eval(ex);
     }
     JL_CATCH {
         jl_warn_on_eval = last_delay_warn;
         jl_lineno = last_lineno;
-        jl_current_module = last_m;
-        jl_current_task->current_module = task_last_m;
+        ptls->current_module = last_m;
+        ptls->current_task->current_module = task_last_m;
         jl_rethrow();
     }
     jl_warn_on_eval = last_delay_warn;
     jl_lineno = last_lineno;
-    jl_current_module = last_m;
-    jl_current_task->current_module = task_last_m;
+    ptls->current_module = last_m;
+    ptls->current_task->current_module = task_last_m;
     assert(v);
     return v;
 }
 
 JL_CALLABLE(jl_f_isdefined)
 {
-    jl_module_t *m = jl_current_module;
+    jl_ptls_t ptls = jl_get_ptls_states();
+    jl_module_t *m = ptls->current_module;
     jl_sym_t *s=NULL;
     JL_NARGSV(isdefined, 1);
     if (jl_is_array(args[0])) {
@@ -712,7 +742,7 @@ JL_CALLABLE(jl_f_fieldtype)
     int field_index;
     if (jl_is_long(args[1])) {
         field_index = jl_unbox_long(args[1]) - 1;
-        if (field_index < 0 || field_index >= jl_datatype_nfields(st))
+        if (field_index < 0 || field_index >= jl_field_count(st))
             jl_bounds_error(args[0], args[1]);
     }
     else {
@@ -728,7 +758,7 @@ JL_CALLABLE(jl_f_nfields)
     jl_value_t *x = args[0];
     if (!jl_is_datatype(x))
         x = jl_typeof(x);
-    return jl_box_long(jl_datatype_nfields(x));
+    return jl_box_long(jl_field_count(x));
 }
 
 // conversion -----------------------------------------------------------------
@@ -777,12 +807,19 @@ JL_DLLEXPORT jl_nullable_float64_t jl_try_substrtod(char *str, size_t offset, si
     char *p;
     char *bstr = str+offset;
     char *pend = bstr+len;
+    char *tofree = NULL;
     int err = 0;
 
     errno = 0;
     if (!(*pend == '\0' || isspace((unsigned char)*pend) || *pend == ',')) {
         // confusing data outside substring. must copy.
-        char *newstr = (char*)malloc(len+1);
+        char *newstr;
+        if (len + 1 < jl_page_size) {
+            newstr = (char*)alloca(len + 1);
+        }
+        else {
+            newstr = tofree = (char*)malloc(len + 1);
+        }
         memcpy(newstr, bstr, len);
         newstr[len] = 0;
         bstr = newstr;
@@ -802,8 +839,8 @@ JL_DLLEXPORT jl_nullable_float64_t jl_try_substrtod(char *str, size_t offset, si
         err = substr_isspace(p, pend) ? 0 : 1;
     }
 
-    if (bstr != str+offset)
-        free(bstr);
+    if (__unlikely(tofree))
+        free(tofree);
 
     jl_nullable_float64_t ret = {(uint8_t)err, out};
     return ret;
@@ -829,12 +866,19 @@ JL_DLLEXPORT jl_nullable_float32_t jl_try_substrtof(char *str, size_t offset, si
     char *p;
     char *bstr = str+offset;
     char *pend = bstr+len;
+    char *tofree = NULL;
     int err = 0;
 
     errno = 0;
     if (!(*pend == '\0' || isspace((unsigned char)*pend) || *pend == ',')) {
         // confusing data outside substring. must copy.
-        char *newstr = (char*)malloc(len+1);
+        char *newstr;
+        if (len + 1 < jl_page_size) {
+            newstr = (char*)alloca(len + 1);
+        }
+        else {
+            newstr = tofree = (char*)malloc(len + 1);
+        }
         memcpy(newstr, bstr, len);
         newstr[len] = 0;
         bstr = newstr;
@@ -858,8 +902,8 @@ JL_DLLEXPORT jl_nullable_float32_t jl_try_substrtof(char *str, size_t offset, si
         err = substr_isspace(p, pend) ? 0 : 1;
     }
 
-    if (bstr != str+offset)
-        free(bstr);
+    if (__unlikely(tofree))
+        free(tofree);
 
     jl_nullable_float32_t ret = {(uint8_t)err, out};
     return ret;
@@ -887,16 +931,14 @@ JL_DLLEXPORT jl_value_t *jl_stdout_obj(void)
 {
     if (jl_base_module == NULL) return NULL;
     jl_value_t *stdout_obj = jl_get_global(jl_base_module, jl_symbol("STDOUT"));
-    if (stdout_obj != NULL) return stdout_obj;
-    return jl_get_global(jl_base_module, jl_symbol("OUTPUT_STREAM"));
+    return stdout_obj;
 }
 
 JL_DLLEXPORT jl_value_t *jl_stderr_obj(void)
 {
     if (jl_base_module == NULL) return NULL;
     jl_value_t *stderr_obj = jl_get_global(jl_base_module, jl_symbol("STDERR"));
-    if (stderr_obj != NULL) return stderr_obj;
-    return jl_get_global(jl_base_module, jl_symbol("OUTPUT_STREAM"));
+    return stderr_obj;
 }
 
 static jl_function_t *jl_show_gf=NULL;
@@ -1045,7 +1087,7 @@ static uintptr_t jl_object_id_(jl_value_t *tv, jl_value_t *v)
         else {
             jl_datatype_t *fieldtype = (jl_datatype_t*)jl_field_type(dt, f);
             assert(jl_is_datatype(fieldtype) && !fieldtype->abstract && !fieldtype->mutabl);
-            if (fieldtype->haspadding)
+            if (fieldtype->layout->haspadding)
                 u = jl_object_id_((jl_value_t*)fieldtype, (jl_value_t*)vo);
             else
                 u = bits_hash(vo, jl_field_size(dt, f));
@@ -1166,7 +1208,7 @@ void jl_init_primitives(void)
 
 // toys for debugging ---------------------------------------------------------
 
-static size_t jl_show_svec(JL_STREAM *out, jl_svec_t *t, char *head, char *opn, char *cls)
+static size_t jl_show_svec(JL_STREAM *out, jl_svec_t *t, const char *head, const char *opn, const char *cls)
 {
     size_t i, n=0, len = jl_svec_len(t);
     n += jl_printf(out, "%s", head);
@@ -1510,7 +1552,7 @@ JL_DLLEXPORT size_t jl_static_show(JL_STREAM *out, jl_value_t *v)
 
 JL_DLLEXPORT size_t jl_static_show_func_sig(JL_STREAM *s, jl_value_t *type)
 {
-    jl_value_t *ftype = jl_first_argument_datatype(type);
+    jl_value_t *ftype = (jl_value_t*)jl_first_argument_datatype(type);
     if (ftype == NULL)
         return jl_static_show(s, type);
     size_t n = 0;
@@ -1547,9 +1589,10 @@ JL_DLLEXPORT size_t jl_static_show_func_sig(JL_STREAM *s, jl_value_t *type)
 
 JL_DLLEXPORT void jl_(void *jl_value)
 {
-    jl_jmp_buf *old_buf = jl_safe_restore;
+    jl_ptls_t ptls = jl_get_ptls_states();
+    jl_jmp_buf *old_buf = ptls->safe_restore;
     jl_jmp_buf buf;
-    jl_safe_restore = &buf;
+    ptls->safe_restore = &buf;
     if (!jl_setjmp(buf, 0)) {
         jl_static_show((JL_STREAM*)STDERR_FILENO, (jl_value_t*)jl_value);
         jl_printf((JL_STREAM*)STDERR_FILENO,"\n");
@@ -1557,7 +1600,7 @@ JL_DLLEXPORT void jl_(void *jl_value)
     else {
         jl_printf((JL_STREAM*)STDERR_FILENO, "\n!!! ERROR in jl_ -- ABORTING !!!\n");
     }
-    jl_safe_restore = old_buf;
+    ptls->safe_restore = old_buf;
 }
 
 JL_DLLEXPORT void jl_breakpoint(jl_value_t *v)

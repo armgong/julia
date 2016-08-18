@@ -78,22 +78,13 @@ void jl_init_signal_async(void)
 }
 #endif
 
-extern jl_module_t *jl_old_base_module;
-static jl_value_t *close_cb = NULL;
-
 static void jl_uv_call_close_callback(jl_value_t *val)
 {
-    jl_value_t *cb;
-    if (!jl_old_base_module) {
-        if (close_cb == NULL)
-            close_cb = jl_get_global(jl_base_module, jl_symbol("_uv_hook_close"));
-        cb = close_cb;
-    }
-    else {
-        cb = jl_get_global(jl_base_relative_to(((jl_datatype_t*)jl_typeof(val))->name->module), jl_symbol("_uv_hook_close"));
-    }
-    assert(cb);
-    jl_value_t *args[2] = {cb,val};
+    jl_value_t *args[2];
+    args[0] = jl_get_global(jl_base_relative_to(((jl_datatype_t*)jl_typeof(val))->name->module),
+            jl_symbol("_uv_hook_close")); // topmod(typeof(val))._uv_hook_close
+    args[1] = val;
+    assert(args[0]);
     jl_apply(args, 2);
 }
 
@@ -145,9 +136,10 @@ JL_DLLEXPORT void *jl_uv_write_handle(uv_write_t *req) { return req->handle; }
 
 JL_DLLEXPORT int jl_run_once(uv_loop_t *loop)
 {
+    jl_ptls_t ptls = jl_get_ptls_states();
     if (loop) {
         loop->stop_flag = 0;
-        jl_gc_safepoint();
+        jl_gc_safepoint_(ptls);
         return uv_run(loop,UV_RUN_ONCE);
     }
     else return 0;
@@ -155,18 +147,20 @@ JL_DLLEXPORT int jl_run_once(uv_loop_t *loop)
 
 JL_DLLEXPORT void jl_run_event_loop(uv_loop_t *loop)
 {
+    jl_ptls_t ptls = jl_get_ptls_states();
     if (loop) {
         loop->stop_flag = 0;
-        jl_gc_safepoint();
+        jl_gc_safepoint_(ptls);
         uv_run(loop,UV_RUN_DEFAULT);
     }
 }
 
 JL_DLLEXPORT int jl_process_events(uv_loop_t *loop)
 {
+    jl_ptls_t ptls = jl_get_ptls_states();
     if (loop) {
         loop->stop_flag = 0;
-        jl_gc_safepoint();
+        jl_gc_safepoint_(ptls);
         return uv_run(loop,UV_RUN_NOWAIT);
     }
     else return 0;
@@ -357,7 +351,8 @@ JL_DLLEXPORT int jl_fs_chown(char *path, int uid, int gid)
 JL_DLLEXPORT int jl_fs_write(int handle, const char *data, size_t len,
                              int64_t offset)
 {
-    if (jl_safe_restore)
+    jl_ptls_t ptls = jl_get_ptls_states();
+    if (ptls->safe_restore)
         return write(handle, data, len);
     uv_fs_t req;
     uv_buf_t buf[1];
@@ -427,10 +422,7 @@ JL_DLLEXPORT void jl_uv_writecb(uv_write_t *req, int status)
     }
 }
 
-// Note: jl_write() is called only by jl_vprintf().
-// See: doc/devdocs/stdio.rst
-
-static void jl_write(uv_stream_t *stream, const char *str, size_t n)
+JL_DLLEXPORT void jl_uv_puts(uv_stream_t *stream, const char *str, size_t n)
 {
     assert(stream);
     static_assert(offsetof(uv_stream_t,type) == offsetof(ios_t,bm) &&
@@ -477,6 +469,17 @@ static void jl_write(uv_stream_t *stream, const char *str, size_t n)
     }
 }
 
+JL_DLLEXPORT void jl_uv_putb(uv_stream_t *stream, uint8_t b)
+{
+    jl_uv_puts(stream, (char*)&b, 1);
+}
+
+JL_DLLEXPORT void jl_uv_putc(uv_stream_t *stream, uint32_t wchar)
+{
+    char s[4];
+    jl_uv_puts(stream, s, u8_wc_toutf8(s, wchar));
+}
+
 extern int vasprintf(char **str, const char *fmt, va_list ap);
 
 JL_DLLEXPORT int jl_vprintf(uv_stream_t *s, const char *format, va_list args)
@@ -493,7 +496,7 @@ JL_DLLEXPORT int jl_vprintf(uv_stream_t *s, const char *format, va_list args)
     c = vasprintf(&str, format, al);
 
     if (c >= 0) {
-        jl_write(s, str, c);
+        jl_uv_puts(s, str, c);
         free(str);
     }
     va_end(al);

@@ -24,9 +24,9 @@ for eltya in (Float32, Float64, Complex64, Complex128, Int)
         if atype == "Array"
             a = aa
         else
-            a = sub(aa, 1:n, 1:n)
-            asym = sub(asym, 1:n, 1:n)
-            apd = sub(apd, 1:n, 1:n)
+            a = view(aa, 1:n, 1:n)
+            asym = view(asym, 1:n, 1:n)
+            apd = view(apd, 1:n, 1:n)
         end
         ε = εa = eps(abs(float(one(eltya))))
 
@@ -39,18 +39,18 @@ for eltya in (Float32, Float64, Complex64, Complex128, Int)
     debug && println("\ntype of a: ", eltya,"\n")
     debug && println("non-symmetric eigen decomposition")
         d,v   = eig(a)
-        for i in 1:size(a,2) @test_approx_eq a*v[:,i] d[i]*v[:,i] end
+        for i in 1:size(a,2) @test a*v[:,i] ≈ d[i]*v[:,i] end
         f = eigfact(a)
-        @test_approx_eq det(a) det(f)
-        @test_approx_eq inv(a) inv(f)
+        @test det(a) ≈ det(f)
+        @test inv(a) ≈ inv(f)
         @test eigvals(f) === f[:values]
         @test eigvecs(f) === f[:vectors]
 
         num_fact = eigfact(one(eltya))
         @test num_fact.values[1] == one(eltya)
         h = asym
-        @test_approx_eq minimum(eigvals(h)) eigmin(h)
-        @test_approx_eq maximum(eigvals(h)) eigmax(h)
+        @test minimum(eigvals(h)) ≈ eigmin(h)
+        @test maximum(eigvals(h)) ≈ eigmax(h)
         @test_throws DomainError eigmin(a - a')
         @test_throws DomainError eigmax(a - a')
 
@@ -59,12 +59,12 @@ for eltya in (Float32, Float64, Complex64, Complex128, Int)
             asym_sg = asym[1:n1, 1:n1]
             a_sg = a[:,n1+1:n2]
         else
-            asym_sg = sub(asym, 1:n1, 1:n1)
-            a_sg = sub(a, 1:n, n1+1:n2)
+            asym_sg = view(asym, 1:n1, 1:n1)
+            a_sg = view(a, 1:n, n1+1:n2)
         end
         f = eigfact(asym_sg, a_sg'a_sg)
-        @test_approx_eq asym_sg*f[:vectors] (a_sg'a_sg*f[:vectors]) * Diagonal(f[:values])
-        @test_approx_eq f[:values] eigvals(asym_sg, a_sg'a_sg)
+        @test asym_sg*f[:vectors] ≈ (a_sg'a_sg*f[:vectors]) * Diagonal(f[:values])
+        @test f[:values] ≈ eigvals(asym_sg, a_sg'a_sg)
         @test_approx_eq_eps prod(f[:values]) prod(eigvals(asym_sg/(a_sg'a_sg))) 200ε
         @test eigvecs(asym_sg, a_sg'a_sg) == f[:vectors]
         @test eigvals(f) === f[:values]
@@ -80,12 +80,12 @@ for eltya in (Float32, Float64, Complex64, Complex128, Int)
             a1_nsg = a[1:n1, 1:n1]
             a2_nsg = a[n1+1:n2, n1+1:n2]
         else
-            a1_nsg = sub(a, 1:n1, 1:n1)
-            a2_nsg = sub(a, n1+1:n2, n1+1:n2)
+            a1_nsg = view(a, 1:n1, 1:n1)
+            a2_nsg = view(a, n1+1:n2, n1+1:n2)
         end
         f = eigfact(a1_nsg, a2_nsg)
-        @test_approx_eq a1_nsg*f[:vectors] (a2_nsg*f[:vectors]) * Diagonal(f[:values])
-        @test_approx_eq f[:values] eigvals(a1_nsg, a2_nsg)
+        @test a1_nsg*f[:vectors] ≈ (a2_nsg*f[:vectors]) * Diagonal(f[:values])
+        @test f[:values] ≈ eigvals(a1_nsg, a2_nsg)
         @test_approx_eq_eps prod(f[:values]) prod(eigvals(a1_nsg/a2_nsg)) 50000ε
         @test eigvecs(a1_nsg, a2_nsg) == f[:vectors]
         @test_throws KeyError f[:Z]
@@ -101,7 +101,7 @@ let aa = rand(200, 200)
         if atype == "Array"
             a = aa
         else
-            a = sub(aa, 1:n, 1:n)
+            a = view(aa, 1:n, 1:n)
         end
         f = eigfact(a)
         @test a ≈ f[:vectors] * Diagonal(f[:values]) / f[:vectors]

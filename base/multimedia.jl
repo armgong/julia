@@ -3,7 +3,7 @@
 module Multimedia
 
 export Display, display, pushdisplay, popdisplay, displayable, redisplay,
-   MIME, @MIME, @MIME_str, reprmime, stringmime, istextmime,
+   MIME, @MIME_str, reprmime, stringmime, istextmime,
    mimewritable, TextDisplay
 
 ###########################################################################
@@ -17,16 +17,6 @@ import Base: show, print, string, convert
 MIME(s) = MIME{Symbol(s)}()
 show{mime}(io::IO, ::MIME{mime}) = print(io, "MIME type ", string(mime))
 print{mime}(io::IO, ::MIME{mime}) = print(io, mime)
-
-# needs to be a macro so that we can use ::@mime(s) in type declarations
-macro MIME(s)
-    Base.warn_once("@MIME(\"\") is deprecated, use MIME\"\" instead.")
-    if isa(s,AbstractString)
-        :(MIME{$(Expr(:quote, Symbol(s)))})
-    else
-        :(MIME{Symbol($s)})
-    end
-end
 
 macro MIME_str(s)
     :(MIME{$(Expr(:quote, Symbol(s)))})
@@ -57,7 +47,7 @@ mimewritable(m::AbstractString, x) = mimewritable(MIME(m), x)
 # format and is returned unmodified.  This is useful so that raw data can be
 # passed to display(m::MIME, x).
 
-verbose_show(io, m, x) = show(IOContext(io,multiline=true,limit=false), m, x)
+verbose_show(io, m, x) = show(IOContext(io,limit=false), m, x)
 
 macro textmime(mime)
     quote

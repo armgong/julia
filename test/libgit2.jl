@@ -2,21 +2,28 @@
 
 #@testset "libgit2" begin
 
-const LIBGIT2_VER = v"0.23.0"
+const LIBGIT2_MIN_VER = v"0.23.0"
 
 #########
 # TESTS #
 #########
 
-#@testset "Check library verison" begin
+#@testset "Check library version" begin
     v = LibGit2.version()
-    @test  v.major == LIBGIT2_VER.major && v.minor >= LIBGIT2_VER.minor
+    @test  v.major == LIBGIT2_MIN_VER.major && v.minor >= LIBGIT2_MIN_VER.minor
+#end
+
+#@testset "Check library features" begin
+    f = LibGit2.features()
+    @test findfirst(f, LibGit2.Consts.FEATURE_SSH) > 0
+    @test findfirst(f, LibGit2.Consts.FEATURE_HTTPS) > 0
 #end
 
 #@testset "OID" begin
     z = LibGit2.Oid()
     @test LibGit2.iszero(z)
     @test z == zero(LibGit2.Oid)
+    @test z == LibGit2.Oid(z)
     rs = string(z)
     rr = LibGit2.raw(z)
     @test z == LibGit2.Oid(rr)
@@ -24,6 +31,7 @@ const LIBGIT2_VER = v"0.23.0"
     @test z == LibGit2.Oid(pointer(rr))
     for i in 11:length(rr); rr[i] = 0; end
     @test LibGit2.Oid(rr) == LibGit2.Oid(rs[1:20])
+    @test_throws ArgumentError LibGit2.Oid(Ptr{UInt8}(C_NULL))
 #end
 
 #@testset "StrArrayStruct" begin
@@ -219,6 +227,13 @@ mktempdir() do dir
                 @test LibGit2.iszero(commit_oid2)
                 commit_oid2 = LibGit2.commit(repo, commit_msg2; author=test_sig, committer=test_sig)
                 @test !LibGit2.iszero(commit_oid2)
+                auths = LibGit2.authors(repo)
+                @test length(auths) == 3
+                for auth in auths
+                    @test auth.name == test_sig.name
+                    @test auth.time == test_sig.time
+                    @test auth.email == test_sig.email
+                end
 
                 # lookup commits
                 cmt = LibGit2.get(LibGit2.GitCommit, repo, commit_oid1)
@@ -315,12 +330,20 @@ mktempdir() do dir
                 tags = LibGit2.tag_list(repo)
                 @test length(tags) == 1
                 @test tag1 in tags
+                tag1ref = LibGit2.GitReference(repo, "refs/tags/$tag1")
+                @test isempty(LibGit2.fullname(tag1ref)) #because this is a reference to an OID
+                tag1tag = LibGit2.peel(LibGit2.GitTag,tag1ref)
+                @test LibGit2.name(tag1tag) == tag1
+                @test LibGit2.target(tag1tag) == commit_oid1
 
                 tag_oid2 = LibGit2.tag_create(repo, tag2, commit_oid2)
                 @test !LibGit2.iszero(tag_oid2)
                 tags = LibGit2.tag_list(repo)
                 @test length(tags) == 2
                 @test tag2 in tags
+
+                refs = LibGit2.ref_list(repo)
+                @test refs == ["refs/heads/master","refs/heads/test_branch","refs/tags/tag1","refs/tags/tag2"]
 
                 LibGit2.tag_delete(repo, tag1)
                 tags = LibGit2.tag_list(repo)
@@ -346,6 +369,10 @@ mktempdir() do dir
                 LibGit2.add!(repo, test_file)
                 status = LibGit2.GitStatus(repo)
                 @test length(status) != 0
+                @test_throws BoundsError status[0]
+                @test_throws BoundsError status[length(status)+1]
+                #we've added a file - show that it is new
+                @test status[1].status == LibGit2.Consts.STATUS_WT_NEW
             finally
                 finalize(repo)
                 close(repo_file)
@@ -447,6 +474,67 @@ mktempdir() do dir
         #end
     #end
 
+    #@testset "Modify and reset repository" begin
+        repo = LibGit2.GitRepo(test_repo)
+        try
+            # check index for file
+            LibGit2.with(LibGit2.GitIndex(repo)) do idx
+                i = find(test_file, idx)
+                @test !isnull(i)
+                @test idx[get(i)] !== nothing
+            end
+
+            # check non-existent file status
+            st = LibGit2.status(repo, "XYZ")
+            @test isnull(st)
+
+            # check file status
+            st = LibGit2.status(repo, test_file)
+            @test !isnull(st)
+            @test LibGit2.isset(get(st), LibGit2.Consts.STATUS_CURRENT)
+
+            # modify file
+            open(joinpath(test_repo, test_file), "a") do io
+                write(io, 0x41)
+            end
+
+            # file modified but not staged
+            st_mod = LibGit2.status(repo, test_file)
+            @test !LibGit2.isset(get(st_mod), LibGit2.Consts.STATUS_INDEX_MODIFIED)
+            @test LibGit2.isset(get(st_mod), LibGit2.Consts.STATUS_WT_MODIFIED)
+
+            # stage file
+            LibGit2.add!(repo, test_file)
+
+            # modified file staged
+            st_stg = LibGit2.status(repo, test_file)
+            @test LibGit2.isset(get(st_stg), LibGit2.Consts.STATUS_INDEX_MODIFIED)
+            @test !LibGit2.isset(get(st_stg), LibGit2.Consts.STATUS_WT_MODIFIED)
+
+            # try to unstage to unknown commit
+            @test_throws LibGit2.Error.GitError LibGit2.reset!(repo, "XYZ", test_file)
+
+            # status should not change
+            st_new = LibGit2.status(repo, test_file)
+            @test get(st_new) == get(st_stg)
+
+            # try to unstage to HEAD
+            LibGit2.reset!(repo, LibGit2.Consts.HEAD_FILE, test_file)
+            st_uns = LibGit2.status(repo, test_file)
+            @test get(st_uns) == get(st_mod)
+
+            # reset repo
+            @test_throws LibGit2.Error.GitError LibGit2.reset!(repo, LibGit2.Oid(), LibGit2.Consts.RESET_HARD)
+
+            LibGit2.reset!(repo, LibGit2.head_oid(repo), LibGit2.Consts.RESET_HARD)
+            open(joinpath(test_repo, test_file), "r") do io
+                @test read(io)[end] != 0x41
+            end
+        finally
+            finalize(repo)
+        end
+    #end
+
     #@testset "Transact test repository" begin
         repo = LibGit2.GitRepo(test_repo)
         try
@@ -469,13 +557,6 @@ mktempdir() do dir
     #end
 
     #@testset "Credentials" begin
-        creds = LibGit2.EmptyCredentials()
-        @test LibGit2.checkused!(creds)
-        @test LibGit2.reset!(creds) === nothing
-        @test creds[:user] === nothing
-        @test creds[:pass] === nothing
-        @test creds[:pubkey, "localhost"] === nothing
-
         creds_user = "USER"
         creds_pass = "PASS"
         creds = LibGit2.UserPasswordCredentials(creds_user, creds_pass)

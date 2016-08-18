@@ -134,7 +134,7 @@ function advance_filter(pred, itr, st)
         end
         s=t
     end
-    v, (true,)
+    v, (true, v, s)
 end
 
 done(f::Filter, s) = s[1]
@@ -421,40 +421,6 @@ prod_iteratorsize(::IsInfinite, b) = IsInfinite()
 prod_iteratorsize(a, b) = SizeUnknown()
 
 
-"""
-    IteratorND(iter, dims)
-
-Given an iterator `iter` and dimensions tuple `dims`, return an iterator that
-yields the same values as `iter`, but with the specified multi-dimensional shape.
-For example, this determines the shape of the array returned when `collect` is
-applied to this iterator.
-"""
-immutable IteratorND{I,N}
-    iter::I
-    dims::NTuple{N,Int}
-
-    function (::Type{IteratorND}){I,N}(iter::I, shape::NTuple{N,Integer})
-        li = length(iter)
-        if li != prod(shape)
-            throw(DimensionMismatch("dimensions $shape must be consistent with iterator length $li"))
-        end
-        new{I,N}(iter, shape)
-    end
-    (::Type{IteratorND}){I<:AbstractProdIterator}(p::I) = IteratorND(p, size(p))
-end
-
-start(i::IteratorND) = start(i.iter)
-done(i::IteratorND, s) = done(i.iter, s)
-next(i::IteratorND, s) = next(i.iter, s)
-
-size(i::IteratorND) = i.dims
-length(i::IteratorND) = prod(size(i))
-ndims{I,N}(::IteratorND{I,N}) = N
-iteratorsize{T<:IteratorND}(::Type{T}) = HasShape()
-
-eltype{I}(::IteratorND{I}) = eltype(I)
-iteratoreltype{I}(::Type{IteratorND{I}}) = iteratoreltype(I)
-
 # flatten an iterator of iterators
 
 immutable Flatten{I}
@@ -479,7 +445,9 @@ flatten(itr) = Flatten(itr)
 
 eltype{I}(::Type{Flatten{I}}) = eltype(eltype(I))
 iteratorsize{I}(::Type{Flatten{I}}) = SizeUnknown()
-iteratoreltype{I}(::Type{Flatten{I}}) = iteratoreltype(eltype(I))
+iteratoreltype{I}(::Type{Flatten{I}}) = _flatteneltype(I, iteratoreltype(I))
+_flatteneltype(I, ::HasEltype) = iteratoreltype(eltype(I))
+_flatteneltype(I, et) = EltypeUnknown()
 
 function start(f::Flatten)
     local inner, s2
@@ -496,7 +464,7 @@ function start(f::Flatten)
     return s, inner, s2
 end
 
-function next(f::Flatten, state)
+@inline function next(f::Flatten, state)
     s, inner, s2 = state
     val, s2 = next(inner, s2)
     while done(inner, s2) && !done(f.it, s)
@@ -547,7 +515,7 @@ done(itr::PartitionIterator, state) = done(itr.c, state)
 function next{T<:Vector}(itr::PartitionIterator{T}, state)
     l = state
     r = min(state + itr.n-1, length(itr.c))
-    return sub(itr.c, l:r), r + 1
+    return view(itr.c, l:r), r + 1
 end
 
 function next(itr::PartitionIterator, state)

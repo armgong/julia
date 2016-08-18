@@ -9,6 +9,7 @@ function print(io::IO, x)
     finally
         unlock(io)
     end
+    return nothing
 end
 
 function print(io::IO, xs...)
@@ -20,12 +21,10 @@ function print(io::IO, xs...)
     finally
         unlock(io)
     end
+    return nothing
 end
 
 println(io::IO, xs...) = print(io, xs..., '\n')
-
-print(xs...)   = print(STDOUT, xs...)
-println(xs...) = println(STDOUT, xs...)
 
 ## conversion of general objects to strings ##
 
@@ -93,7 +92,7 @@ end
 
 # IOBuffer views of a (byte)string:
 IOBuffer(str::String) = IOBuffer(str.data)
-IOBuffer(s::SubString{String}) = IOBuffer(sub(s.string.data, s.offset + 1 : s.offset + sizeof(s)))
+IOBuffer(s::SubString{String}) = IOBuffer(view(s.string.data, s.offset + 1 : s.offset + sizeof(s)))
 
 # join is implemented using IO
 function join(io::IO, strings, delim, last)
@@ -130,6 +129,8 @@ join(args...) = sprint(join, args...)
 
 ## string escaping & unescaping ##
 
+need_full_hex(s::AbstractString, i::Int) = !done(s,i) && isxdigit(next(s,i)[1])
+
 escape_nul(s::AbstractString, i::Int) =
     !done(s,i) && '0' <= next(s,i)[1] <= '7' ? "\\x00" : "\\0"
 
@@ -151,6 +152,7 @@ function escape_string(io, s::AbstractString, esc::AbstractString)
 end
 
 escape_string(s::AbstractString) = sprint(endof(s), escape_string, s, "\"")
+
 function print_quoted(io, s::AbstractString)
     print(io, '"')
     escape_string(io, s, "\"\$") #"# work around syntax highlighting problem
@@ -323,4 +325,23 @@ function unindent(str::AbstractString, indent::Int; tabwidth=8)
         end
     end
     takebuf_string(buf)
+end
+
+function convert(::Type{String}, chars::AbstractVector{Char})
+    sprint(length(chars), io->begin
+        state = start(chars)
+        while !done(chars, state)
+            c, state = next(chars, state)
+            if '\ud7ff' < c && c + 1024 < '\ue000'
+                d, state = next(chars, state)
+                if '\ud7ff' < d - 1024 && d < '\ue000'
+                    c = Char(0x10000 + ((UInt32(c) & 0x03ff) << 10) | (UInt32(d) & 0x03ff))
+                else
+                    write(io, c)
+                    c = d
+                end
+            end
+            write(io, c)
+        end
+    end)
 end

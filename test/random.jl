@@ -216,8 +216,8 @@ u1 = uuid1()
 u4 = uuid4()
 @test uuid_version(u1) == 1
 @test uuid_version(u4) == 4
-@test u1 == UUID(string(u1)) == UUID(utf16(string(u1))) == UUID(utf32(string(u1)))
-@test u4 == UUID(string(u4)) == UUID(utf16(string(u4))) == UUID(utf32(string(u4)))
+@test u1 == UUID(string(u1)) == UUID(GenericString(string(u1)))
+@test u4 == UUID(string(u4)) == UUID(GenericString(string(u4)))
 @test u1 == UUID(UInt128(u1))
 @test u4 == UUID(UInt128(u4))
 @test uuid4(MersenneTwister()) == uuid4(MersenneTwister())
@@ -283,7 +283,7 @@ let mt = MersenneTwister()
         # certain architectures (e.g. ARM)
         pc8 += 8
     end
-    c = pointer_to_array(Ptr{Float64}(pc8), 1000) # Int(pointer(c)) % 16 == 8
+    c = unsafe_wrap(Array, Ptr{Float64}(pc8), 1000) # Int(pointer(c)) % 16 == 8
 
     for A in (a, b, c)
         srand(mt, 0)
@@ -300,38 +300,49 @@ end
 
 # test all rand APIs
 for rng in ([], [MersenneTwister()], [RandomDevice()])
+    types = [Base.BitInteger_types..., Bool, Float16, Float32, Float64, Char]
+    ftypes = [Float16, Float32, Float64]
+    b2 = big(2)
+    u3 = UInt(3)
     for f in [rand, randn, randexp]
-        f(rng...)        ::Float64
-        f(rng..., 5)     ::Vector{Float64}
-        f(rng..., 2, 3)  ::Array{Float64, 2}
+        f(rng...)                     ::Float64
+        f(rng..., 5)                  ::Vector{Float64}
+        f(rng..., 2, 3)               ::Array{Float64, 2}
+        f(rng..., b2, u3)             ::Array{Float64, 2}
+        f(rng..., (2, 3))             ::Array{Float64, 2}
+        for T in (f === rand ? types : ftypes)
+            a0 = f(rng..., T)         ::T
+            a1 = f(rng..., T, 5)      ::Vector{T}
+            a2 = f(rng..., T, 2, 3)   ::Array{T, 2}
+            a3 = f(rng..., T, b2, u3) ::Array{T, 2}
+            a4 = f(rng..., T, (2, 3)) ::Array{T, 2}
+            if T <: AbstractFloat && f === rand
+                for a in [a0, a1..., a2..., a3..., a4...]
+                    @test 0.0 <= a < 1.0
+                end
+            end
+        end
     end
-    for f! in [randn!, randexp!]
-        f!(rng..., Array{Float64}(5))    ::Vector{Float64}
-        f!(rng..., Array{Float64}(2, 3)) ::Array{Float64, 2}
+    for f! in [rand!, randn!, randexp!]
+        for T in (f! === rand! ? types : ftypes)
+            X = T == Bool ? T[0,1] : T[0,1,2]
+            for A in (Array{T}(5), Array{T}(2, 3))
+                f!(rng..., A)                    ::typeof(A)
+                if f! === rand!
+                    f!(rng..., A, X)             ::typeof(A)
+                    if T !== Char # Char/Integer comparison
+                        f!(rng..., sparse(A))    ::typeof(sparse(A))
+                        f!(rng..., sparse(A), X) ::typeof(sparse(A))
+                    end
+                end
+            end
+        end
     end
 
     bitrand(rng..., 5)             ::BitArray{1}
     bitrand(rng..., 2, 3)          ::BitArray{2}
     rand!(rng..., BitArray(5))     ::BitArray{1}
     rand!(rng..., BitArray(2, 3))  ::BitArray{2}
-
-    for T in [Base.BitInteger_types..., Bool, Float16, Float32, Float64]
-        a0 = rand(rng..., T)       ::T
-        a1 = rand(rng..., T, 5)    ::Vector{T}
-        a2 = rand(rng..., T, 2, 3) ::Array{T, 2}
-        if T <: AbstractFloat
-            for a in [a0, a1..., a2...]
-                @test 0.0 <= a < 1.0
-            end
-        end
-        for A in (Array{T}(5), Array{T}(2, 3))
-            X = T == Bool ? T[0,1] : T[0,1,2]
-            rand!(rng..., A)            ::typeof(A)
-            rand!(rng..., A, X)  ::typeof(A)
-            rand!(rng..., sparse(A))            ::typeof(sparse(A))
-            rand!(rng..., sparse(A), X)  ::typeof(sparse(A))
-        end
-    end
 end
 
 function hist(X,n)
@@ -409,4 +420,38 @@ let mta = MersenneTwister(seed), mtb = MersenneTwister(seed)
     for j in 1:(size * step)
         @test rand(mtb, Float64) == tmp[j]
     end
+end
+
+# test that the following is not an error (#16925)
+srand(typemax(UInt))
+srand(typemax(UInt128))
+
+# copy and ==
+let seed = rand(UInt32, 10)
+    r = MersenneTwister(seed)
+    @test r == MersenneTwister(seed) # r.vals should be all zeros
+    s = copy(r)
+    @test s == r && s !== r
+    skip, len = rand(0:2000, 2)
+    for j=1:skip
+        rand(r)
+        rand(s)
+    end
+    @test rand(r, len) == rand(s, len)
+    @test s == r
+end
+
+# MersenneTwister initialization with invalid values
+@test_throws DomainError Base.dSFMT.DSFMT_state(zeros(Int32, rand(0:Base.dSFMT.JN32-1)))
+@test_throws DomainError MersenneTwister(zeros(UInt32, 1), Base.dSFMT.DSFMT_state(),
+                                         zeros(Float64, 10), 0)
+@test_throws DomainError MersenneTwister(zeros(UInt32, 1), Base.dSFMT.DSFMT_state(),
+                                         zeros(Float64, Base.Random.MTCacheLength), -1)
+
+# seed is private to MersenneTwister
+let seed = rand(UInt32, 10)
+    r = MersenneTwister(seed)
+    @test r.seed == seed && r.seed !== seed
+    resize!(seed, 4)
+    @test r.seed != seed
 end

@@ -30,12 +30,22 @@ function term(io::IO, md::BlockQuote, columns)
     end
 end
 
+function term(io::IO, md::Admonition, columns)
+    print(io, " "^margin, "| ")
+    with_output_format(:bold, print, io, isempty(md.title) ? md.category : md.title)
+    println(io, "\n", " "^margin, "|")
+    s = sprint(io -> term(io, md.content, columns - 10))
+    for line in split(rstrip(s), "\n")
+        println(io, " "^margin, "|", line)
+    end
+end
+
 function term(io::IO, md::List, columns)
     for (i, point) in enumerate(md.items)
-        print(io, " "^2margin, md.ordered ? "$i. " : "•  ")
+        print(io, " "^2margin, isordered(md) ? "$(i + md.ordered - 1). " : "•  ")
         print_wrapped(io, width = columns-(4margin+2), pre = " "^(2margin+2),
                           i = 2margin+2) do io
-            terminline(io, point)
+            term(io, point, columns - 10)
         end
     end
 end

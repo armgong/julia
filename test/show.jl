@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-replstr(x) = sprint((io,x) -> show(IOContext(io, multiline=true, limit=true), MIME("text/plain"), x), x)
+replstr(x) = sprint((io,x) -> show(IOContext(io, limit=true), MIME("text/plain"), x), x)
 
 @test replstr(Array{Any}(2)) == "2-element Array{Any,1}:\n #undef\n #undef"
 @test replstr(Array{Any}(2,2)) == "2×2 Array{Any,2}:\n #undef  #undef\n #undef  #undef"
@@ -9,7 +9,7 @@ replstr(x) = sprint((io,x) -> show(IOContext(io, multiline=true, limit=true), MI
 immutable T5589
     names::Vector{String}
 end
-@test replstr(T5589(Array(String,100))) == "T5589(String[#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef  …  #undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef])"
+@test replstr(T5589(Array{String,1}(100))) == "T5589(String[#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef  …  #undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef,#undef])"
 
 @test replstr(parse("type X end")) == ":(type X # none, line 1:\n    end)"
 @test replstr(parse("immutable X end")) == ":(immutable X # none, line 1:\n    end)"
@@ -80,6 +80,8 @@ end
 @test_repr "a & (b && c)"
 @test_repr "(a => b) in c"
 @test_repr "a => b in c"
+@test_repr "*(a..., b)"
+@test_repr "+(a, b, c...)"
 
 # precedence tie resolution
 @test_repr "(a * b) * (c * d)"
@@ -103,7 +105,7 @@ end
             n *= d
         end
         nc = num_bit_chunks(n)
-        chunks = Array(UInt64, nc)
+        chunks = Array{UInt64,1}(nc)
         if nc > 0
             chunks[end] = UInt64(0)
         end
@@ -275,12 +277,44 @@ end
 @test repr(:(bitstype A B)) == ":(bitstype A B)"
 @test repr(:(bitstype 100 B)) == ":(bitstype 100 B)"
 
-oldout = STDOUT
-try
-    rd, wr = redirect_stdout()
-    @test dump(STDERR) == nothing
-finally
-    redirect_stdout(oldout)
+let oldout = STDOUT, olderr = STDERR
+    local rdout, wrout, rderr, wrerr, out, err, rd, wr
+    try
+        # pr 16917
+        rdout, wrout = redirect_stdout()
+        @test wrout === STDOUT
+        out = @async readstring(rdout)
+        rderr, wrerr = redirect_stderr()
+        @test wrerr === STDERR
+        err = @async readstring(rderr)
+        @test dump(Int64) == nothing
+        if !is_windows()
+            close(wrout)
+            close(wrerr)
+        end
+
+        for io in (Core.STDOUT, Core.STDERR)
+            Core.println(io, "TESTA")
+            println(io, "TESTB")
+            print(io, 'Α', 1)
+            Core.print(io, 'Β', 2)
+            Core.show(io, "A")
+            println(io)
+        end
+        Core.println("A")
+        Core.print("1", 2, 3.0)
+        Core.show("C")
+        Core.println()
+        redirect_stdout(oldout)
+        redirect_stderr(olderr)
+        close(wrout)
+        close(wrerr)
+        @test wait(out) == "Int64 <: Signed\nTESTA\nTESTB\nΑ1Β2\"A\"\nA\n123\"C\"\n"
+        @test wait(err) == "TESTA\nTESTB\nΑ1Β2\"A\"\n"
+    finally
+        redirect_stdout(oldout)
+        redirect_stderr(olderr)
+    end
 end
 
 # issue #12960
@@ -325,10 +359,14 @@ end
 
 f5971(x, y...; z=1, w...) = nothing
 let repr = sprint(io -> show(io,"text/plain", methods(f5971)))
-    @test contains(repr, "f5971(x, y...; z)")
+    @test contains(repr, "f5971(x, y...; z, w...)")
 end
 let repr = sprint(io -> show(io,"text/html", methods(f5971)))
-    @test contains(repr, "f5971(x, y...; <i>z</i>)")
+    @test contains(repr, "f5971(x, y...; <i>z, w...</i>)")
+end
+f16580(x, y...; z=1, w=y+x, q...) = nothing
+let repr = sprint(io -> show(io,"text/html", methods(f16580)))
+    @test contains(repr, "f16580(x, y...; <i>z, w, q...</i>)")
 end
 
 if isempty(Base.GIT_VERSION_INFO.commit)
@@ -447,3 +485,88 @@ end
 # PR #16651
 @test !contains(repr(ones(10,10)), "\u2026")
 @test contains(sprint((io,x)->show(IOContext(io,:limit=>true), x), ones(30,30)), "\u2026")
+
+# showcompact() also sets :multiline=>false (#16817)
+let io = IOBuffer()
+    x = [1, 2]
+    showcompact(io, x)
+    @test takebuf_string(io) == "[1,2]"
+    showcompact(IOContext(io, :compact=>true), x)
+    @test takebuf_string(io) == "[1,2]"
+end
+
+# PR 17117
+# test show array
+let s = IOBuffer(Array{UInt8}(0), true, true)
+    Base.showarray(s, [1,2,3], false, header = false)
+    @test String(resize!(s.data, s.size)) == " 1\n 2\n 3"
+end
+
+let repr = sprint(dump, :(x = 1))
+    @test repr == "Expr\n  head: Symbol =\n  args: Array{Any}((2,))\n    1: Symbol x\n    2: $Int 1\n  typ: Any\n"
+end
+let repr = sprint(dump, Pair)
+    @test repr == "Pair{A,B} <: Any\n  first::A\n  second::B\n"
+end
+let repr = sprint(dump, Tuple)
+    @test repr == "Tuple <: Any\n"
+end
+let repr = sprint(dump, Int64)
+    @test repr == "Int64 <: Signed\n"
+end
+# Make sure a `TypeVar` in a `Union` doesn't break subtype dump.
+typealias BreakDump17529{T} Union{T,Void}
+let repr = sprint(dump, Any)
+    @test length(repr) > 100000
+    @test ismatch(r"^Any\n  [^ \t\n]", repr)
+    @test endswith(repr, '\n')
+    @test contains(repr, "     Base.Vector{T} = Array{T,1}\n")
+    @test !contains(repr, "Core.Vector{T}")
+end
+let repr = sprint(dump, Integer)
+    @test contains(repr, "UInt128")
+    @test !contains(repr, "Any")
+end
+let repr = sprint(dump, Union{Integer, Float32})
+    @test repr == "Union{Integer,Float32}\n" || repr == "Union{Float32,Integer}\n"
+end
+let repr = sprint(dump, Core.svec())
+    @test repr == "empty SimpleVector\n"
+end
+let sv = Core.svec(:a, :b, :c)
+    # unsafe replacement of :c with #undef to test handling of incomplete SimpleVectors
+    unsafe_store!(convert(Ptr{Ptr{Void}}, Base.data_pointer_from_objref(sv)) + 3 * sizeof(Ptr), C_NULL)
+    repr = sprint(dump, sv)
+    @test repr == "SimpleVector\n  1: Symbol a\n  2: Symbol b\n  3: #undef\n"
+end
+let repr = sprint(dump, sin)
+    @test repr == "sin (function of type Base.#sin)\n"
+end
+let repr = sprint(dump, Base.Test)
+    @test repr == "Module Base.Test\n"
+end
+let a = Array{Any}(10000)
+    a[2] = "elemA"
+    a[4] = "elemB"
+    a[11] = "elemC"
+    repr = sprint(0, dump, a; env= (:limit => true))
+    @test repr == "Array{Any}((10000,))\n  1: #undef\n  2: String \"elemA\"\n  3: #undef\n  4: String \"elemB\"\n  5: #undef\n  ...\n  9996: #undef\n  9997: #undef\n  9998: #undef\n  9999: #undef\n  10000: #undef\n"
+end
+
+# issue #17338
+@test repr(Core.svec(1,2)) == "svec(1,2)"
+
+# showing generator and comprehension expressions
+@test repr(:(x for x in y for z in w)) == ":(x for x = y for z = w)"
+@test repr(:(x for x in y if aa for z in w if bb)) == ":(x for x = y if aa for z = w if bb)"
+@test repr(:([x for x = y])) == ":([x for x = y])"
+@test repr(:([x for x = y if z])) == ":([x for x = y if z])"
+
+for op in (:(.=), :(.+=), :(.&=))
+    @test repr(parse("x $op y")) == ":(x $op y)"
+end
+
+# pretty-printing of compact broadcast expressions (#17289)
+@test repr(:(f.(X,Y))) == ":(f.(X,Y))"
+@test repr(:(f.(X))) == ":(f.(X))"
+@test repr(:(f.())) == ":(f.())"

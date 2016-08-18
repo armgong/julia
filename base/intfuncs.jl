@@ -48,6 +48,31 @@ gcd{T<:Integer}(abc::AbstractArray{T}) = reduce(gcd,abc)
 lcm{T<:Integer}(abc::AbstractArray{T}) = reduce(lcm,abc)
 
 # return (gcd(a,b),x,y) such that ax+by == gcd(a,b)
+"""
+    gcdx(x,y)
+
+Computes the greatest common (positive) divisor of `x` and `y` and their Bézout
+coefficients, i.e. the integer coefficients `u` and `v` that satisfy
+``ux+vy = d = gcd(x,y)``.
+
+```jldoctest
+julia> gcdx(12, 42)
+(6,-3,1)
+```
+
+```jldoctest
+julia> gcdx(240, 46)
+(2,-9,47)
+```
+
+!!! note
+    Bézout coefficients are *not* uniquely defined. `gcdx` returns the minimal
+    Bézout coefficients that are computed by the extended Euclid algorithm.
+    (Ref: D. Knuth, TAoCP, 2/e, p. 325, Algorithm X.) These coefficients `u`
+    and `v` are minimal in the sense that ``|u| < |\\frac y d|`` and ``|v| <
+    |\\frac x d|``. Furthermore, the signs of `u` and `v` are chosen so that `d`
+    is positive.
+"""
 function gcdx{T<:Integer}(a::T, b::T)
     s0, s1 = one(T), zero(T)
     t0, t1 = s1, s0
@@ -184,9 +209,9 @@ function ndigits0z(x::UInt128)
 end
 ndigits0z(x::Integer) = ndigits0z(unsigned(abs(x)))
 
-const ndigits_max_mul = Core.sizeof(Int32) == 4 ? 69000000 : 290000000000000000
+const ndigits_max_mul = Core.sizeof(Int) == 4 ? 69000000 : 290000000000000000
 
-function ndigits0znb(n::Int, b::Int)
+function ndigits0znb(n::Signed, b::Int)
     d = 0
     while n != 0
         n = cld(n,b)

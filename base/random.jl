@@ -4,7 +4,7 @@ module Random
 
 using Base.dSFMT
 using Base.GMP: GMP_VERSION, Limb
-import Base.copymutable
+import Base: copymutable, copy, copy!, ==
 
 export srand,
        rand, rand!,
@@ -64,15 +64,36 @@ rand(rng::RandomDevice, ::Type{CloseOpen}) = rand(rng, Close1Open2) - 1.0
 const MTCacheLength = dsfmt_get_min_array_size()
 
 type MersenneTwister <: AbstractRNG
+    seed::Vector{UInt32}
     state::DSFMT_state
     vals::Vector{Float64}
     idx::Int
-    seed::Vector{UInt32}
 
-    MersenneTwister(state::DSFMT_state, seed) = new(state, Array{Float64}(MTCacheLength), MTCacheLength, seed)
-    MersenneTwister(seed) = srand(new(DSFMT_state(), Array{Float64}(MTCacheLength)), seed)
-    MersenneTwister() = MersenneTwister(0)
+    function MersenneTwister(seed, state, vals, idx)
+        length(vals) == MTCacheLength &&  0 <= idx <= MTCacheLength || throw(DomainError())
+        new(seed, state, vals, idx)
+    end
 end
+
+MersenneTwister(seed::Vector{UInt32}, state::DSFMT_state) =
+    MersenneTwister(seed, state, zeros(Float64, MTCacheLength), MTCacheLength)
+
+MersenneTwister(seed=0) = srand(MersenneTwister(Vector{UInt32}(), DSFMT_state()), seed)
+
+function copy!(dst::MersenneTwister, src::MersenneTwister)
+    copy!(resize!(dst.seed, length(src.seed)), src.seed)
+    copy!(dst.state, src.state)
+    copy!(dst.vals, src.vals)
+    dst.idx = src.idx
+    dst
+end
+
+copy(src::MersenneTwister) =
+    MersenneTwister(copy(src.seed), copy(src.state), copy(src.vals), src.idx)
+
+==(r1::MersenneTwister, r2::MersenneTwister) =
+    r1.seed == r2.seed && r1.state == r2.state && isequal(r1.vals, r2.vals) && r1.idx == r2.idx
+
 
 ## Low level API for MersenneTwister
 
@@ -105,7 +126,7 @@ end
 @inline rand_ui2x52_raw(r::MersenneTwister) = rand_ui52_raw(r) % UInt128 << 64 | rand_ui52_raw(r)
 
 function srand(r::MersenneTwister, seed::Vector{UInt32})
-    r.seed = seed
+    copy!(resize!(r.seed, length(seed)), seed)
     dsfmt_init_by_array(r.state, r.seed)
     mt_setempty!(r)
     return r
@@ -117,7 +138,7 @@ function randjump(mt::MersenneTwister, jumps::Integer, jumppoly::AbstractString)
     push!(mts, mt)
     for i in 1:jumps-1
         cmt = mts[end]
-        push!(mts, MersenneTwister(dSFMT.dsfmt_jump(cmt.state, jumppoly),  cmt.seed))
+        push!(mts, MersenneTwister(cmt.seed, dSFMT.dsfmt_jump(cmt.state, jumppoly)))
     end
     return mts
 end
@@ -177,7 +198,7 @@ srand(r::MersenneTwister, filename::AbstractString, n::Integer=4) = srand(r, mak
 
 function dsfmt_gv_srand()
     # Temporary fix for #8874 and #9124: update global RNG for Rmath
-    dsfmt_gv_init_by_array(GLOBAL_RNG.seed+1)
+    dsfmt_gv_init_by_array(GLOBAL_RNG.seed+UInt32(1))
     return GLOBAL_RNG
 end
 
@@ -353,8 +374,8 @@ end
 function rand!{T<:Union{Float16, Float32}}(r::MersenneTwister, A::Array{T}, ::Type{Close1Open2})
     n = length(A)
     n128 = n * sizeof(T) ÷ 16
-    rand!(r, pointer_to_array(convert(Ptr{Float64}, pointer(A)), 2*n128), 2*n128, Close1Open2)
-    A128 = pointer_to_array(convert(Ptr{UInt128}, pointer(A)), n128)
+    rand!(r, unsafe_wrap(Array, convert(Ptr{Float64}, pointer(A)), 2*n128), 2*n128, Close1Open2)
+    A128 = unsafe_wrap(Array, convert(Ptr{UInt128}, pointer(A)), n128)
     @inbounds for i in 1:n128
         u = A128[i]
         u $= u << 26
@@ -390,7 +411,7 @@ function rand!(r::MersenneTwister, A::Array{UInt128}, n::Int=length(A))
     if n > length(A)
         throw(BoundsError(A,n))
     end
-    Af = pointer_to_array(convert(Ptr{Float64}, pointer(A)), 2n)
+    Af = unsafe_wrap(Array, convert(Ptr{Float64}, pointer(A)), 2n)
     i = n
     while true
         rand!(r, Af, 2i, Close1Open2)
@@ -417,7 +438,7 @@ end
 function rand!{T<:Union{Int8, UInt8, Int16, UInt16, Int32, UInt32, Int64, UInt64, Int128}}(r::MersenneTwister, A::Array{T})
     n=length(A)
     n128 = n * sizeof(T) ÷ 16
-    rand!(r, pointer_to_array(convert(Ptr{UInt128}, pointer(A)), n128))
+    rand!(r, unsafe_wrap(Array, convert(Ptr{UInt128}, pointer(A)), n128))
     for i = 16*n128÷sizeof(T)+1:n
         @inbounds A[i] = rand(r, T)
     end
@@ -534,7 +555,7 @@ if GMP_VERSION.major >= 6
         while true
             # note: on CRAY computers, the second argument may be of type Cint (48 bits) and not Clong
             xd = ccall((:__gmpz_limbs_write, :libgmp), Ptr{Limb}, (Ptr{BigInt}, Clong), &x, g.nlimbs)
-            limbs = pointer_to_array(xd, g.nlimbs)
+            limbs = unsafe_wrap(Array, xd, g.nlimbs)
             rand!(rng, limbs)
             limbs[end] &= g.mask
             ccall((:__gmpz_limbs_finish, :libgmp), Void, (Ptr{BigInt}, Clong), &x, g.nlimbs)
@@ -1096,7 +1117,14 @@ const ziggurat_nor_r      = 3.6541528853610087963519472518
 const ziggurat_nor_inv_r  = inv(ziggurat_nor_r)
 const ziggurat_exp_r      = 7.6971174701310497140446280481
 
+"""
+    randn([rng], [T=Float64], [dims...])
 
+Generate a normally-distributed random number of type `T` with mean 0 and standard deviation 1.
+Optionally generate an array of normally-distributed random numbers.
+The `Base` module currently provides an implementation for the types
+`Float16`, `Float32`, and `Float64` (the default).
+"""
 @inline function randn(rng::AbstractRNG=GLOBAL_RNG)
     @inbounds begin
         r = rand_ui52(rng)
@@ -1123,19 +1151,14 @@ function randn_unlikely(rng, idx, rabs, x)
     end
 end
 
-function randn!(rng::AbstractRNG, A::AbstractArray{Float64})
-    for i in eachindex(A)
-        @inbounds A[i] = randn(rng)
-    end
-    A
-end
+"""
+    randexp([rng], [T=Float64], [dims...])
 
-randn!(A::AbstractArray{Float64}) = randn!(GLOBAL_RNG, A)
-randn(dims::Dims) = randn!(Array{Float64}(dims))
-randn(dims::Integer...) = randn!(Array{Float64}(dims...))
-randn(rng::AbstractRNG, dims::Dims) = randn!(rng, Array{Float64}(dims))
-randn(rng::AbstractRNG, dims::Integer...) = randn!(rng, Array{Float64}(dims...))
-
+Generate a random number of type `T` according to the exponential distribution with scale 1.
+Optionally generate an array of such random numbers.
+The `Base` module currently provides an implementation for the types
+`Float16`, `Float32`, and `Float64` (the default).
+"""
 @inline function randexp(rng::AbstractRNG=GLOBAL_RNG)
     @inbounds begin
         ri = rand_ui52(rng)
@@ -1156,19 +1179,51 @@ function randexp_unlikely(rng, idx, x)
     end
 end
 
-function randexp!(rng::AbstractRNG, A::Array{Float64})
-    for i in eachindex(A)
-        @inbounds A[i] = randexp(rng)
+"""
+    randn!([rng], A::AbstractArray) -> A
+
+Fill the array `A` with normally-distributed (mean 0, standard deviation 1) random numbers.
+Also see the `rand` function.
+"""
+function randn! end
+
+"""
+    randexp!([rng], A::AbstractArray) -> A
+
+Fill the array `A` with random numbers following the exponential distribution (with scale 1).
+"""
+function randexp! end
+
+let Floats = Union{Float16,Float32,Float64}
+    for randfun in [:randn, :randexp]
+        randfun! = Symbol(randfun, :!)
+        @eval begin
+            # scalars
+            $randfun{T<:$Floats}(rng::AbstractRNG, ::Type{T}) = convert(T, $randfun(rng))
+            $randfun{T<:$Floats}(::Type{T}) = $randfun(GLOBAL_RNG, T)
+
+            # filling arrays
+            function $randfun!{T}(rng::AbstractRNG, A::AbstractArray{T})
+                for i in eachindex(A)
+                    @inbounds A[i] = $randfun(rng, T)
+                end
+                A
+            end
+
+            $randfun!(A::AbstractArray) = $randfun!(GLOBAL_RNG, A)
+
+            # generating arrays
+            $randfun{T}(rng::AbstractRNG, ::Type{T}, dims::Dims)       = $randfun!(rng, Array{T}(dims))
+            $randfun{T}(rng::AbstractRNG, ::Type{T}, dims::Integer...) = $randfun!(rng, Array{T}(dims...))
+            $randfun{T}(                  ::Type{T}, dims::Dims)       = $randfun(GLOBAL_RNG, T, dims)
+            $randfun{T}(                  ::Type{T}, dims::Integer...) = $randfun(GLOBAL_RNG, T, dims...)
+            $randfun(   rng::AbstractRNG,            dims::Dims)       = $randfun(rng, Float64, dims)
+            $randfun(   rng::AbstractRNG,            dims::Integer...) = $randfun(rng, Float64, dims...)
+            $randfun(                                dims::Dims)       = $randfun(GLOBAL_RNG, Float64, dims)
+            $randfun(                                dims::Integer...) = $randfun(GLOBAL_RNG, Float64, dims...)
+        end
     end
-    A
 end
-
-randexp!(A::Array{Float64}) = randexp!(GLOBAL_RNG, A)
-randexp(dims::Dims) = randexp!(Array{Float64}(dims))
-randexp(dims::Int...) = randexp!(Array{Float64}(dims))
-randexp(rng::AbstractRNG, dims::Dims) = randexp!(rng, Array{Float64}(dims))
-randexp(rng::AbstractRNG, dims::Int...) = randexp!(rng, Array{Float64}(dims))
-
 
 ## random UUID generation
 

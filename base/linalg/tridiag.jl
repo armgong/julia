@@ -14,6 +14,13 @@ immutable SymTridiagonal{T} <: AbstractMatrix{T}
     end
 end
 
+"""
+    SymTridiagonal(dv, ev)
+
+Construct a symmetric tridiagonal matrix from the diagonal and first sub/super-diagonal,
+respectively. The result is of type `SymTridiagonal` and provides efficient specialized
+eigensolvers, but may be converted into a regular matrix with [`full`](:func:`full`).
+"""
 SymTridiagonal{T}(dv::Vector{T}, ev::Vector{T}) = SymTridiagonal{T}(dv, ev)
 
 function SymTridiagonal{Td,Te}(dv::AbstractVector{Td}, ev::AbstractVector{Te})
@@ -29,7 +36,6 @@ function SymTridiagonal(A::AbstractMatrix)
     end
 end
 
-full{T}(M::SymTridiagonal{T}) = convert(Matrix{T}, M)
 convert{T}(::Type{SymTridiagonal{T}}, S::SymTridiagonal) =
     SymTridiagonal(convert(Vector{T}, S.dv), convert(Vector{T}, S.ev))
 convert{T}(::Type{AbstractMatrix{T}}, S::SymTridiagonal) =
@@ -48,6 +54,8 @@ function convert{T}(::Type{Matrix{T}}, M::SymTridiagonal{T})
     return Mf
 end
 convert{T}(::Type{Matrix}, M::SymTridiagonal{T}) = convert(Matrix{T}, M)
+convert(::Type{Array}, M::SymTridiagonal) = convert(Matrix, M)
+full(M::SymTridiagonal) = convert(Array, M)
 
 size(A::SymTridiagonal) = (length(A.dv), length(A.dv))
 function size(A::SymTridiagonal, d::Integer)
@@ -314,6 +322,14 @@ immutable Tridiagonal{T} <: AbstractMatrix{T}
     du2::Vector{T}   # supsup-diagonal for pivoting
 end
 
+"""
+    Tridiagonal(dl, d, du)
+
+Construct a tridiagonal matrix from the first subdiagonal, diagonal, and first superdiagonal,
+respectively.  The result is of type `Tridiagonal` and provides efficient specialized linear
+solvers, but may be converted into a regular matrix with [`full`](:func:`full`).
+The lengths of `dl` and `du` must be one less than the length of `d`.
+"""
 # Basic constructor takes in three dense vectors of same type
 function Tridiagonal{T}(dl::Vector{T}, d::Vector{T}, du::Vector{T})
     n = length(d)
@@ -332,8 +348,8 @@ end
 """
     Tridiagonal(A)
 
-returns a `Tridiagonal` array based on (abstract) matrix `A`, using its lower diagonal,
-diagonal, and upper diagonal.
+returns a `Tridiagonal` array based on (abstract) matrix `A`, using its first lower diagonal,
+main diagonal, and first upper diagonal.
 """
 function Tridiagonal(A::AbstractMatrix)
     return Tridiagonal(diag(A,-1), diag(A), diag(A,+1))
@@ -350,7 +366,6 @@ function size(M::Tridiagonal, d::Integer)
     end
 end
 
-full{T}(M::Tridiagonal{T}) = convert(Matrix{T}, M)
 function convert{T}(::Type{Matrix{T}}, M::Tridiagonal{T})
     A = zeros(T, size(M))
     for i = 1:length(M.d)
@@ -363,6 +378,8 @@ function convert{T}(::Type{Matrix{T}}, M::Tridiagonal{T})
     A
 end
 convert{T}(::Type{Matrix}, M::Tridiagonal{T}) = convert(Matrix{T}, M)
+convert(::Type{Array}, M::Tridiagonal) = convert(Matrix, M)
+full(M::Tridiagonal) = convert(Array, M)
 function similar{T}(M::Tridiagonal, ::Type{T})
     Tridiagonal{T}(similar(M.dl, T), similar(M.d, T), similar(M.du, T), similar(M.du2, T))
 end

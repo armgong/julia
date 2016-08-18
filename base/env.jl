@@ -19,7 +19,7 @@ function access_env(onError::Function, str::AbstractString)
         error(string("getenv: ", str, ' ', len, "-1 != ", ret, ": ", Libc.FormatMessage()))
     end
     pop!(val) # NUL
-    return String(utf16to8(val))
+    return transcode(String, val)
 end
 
 function _setenv(svar::AbstractString, sval::AbstractString, overwrite::Bool=true)
@@ -43,7 +43,7 @@ _hasenv(s::AbstractString) = _getenv(s) != C_NULL
 
 function access_env(onError::Function, var::AbstractString)
     val = _getenv(var)
-    val == C_NULL ? onError(var) : String(val)
+    val == C_NULL ? onError(var) : unsafe_string(val)
 end
 
 function _setenv(var::AbstractString, val::AbstractString, overwrite::Bool=true)
@@ -86,10 +86,10 @@ if is_windows()
 start(hash::EnvHash) = (pos = ccall(:GetEnvironmentStringsW,stdcall,Ptr{UInt16},()); (pos,pos))
 function done(hash::EnvHash, block::Tuple{Ptr{UInt16},Ptr{UInt16}})
     if unsafe_load(block[1]) == 0
-        ccall(:FreeEnvironmentStringsW,stdcall,Int32,(Ptr{UInt16},),block[2])
+        ccall(:FreeEnvironmentStringsW, stdcall, Int32, (Ptr{UInt16},), block[2])
         return true
     end
-    false
+    return false
 end
 function next(hash::EnvHash, block::Tuple{Ptr{UInt16},Ptr{UInt16}})
     pos = block[1]
@@ -97,12 +97,12 @@ function next(hash::EnvHash, block::Tuple{Ptr{UInt16},Ptr{UInt16}})
     len = ccall(:wcslen, UInt, (Ptr{UInt16},), pos)
     buf = Array{UInt16}(len)
     unsafe_copy!(pointer(buf), pos, len)
-    env = String(utf16to8(buf))
+    env = transcode(String, buf)
     m = match(r"^(=?[^=]+)=(.*)$"s, env)
     if m === nothing
         error("malformed environment entry: $env")
     end
-    (Pair{String,String}(m.captures[1], m.captures[2]), (pos+len*2, blk))
+    return (Pair{String,String}(m.captures[1], m.captures[2]), (pos+len*2, blk))
 end
 
 else # !windows
@@ -114,12 +114,12 @@ function next(::EnvHash, i)
     if env === nothing
         throw(BoundsError())
     end
-    env::String
+    env = env::String
     m = match(r"^(.*?)=(.*)$"s, env)
     if m === nothing
         error("malformed environment entry: $env")
     end
-    (Pair{String,String}(m.captures[1], m.captures[2]), i+1)
+    return (Pair{String,String}(m.captures[1], m.captures[2]), i+1)
 end
 
 end # os-test

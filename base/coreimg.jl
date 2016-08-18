@@ -1,20 +1,15 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
 Main.Core.eval(Main.Core, :(baremodule Inference
-using Core.TopModule, Core.Intrinsics
+using Core.Intrinsics
+import Core: print, println, show, write, unsafe_write, STDOUT, STDERR
+
 ccall(:jl_set_istopmod, Void, (Bool,), false)
 
 eval(x) = Core.eval(Inference,x)
 eval(m,x) = Core.eval(m,x)
 
 include = Core.include
-
-# simple print definitions for debugging.
-show(x::ANY) = ccall(:jl_static_show, Void, (Ptr{Void}, Any),
-                     pointerref(cglobal(:jl_uv_stdout,Ptr{Void}),1), x)
-print(x::ANY) = show(x)
-println(x::ANY) = ccall(:jl_, Void, (Any,), x) # includes a newline
-print(a::ANY...) = for x=a; print(x); end
 
 ## Load essential files and libraries
 include("essentials.jl")

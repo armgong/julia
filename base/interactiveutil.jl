@@ -150,7 +150,7 @@ elseif is_windows()
         len = 0
         while unsafe_load(plock, len+1) != 0; len += 1; end
         # get Vector{UInt16}, transcode data to UTF-8, make a String of it
-        s = String(utf16to8(pointer_to_array(plock, len)))
+        s = transcode(String, unsafe_wrap(Array, plock, len))
         systemerror(:GlobalUnlock, 0==ccall((:GlobalUnlock, "kernel32"), stdcall, Cint, (Ptr{UInt16},), plock))
         return s
     end
@@ -248,6 +248,17 @@ versioninfo(verbose::Bool) = versioninfo(STDOUT,verbose)
 
 # displaying type-ambiguity warnings
 
+
+"""
+    code_warntype([io], f, types)
+
+Prints lowered and type-inferred ASTs for the methods matching the given generic function
+and type signature to `io` which defaults to `STDOUT`. The ASTs are annotated in such a way
+as to cause "non-leaf" types to be emphasized (if color is available, displayed in red).
+This serves as a warning of potential type instability. Not all non-leaf types are particularly
+problematic for performance, so the results need to be used judiciously.
+See [Manual](:ref:`man-code-warntype`) for more information.
+"""
 function code_warntype(io::IO, f, t::ANY)
     emph_io = IOContext(io, :TYPEEMPHASIZE => true)
     for li in code_typed(f, t)
@@ -277,12 +288,17 @@ typesof(args...) = Tuple{map(a->(isa(a,Type) ? Type{a} : typeof(a)), args)...}
 
 gen_call_with_extracted_types(fcn, ex0::Symbol) = Expr(:call, fcn, Meta.quot(ex0))
 function gen_call_with_extracted_types(fcn, ex0)
-    if isa(ex0, Expr) &&
-        any(a->(Meta.isexpr(a, :kw) || Meta.isexpr(a, :parameters)), ex0.args)
-        # keyword args not used in dispatch, so just remove them
-        args = filter(a->!(Meta.isexpr(a, :kw) || Meta.isexpr(a, :parameters)), ex0.args)
-        return Expr(:call, fcn, esc(args[1]),
-                    Expr(:call, typesof, map(esc, args[2:end])...))
+    if isa(ex0, Expr)
+        if any(a->(Meta.isexpr(a, :kw) || Meta.isexpr(a, :parameters)), ex0.args)
+            # remove keyword args, but call the kwfunc
+            args = filter(a->!(Meta.isexpr(a, :kw) || Meta.isexpr(a, :parameters)), ex0.args)
+            return :($(fcn)(Core.kwfunc($(esc(args[1]))),
+                            Tuple{Vector{Any}, typeof($(esc(args[1]))),
+                                  $(typesof)($(map(esc, args[2:end])...)).parameters...}))
+        elseif ex0.head == :call
+            return Expr(:call, fcn, esc(ex0.args[1]),
+                        Expr(:call, typesof, map(esc, ex0.args[2:end])...))
+        end
     end
     exret = Expr(:none)
     is_macro = false
@@ -665,7 +681,7 @@ function summarysize(obj::Module, seen, excl)
     haskey(seen, obj) ? (return 0) : (seen[obj] = true)
     size::Int = Core.sizeof(obj)
     for binding in names(obj, true)
-        if isdefined(obj, binding)
+        if isdefined(obj, binding) && !isdeprecated(obj, binding)
             value = getfield(obj, binding)
             if !isa(value, Module) || module_parent(value) === obj
                 size += summarysize(value, seen, excl)::Int

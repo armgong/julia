@@ -141,7 +141,7 @@ function repl(s::Symbol)
     end
 end
 
-isregex(x) = isexpr(x, :macrocall, 2) && x.args[1] == Symbol("@r_str") && !isempty(x.args[2])
+isregex(x) = isexpr(x, :macrocall, 2) && x.args[1] === Symbol("@r_str") && !isempty(x.args[2])
 
 repl(ex::Expr) = isregex(ex) ? :(apropos($ex)) : _repl(ex)
 
@@ -150,12 +150,8 @@ repl(str::AbstractString) = :(apropos($str))
 repl(other) = :(@doc $(esc(other)))
 
 function _repl(x)
-    docs = :(@doc $(esc(x)))
-    if isexpr(x, :call)
-        # Handles function call syntax where each argument is an atom (symbol, number, etc.)
-        t = Base.gen_call_with_extracted_types(doc, x)
-        (isexpr(t, :call, 3) && t.args[1] == doc) && (docs = t)
-    end
+    docs = (isexpr(x, :call) && !any(isexpr(x, :(::)) for x in x.args)) ?
+        Base.gen_call_with_extracted_types(doc, x) : :(@doc $(esc(x)))
     if isfield(x)
         quote
             if isa($(esc(x.args[1])), DataType)
@@ -314,7 +310,7 @@ moduleusings(mod) = ccall(:jl_module_usings, Any, (Any,), mod)
 filtervalid(names) = filter(x->!ismatch(r"#", x), map(string, names))
 
 accessible(mod::Module) =
-    [names(mod, true, true);
+    [filter!(s->Base.isdeprecated(mod, s), names(mod, true, true));
      map(names, moduleusings(mod))...;
      builtins] |> unique |> filtervalid
 
@@ -372,6 +368,7 @@ stripmd(x::AbstractString) = x  # base case
 stripmd(x::Void) = " "
 stripmd(x::Vector) = string(map(stripmd, x)...)
 stripmd(x::Markdown.BlockQuote) = "$(stripmd(x.content))"
+stripmd(x::Markdown.Admonition) = "$(stripmd(x.content))"
 stripmd(x::Markdown.Bold) = "$(stripmd(x.text))"
 stripmd(x::Markdown.Code) = "$(stripmd(x.code))"
 stripmd{N}(x::Markdown.Header{N}) = stripmd(x.text)

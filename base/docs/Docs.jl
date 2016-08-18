@@ -59,7 +59,7 @@ include("bindings.jl")
 import Base.Markdown: @doc_str, MD
 import Base.Meta: quot, isexpr
 import Base: Callable
-import Core.Inference.CoreDocs: lazy_iterpolate
+import ..CoreDocs: lazy_iterpolate
 
 export doc
 
@@ -221,13 +221,16 @@ function doc!(b::Binding, str::DocStr, sig::ANY = Union{})
     if haskey(m.docs, sig)
         # We allow for docstrings to be updated, but print a warning since it is possible
         # that over-writing a docstring *may* have been accidental.
-        warn("replacing docs for '$b :: $sig'.")
+        s = "replacing docs for '$b :: $sig' in module '$(current_module())'."
+        isdefined(Base, :STDERR) ? warn(s) : ccall(:jl_, Void, (Any,), "WARNING: $s")
     else
         # The ordering of docstrings for each Binding is defined by the order in which they
         # are initially added. Replacing a specific docstring does not change it's ordering.
         push!(m.order, sig)
     end
     m.docs[sig] = str
+    str.data[:binding] = b
+    str.data[:typesig] = sig
     return b
 end
 
@@ -392,8 +395,8 @@ const keywords = Dict{Symbol, DocStr}()
 isdoc(s::AbstractString) = true
 
 isdoc(x) = isexpr(x, :string) ||
-    (isexpr(x, :macrocall) && x.args[1] == Symbol("@doc_str")) ||
-    (isexpr(x, :call) && x.args[1] == Base.Markdown.doc_str)
+    (isexpr(x, :macrocall) && x.args[1] === Symbol("@doc_str")) ||
+    (isexpr(x, :call) && x.args[1] === Base.Markdown.doc_str)
 
 function unblock(ex)
     isexpr(ex, :block) || return ex
@@ -435,7 +438,6 @@ Build a `Dict` expression containing metadata captured from the expression `expr
 
 Fields that may be included in the returned `Dict`:
 
-- `:source`:     Source code for the given `expr`.
 - `:path`:       String representing the file where `expr` is defined.
 - `:linenumber`: Linenumber where `expr` is defined.
 - `:module`:     Module where the docstring is defined.
@@ -443,11 +445,9 @@ Fields that may be included in the returned `Dict`:
 """
 function metadata(expr)
     args = []
-    # Source code for the object being documented.
-    push!(args, :($(Pair)(:source, $(quot(expr)))))
     # Filename and linenumber of the docstring.
     push!(args, :($(Pair)(:path, $(Base).@__FILE__)))
-    push!(args, :($(Pair)(:linenumber, $(unsafe_load(cglobal(:jl_lineno, Int))))))
+    push!(args, :($(Pair)(:linenumber, $(unsafe_load(cglobal(:jl_lineno, Cint))))))
     # Module in which the docstring is defined.
     push!(args, :($(Pair)(:module, $(current_module)())))
     # Field docs for concrete types.
@@ -497,7 +497,7 @@ function moduledoc(meta, def, def′)
     docex = Expr(:call, doc!, bindingexpr(name),
         docexpr(lazy_iterpolate(meta), metadata(name))
     )
-    if def == nothing
+    if def === nothing
         esc(:(eval($name, $(quot(docex)))))
     else
         def = unblock(def)

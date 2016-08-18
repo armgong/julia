@@ -1,5 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+# tests for parser and syntax lowering
+
 function parseall(str)
     pos = start(str)
     exs = []
@@ -450,6 +452,8 @@ add_method_to_glob_fn!()
 @test (try error(); catch 0; end) === 0
 @test (try error(); catch false; end) === false  # false and true are Bool literals, not variables
 @test (try error(); catch true; end) === true
+f16517() = try error(); catch 0; end
+@test f16517() === 0
 
 # issue #16671
 @test parse("1.") === 1.0
@@ -460,6 +464,14 @@ let isline(x) = isa(x,Expr) && x.head === :line
     @test count(isline, parse("begin; end").args) == 1
     @test count(isline, parse("begin; x+2; end").args) == 1
     @test count(isline, parse("begin; x+2; y+1; end").args) == 2
+end
+
+# issue #16736
+let
+    local lineoffset0 = @__LINE__ + 1
+    local lineoffset1 = @__LINE__
+    local lineoffset2 = @__LINE__ - 1
+    @test lineoffset0 == lineoffset1 == lineoffset2
 end
 
 # issue #16686
@@ -476,3 +488,158 @@ end
                                 Expr(:call, :test),
                                 Expr(:line, 3, :none),
                                 :y))
+
+# test that pre 0.5 deprecated syntax is a parse error
+@test_throws ParseError parse("Int [1,2,3]")
+@test_throws ParseError parse("Int [x for x in 1:10]")
+@test_throws ParseError parse("foo (x) = x")
+@test_throws ParseError parse("foo {T<:Int}(x::T) = x")
+
+@test_throws ParseError parse("Foo .bar")
+
+@test_throws ParseError parse("import x .y")
+@test_throws ParseError parse("using x .y")
+
+@test_throws ParseError parse("--x")
+@test_throws ParseError parse("stagedfunction foo(x); end")
+
+#@test_throws ParseError parse("{1,2,3}")
+#@test_throws ParseError parse("{1 2 3 4}")
+#@test_throws ParseError parse("{1,2; 3,4}")
+@test_throws ParseError parse("{x for x in 1:10}")
+@test_throws ParseError parse("{x=>y for (x,y) in zip([1,2,3],[4,5,6])}")
+#@test_throws ParseError parse("{:a=>1, :b=>2}")
+
+# this now is parsed as getindex(Pair{Any,Any}, ...)
+@test_throws MethodError eval(parse("(Any=>Any)[]"))
+@test_throws MethodError eval(parse("(Any=>Any)[:a=>1,:b=>2]"))
+# to be removed post 0.5
+#@test_throws MethodError eval(parse("(Any=>Any)[x=>y for (x,y) in zip([1,2,3],[4,5,6])]"))
+
+# make sure base can be any Integer
+for T in (Int, BigInt)
+    let n = parse(T, "123", Int8(10))
+        @test n == 123
+        @test isa(n, T)
+    end
+end
+
+# issue #16720
+let err = try
+    include_string("module A
+
+        function broken()
+
+            x[1] = some_func(
+
+        end
+
+        end")
+    catch e
+        e
+    end
+    @test err.line == 7
+end
+
+# issue #17065
+@test parse(Int, "2") === 2
+@test parse(Bool, "true") === true
+@test parse(Bool, "false") === false
+@test get(tryparse(Bool, "true")) === get(Nullable{Bool}(true))
+@test get(tryparse(Bool, "false")) === get(Nullable{Bool}(false))
+@test_throws ArgumentError parse(Int, "2", 1)
+@test_throws ArgumentError parse(Int, "2", 63)
+
+# issue #17333: tryparse should still throw on invalid base
+for T in (Int32, BigInt), base in (0,1,100)
+    @test_throws ArgumentError tryparse(T, "0", base)
+end
+
+# error throwing branch from #10560
+@test_throws ArgumentError Base.tryparse_internal(Bool, "foo", 1, 2, 10, true)
+
+# PR #17393
+for op in (:.==, :.&, :.|, :.≤)
+    @test parse("a $op b") == Expr(:call, op, :a, :b)
+end
+for op in (:.=, :.+=)
+    @test parse("a $op b") == Expr(op, :a, :b)
+end
+
+# issue #17489
+let m_error, error_out, filename = Base.source_path()
+    m_error = try @eval method_c6(a::(:A)) = 1; catch e; e; end
+    error_out = sprint(showerror, m_error)
+    @test startswith(error_out, "ArgumentError: invalid type for argument a in method definition for method_c6 at $filename:")
+
+    m_error = try @eval method_c6(::(:A)) = 2; catch e; e; end
+    error_out = sprint(showerror, m_error)
+    @test startswith(error_out, "ArgumentError: invalid type for argument number 1 in method definition for method_c6 at $filename:")
+
+    m_error = try @eval method_c6(A; B) = 3; catch e; e; end
+    error_out = sprint(showerror, m_error)
+    @test error_out == "syntax: keyword argument \"B\" needs a default value"
+end
+
+# issue #7272
+@test expand(parse("let
+              global x = 2
+              local x = 1
+              end")) == Expr(:error, "variable \"x\" declared both local and global")
+
+# make sure front end can correctly print values to error messages
+let ex = expand(parse("\"a\"=1"))
+    @test ex == Expr(:error, "invalid assignment location \"\"a\"\"")
+end
+
+# make sure that incomplete tags are detected correctly
+# (i.e. error messages in src/julia-parser.scm must be matched correctly
+# by the code in base/client.jl)
+for (str, tag) in Dict("" => :none, "\"" => :string, "#=" => :comment, "'" => :char,
+                       "`" => :cmd, "begin;" => :block, "quote;" => :block,
+                       "let;" => :block, "for i=1;" => :block, "function f();" => :block,
+                       "f() do x;" => :block, "module X;" => :block, "type X;" => :block,
+                       "immutable X;" => :block, "(" => :other, "[" => :other,
+                       "begin" => :other, "quote" => :other,
+                       "let" => :other, "for" => :other, "function" => :other,
+                       "f() do" => :other, "module" => :other, "type" => :other,
+                       "immutable" => :other)
+    @test Base.incomplete_tag(parse(str, raise=false)) == tag
+end
+
+# meta nodes for optional positional arguments
+@test expand(:(@inline f(p::Int=2) = 3)).args[2].args[3].inlineable
+
+# issue #16096
+module M16096
+macro iter()
+    quote
+        @inline function foo(sub)
+            it = 1
+        end
+    end
+end
+end
+let ex = expand(:(@M16096.iter))
+    @test !(isa(ex,Expr) && ex.head === :error)
+end
+
+# issue #15838
+module A15838
+    macro f() end
+    const x = :a
+end
+module B15838
+    import A15838.@f
+    macro f(x); return :x; end
+    const x = :b
+end
+@test A15838.@f() === nothing
+@test A15838.@f(1) === :b
+let nometh = expand(:(A15838.@f(1, 2)))
+    @test (nometh::Expr).head === :error
+    @test length(nometh.args) == 1
+    e = nometh.args[1]::MethodError
+    @test e.f === getfield(A15838, Symbol("@f"))
+    @test e.args === (1,2)
+end

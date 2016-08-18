@@ -74,8 +74,12 @@ Expr types
 These symbols appear in the ``head`` field of ``Expr``\s in lowered form.
 
 ``call``
-    function call. ``args[1]`` is the function to call, ``args[2:end]`` are the
-    arguments.
+    function call (dynamic dispatch). ``args[1]`` is the function to call,
+    ``args[2:end]`` are the arguments.
+
+``invoke``
+    function call (static dispatch). ``args[1]`` is the LambdaInfo to call,
+    ``args[2:end]`` are the arguments (including the function that is being called, at ``args[2]``).
 
 ``static_parameter``
     reference a static parameter by index.
@@ -130,14 +134,6 @@ These symbols appear in the ``head`` field of ``Expr``\s in lowered form.
 
 ``null``
     has no arguments; simply yields the value ``nothing``
-
-``static_typeof``
-    a horrible misfeature used to determine the result type of array
-    comprehensions. Planned to be removed.
-
-``type_goto``
-    a virtual control flow edge used to convey type data to ``static_typeof``,
-    also to be removed.
 
 ``new``
     allocates a new struct-like object. First argument is the type. The ``new``
@@ -225,7 +221,7 @@ There is generally a different expression head for each visually distinct
 syntactic form.
 Examples will be given in s-expression syntax. Each parenthesized list corresponds
 to an Expr, where the first element is the head.
-For example ``(call f x)`` corresponds to ``Expr(:call, :f, :x)`` in julia.
+For example ``(call f x)`` corresponds to ``Expr(:call, :f, :x)`` in Julia.
 
 Calls
 ~~~~~

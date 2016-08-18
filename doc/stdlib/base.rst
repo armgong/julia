@@ -68,7 +68,7 @@ Getting Around
 
    .. Docstring generated from Julia source
 
-   Edit a file or directory optionally providing a line number to edit the file at. Returns to the julia prompt when you quit the editor.
+   Edit a file or directory optionally providing a line number to edit the file at. Returns to the ``julia`` prompt when you quit the editor.
 
 .. function:: edit(function, [types])
 
@@ -86,7 +86,7 @@ Getting Around
 
    .. Docstring generated from Julia source
 
-   Show a file using the default pager, optionally providing a starting line number. Returns to the julia prompt when you quit the pager.
+   Show a file using the default pager, optionally providing a starting line number. Returns to the ``julia`` prompt when you quit the pager.
 
 .. function:: less(function, [types])
 
@@ -126,7 +126,7 @@ Getting Around
 
    Loads a source files, in the context of the ``Main`` module, on every active node, searching standard locations for files. ``require`` is considered a top-level operation, so it sets the current ``include`` path but does not use it to search for files (see help for ``include``\ ). This function is typically used to load library code, and is implicitly called by ``using`` to load packages.
 
-   When searching for files, ``require`` first looks for package code under ``Pkg.dir()``\ , then tries paths in the global array ``LOAD_PATH``\ .
+   When searching for files, ``require`` first looks for package code under ``Pkg.dir()``\ , then tries paths in the global array ``LOAD_PATH``\ . ``require`` is case-sensitive on all platforms, including those with case-insensitive filesystems like macOS and Windows.
 
 .. function:: Base.compilecache(module::String)
 
@@ -228,8 +228,9 @@ Getting Around
 
 .. data:: ans
 
-   A variable referring to the last computed value, automatically set at the
-   interactive prompt.
+   .. Docstring generated from Julia source
+
+   A variable referring to the last computed value, automatically set at the interactive prompt.
 
 All Objects
 -----------
@@ -367,7 +368,8 @@ All Objects
 
        julia> convert(Int, 3.5)
        ERROR: InexactError()
-        in convert at int.jl:209
+        in convert(::Type{Int64}, ::Float64) at ./int.jl:239
+        ...
 
    If ``T`` is a :obj:`AbstractFloat` or :obj:`Rational` type, then it will return the closest value to ``x`` representable by ``T``\ .
 
@@ -384,6 +386,39 @@ All Objects
 
        julia> convert(Rational{Int64}, x)
        6004799503160661//18014398509481984
+
+   If ``T`` is a collection type and ``x`` a collection, the result of ``convert(T, x)`` may alias ``x``\ .
+
+   .. doctest::
+
+       julia> x = Int[1,2,3];
+
+       julia> y = convert(Vector{Int}, x);
+
+       julia> y === x
+       true
+
+   Similarly, if ``T`` is a composite type and ``x`` a related instance, the result of ``convert(T, x)`` may alias part or all of ``x``\ .
+
+   .. doctest::
+
+       julia> x = speye(5);
+
+       julia> typeof(x)
+       SparseMatrixCSC{Float64,Int64}
+
+       julia> y = convert(SparseMatrixCSC{Float64,Int64}, x);
+
+       julia> z = convert(SparseMatrixCSC{Float32,Int64}, y);
+
+       julia> y === x
+       true
+
+       julia> z === x
+       false
+
+       julia> z.colptr === x.colptr
+       true
 
 .. function:: promote(xs...)
 
@@ -533,7 +568,7 @@ Types
        julia> structinfo(T) = [(fieldoffset(T,i), fieldname(T,i), fieldtype(T,i)) for i = 1:nfields(T)];
 
        julia> structinfo(Base.Filesystem.StatStruct)
-       12-element Array{Tuple{UInt64,Symbol,Type{_}},1}:
+       12-element Array{Tuple{UInt64,Symbol,DataType},1}:
         (0x0000000000000000,:device,UInt64)
         (0x0000000000000008,:inode,UInt64)
         (0x0000000000000010,:mode,UInt64)
@@ -728,17 +763,11 @@ Nullables
 
    Wrap value ``x`` in an object of type ``Nullable``\ , which indicates whether a value is present. ``Nullable(x)`` yields a non-empty wrapper, and ``Nullable{T}()`` yields an empty instance of a wrapper that might contain a value of type ``T``\ .
 
-.. function:: get(x)
+.. function:: get(x::Nullable[, y])
 
    .. Docstring generated from Julia source
 
-   Attempt to access the value of the ``Nullable`` object, ``x``\ . Returns the value if it is present; otherwise, throws a ``NullException``\ .
-
-.. function:: get(x, y)
-
-   .. Docstring generated from Julia source
-
-   Attempt to access the value of the ``Nullable{T}`` object, ``x``\ . Returns the value if it is present; otherwise, returns ``convert(T, y)``\ .
+   Attempt to access the value of ``x``\ . Returns the value if it is present; otherwise, returns ``y`` if provided, or throws a ``NullException`` if not.
 
 .. function:: isnull(x)
 
@@ -763,8 +792,13 @@ System
 
 .. data:: DevNull
 
-   Used in a stream redirect to discard all data written to it. Essentially equivalent to /dev/null on Unix or NUL on Windows.
-   Usage: ``run(pipeline(`cat test.txt`, DevNull))``
+   .. Docstring generated from Julia source
+
+   Used in a stream redirect to discard all data written to it. Essentially equivalent to /dev/null on Unix or NUL on Windows. Usage:
+
+   .. code-block:: julia
+
+       run(pipeline(`cat test.txt`, DevNull))
 
 .. function:: success(command)
 
@@ -827,12 +861,12 @@ System
 
    Construct a new ``Cmd`` object, representing an external program and arguments, from ``cmd``\ , while changing the settings of the optional keyword arguments:
 
-   * ``ignorestatus::Bool``\ : If ``true`` (defaults to ``false``\ ), then the ``Cmd``   will not throw an error if the return code is nonzero.
-   * ``detach::Bool``\ : If ``true`` (defaults to ``false``\ ), then the ``Cmd`` will be   run in a new process group, allowing it to outlive the ``julia`` process   and not have Ctrl-C passed to it.
-   * ``windows_verbatim::Bool``\ : If ``true`` (defaults to ``false``\ ), then on Windows   the ``Cmd`` will send a command-line string to the process with no quoting   or escaping of arguments, even arguments containing spaces.  (On Windows,   arguments are sent to a program as a single "command-line" string, and   programs are responsible for parsing it into arguments.  By default,   empty arguments and arguments with spaces or tabs are quoted with double   quotes ``"`` in the command line, and ``\`` or ``"`` are preceded by backslashes.   ``windows_verbatim=true`` is useful for launching programs that parse their   command line in nonstandard ways.)  Has no effect on non-Windows systems.
-   * ``windows_hide::Bool``\ : If ``true`` (defaults to ``false``\ ), then on Windows no   new console window is displayed when the ``Cmd`` is executed.  This has   no effect if a console is already open or on non-Windows systems.
-   * ``env``\ : Set environment variables to use when running the ``Cmd``\ .  ``env``   is either a dictionary mapping strings to strings, an array   of strings of the form ``"var=val"``\ , an array or tuple of ``"var"=>val``   pairs, or ``nothing``\ .  In order to modify (rather than replace)   the existing environment, create ``env`` by ``copy(ENV)`` and then   set ``env["var"]=val`` as desired.
-   * ``dir::AbstractString``\ : Specify a working directory for the command (instead   of the current directory).
+   * ``ignorestatus::Bool``\ : If ``true`` (defaults to ``false``\ ), then the ``Cmd`` will not throw an error if the return code is nonzero.
+   * ``detach::Bool``\ : If ``true`` (defaults to ``false``\ ), then the ``Cmd`` will be run in a new process group, allowing it to outlive the ``julia`` process and not have Ctrl-C passed to it.
+   * ``windows_verbatim::Bool``\ : If ``true`` (defaults to ``false``\ ), then on Windows the ``Cmd`` will send a command-line string to the process with no quoting or escaping of arguments, even arguments containing spaces.  (On Windows, arguments are sent to a program as a single "command-line" string, and programs are responsible for parsing it into arguments.  By default, empty arguments and arguments with spaces or tabs are quoted with double quotes ``"`` in the command line, and ``\`` or ``"`` are preceded by backslashes. ``windows_verbatim=true`` is useful for launching programs that parse their command line in nonstandard ways.)  Has no effect on non-Windows systems.
+   * ``windows_hide::Bool``\ : If ``true`` (defaults to ``false``\ ), then on Windows no new console window is displayed when the ``Cmd`` is executed.  This has no effect if a console is already open or on non-Windows systems.
+   * ``env``\ : Set environment variables to use when running the ``Cmd``\ .  ``env`` is either a dictionary mapping strings to strings, an array of strings of the form ``"var=val"``\ , an array or tuple of ``"var"=>val`` pairs, or ``nothing``\ .  In order to modify (rather than replace) the existing environment, create ``env`` by ``copy(ENV)`` and then set ``env["var"]=val`` as desired.
+   * ``dir::AbstractString``\ : Specify a working directory for the command (instead of the current directory).
 
    For any keywords that are not specified, the current settings from ``cmd`` are used.   Normally, to create a ``Cmd`` object in the first place, one uses backticks, e.g.
 
@@ -897,7 +931,7 @@ System
 
    .. Docstring generated from Julia source
 
-   Get julia's process ID.
+   Get Julia's process ID.
 
 .. function:: time()
 
@@ -965,7 +999,7 @@ System
 
    A singleton of this type provides a hash table interface to environment variables.
 
-.. variable:: ENV
+.. data:: ENV
 
    .. Docstring generated from Julia source
 
@@ -1303,19 +1337,31 @@ Reflection
 
    Get the name of field ``i`` of a ``DataType``\ .
 
+.. function:: Base.datatype_module(t::DataType) -> Module
+
+   .. Docstring generated from Julia source
+
+   Determine the module containing the definition of a ``DataType``\ .
+
 .. function:: isconst([m::Module], s::Symbol) -> Bool
 
    .. Docstring generated from Julia source
 
    Determine whether a global is declared ``const`` in a given ``Module``\ . The default ``Module`` argument is ``current_module()``\ .
 
-.. function:: function_name(f::Function) -> Symbol
+.. function:: Base.function_name(f::Function) -> Symbol
 
    .. Docstring generated from Julia source
 
    Get the name of a generic ``Function`` as a symbol, or ``:anonymous``\ .
 
-.. function:: function_module(f::Function, types) -> Module
+.. function:: Base.function_module(f::Function) -> Module
+
+   .. Docstring generated from Julia source
+
+   Determine the module containing the (first) definition of a generic function.
+
+.. function:: Base.function_module(f::Function, types) -> Module
 
    .. Docstring generated from Julia source
 
@@ -1390,11 +1436,11 @@ Internals
 
    Evaluates the arguments to the function or macro call, determines their types, and calls :func:`code_typed` on the resulting expression.
 
-.. function:: code_warntype(f, types)
+.. function:: code_warntype([io], f, types)
 
    .. Docstring generated from Julia source
 
-   Displays lowered and type-inferred ASTs for the methods matching the given generic function and type signature. The ASTs are annotated in such a way as to cause "non-leaf" types to be emphasized (if color is available, displayed in red). This serves as a warning of potential type instability. Not all non-leaf types are particularly problematic for performance, so the results need to be used judiciously. See :ref:`man-code-warntype` for more information.
+   Prints lowered and type-inferred ASTs for the methods matching the given generic function and type signature to ``io`` which defaults to ``STDOUT``\ . The ASTs are annotated in such a way as to cause "non-leaf" types to be emphasized (if color is available, displayed in red). This serves as a warning of potential type instability. Not all non-leaf types are particularly problematic for performance, so the results need to be used judiciously. See :ref:`man-code-warntype` for more information.
 
 .. function:: @code_warntype
 
@@ -1402,11 +1448,11 @@ Internals
 
    Evaluates the arguments to the function or macro call, determines their types, and calls :func:`code_warntype` on the resulting expression.
 
-.. function:: code_llvm(f, types)
+.. function:: code_llvm([io], f, types)
 
    .. Docstring generated from Julia source
 
-   Prints the LLVM bitcodes generated for running the method matching the given generic function and type signature to :const:`STDOUT`\ .
+   Prints the LLVM bitcodes generated for running the method matching the given generic function and type signature to ``io`` which defaults to ``STDOUT``\ .
 
    All metadata and dbg.* calls are removed from the printed bitcode. Use code_llvm_raw for the full IR.
 
@@ -1416,11 +1462,11 @@ Internals
 
    Evaluates the arguments to the function or macro call, determines their types, and calls :func:`code_llvm` on the resulting expression.
 
-.. function:: code_native(f, types)
+.. function:: code_native([io], f, types)
 
    .. Docstring generated from Julia source
 
-   Prints the native assembly instructions generated for running the method matching the given generic function and type signature to ``STDOUT``\ .
+   Prints the native assembly instructions generated for running the method matching the given generic function and type signature to ``io`` which defaults to ``STDOUT``\ .
 
 .. function:: @code_native
 

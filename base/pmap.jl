@@ -21,7 +21,7 @@ for details.
 """
 function pgenerate(p::WorkerPool, f, c)
     if length(p) == 0
-        return AsyncGenerator(f, c)
+        return AsyncGenerator(f, c; ntasks=()->nworkers(p))
     end
     batches = batchsplit(c, min_batch_count = length(p) * 3)
     return flatten(AsyncGenerator(remote(p, b -> asyncmap(f, b)), batches))
@@ -31,7 +31,7 @@ pgenerate(f, c) = pgenerate(default_worker_pool(), f, c)
 pgenerate(f, c1, c...) = pgenerate(a->f(a...), zip(c1, c...))
 
 """
-    pmap([::WorkerPool], f, c...; distributed=true, batch_size=1, on_error=nothing, retry_n=0, retry_max_delay=DEFAULT_RETRY_MAX_DELAY, retry_on=DEFAULT_RETRY_ON) -> collection
+    pmap([::AbstractWorkerPool], f, c...; distributed=true, batch_size=1, on_error=nothing, retry_n=0, retry_max_delay=DEFAULT_RETRY_MAX_DELAY, retry_on=DEFAULT_RETRY_ON) -> collection
 
 Transform collection `c` by applying `f` to each element using available
 workers and tasks.
@@ -70,10 +70,30 @@ The following are equivalent:
 * `pmap(f, c; retry_n=1)` and `asyncmap(retry(remote(f)),c)`
 * `pmap(f, c; retry_n=1, on_error=e->e)` and `asyncmap(x->try retry(remote(f))(x) catch e; e end, c)`
 """
-function pmap(p::WorkerPool, f, c;  distributed=true, batch_size=1, on_error=nothing,
-                                    retry_n=0,
-                                    retry_max_delay=DEFAULT_RETRY_MAX_DELAY,
-                                    retry_on=DEFAULT_RETRY_ON)
+function pmap(p::AbstractWorkerPool, f, c; distributed=true, batch_size=1, on_error=nothing,
+                                           retry_n=0,
+                                           retry_max_delay=DEFAULT_RETRY_MAX_DELAY,
+                                           retry_on=DEFAULT_RETRY_ON,
+                                           # deprecated keyword args:
+                                           err_retry=nothing, err_stop=nothing, pids=nothing)
+    #15409
+    if err_retry !== nothing
+        depwarn("err_retry is deprecated, use pmap(retry(f), c...).", :pmap)
+        if err_retry == true
+            f = retry(f)
+        end
+    end
+    if pids !== nothing
+        depwarn("pids is deprecated, use pmap(::WorkerPool, f, c...).", :pmap)
+        p = WorkerPool(pids)
+    end
+    if err_stop !== nothing
+        depwarn("err_stop is deprecated, use pmap(f, c...; on_error = error_handling_func).", :pmap)
+        if err_stop === false
+            on_error = e->e
+        end
+    end
+
     f_orig = f
     # Don't do remote calls if there are no workers.
     if (length(p) == 0) || (length(p) == 1 && fetch(p.channel) == myid())
@@ -94,10 +114,11 @@ function pmap(p::WorkerPool, f, c;  distributed=true, batch_size=1, on_error=not
         if retry_n > 0
             f = wrap_retry(f, retry_on, retry_n, retry_max_delay)
         end
-        if on_error != nothing
+        if on_error !== nothing
             f = wrap_on_error(f, on_error)
         end
-        return collect(AsyncGenerator(f, c))
+
+        return collect(AsyncGenerator(f, c; ntasks=()->nworkers(p)))
     else
         batches = batchsplit(c, min_batch_count = length(p) * 3,
                                 max_batch_size = batch_size)
@@ -108,19 +129,20 @@ function pmap(p::WorkerPool, f, c;  distributed=true, batch_size=1, on_error=not
         # to ensure that we do not call mapped function on the same element more than retry_n.
         # This guarantee is not possible in case of worker death / network errors, wherein
         # we will retry the entire batch on a new worker.
-        if (on_error != nothing) || (retry_n > 0)
+        if (on_error !== nothing) || (retry_n > 0)
             f = wrap_on_error(f, (x,e)->BatchProcessingError(x,e); capture_data=true)
         end
         f = wrap_batch(f, p, on_error)
-        results = collect(flatten(AsyncGenerator(f, batches)))
-        if (on_error != nothing) || (retry_n > 0)
+        results = collect(flatten(AsyncGenerator(f, batches; ntasks=()->nworkers(p))))
+        if (on_error !== nothing) || (retry_n > 0)
             process_batch_errors!(p, f_orig, results, on_error, retry_on, retry_n, retry_max_delay)
         end
+
         return results
     end
 end
 
-pmap(p::WorkerPool, f, c1, c...; kwargs...) = pmap(p, a->f(a...), zip(c1, c...); kwargs...)
+pmap(p::AbstractWorkerPool, f, c1, c...; kwargs...) = pmap(p, a->f(a...), zip(c1, c...); kwargs...)
 pmap(f, c; kwargs...) = pmap(default_worker_pool(), f, c; kwargs...)
 pmap(f, c1, c...; kwargs...) = pmap(a->f(a...), zip(c1, c...); kwargs...)
 
@@ -146,7 +168,7 @@ function wrap_batch(f, p, on_error)
         try
             remotecall_fetch(f, p, batch)
         catch e
-            if on_error != nothing
+            if on_error !== nothing
                 return Any[BatchProcessingError(batch[i], e) for i in 1:length(batch)]
             else
                 rethrow(e)
@@ -159,7 +181,7 @@ asyncmap_batch(f) = batch -> asyncmap(f, batch)
 
 function process_batch_errors!(p, f, results, on_error, retry_on, retry_n, retry_max_delay)
     # Handle all the ones in error in another pmap, with batch size set to 1
-    if (on_error != nothing) || (retry_n > 0)
+    if (on_error !== nothing) || (retry_n > 0)
         reprocess = []
         for (idx, v) in enumerate(results)
             if isa(v, BatchProcessingError)
@@ -177,7 +199,7 @@ function process_batch_errors!(p, f, results, on_error, retry_on, retry_n, retry
                                                     retry_on=retry_on,
                                                     retry_n=retry_n,
                                                     retry_max_delay=retry_max_delay)
-            elseif on_error != nothing
+            elseif on_error !== nothing
                 error_processed = map(on_error, exceptions)
             else
                 throw(CompositeException(exceptions))

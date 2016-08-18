@@ -2,7 +2,7 @@
 
 module Sort
 
-using Base.Order, Base.copymutable
+using Base: Order, copymutable, linearindices, linearindexing, viewindexing, LinearFast
 
 import
     Base.sort,
@@ -399,7 +399,10 @@ end
 defalg(v::AbstractArray) = DEFAULT_STABLE
 defalg{T<:Number}(v::AbstractArray{T}) = DEFAULT_UNSTABLE
 
-sort!(v::AbstractVector, alg::Algorithm, order::Ordering) = sort!(v,1,length(v),alg,order)
+function sort!(v::AbstractVector, alg::Algorithm, order::Ordering)
+    inds = indices(v,1)
+    sort!(v,first(inds),last(inds),alg,order)
+end
 
 function sort!(v::AbstractVector;
                alg::Algorithm=defalg(v),
@@ -426,7 +429,7 @@ function selectperm!{I<:Integer}(ix::AbstractVector{I}, v::AbstractVector,
                                  order::Ordering=Forward,
                                  initialized::Bool=false)
     if !initialized
-        @inbounds for i = 1:length(ix)
+        @inbounds for i = indices(ix,1)
             ix[i] = i
         end
     end
@@ -444,7 +447,11 @@ function sortperm(v::AbstractVector;
                   by=identity,
                   rev::Bool=false,
                   order::Ordering=Forward)
-    sort!(collect(1:length(v)), alg, Perm(ord(lt,by,rev,order),v))
+    p = similar(Vector{Int}, indices(v, 1))
+    for (i,ind) in zip(eachindex(p), indices(v, 1))
+        p[i] = ind
+    end
+    sort!(p, alg, Perm(ord(lt,by,rev,order),v))
 end
 
 function sortperm!{I<:Integer}(x::AbstractVector{I}, v::AbstractVector;
@@ -454,13 +461,11 @@ function sortperm!{I<:Integer}(x::AbstractVector{I}, v::AbstractVector;
                                rev::Bool=false,
                                order::Ordering=Forward,
                                initialized::Bool=false)
-    lx = length(x)
-    lv = length(v)
-    if lx != lv
-        throw(ArgumentError("index vector must be the same length as the source vector, $lx != $lv"))
+    if indices(x,1) != indices(v,1)
+        throw(ArgumentError("index vector must be the same length as the source vector, $(indices(x,1)) != $(indices(v,1))"))
     end
     if !initialized
-        @inbounds for i = 1:length(v)
+        @inbounds for i = indices(v,1)
             x[i] = i
         end
     end
@@ -477,40 +482,57 @@ function sort(A::AbstractArray, dim::Integer;
               order::Ordering=Forward,
               initialized::Bool=false)
     order = ord(lt,by,rev,order)
+    n = length(indices(A, dim))
     if dim != 1
         pdims = (dim, setdiff(1:ndims(A), dim)...)  # put the selected dimension first
-        Ap = permutedims(A, pdims)    # note Ap is an Array, no matter what A is
-        n = size(Ap, 1)
+        Ap = permutedims(A, pdims)
         Av = vec(Ap)
         sort_chunks!(Av, n, alg, order)
         ipermutedims(Ap, pdims)
     else
         Av = A[:]
-        sort_chunks!(Av, size(A,1), alg, order)
-        reshape(Av, size(A))
+        sort_chunks!(Av, n, alg, order)
+        reshape(Av, indices(A))
     end
 end
 
 @noinline function sort_chunks!(Av, n, alg, order)
-     for s = 1:n:length(Av)
+    inds = linearindices(Av)
+    for s = first(inds):n:last(inds)
         sort!(Av, s, s+n-1, alg, order)
     end
     Av
 end
 
 function sortrows(A::AbstractMatrix; kws...)
-    c = 1:size(A,2)
-    rows = [ sub(A,i,c) for i=1:size(A,1) ]  # fixme (iter): update when #15459 is done
+    inds = indices(A,1)
+    T = slicetypeof(A, inds, :)
+    rows = similar(Vector{T}, indices(A, 1))
+    for i in inds
+        rows[i] = view(A, i, :)
+    end
     p = sortperm(rows; kws..., order=Lexicographic)
     A[p,:]
 end
 
 function sortcols(A::AbstractMatrix; kws...)
-    r = 1:size(A,1)
-    cols = [ sub(A,r,i) for i=1:size(A,2) ]  # fixme (iter): update when #15459 is done
+    inds = indices(A,2)
+    T = slicetypeof(A, :, inds)
+    cols = similar(Vector{T}, indices(A, 2))
+    for i in inds
+        cols[i] = view(A, :, i)
+    end
     p = sortperm(cols; kws..., order=Lexicographic)
     A[:,p]
 end
+
+function slicetypeof{T,N}(A::AbstractArray{T,N}, i1, i2)
+    I = (slice_dummy(i1),slice_dummy(i2))
+    fast = isa(linearindexing(viewindexing(I), linearindexing(A)), LinearFast)
+    SubArray{T,1,typeof(A),typeof(I),fast}
+end
+slice_dummy(::Colon) = Colon()
+slice_dummy{T}(::AbstractUnitRange{T}) = one(T)
 
 ## fast clever sorting for floats ##
 
@@ -539,7 +561,7 @@ lt{T<:Floats}(::Right, x::T, y::T) = slt_int(unbox(T,x),unbox(T,y))
 isnan(o::DirectOrdering, x::Floats) = (x!=x)
 isnan(o::Perm, i::Int) = isnan(o.order,o.data[i])
 
-function nans2left!(v::AbstractVector, o::Ordering, lo::Int=1, hi::Int=length(v))
+function nans2left!(v::AbstractVector, o::Ordering, lo::Int=first(indices(v,1)), hi::Int=last(indices(v,1)))
     i = lo
     @inbounds while i <= hi && isnan(o,v[i])
         i += 1
@@ -554,7 +576,7 @@ function nans2left!(v::AbstractVector, o::Ordering, lo::Int=1, hi::Int=length(v)
     end
     return i, hi
 end
-function nans2right!(v::AbstractVector, o::Ordering, lo::Int=1, hi::Int=length(v))
+function nans2right!(v::AbstractVector, o::Ordering, lo::Int=first(indices(v,1)), hi::Int=last(indices(v,1)))
     i = hi
     @inbounds while lo <= i && isnan(o,v[i])
         i -= 1
@@ -595,7 +617,7 @@ end
 
 
 fpsort!(v::AbstractVector, a::Sort.PartialQuickSort, o::Ordering) =
-    sort!(v, 1, length(v), a, o)
+    sort!(v, first(indices(v,1)), last(indices(v,1)), a, o)
 
 sort!{T<:Floats}(v::AbstractVector{T}, a::Algorithm, o::DirectOrdering) = fpsort!(v,a,o)
 sort!{O<:DirectOrdering,T<:Floats}(v::Vector{Int}, a::Algorithm, o::Perm{O,Vector{T}}) = fpsort!(v,a,o)

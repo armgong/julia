@@ -18,8 +18,8 @@
 
 ## native julia error handling ##
 
-error(s::AbstractString) = throw(Main.Base.ErrorException(s))
-error(s...) = throw(Main.Base.ErrorException(Main.Base.string(s...)))
+error(s::AbstractString) = throw(ErrorException(s))
+error(s...) = throw(ErrorException(Main.Base.string(s...)))
 
 rethrow() = ccall(:jl_rethrow, Bottom, ())
 rethrow(e) = ccall(:jl_rethrow_other, Bottom, (Any,), e)
@@ -27,7 +27,7 @@ backtrace() = ccall(:jl_backtrace_from_here, Array{Ptr{Void},1}, (Int32,), false
 catch_backtrace() = ccall(:jl_get_backtrace, Array{Ptr{Void},1}, ())
 
 ## keyword arg lowering generates calls to this ##
-kwerr(kw) = error("unrecognized keyword argument \"", kw, "\"")
+kwerr(kw, args...) = throw(MethodError(typeof(args[1]).name.mt.kwsorter, (kw,args...)))
 
 ## system error handling ##
 
@@ -80,7 +80,7 @@ function retry(f::Function, retry_on::Function=DEFAULT_RETRY_ON; n=DEFAULT_RETRY
             try
                 return f(args...)
             catch e
-                if i > n || try retry_on(e) end != true
+                if i > n || try retry_on(e) end !== true
                     rethrow(e)
                 end
             end

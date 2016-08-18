@@ -8,8 +8,7 @@ type BitArray{N} <: DenseArray{Bool, N}
     chunks::Vector{UInt64}
     len::Int
     dims::NTuple{N,Int}
-    function BitArray(dims::Int...)
-        length(dims) == N || throw(ArgumentError("number of dimensions must be $N, got $(length(dims))"))
+    function BitArray(dims::Vararg{Int,N})
         n = 1
         i = 1
         for d in dims
@@ -46,6 +45,8 @@ size(B::BitArray) = B.dims
 end
 
 isassigned{N}(B::BitArray{N}, i::Int) = 1 <= i <= length(B)
+
+linearindexing{A<:BitArray}(::Type{A}) = LinearFast()
 
 ## aux functions ##
 
@@ -245,7 +246,7 @@ function copy_to_bitarray_chunks!(Bc::Vector{UInt64}, pos_d::Int, C::Array{Bool}
     nc8 = (nc >>> 3) << 3
     if nc8 > 0
         ind8 = 1
-        C8 = reinterpret(UInt64, pointer_to_array(pointer(C, ind), nc8 << 6))
+        C8 = reinterpret(UInt64, unsafe_wrap(Array, pointer(C, ind), nc8 << 6))
         @inbounds for i = 1:nc8
             c = UInt64(0)
             for j = 0:7

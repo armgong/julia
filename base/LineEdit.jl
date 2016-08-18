@@ -106,7 +106,7 @@ function common_prefix(completions)
         for c in completions
             (i > endof(c) || c[i] != cc) && return ret
         end
-        ret *= string(cc)
+        ret = string(ret, cc)
         i >= endof(c1) && return ret
         i = nexti
         cc, nexti = next(c1, i)
@@ -1153,7 +1153,7 @@ function enter_prefix_search(s::MIState, p::PrefixHistoryPrompt, backward::Bool)
         pss = state(s, p)
         pss.parent = parent
         pss.histprompt.parent_prompt = parent
-        pss.prefix = String(pointer(buf.data), position(buf))
+        pss.prefix = String(buf.data[1:position(buf)])
         copybuf!(pss.response_buffer, buf)
         pss.indent = state(s, parent).indent
         pss.mi = s
@@ -1494,11 +1494,11 @@ activate(m::ModalInterface, s::MIState, termbuf, term::TextTerminal) =
 
 commit_changes(t::UnixTerminal, termbuf) = write(t, takebuf_array(termbuf.out_stream))
 function transition(f::Function, s::MIState, mode)
-    if mode == :abort
+    if mode === :abort
         s.aborted = true
         return
     end
-    if mode == :reset
+    if mode === :reset
         reset_state(s)
         return
     end
@@ -1599,16 +1599,16 @@ function prompt!(term, prompt, s = init_state(term, prompt))
                 warn(e)
                 state = :done
             end
-            if state == :abort
+            if state === :abort
                 return buffer(s), false, false
-            elseif state == :done
+            elseif state === :done
                 return buffer(s), true, false
-            elseif state == :suspend
+            elseif state === :suspend
                 if is_unix()
                     return buffer(s), true, true
                 end
             else
-                @assert state == :ok
+                @assert state === :ok
             end
         end
     finally

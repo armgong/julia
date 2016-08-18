@@ -131,7 +131,7 @@ let
     redir_err = "redirect_stderr(STDOUT)"
     exename = Base.julia_cmd()
     script = "$redir_err; module A; f() = 1; end; A.f() = 1"
-    warning_str = readstring(`$exename -f -e $script`)
+    warning_str = readstring(`$exename --startup-file=no -e $script`)
     @test contains(warning_str, "f()")
 end
 
@@ -209,11 +209,10 @@ whos(IOBuffer(), Tmp14173) # warm up
 @test @allocated(whos(IOBuffer(), Tmp14173)) < 10000
 
 ## test conversion from UTF-8 to UTF-16 (for Windows APIs)
-import Base: utf8to16, utf16to8
 
 # empty arrays
-@test utf8to16(UInt8[]) == UInt16[]
-@test utf16to8(UInt16[]) == UInt8[]
+@test transcode(UInt16, UInt8[]) == UInt16[]
+@test transcode(UInt8, UInt16[]) == UInt8[]
 
 # UTF-8-like sequences
 V8 = [
@@ -304,15 +303,15 @@ I8 = [(s,map(UInt16,s)) for s in X8]
 
 for (X,Y,Z) in ((V8,V8,V8), (I8,V8,I8), (V8,I8,V8), (V8,V8,I8), (I8,V8,V8))
     for (a8, a16) in X
-        @test utf8to16(a8) == a16
+        @test transcode(UInt16, a8) == a16
         for (b8, b16) in Y
             ab8 = [a8; b8]
             ab16 = [a16; b16]
-            @test utf8to16(ab8) == ab16
+            @test transcode(UInt16, ab8) == ab16
             for (c8, c16) in Z
                 abc8 = [ab8; c8]
                 abc16 = [ab16; c16]
-                @test utf8to16(abc8) == abc16
+                @test transcode(UInt16, abc8) == abc16
             end
         end
     end
@@ -359,20 +358,27 @@ I16 = [
 
 for (X,Y,Z) in ((V16,V16,V16), (I16,V16,I16), (V16,I16,V16), (V16,V16,I16), (I16,V16,V16))
     for (a16, a8) in X
-        @test utf16to8(a16) == a8
-        @test utf8to16(a8) == a16
+        @test transcode(UInt8, a16) == a8
+        @test transcode(UInt16, a8) == a16
         for (b16, b8) in Y
             ab16 = [a16; b16]
             ab8 = [a8; b8]
-            @test utf16to8(ab16) == ab8
-            @test utf8to16(ab8) == ab16
+            @test transcode(UInt8, ab16) == ab8
+            @test transcode(UInt16, ab8) == ab16
             for (c16, c8) in Z
                 abc16 = [ab16; c16]
                 abc8 = [ab8; c8]
-                @test utf16to8(abc16) == abc8
-                @test utf8to16(abc8) == abc16
+                @test transcode(UInt8, abc16) == abc8
+                @test transcode(UInt16, abc8) == abc16
             end
         end
+    end
+end
+
+let s = "abcα🐨\0x\0"
+    for T in (UInt8, UInt16, UInt32, Int32)
+        @test transcode(T, s) == transcode(T, s.data)
+        @test transcode(String, transcode(T, s)) == s
     end
 end
 
@@ -387,3 +393,20 @@ end
 optstring = sprint(show, Base.JLOptions())
 @test startswith(optstring, "JLOptions(")
 @test endswith(optstring, ")")
+
+# Base.securezero! functions (#17579)
+import Base: securezero!, unsafe_securezero!
+let a = [1,2,3]
+    @test securezero!(a) === a == [0,0,0]
+    a[:] = 1:3
+    @test unsafe_securezero!(pointer(a), length(a)) == pointer(a)
+    @test a == [0,0,0]
+    a[:] = 1:3
+    @test unsafe_securezero!(Ptr{Void}(pointer(a)), sizeof(a)) == Ptr{Void}(pointer(a))
+    @test a == [0,0,0]
+end
+let creds = Base.LibGit2.CachedCredentials()
+    creds[:pass, "foo"] = "bar"
+    securezero!(creds)
+    @test creds[:pass, "foo"] == "\0\0\0"
+end

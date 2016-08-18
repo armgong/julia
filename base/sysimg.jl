@@ -2,28 +2,31 @@
 
 baremodule Base
 
-using Core.TopModule, Core.Intrinsics
+using Core.Intrinsics
 ccall(:jl_set_istopmod, Void, (Bool,), true)
-
 include = Core.include
+include("coreio.jl")
 
 eval(x) = Core.eval(Base,x)
 eval(m,x) = Core.eval(m,x)
 
 # init core docsystem
 import Core: @doc, @__doc__, @doc_str
-Core.atdoc!(Core.Inference.CoreDocs.docm)
+if isdefined(Core, :Inference)
+    import Core.Inference.CoreDocs
+    Core.atdoc!(CoreDocs.docm)
+end
 
 include("exports.jl")
 
 if false
     # simple print definitions for debugging. enable these if something
     # goes wrong during bootstrap before printing code is available.
-    show(x::ANY) = ccall(:jl_static_show, Void, (Ptr{Void}, Any),
-                         pointerref(cglobal(:jl_uv_stdout,Ptr{Void}),1), x)
-    print(x::ANY) = show(x)
-    println(x::ANY) = ccall(:jl_, Void, (Any,), x)
-    print(a::ANY...) = for x=a; print(x); end
+    # otherwise, they just just eventually get (noisily) overwritten later
+    global show, print, println
+    show(io::IO, x::ANY) = Core.show(io, x)
+    print(io::IO, a::ANY...) = Core.print(io, a...)
+    println(io::IO, x::ANY...) = Core.println(io, x...)
 end
 
 ## Load essential files and libraries
@@ -48,9 +51,18 @@ include("operators.jl")
 include("pointer.jl")
 include("refpointer.jl")
 (::Type{T}){T}(arg) = convert(T, arg)::T
+(::Type{VecElement{T}}){T}(arg) = VecElement{T}(convert(T, arg))
+convert{T<:VecElement}(::Type{T}, arg) = T(arg)
+convert{T<:VecElement}(::Type{T}, arg::T) = arg
 include("checked.jl")
 importall .Checked
 
+# Symbol constructors
+if !isdefined(Core, :Inference)
+    Symbol(s::String) = Symbol(s.data)
+    Symbol(a::Array{UInt8,1}) =
+        ccall(:jl_symbol_n, Ref{Symbol}, (Ptr{UInt8}, Int32), a, length(a))
+end
 # vararg Symbol constructor
 Symbol(x...) = Symbol(string(x...))
 
@@ -73,7 +85,7 @@ include("array.jl")
 (::Type{Matrix})(m::Integer, n::Integer) = Matrix{Any}(Int(m), Int(n))
 
 # TODO: possibly turn these into deprecations
-Array{T}(::Type{T}, d::Integer...) = Array{T}(convert(Tuple{Vararg{Int}}, d))
+Array{T}(::Type{T}, d::Integer...) = Array(T, convert(Tuple{Vararg{Int}}, d))
 Array{T}(::Type{T}, m::Integer)                       = Array{T,1}(Int(m))
 Array{T}(::Type{T}, m::Integer,n::Integer)            = Array{T,2}(Int(m),Int(n))
 Array{T}(::Type{T}, m::Integer,n::Integer,o::Integer) = Array{T,3}(Int(m),Int(n),Int(o))
@@ -107,9 +119,9 @@ include("iterator.jl")
 
 # Definition of StridedArray
 typealias StridedReshapedArray{T,N,A<:DenseArray} ReshapedArray{T,N,A}
-typealias StridedArray{T,N,A<:Union{DenseArray,StridedReshapedArray},I<:Tuple{Vararg{Union{RangeIndex, NoSlice, AbstractCartesianIndex}}}} Union{DenseArray{T,N}, SubArray{T,N,A,I}, StridedReshapedArray{T,N}}
-typealias StridedVector{T,A<:Union{DenseArray,StridedReshapedArray},I<:Tuple{Vararg{Union{RangeIndex, NoSlice, AbstractCartesianIndex}}}}  Union{DenseArray{T,1}, SubArray{T,1,A,I}, StridedReshapedArray{T,1}}
-typealias StridedMatrix{T,A<:Union{DenseArray,StridedReshapedArray},I<:Tuple{Vararg{Union{RangeIndex, NoSlice, AbstractCartesianIndex}}}}  Union{DenseArray{T,2}, SubArray{T,2,A,I}, StridedReshapedArray{T,2}}
+typealias StridedArray{T,N,A<:Union{DenseArray,StridedReshapedArray},I<:Tuple{Vararg{Union{RangeIndex, AbstractCartesianIndex}}}} Union{DenseArray{T,N}, SubArray{T,N,A,I}, StridedReshapedArray{T,N}}
+typealias StridedVector{T,A<:Union{DenseArray,StridedReshapedArray},I<:Tuple{Vararg{Union{RangeIndex, AbstractCartesianIndex}}}}  Union{DenseArray{T,1}, SubArray{T,1,A,I}, StridedReshapedArray{T,1}}
+typealias StridedMatrix{T,A<:Union{DenseArray,StridedReshapedArray},I<:Tuple{Vararg{Union{RangeIndex, AbstractCartesianIndex}}}}  Union{DenseArray{T,2}, SubArray{T,2,A,I}, StridedReshapedArray{T,2}}
 typealias StridedVecOrMat{T} Union{StridedVector{T}, StridedMatrix{T}}
 
 # For OS specific stuff
@@ -119,6 +131,11 @@ include("osutils.jl")
 include("c.jl")
 include("sysinfo.jl")
 
+if !isdefined(Core, :Inference)
+    include("docs/core.jl")
+    Core.atdoc!(CoreDocs.docm)
+end
+
 # Core I/O
 include("io.jl")
 include("iostream.jl")
@@ -126,8 +143,8 @@ include("iobuffer.jl")
 
 # strings & printing
 include("char.jl")
-include("string.jl")
-include("unicode.jl")
+include("intfuncs.jl")
+include("strings/strings.jl")
 include("parse.jl")
 include("shell.jl")
 include("regex.jl")
@@ -141,7 +158,6 @@ using .Libc: getpid, gethostname, time
 include("libdl.jl")
 using .Libdl: DL_LOAD_PATH
 include("env.jl")
-include("intfuncs.jl")
 
 # nullable types
 include("nullable.jl")
@@ -160,7 +176,7 @@ importall .Filesystem
 include("process.jl")
 include("multimedia.jl")
 importall .Multimedia
-include("grisu.jl")
+include("grisu/grisu.jl")
 import .Grisu.print_shortest
 include("methodshow.jl")
 
@@ -204,6 +220,8 @@ importall .Sort
 # version
 include("version.jl")
 
+function deepcopy_internal end
+
 # BigInts and BigFloats
 include("gmp.jl")
 importall .GMP
@@ -238,6 +256,7 @@ importall .Enums
 include("serialize.jl")
 importall .Serializer
 include("channels.jl")
+include("clusterserialize.jl")
 include("multi.jl")
 include("workerpool.jl")
 include("pmap.jl")
@@ -274,7 +293,7 @@ include("client.jl")
 include("util.jl")
 
 # dense linear algebra
-include("linalg.jl")
+include("linalg/linalg.jl")
 importall .LinAlg
 const ⋅ = dot
 const × = cross
@@ -302,11 +321,10 @@ include("fastmath.jl")
 importall .FastMath
 
 # libgit2 support
-include("libgit2.jl")
+include("libgit2/libgit2.jl")
 
 # package manager
-include("pkg.jl")
-const Git = Pkg.Git
+include("pkg/pkg.jl")
 
 # Stack frames and traces
 include("stacktraces.jl")
@@ -317,11 +335,11 @@ include("profile.jl")
 importall .Profile
 
 # dates
-include("Dates.jl")
+include("dates/Dates.jl")
 import .Dates: Date, DateTime, now
 
 # sparse matrices, vectors, and sparse linear algebra
-include("sparse.jl")
+include("sparse/sparse.jl")
 importall .SparseArrays
 
 # threads
@@ -339,7 +357,7 @@ include("docs/basedocs.jl")
 include("markdown/Markdown.jl")
 include("docs/Docs.jl")
 using .Docs, .Markdown
-Docs.loaddocs(Core.Inference.CoreDocs.DOCS)
+isdefined(Core, :Inference) && Docs.loaddocs(Core.Inference.CoreDocs.DOCS)
 
 function __init__()
     # Base library init

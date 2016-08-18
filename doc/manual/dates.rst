@@ -8,7 +8,7 @@
 
 The :mod:`Dates` module provides two types for working with dates: :class:`Date` and :class:`DateTime`, representing day and millisecond precision, respectively; both are subtypes of the abstract :class:`TimeType`. The motivation for distinct types is simple: some operations are much simpler, both in terms of code and mental reasoning, when the complexities of greater precision don't have to be dealt with. For example, since the :class:`Date` type only resolves to the precision of a single date (i.e. no hours, minutes, or seconds), normal considerations for time zones, daylight savings/summer time, and leap seconds are unnecessary and avoided.
 
-Both :class:`Date` and :class:`DateTime` are basically immutable ``Int64`` wrappers. The single ``instant`` field of either type is actually a ``UTInstant{P}`` type, which represents a continuously increasing machine timeline based on the UT second [1]_. The :class:`DateTime` type is *timezone-unaware* (in Python parlance) or is analogous to a *LocalDateTime* in Java 8. Additional time zone functionality can be added through the `Timezones.jl package <https://github.com/quinnj/Timezones.jl/>`_, which compiles the `Olsen Time Zone Database <http://www.iana.org/time-zones>`_. Both :class:`Date` and :class:`DateTime` are based on the ISO 8601 standard, which follows the proleptic Gregorian calendar. One note is that the ISO 8601 standard is particular about BC/BCE dates. In general, the last day of the BC/BCE era, 1-12-31 BC/BCE, was followed by 1-1-1 AD/CE, thus no year zero exists. The ISO standard, however, states that 1 BC/BCE is year zero, so ``0000-12-31`` is the day before ``0001-01-01``, and year ``-0001`` (yes, negative one for the year) is 2 BC/BCE, year ``-0002`` is 3 BC/BCE, etc.
+Both :class:`Date` and :class:`DateTime` are basically immutable ``Int64`` wrappers. The single ``instant`` field of either type is actually a ``UTInstant{P}`` type, which represents a continuously increasing machine timeline based on the UT second [1]_. The :class:`DateTime` type is *timezone-unaware* (in Python parlance) or is analogous to a *LocalDateTime* in Java 8. Additional time zone functionality can be added through the `TimeZones.jl package <https://github.com/JuliaTime/TimeZones.jl/>`_, which compiles the `IANA time zone database <http://www.iana.org/time-zones>`_. Both :class:`Date` and :class:`DateTime` are based on the ISO 8601 standard, which follows the proleptic Gregorian calendar. One note is that the ISO 8601 standard is particular about BC/BCE dates. In general, the last day of the BC/BCE era, 1-12-31 BC/BCE, was followed by 1-1-1 AD/CE, thus no year zero exists. The ISO standard, however, states that 1 BC/BCE is year zero, so ``0000-12-31`` is the day before ``0001-01-01``, and year ``-0001`` (yes, negative one for the year) is 2 BC/BCE, year ``-0002`` is 3 BC/BCE, etc.
 
 .. [1] The notion of the UT second is actually quite fundamental. There are basically two different notions of time generally accepted, one based on the physical rotation of the earth (one full rotation = 1 day), the other based on the SI second (a fixed, constant value). These are radically different! Think about it, a "UT second", as defined relative to the rotation of the earth, may have a different absolute length depending on the day! Anyway, the fact that :class:`Date` and :class:`DateTime` are based on UT seconds is a simplifying, yet honest assumption so that things like leap seconds and all their complexity can be avoided. This basis of time is formally called `UT <https://en.wikipedia.org/wiki/Universal_Time>`_ or UT1. Basing types on the UT second basically means that every minute has 60 seconds and every day has 24 hours and leads to more natural calculations when working with calendar dates.
 
@@ -365,6 +365,97 @@ Periods are a human view of discrete, sometimes irregular durations of time. Con
 
   julia> div(y3,3) # mirrors integer division
   3 years
+
+
+Rounding
+--------
+
+:class:`Date` and :class:`DateTime` values can be rounded to a specified resolution (e.g.,
+1 month or 15 minutes) with :func:`floor`, :func:`ceil`, or :func:`round`:
+
+.. doctest::
+
+    julia> floor(Date(1985, 8, 16), Dates.Month)
+    1985-08-01
+
+    julia> ceil(DateTime(2013, 2, 13, 0, 31, 20), Dates.Minute(15))
+    2013-02-13T00:45:00
+
+    julia> round(DateTime(2016, 8, 6, 20, 15), Dates.Day)
+    2016-08-07T00:00:00
+
+Unlike the numeric :func:`round` method, which breaks ties toward the even number by
+default, the :class:`TimeType` :func:`round` method uses the ``RoundNearestTiesUp``
+rounding mode. (It's difficult to guess what breaking ties to nearest "even"
+:class:`TimeType` would entail.) Further details on the available ``RoundingMode`` s can
+be found in the
+`API reference <http://docs.julialang.org/en/latest/stdlib/dates/>`_.
+
+Rounding should generally behave as expected, but there are a few cases in which the
+expected behaviour is not obvious.
+
+Rounding Epoch
+~~~~~~~~~~~~~~
+
+In many cases, the resolution specified for rounding (e.g., ``Dates.Second(30)``) divides
+evenly into the next largest period (in this case, ``Dates.Minute(1)``). But rounding
+behaviour in cases in which this is not true may lead to confusion. What is the expected
+result of rounding a :class:`DateTime` to the nearest 10 hours?
+
+.. doctest::
+
+    julia> round(DateTime(2016, 7, 17, 11, 55), Dates.Hour(10))
+    2016-07-17T12:00:00
+
+That may seem confusing, given that the hour (12) is not divisible by 10. The reason that
+``2016-07-17T12:00:00`` was chosen is that it is 17,676,660 hours after
+``0000-01-01T00:00:00``, and 17,676,660 is divisible by 10.
+
+As Julia :class:`Date` and :class:`DateTime` values are represented according to the ISO
+8601 standard, ``0000-01-01T00:00:00`` was chosen as base (or "rounding epoch") from
+which to begin the count of days (and milliseconds) used in rounding calculations. (Note
+that this differs slightly from Julia's internal representation of :class:`Date` s using
+Rata Die notation; but since the ISO 8601 standard is most visible to the end user,
+``0000-01-01T00:00:00`` was chosen as the rounding epoch instead of the
+``0000-12-31T00:00:00`` used internally to minimize confusion.)
+
+The only exception to the use of ``0000-01-01T00:00:00`` as the rounding epoch is when
+rounding to weeks. Rounding to the nearest week will always return a Monday (the first day
+of the week as specified by ISO 8601). For this reason, we use ``0000-01-03T00:00:00``
+(the first day of the first week of year 0000, as defined by ISO 8601) as the base when
+rounding to a number of weeks.
+
+Here is a related case in which the expected behaviour is not necessarily obvious: What
+happens when we round to the nearest ``P(2)``, where ``P`` is a :class:`Period` type? In
+some cases (specifically, when ``P <: Dates.TimePeriod``) the answer is clear:
+
+.. doctest::
+
+    julia> round(DateTime(2016, 7, 17, 8, 55, 30), Dates.Hour(2))
+    2016-07-17T08:00:00
+
+    julia> round(DateTime(2016, 7, 17, 8, 55, 30), Dates.Minute(2))
+    2016-07-17T08:56:00
+
+This seems obvious, because two of each of these periods still divides evenly into the
+next larger order period. But in the case of two months (which still divides evenly into
+one year), the answer may be surprising:
+
+.. doctest::
+
+    julia> round(DateTime(2016, 7, 17, 8, 55, 30), Dates.Month(2))
+    2016-07-01T00:00:00
+
+Why round to the first day in July, even though it is month 7 (an odd number)? The key is
+that months are 1-indexed (the first month is assigned 1), unlike hours, minutes, seconds,
+and milliseconds (the first of which are assigned 0).
+
+This means that rounding a :class:`DateTime` to an even multiple of seconds, minutes,
+hours, or years (because the ISO 8601 specification includes a year zero) will result in
+a :class:`DateTime` with an even value in that field, while rounding a :class:`DateTime`
+to an even multiple of months will result in the months field having an odd value. Because
+both months and years may contain an irregular number of days, whether rounding to an even
+number of days will result in an even value in the days field is uncertain.
 
 
 See the `API reference <http://docs.julialang.org/en/latest/stdlib/dates/>`_ for additional information on methods exported from the :mod:`Dates` module.

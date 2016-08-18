@@ -45,8 +45,8 @@ isnot(x,y) = !is(x,y)
 @test !(Type{Rational{Int}} <: Type{Rational})
 @test Tuple{} <: Tuple{Vararg}
 @test Tuple{} <: NTuple{TypeVar(:N,true)}
-@test Type{Tuple{}} <: Type{Tuple{Vararg}}
-@test Type{Tuple{}} <: Type{NTuple{TypeVar(:N,true)}}
+@test !(Type{Tuple{}} <: Type{Tuple{Vararg}})
+@test !(Type{Tuple{}} <: Type{NTuple{TypeVar(:N,true)}})
 let T = TypeVar(:T,true)
     @testintersect(Array{Bottom},AbstractArray{T}, Bottom, isnot)
     @testintersect(Tuple{Type{Ptr{UInt8}},Ptr{Bottom}},
@@ -139,6 +139,8 @@ let N = TypeVar(:N,true)
     @test is(Bottom,typeintersect(Tuple{Array{Int,N},Vararg{Int,N}}, Tuple{Vector{Int},Real,Real,Real}))
     @test is(Bottom,typeintersect(Tuple{Vector{Int},Real,Real,Real}, Tuple{Array{Int,N},Vararg{Int,N}}))
     @test Tuple{Int,Vararg{Int,2}} == Tuple{Int,Int,Int}
+    @test Tuple{Int,Vararg{Int,2}} === Tuple{Int,Int,Int}
+    @test Tuple{Any, Any} === Tuple{Vararg{Any,2}}
     @test Tuple{Int,Vararg{Int,2}} == Tuple{Int,Int,Vararg{Int,1}}
     @test Tuple{Int,Vararg{Int,2}} == Tuple{Int,Int,Int,Vararg{Int,0}}
     @test !(Tuple{Int,Vararg{Int,2}} <: Tuple{Int,Int,Int,Vararg{Int,1}})
@@ -206,13 +208,27 @@ let T = TypeVar(:T, Tuple{Vararg{RangeIndex}}, true)
     @test  args_morespecific(t2, t1)
 end
 
+let T = TypeVar(:T, Any, true), N = TypeVar(:N, Any, true)
+    a = Tuple{Array{T,N}, Vararg{Int,N}}
+    b = Tuple{Array,Int}
+    @test  args_morespecific(a, b)
+    @test !args_morespecific(b, a)
+    a = Tuple{Array, Vararg{Int,N}}
+    @test !args_morespecific(a, b)
+    @test  args_morespecific(b, a)
+end
+
+# with bound varargs
+
 # issue #11840
+typealias TT11840{T} Tuple{T,T}
 f11840(::Type) = "Type"
 f11840(::DataType) = "DataType"
 f11840{T<:Tuple}(::Type{T}) = "Tuple"
 @test f11840(Type) == "DataType"
 @test f11840(AbstractVector) == "Type"
 @test f11840(Tuple) == "Tuple"
+@test f11840(TT11840) == "Tuple"
 
 g11840(::DataType) = 1
 g11840(::Type) = 2
@@ -220,7 +236,21 @@ g11840{T<:Tuple}(sig::Type{T}) = 3
 @test g11840(Vector.body) == 1
 @test g11840(Vector) == 2
 @test g11840(Vector.body) == 1
+@test g11840(Vector) == 2
 @test g11840(Tuple) == 3
+@test g11840(TT11840) == 3
+
+g11840b(::DataType) = 1
+g11840b(::Type) = 2
+# FIXME: how to compute that the guard entry is still required,
+# even though Type{Vector} ∩ DataType = Bottom and this method would set cache_with_orig = true
+#g11840b{T<:Tuple}(sig::Type{T}) = 3
+@test g11840b(Vector) == 2
+@test g11840b(Vector.body) == 1
+@test g11840b(Vector) == 2
+@test g11840b(Vector.body) == 1
+#@test g11840b(Tuple) == 3
+#@test g11840b(TT11840) == 3
 
 h11840(::DataType) = '1'
 h11840(::Type) = '2'
@@ -232,6 +262,7 @@ h11840{T<:Tuple}(::Type{T}) = '4'
 @test h11840(Union{Vector, Matrix}) == '2'
 @test h11840(Union{Vector.body, Matrix.body}) == '2'
 @test h11840(Tuple) == '4'
+@test h11840(TT11840) == '4'
 
 # join
 @test typejoin(Int8,Int16) === Signed
@@ -278,6 +309,9 @@ nttest1{n}(x::NTuple{n,Int}) = n
 @test Tuple{Vararg{Int32}} <: NTuple{TypeVar(:T),Int32}
 @test Tuple{Int32,Vararg{Int32}} <: NTuple{TypeVar(:T),Int32}
 
+# #17198
+@test_throws MethodError convert(Tuple{Int}, (1.0, 2.0, 3.0))
+
 # type declarations
 
 abstract Sup_{A,B}
@@ -301,6 +335,10 @@ type Foo_{T} x::Foo_{Int} end
 
 type Circ_{T} x::Circ_{T} end
 @test is(Circ_{Int}, Circ_{Int}.types[1])
+
+abstract Sup2a_
+abstract Sup2b_{A <: Sup2a_, B} <: Sup2a_
+@test_throws ErrorException eval(:(abstract Qux2_{T} <: Sup2b_{Qux2_{Int}, T})) # wrapped in eval to avoid #16793
 
 # issue #3890
 type A3890{T1}
@@ -489,12 +527,6 @@ let
     f7234_2()
 end
 @test glob_x3 == 12
-
-# issue #7272
-@test expand(parse("let
-              global x = 2
-              local x = 1
-              end")) == Expr(:error, "variable \"x\" declared both local and global")
 
 # let - new variables, including undefinedness
 function let_undef()
@@ -976,15 +1008,15 @@ end
 let
     local a, aa
     a = [1,2,3]
-    aa = pointer_to_array(pointer(a), length(a))
+    aa = unsafe_wrap(Array, pointer(a), length(a))
     @test aa == a
-    aa = pointer_to_array(pointer(a), (length(a),))
+    aa = unsafe_wrap(Array, pointer(a), (length(a),))
     @test aa == a
-    aa = pointer_to_array(pointer(a), UInt(length(a)))
+    aa = unsafe_wrap(Array, pointer(a), UInt(length(a)))
     @test aa == a
-    aa = pointer_to_array(pointer(a), UInt16(length(a)))
+    aa = unsafe_wrap(Array, pointer(a), UInt16(length(a)))
     @test aa == a
-    @test_throws InexactError pointer_to_array(pointer(a), -3)
+    @test_throws InexactError unsafe_wrap(Array, pointer(a), -3)
 end
 
 immutable FooBar
@@ -995,7 +1027,10 @@ let
     local X, p
     X = FooBar[ FooBar(3,1), FooBar(4,4) ]
     p = pointer(X)
+    @test unsafe_load(p) == FooBar(3,1)
     @test unsafe_load(p, 2) == FooBar(4,4)
+    unsafe_store!(p, FooBar(8,4))
+    @test X[1] == FooBar(8,4)
     unsafe_store!(p, FooBar(7,3), 1)
     @test X[1] == FooBar(7,3)
 end
@@ -1716,28 +1751,6 @@ let
     @test Test()() === nothing
 end
 
-# make sure front end can correctly print values to error messages
-let
-    ex = expand(parse("\"a\"=1"))
-    @test ex == Expr(:error, "invalid assignment location \"\"a\"\"") ||
-          ex == Expr(:error, "invalid assignment location \"#<julia_value>\"")
-end
-
-# make sure that incomplete tags are detected correctly
-# (i.e. error messages in src/julia-parser.scm must be matched correctly
-# by the code in base/client.jl)
-for (str, tag) in Dict("" => :none, "\"" => :string, "#=" => :comment, "'" => :char,
-                       "`" => :cmd, "begin;" => :block, "quote;" => :block,
-                       "let;" => :block, "for i=1;" => :block, "function f();" => :block,
-                       "f() do x;" => :block, "module X;" => :block, "type X;" => :block,
-                       "immutable X;" => :block, "(" => :other, "[" => :other,
-                       "begin" => :other, "quote" => :other,
-                       "let" => :other, "for" => :other, "function" => :other,
-                       "f() do" => :other, "module" => :other, "type" => :other,
-                       "immutable" => :other)
-    @test Base.incomplete_tag(parse(str, raise=false)) == tag
-end
-
 # issue #6031
 macro m6031(x); x; end
 @test @m6031([2,4,6])[3] == 6
@@ -1895,7 +1908,7 @@ type ObjMember
     member::DateRange6387
 end
 
-obj = ObjMember(DateRange6387{Int64}())
+obj6387 = ObjMember(DateRange6387{Int64}())
 
 function v6387{T}(r::Range{T})
     a = Array{T}(1)
@@ -1908,7 +1921,7 @@ function day_in(obj::ObjMember)
     @test isa(x, Vector{Date6387{Int64}})
     @test isa(x[1], Date6387{Int64})
 end
-day_in(obj)
+day_in(obj6387)
 
 # issue #6784
 @test ndims(Array{Array{Float64}}(3,5)) == 2
@@ -2042,7 +2055,7 @@ function issue7897!(data, arr)
 end
 
 a = ones(UInt8, 10)
-sa = sub(a,4:6)
+sa = view(a,4:6)
 # This can throw an error, but shouldn't segfault
 try
     issue7897!(sa, zeros(10))
@@ -2104,6 +2117,12 @@ c99991{T}(::Type{UnitRange{T}},x::FloatRange{T}) = 1
 c99991{T}(::Type{UnitRange{T}},x::Range{T}) = 2
 @test c99991(UnitRange{Float64}, 1.0:2.0) == 1
 @test c99991(UnitRange{Int}, 1:2) == 2
+
+# issue #17016, method specificity involving vararg tuples
+typealias T_17016{N} Tuple{Any,Any,Vararg{Any,N}}
+f17016(f, t::T_17016) = 0
+f17016(f, t1::Tuple) = 1
+@test f17016(0, (1,2,3)) == 0
 
 # issue #8798
 let
@@ -3115,8 +3134,9 @@ immutable Foo11874
 end
 
 function bar11874(x)
-   y::Foo11874
-   y=x
+   local y::Foo11874
+   y = x
+   nothing
 end
 
 Base.convert(::Type{Foo11874},x::Int) = float(x)
@@ -3150,6 +3170,23 @@ end
 @test_throws ErrorException NTuple{-1, Int}
 @test_throws TypeError Union{Int, 1}
 
+type FooNTuple{N}
+    z::Tuple{Integer, Vararg{Int, N}}
+end
+@test_throws ErrorException FooNTuple{-1}
+@test_throws ErrorException FooNTuple{typemin(Int)}
+@test_throws TypeError FooNTuple{0x01}
+@test fieldtype(FooNTuple{0}, 1) == Tuple{Integer}
+
+type FooTupleT{T}
+    z::Tuple{Int, T, Int}
+end
+@test_throws TypeError FooTupleT{Vararg{Int, 2}}
+@test fieldtype(FooTupleT{Int}, 1) == NTuple{3, Int}
+
+@test Tuple{} === NTuple{0, Any}
+@test Tuple{Int} === Tuple{Int, Vararg{Integer, 0}}
+
 # issue #12003
 const DATE12003 = DateTime(1917,1,1)
 failure12003(dt=DATE12003) = Dates.year(dt)
@@ -3172,6 +3209,12 @@ f12092(x::Int, y) = 0
 f12092(x::Int,) = 1
 f12092(x::Int, y::Int...) = 2
 @test f12092(1) == 1
+
+# issue #12096
+let a = Val{Val{TypeVar(:_,Int,true)}}
+    @test_throws UndefRefError a.instance
+    @test !isleaftype(a)
+end
 
 # PR #12058
 let N = TypeVar(:N,true)
@@ -3276,13 +3319,8 @@ typealias PossiblyInvalidUnion{T} Union{T,Int}
 @test_throws TypeError PossiblyInvalidUnion{1}
 
 # issue #12569
-@test_throws ArgumentError Symbol("x"^10_000_000)
-@test_throws ArgumentError gensym("x"^10_000_000)
 @test Symbol("x") === Symbol("x")
 @test split(string(gensym("abc")),'#')[3] == "abc"
-
-# meta nodes for optional positional arguments
-@test Base.uncompressed_ast(expand(:(@inline f(p::Int=2) = 3)).args[2].args[3])[1].args[1] === :inline
 
 # issue #13007
 call13007{T,N}(::Type{Array{T,N}}) = 0
@@ -3763,6 +3801,52 @@ let ary = Vector{Any}(10)
         ccall(:jl_array_grow_beg, Void, (Any, Csize_t), ary, 4)
         check_undef_and_fill(ary, 1:(2n + 4))
     end
+
+    ary = Vector{Any}(100)
+    ccall(:jl_array_grow_end, Void, (Any, Csize_t), ary, 10000)
+    ary[:] = 1:length(ary)
+    ccall(:jl_array_del_beg, Void, (Any, Csize_t), ary, 10000)
+    # grow on the back until a buffer reallocation happens
+    cur_ptr = pointer(ary)
+    while cur_ptr == pointer(ary)
+        len = length(ary)
+        ccall(:jl_array_grow_end, Void, (Any, Csize_t), ary, 10)
+        for i in (len + 1):(len + 10)
+            @test !isdefined(ary, i)
+        end
+    end
+
+    ary = Vector{Any}(100)
+    ary[:] = 1:length(ary)
+    ccall(:jl_array_grow_at, Void, (Any, Csize_t, Csize_t), ary, 50, 10)
+    for i in 51:60
+        @test !isdefined(ary, i)
+    end
+end
+
+# check if we can run multiple finalizers at the same time
+# Use a `@noinline` function to make sure the inefficient gc root generation
+# doesn't keep the object alive.
+@noinline function create_dead_object13995(finalized)
+    obj = Ref(1)
+    finalizer(obj, (x)->(finalized[1] = true))
+    finalizer(obj, (x)->(finalized[2] = true))
+    finalizer(obj, (x)->(finalized[3] = true))
+    finalizer(obj, (x)->(finalized[4] = true))
+    nothing
+end
+# disable GC to make sure no collection/promotion happens
+# when we are constructing the objects
+let gc_enabled13995 = gc_enable(false)
+    finalized13995 = [false, false, false, false]
+    create_dead_object13995(finalized13995)
+    gc_enable(true)
+    # obj is unreachable and young, a single young gc should collect it
+    # and trigger all the finalizers.
+    gc(false)
+    gc_enable(false)
+    @test finalized13995 == [true, true, true, true]
+    gc_enable(gc_enabled13995)
 end
 
 # issue #15283
@@ -3805,9 +3889,107 @@ let
     arrayset_unknown_dim(Int, 3)
 end
 
+module TestSharedArrayResize
+using Base.Test
+# Attempting to change the shape of a shared array should unshare it and
+# not modify the original data
+function test_shared_array_resize{T}(::Type{T})
+    len = 100
+    a = Vector{T}(len)
+    function test_unshare(f)
+        a′ = reshape(reshape(a, (len ÷ 2, 2)), len)
+        a[:] = 1:length(a)
+        # The operation should fail on the owner shared array
+        # and has no side effect.
+        @test_throws ErrorException f(a)
+        @test a == [1:len;]
+        @test a′ == [1:len;]
+        @test pointer(a) == pointer(a′)
+        # The operation should pass on the non-owner shared array
+        # and should unshare the arrays with no effect on the original one.
+        f(a′)
+        @test a == [1:len;]
+        @test pointer(a) != pointer(a′)
+    end
+
+    test_unshare(a->ccall(:jl_array_del_end, Void, (Any, Csize_t), a, 0))
+    test_unshare(a->ccall(:jl_array_del_end, Void, (Any, Csize_t), a, 1))
+    test_unshare(a->ccall(:jl_array_del_beg, Void, (Any, Csize_t), a, 0))
+    test_unshare(a->ccall(:jl_array_del_beg, Void, (Any, Csize_t), a, 1))
+    test_unshare(a->deleteat!(a, 10))
+    test_unshare(a->deleteat!(a, 90))
+    test_unshare(a->ccall(:jl_array_grow_end, Void, (Any, Csize_t), a, 0))
+    test_unshare(a->ccall(:jl_array_grow_end, Void, (Any, Csize_t), a, 1))
+    test_unshare(a->ccall(:jl_array_grow_beg, Void, (Any, Csize_t), a, 0))
+    test_unshare(a->ccall(:jl_array_grow_beg, Void, (Any, Csize_t), a, 1))
+    test_unshare(a->insert!(a, 10, 10))
+    test_unshare(a->insert!(a, 90, 90))
+end
+test_shared_array_resize(Int)
+test_shared_array_resize(Any)
+end
+
+module TestArrayNUL
+using Base.Test
+function check_nul(a::Vector{UInt8})
+    b = ccall(:jl_array_cconvert_cstring,
+              Ref{Vector{UInt8}}, (Vector{UInt8},), a)
+    @test unsafe_load(pointer(b), length(b) + 1) == 0x0
+    return b === a
+end
+
+a = UInt8[]
+b = "aaa"
+c = [0x2, 0x1, 0x3]
+
+@test check_nul(a)
+@test check_nul(b.data)
+@test check_nul(c)
+d = [0x2, 0x1, 0x3]
+@test check_nul(d)
+push!(d, 0x3)
+@test check_nul(d)
+push!(d, 0x3)
+@test check_nul(d)
+ccall(:jl_array_del_end, Void, (Any, UInt), d, 2)
+@test check_nul(d)
+ccall(:jl_array_grow_end, Void, (Any, UInt), d, 1)
+@test check_nul(d)
+ccall(:jl_array_grow_end, Void, (Any, UInt), d, 1)
+@test check_nul(d)
+ccall(:jl_array_grow_end, Void, (Any, UInt), d, 10)
+@test check_nul(d)
+ccall(:jl_array_del_beg, Void, (Any, UInt), d, 8)
+@test check_nul(d)
+ccall(:jl_array_grow_beg, Void, (Any, UInt), d, 8)
+@test check_nul(d)
+ccall(:jl_array_grow_beg, Void, (Any, UInt), d, 8)
+@test check_nul(d)
+f = unsafe_wrap(Array, pointer(d), length(d))
+@test !check_nul(f)
+f = unsafe_wrap(Array, ccall(:malloc, Ptr{UInt8}, (Csize_t,), 10), 10, true)
+@test !check_nul(f)
+g = reinterpret(UInt8, UInt16[0x1, 0x2])
+@test !check_nul(g)
+@test check_nul(copy(g))
+end
+
+# Copy of `#undef`
+copy!(Vector{Any}(10), Vector{Any}(10))
+function test_copy_alias{T}(::Type{T})
+    ary = T[1:100;]
+    unsafe_copy!(ary, 1, ary, 11, 90)
+    @test ary == [11:100; 91:100]
+    ary = T[1:100;]
+    unsafe_copy!(ary, 11, ary, 1, 90)
+    @test ary == [1:10; 1:90]
+end
+test_copy_alias(Int)
+test_copy_alias(Any)
+
 # issue #15370
 @test isdefined(Core, :Box)
-@test isdefined(Base, :Box)
+@test !isdefined(Base, :Box)
 @test !isdefined(Main, :Box)
 
 # issue #1784
@@ -3950,20 +4132,6 @@ function f16023()
     x = 1
 end
 @test_throws UndefVarError f16023()
-
-# issue #16096
-module M16096
-macro iter()
-    quote
-        @inline function foo(sub)
-            it = 1
-        end
-    end
-end
-end
-let ex = expand(:(@M16096.iter))
-    @test !(isa(ex,Expr) && ex.head === :error)
-end
 
 # issue #16158
 function f16158(x)
@@ -4183,26 +4351,6 @@ function trigger14878()
 end
 @test_throws UndefVarError trigger14878()
 
-# issue #15838
-module A15838
-    macro f() end
-    const x = :a
-end
-module B15838
-    import A15838.@f
-    macro f(x); return :x; end
-    const x = :b
-end
-@test A15838.@f() === nothing
-@test A15838.@f(1) === :b
-let nometh = expand(:(A15838.@f(1, 2)))
-    @test (nometh::Expr).head === :error
-    @test length(nometh.args) == 1
-    e = nometh.args[1]::MethodError
-    @test e.f === getfield(A15838, Symbol("@f"))
-    @test e.args === (1,2)
-end
-
 # issue #1090
 function f1090(x)::Int
     if x == 1
@@ -4215,3 +4363,92 @@ end
 g1090{T}(x::T)::T = x+1.0
 @test g1090(1) === 2
 @test g1090(Float32(3)) === Float32(4)
+
+# issue #16783
+function f16783()
+    T = UInt32
+    x::T = 0
+    bar() = x+1
+end
+@test f16783()() == 1
+
+# issue #16767
+type A16767{T}
+    a::Base.RefValue{T}
+end
+type B16767{T}
+    b::A16767{B16767{T}}
+end
+type C16767{T}
+    b::A16767{C16767{:a}}
+end
+@test B16767.types[1].types[1].parameters[1].types === Core.svec(A16767{B16767})
+@test C16767.types[1].types[1].parameters[1].types === Core.svec(A16767{C16767{:a}})
+
+# issue #16340
+function f16340{T}(x::T)
+    function g{T}(y::T)
+        return (T,T)
+    end
+    return g
+end
+let g = f16340(1)
+    @test isa(typeof(g).name.mt.defs.tvars, TypeVar)
+end
+
+# issue #16793
+try
+    abstract T16793
+catch
+end
+@test isa(T16793, Type)
+@test isa(abstract T16793_2, Void)
+
+# issue #17147
+f17147(::Tuple) = 1
+f17147{N}(::Vararg{Tuple,N}) = 2
+@test f17147((), ()) == 2
+
+# issue #17449, argument evaluation order
+@noinline f17449(x, y) = nothing
+@noinline function g17449(r)
+    r[] = :g
+    return 1
+end
+@noinline function k17449(r, v)
+    r[] = :k
+    return v ? 1 : 1.0
+end
+function h17449(v)
+    r = Ref(:h)
+    f17449(g17449(r), k17449(r, v))
+    return r[]
+end
+@test h17449(true) === :k
+
+# make sure lowering agrees on sp order
+function captsp{T, S}(x::T, y::S)
+    subf(x2::Int) = T
+    subf(x2::UInt) = S
+    return subf(Int(1)), subf(UInt(1))
+end
+@test captsp(1, 2.0) == (Int, Float64)
+
+# issue #15068
+function sp_innersig{T}(x::T)
+   subf(x2::T) = (x, x2, :a)
+   subf(x2) = (x, x2, :b)
+   return (subf(one(T)), subf(unsigned(one(T))))
+end
+@test sp_innersig(2) == ((2, 1, :a), (2, UInt(1), :b))
+
+# TODO: also allow local variables?
+#function local_innersig{T}(x::T)
+#   V = typeof(x)
+#   U = unsigned(T)
+#   subf(x2::T, x3::Complex{V}) = (x, x2, x3)
+#   subf(x2::U) = (x, x2)
+#   return (subf(one(T), x * im), subf(unsigned(one(T))))
+#end
+#@test local_innersig(Int32(2)) == ((Int32(2), Int32(1), Int32(2)im), (Int32(2), UInt32(1)))
+#@test local_innersig(Int64(3)) == ((Int64(3), Int64(1), Int64(3)im), (Int64(3), UInt64(1)))

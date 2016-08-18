@@ -37,31 +37,32 @@ abstract AbstractREPL
 answer_color(::AbstractREPL) = ""
 
 type REPLBackend
+    "channel for AST"
     repl_channel::Channel
+    "channel for results: (value, nothing) or (error, backtrace)"
     response_channel::Channel
+    "flag indicating the state of this backend"
     in_eval::Bool
-    ans
+    "current backend task"
     backend_task::Task
-    REPLBackend(repl_channel, response_channel, in_eval, ans) =
-        new(repl_channel, response_channel, in_eval, ans)
+
+    REPLBackend(repl_channel, response_channel, in_eval) =
+        new(repl_channel, response_channel, in_eval)
 end
 
 function eval_user_input(ast::ANY, backend::REPLBackend)
-    iserr, lasterr, bt = false, (), nothing
+    iserr, lasterr = false, ((), nothing)
     while true
         try
             if iserr
-                put!(backend.response_channel, (lasterr, bt))
+                put!(backend.response_channel, lasterr)
                 iserr, lasterr = false, ()
             else
-                ans = backend.ans
-                # note: value wrapped in a non-syntax value to avoid evaluating
-                # possibly-invalid syntax (issue #6763).
-                eval(Main, :(ans = $(getindex)($(Any[ans]), 1)))
                 backend.in_eval = true
                 value = eval(Main, ast)
                 backend.in_eval = false
-                backend.ans = value
+                # note: value wrapped in a closure to ensure it doesn't get passed through expand
+                eval(Main, Expr(:(=), :ans, Expr(:call, ()->value)))
                 put!(backend.response_channel, (value, nothing))
             end
             break
@@ -70,14 +71,13 @@ function eval_user_input(ast::ANY, backend::REPLBackend)
                 println("SYSTEM ERROR: Failed to report error to REPL frontend")
                 println(err)
             end
-            iserr, lasterr = true, err
-            bt = catch_backtrace()
+            iserr, lasterr = true, (err, catch_backtrace())
         end
     end
 end
 
 function start_repl_backend(repl_channel::Channel, response_channel::Channel)
-    backend = REPLBackend(repl_channel, response_channel, false, nothing)
+    backend = REPLBackend(repl_channel, response_channel, false)
     backend.backend_task = @schedule begin
         # include looks at this to determine the relative include path
         # nothing means cwd
@@ -95,9 +95,24 @@ function start_repl_backend(repl_channel::Channel, response_channel::Channel)
     backend
 end
 
+function ip_matches_func(ip, func::Symbol)
+    for fr in StackTraces.lookup(ip)
+        if fr === StackTraces.UNKNOWN || fr.from_c
+            return false
+        end
+        fr.func === func && return true
+    end
+    return false
+end
+
 function display_error(io::IO, er, bt)
     Base.with_output_color(:red, io) do io
         print(io, "ERROR: ")
+        # remove REPL-related frames from interactive printing
+        eval_ind = findlast(addr->ip_matches_func(addr, :eval), bt)
+        if eval_ind != 0
+            bt = bt[1:eval_ind-1]
+        end
         Base.showerror(io, er, bt)
     end
 end
@@ -108,10 +123,10 @@ end
 
 ==(a::REPLDisplay, b::REPLDisplay) = a.repl === b.repl
 
-function display(d::REPLDisplay, ::MIME"text/plain", x)
+function display(d::REPLDisplay, mime::MIME"text/plain", x)
     io = outstream(d.repl)
     Base.have_color && write(io, answer_color(d.repl))
-    show(IOContext(io, multiline=true, limit=true), MIME("text/plain"), x)
+    show(IOContext(io, :limit => true), mime, x)
     println(io)
 end
 display(d::REPLDisplay, x) = display(d, MIME("text/plain"), x)
@@ -163,6 +178,7 @@ function run_repl(repl::AbstractREPL, consumer = x->nothing)
     repl_channel = Channel(1)
     response_channel = Channel(1)
     backend = start_repl_backend(repl_channel, response_channel)
+    consumer(backend)
     run_frontend(repl, REPLBackendRef(repl_channel,response_channel))
     return backend
 end
@@ -377,7 +393,7 @@ end
 function mode_idx(hist::REPLHistoryProvider, mode)
     c = :julia
     for (k,v) in hist.mode_mapping
-        v == mode && (c = k)
+        isequal(v, mode) && (c = k)
     end
     return c
 end
@@ -387,7 +403,7 @@ function add_history(hist::REPLHistoryProvider, s)
     isempty(strip(str)) && return
     mode = mode_idx(hist, LineEdit.mode(s))
     !isempty(hist.history) &&
-        mode == hist.modes[end] && str == hist.history[end] && return
+        isequal(mode, hist.modes[end]) && str == hist.history[end] && return
     push!(hist.modes, mode)
     push!(hist.history, str)
     hist.history_file === nothing && return
@@ -457,13 +473,13 @@ function history_prev(s::LineEdit.MIState, hist::REPLHistoryProvider,
         save_idx::Int = hist.cur_idx)
     hist.last_idx = -1
     m = history_move(s, hist, hist.cur_idx-1, save_idx)
-    if m == :ok
+    if m === :ok
         LineEdit.move_input_start(s)
         LineEdit.reset_key_repeats(s) do
             LineEdit.move_line_end(s)
         end
         LineEdit.refresh_line(s)
-    elseif m == :skip
+    elseif m === :skip
         hist.cur_idx -= 1
         history_prev(s, hist, save_idx)
     else
@@ -481,10 +497,10 @@ function history_next(s::LineEdit.MIState, hist::REPLHistoryProvider,
         hist.last_idx = -1
     end
     m = history_move(s, hist, cur_idx+1, save_idx)
-    if m == :ok
+    if m === :ok
         LineEdit.move_input_end(s)
         LineEdit.refresh_line(s)
-    elseif m == :skip
+    elseif m === :skip
         hist.cur_idx += 1
         history_next(s, hist, save_idx)
     else
@@ -508,7 +524,7 @@ function history_move_prefix(s::LineEdit.PrefixSearchState,
     for idx in idxs
         if (idx == max_idx) || (startswith(hist.history[idx], prefix) && (hist.history[idx] != cur_response || hist.modes[idx] != LineEdit.mode(s)))
             m = history_move(s, hist, idx)
-            if m == :ok
+            if m === :ok
                 if idx == max_idx
                     # on resuming the in-progress edit, leave the cursor where the user last had it
                 elseif isempty(prefix)
@@ -520,7 +536,7 @@ function history_move_prefix(s::LineEdit.PrefixSearchState,
                 end
                 LineEdit.refresh_line(s)
                 return :ok
-            elseif m == :skip
+            elseif m === :skip
                 return history_move_prefix(s,hist,prefix,backwards,idx)
             end
         end

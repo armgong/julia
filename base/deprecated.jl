@@ -60,7 +60,7 @@ function depwarn(msg, funcsym)
     opts = JLOptions()
     if opts.depwarn > 0
         ln = Int(unsafe_load(cglobal(:jl_lineno, Cint)))
-        fn = String(unsafe_load(cglobal(:jl_filename, Ptr{Cchar})))
+        fn = unsafe_string(unsafe_load(cglobal(:jl_filename, Ptr{Cchar})))
         bt = backtrace()
         caller = firstcaller(bt, funcsym)
         if opts.depwarn == 1 # raise a warning
@@ -292,36 +292,7 @@ export call
 
 #15409
 # Deprecated definition of pmap with keyword arguments.
-# When this is removed the following definition needs to be uncommented
-# and added to pmap.jl
-# pmap(f, c...) = pmap(default_worker_pool(), f, c...)
-
-function pmap(f, c...; err_retry=nothing, err_stop=nothing, pids=nothing, kwargs...)
-    kwargs = Dict{Symbol, Any}(kwargs)
-
-    if err_retry != nothing
-        depwarn("err_retry is deprecated, use pmap(retry(f), c...).", :pmap)
-        if err_retry == true
-            f = retry(f)
-        end
-    end
-
-    if pids == nothing
-        p = default_worker_pool()
-    else
-        depwarn("pids is deprecated, use pmap(::WorkerPool, f, c...).", :pmap)
-        p = WorkerPool(pids)
-    end
-
-    if err_stop != nothing
-        depwarn("err_stop is deprecated, use pmap(f, c...; on_error = error_handling_func).", :pmap)
-        if err_stop == false
-            kwargs[:on_error] = e->e
-        end
-    end
-
-    pmap(p, f, c...; kwargs...)
-end
+# deprecation warnings are in pmap.jl
 
 # 15692
 typealias Func{N} Function
@@ -442,23 +413,51 @@ end
 @deprecate_binding UTF8String String
 @deprecate_binding ByteString String
 
-@deprecate utf8(p::Ptr{UInt8}, len::Integer) String(p, len)
-@deprecate utf8(p::Ptr{UInt8}) String(p)
+@deprecate utf8(p::Ptr{UInt8}, len::Integer) unsafe_string(p, len)
+@deprecate utf8(p::Ptr{UInt8}) unsafe_string(p)
 @deprecate utf8(v::Vector{UInt8}) String(v)
 @deprecate utf8(s::AbstractString) String(s)
 @deprecate utf8(x) convert(String, x)
 
-@deprecate ascii(p::Ptr{UInt8}, len::Integer) ascii(String(p, len))
-@deprecate ascii(p::Ptr{UInt8}) ascii(String(p))
+@deprecate ascii(p::Ptr{UInt8}, len::Integer) ascii(unsafe_string(p, len))
+@deprecate ascii(p::Ptr{UInt8}) ascii(unsafe_string(p))
 @deprecate ascii(v::Vector{UInt8}) ascii(String(v))
 @deprecate ascii(x) ascii(convert(String, x))
 
-@deprecate bytestring(s::Cstring) String(s)
-@deprecate bytestring(v::Vector{UInt8}) String(v)
+@deprecate bytestring(s::Cstring) unsafe_string(s)
+@deprecate bytestring(v::Vector{UInt8}) String(copy(v))
 @deprecate bytestring(io::Base.AbstractIOBuffer) String(io)
-@deprecate bytestring(p::Union{Ptr{Int8},Ptr{UInt8}}) String(p)
-@deprecate bytestring(p::Union{Ptr{Int8},Ptr{UInt8}}, len::Integer) String(p,len)
+@deprecate bytestring(p::Union{Ptr{Int8},Ptr{UInt8}}) unsafe_string(p)
+@deprecate bytestring(p::Union{Ptr{Int8},Ptr{UInt8}}, len::Integer) unsafe_string(p,len)
 @deprecate bytestring(s::AbstractString...) string(s...)
+@deprecate String(s::Cstring) unsafe_string(s)
+@deprecate String(p::Union{Ptr{Int8},Ptr{UInt8}}) unsafe_string(p)
+@deprecate String(p::Union{Ptr{Int8},Ptr{UInt8}}, len::Integer) unsafe_string(p,len)
+
+@deprecate(
+    convert(::Type{String}, a::Vector{UInt8}, invalids_as::AbstractString),
+    let a = a, invalids_as = invalids_as
+        l = length(a)
+        idx = 1
+        iscopy = false
+        while idx <= l
+            if !is_valid_continuation(a[idx])
+                nextidx = idx+1+utf8_trailing[a[idx]+1]
+                (nextidx <= (l+1)) && (idx = nextidx; continue)
+            end
+            !iscopy && (a = copy(a); iscopy = true)
+            endn = idx
+            while endn <= l
+                !is_valid_continuation(a[endn]) && break
+                endn += 1
+            end
+            (endn > idx) && (endn -= 1)
+            splice!(a, idx:endn, invalids_as.data)
+            l = length(a)
+        end
+        String(a)
+    end
+)
 
 @deprecate ==(x::Char, y::Integer) UInt32(x) == y
 @deprecate ==(x::Integer, y::Char) x == UInt32(y)
@@ -643,7 +642,7 @@ function hist!{HT}(h::AbstractArray{HT}, v::AbstractVector, edg::AbstractVector;
     edg, h
 end
 
-hist(v::AbstractVector, edg::AbstractVector) = hist!(Array(Int, length(edg)-1), v, edg)
+hist(v::AbstractVector, edg::AbstractVector) = hist!(Array{Int,1}(length(edg)-1), v, edg)
 hist(v::AbstractVector, n::Integer) = hist(v,histrange(v,n))
 hist(v::AbstractVector) = hist(v,sturges(length(v)))
 
@@ -663,7 +662,7 @@ function hist!{HT}(H::AbstractArray{HT,2}, A::AbstractMatrix, edg::AbstractVecto
     edg, H
 end
 
-hist(A::AbstractMatrix, edg::AbstractVector) = hist!(Array(Int, length(edg)-1, size(A,2)), A, edg)
+hist(A::AbstractMatrix, edg::AbstractVector) = hist!(Array{Int,2}(length(edg)-1, size(A,2)), A, edg)
 hist(A::AbstractMatrix, n::Integer) = hist(A,histrange(A,n))
 hist(A::AbstractMatrix) = hist(A,sturges(size(A,1)))
 
@@ -680,7 +679,7 @@ function hist2d!{HT}(H::AbstractArray{HT,2}, v::AbstractMatrix,
     if init
         fill!(H, zero(HT))
     end
-    for i = 1:size(v,1)             # fixme (iter): update when #15459 is done
+    for i = indices(v,1)
         x = searchsortedfirst(edg1, v[i,1]) - 1
         y = searchsortedfirst(edg2, v[i,2]) - 1
         if 1 <= x <= n && 1 <= y <= m
@@ -691,7 +690,7 @@ function hist2d!{HT}(H::AbstractArray{HT,2}, v::AbstractMatrix,
 end
 
 hist2d(v::AbstractMatrix, edg1::AbstractVector, edg2::AbstractVector) =
-    hist2d!(Array(Int, length(edg1)-1, length(edg2)-1), v, edg1, edg2)
+    hist2d!(Array{Int,2}(length(edg1)-1, length(edg2)-1), v, edg1, edg2)
 
 hist2d(v::AbstractMatrix, edg::AbstractVector) = hist2d(v, edg, edg)
 
@@ -700,10 +699,81 @@ hist2d(v::AbstractMatrix, n1::Integer, n2::Integer) =
 hist2d(v::AbstractMatrix, n::Integer) = hist2d(v, n, n)
 hist2d(v::AbstractMatrix) = hist2d(v, sturges(size(v,1)))
 
-
-
 @deprecate cell(dims::Integer...) Array{Any}(dims...)
 @deprecate cell(dims::Tuple{Vararg{Integer}}) Array{Any}(dims)
+
+@deprecate(pointer_to_array{T}(p::Ptr{T}, d::Union{Integer, Tuple{Vararg{Integer}}}, own::Bool=false),
+    unsafe_wrap(Array, p, d, own))
+@deprecate(pointer_to_string(p::Ptr{UInt8}, len::Integer, own::Bool=false),
+    unsafe_wrap(String, p, len, own))
+@deprecate(pointer_to_string(p::Ptr{UInt8}, own::Bool=false),
+    unsafe_wrap(String, p, own))
+
+function checkbounds(::Type{Bool}, sz::Integer, i)
+    depwarn("checkbounds(Bool, size(A, d), i) is deprecated, use checkindex(Bool, indices(A, d), i).", :checkbounds)
+    checkbounds(Bool, 1:sz, i)
+end
+immutable FakeArray{T,N} <: AbstractArray{T,N}
+    dims::NTuple{N,Int}
+end
+size(A::FakeArray) = A.dims
+function checkbounds{N,T}(::Type{Bool}, sz::NTuple{N,Integer}, I1::T, I...)
+    depwarn("checkbounds(Bool, size(A), I...) is deprecated, use checkbounds(Bool, A, I...).", :checkbounds)
+    checkbounds(Bool, FakeArray(sz), I1, I...)
+end
+
+function first(::Colon)
+    depwarn("first(:) is deprecated, see http://docs.julialang.org/en/latest/devdocs/offset-arrays/", :first)
+    1
+end
+function _first(i, A, d)
+    depwarn("_first is deprecated, see http://docs.julialang.org/en/latest/devdocs/offset-arrays/", :_first)
+    __first(i, A, d)
+end
+__first(::Colon, P, ::Colon) = first(linearindices(P))
+__first(i, P, ::Colon) = first(i)
+__first(::Colon, P, d) = first(indices(P, d))
+__first(i, P, d) = first(i)
+
+# Not exported, but deprecation may be useful just in case
+function Broadcast.check_broadcast_shape(sz::Dims, As::Union{AbstractArray,Number}...)
+    depwarn("check_broadcast_shape(size(A), B...) should be replaced with check_broadcast_shape(indices(A), B...)", :check_broadcast_shape)
+    Broadcast.check_broadcast_shape(map(OneTo, sz), As...)
+end
+
+@deprecate trailingsize{n}(A::AbstractArray, ::Type{Val{n}}) trailingsize(A, n)
+
+@deprecate slice view
+@deprecate sub view
+
+# Point users to SuiteSparse
+function ereach{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, k::Integer, parent::Vector{Ti})
+    error(string("ereach(A, k, parent) now lives in package SuiteSparse.jl. Run",
+        "Pkg.add(\"SuiteSparse\") to install SuiteSparse on Julia v0.5."))
+end
+export etree
+function etree{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, postorder::Bool)
+    error(string("etree(A[, post]) now lives in package SuiteSparse.jl. Run",
+        "Pkg.add(\"SuiteSparse\") to install SuiteSparse on Julia v0.5."))
+end
+etree(A::SparseMatrixCSC) = etree(A, false)
+function csc_permute{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, pinv::Vector{Ti}, q::Vector{Ti})
+    error(string("csc_permute(A, pinv, q) now lives in package SuiteSparse.jl. Run",
+        "Pkg.add(\"SuiteSparse\") to install SuiteSparse on Julia v0.5."))
+end
+function symperm{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, pinv::Vector{Ti})
+    error(string("symperm(A, pinv) now lives in package SuiteSparse.jl. Run,",
+        "Pkg.add(\"SuiteSparse\") to install SuiteSparse on Julia v0.5."))
+end
+
+# Deprecate no-op transpose fallback. Please see #13171 and #17075.
+function transpose(x)
+    depwarn(string("the no-op `transpose` fallback is deprecated, and no more specific ",
+        "`transpose` method for $(typeof(x)) exists. Consider `permutedims(x, [2, 1])` ",
+        "or writing a specific `transpose(x::$(typeof(x)))` method if appropriate."),
+        :transpose)
+    return x
+end
 
 # During the 0.5 development cycle, do not add any deprecations below this line
 # To be deprecated in 0.6

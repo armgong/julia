@@ -201,13 +201,28 @@ end
 
 let xc = copy(spv_x1)
     xc[5] = 0.0
-    @test exact_equal(xc, SparseVector(8, [2, 6], [1.25, 3.5]))
+    @test exact_equal(xc, SparseVector(8, [2, 5, 6], [1.25, 0.0, 3.5]))
 
     xc[6] = 0.0
-    @test exact_equal(xc, SparseVector(8, [2], [1.25]))
+    @test exact_equal(xc, SparseVector(8, [2, 5, 6], [1.25, 0.0, 0.0]))
 
     xc[2] = 0.0
-    @test exact_equal(xc, SparseVector(8, Int[], Float64[]))
+    @test exact_equal(xc, SparseVector(8, [2, 5, 6], [0.0, 0.0, 0.0]))
+
+    xc[1] = 0.0
+    @test exact_equal(xc, SparseVector(8, [2, 5, 6], [0.0, 0.0, 0.0]))
+end
+
+## dropstored! tests
+let x = SparseVector(10, [2, 7, 9], [2.0, 7.0, 9.0])
+    # Test argument bounds checking for dropstored!(x, i)
+    @test_throws BoundsError Base.SparseArrays.dropstored!(x, 0)
+    @test_throws BoundsError Base.SparseArrays.dropstored!(x, 11)
+    # Test behavior of dropstored!(x, i)
+    # --> Test dropping a single stored entry
+    @test Base.SparseArrays.dropstored!(x, 2) == SparseVector(10, [7, 9], [7.0, 9.0])
+    # --> Test dropping a single nonstored entry
+    @test Base.SparseArrays.dropstored!(x, 5) == SparseVector(10, [7, 9], [7.0, 9.0])
 end
 
 
@@ -687,10 +702,10 @@ let x = sprand(16, 0.5), x2 = sprand(16, 0.4)
     let dv = dot(xf, xf2)
         @test dot(x, x) == sumabs2(x)
         @test dot(x2, x2) == sumabs2(x2)
-        @test_approx_eq dot(x, x2) dv
-        @test_approx_eq dot(x2, x) dv
-        @test_approx_eq dot(full(x), x2) dv
-        @test_approx_eq dot(x, full(x2)) dv
+        @test dot(x, x2) ≈ dv
+        @test dot(x2, x) ≈ dv
+        @test dot(full(x), x2) ≈ dv
+        @test dot(x, full(x2)) ≈ dv
     end
 end
 
@@ -698,8 +713,8 @@ let x = complex(sprand(32, 0.6), sprand(32, 0.6)),
     y = complex(sprand(32, 0.6), sprand(32, 0.6))
     xf = full(x)::Vector{Complex128}
     yf = full(y)::Vector{Complex128}
-    @test_approx_eq dot(x, x) dot(xf, xf)
-    @test_approx_eq dot(x, y) dot(xf, yf)
+    @test dot(x, x) ≈ dot(xf, xf)
+    @test dot(x, y) ≈ dot(xf, yf)
 end
 
 
@@ -711,26 +726,26 @@ let A = randn(9, 16), x = sprand(16, 0.7)
     xf = full(x)
     for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
         y = rand(9)
-        rr = α * A * xf + β * y
+        rr = α*A*xf + β*y
         @test is(A_mul_B!(α, A, x, β, y), y)
-        @test_approx_eq y rr
+        @test y ≈ rr
     end
-    y = A * x
+    y = A*x
     @test isa(y, Vector{Float64})
-    @test_approx_eq A * x A * xf
+    @test A*x ≈ A*xf
 end
 
 let A = randn(16, 9), x = sprand(16, 0.7)
     xf = full(x)
     for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
         y = rand(9)
-        rr = α * A'xf + β * y
+        rr = α*A'xf + β*y
         @test is(At_mul_B!(α, A, x, β, y), y)
-        @test_approx_eq y rr
+        @test y ≈ rr
     end
     y = At_mul_B(A, x)
     @test isa(y, Vector{Float64})
-    @test_approx_eq y At_mul_B(A, xf)
+    @test y ≈ At_mul_B(A, xf)
 end
 
 ## sparse A * sparse x -> dense y
@@ -740,13 +755,13 @@ let A = sprandn(9, 16, 0.5), x = sprand(16, 0.7)
     xf = full(x)
     for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
         y = rand(9)
-        rr = α * Af * xf + β * y
+        rr = α*Af*xf + β*y
         @test is(A_mul_B!(α, A, x, β, y), y)
-        @test_approx_eq y rr
+        @test y ≈ rr
     end
     y = SparseArrays.densemv(A, x)
     @test isa(y, Vector{Float64})
-    @test_approx_eq y Af * xf
+    @test y ≈ Af*xf
 end
 
 let A = sprandn(16, 9, 0.5), x = sprand(16, 0.7)
@@ -754,13 +769,13 @@ let A = sprandn(16, 9, 0.5), x = sprand(16, 0.7)
     xf = full(x)
     for α in [0.0, 1.0, 2.0], β in [0.0, 0.5, 1.0]
         y = rand(9)
-        rr = α * Af'xf + β * y
+        rr = α*Af'xf + β*y
         @test is(At_mul_B!(α, A, x, β, y), y)
-        @test_approx_eq y rr
+        @test y ≈ rr
     end
     y = SparseArrays.densemv(A, x; trans='T')
     @test isa(y, Vector{Float64})
-    @test_approx_eq y At_mul_B(Af, xf)
+    @test y ≈ At_mul_B(Af, xf)
 end
 
 let A = complex(sprandn(7, 8, 0.5), sprandn(7, 8, 0.5)),
@@ -769,9 +784,9 @@ let A = complex(sprandn(7, 8, 0.5), sprandn(7, 8, 0.5)),
     Af = full(A)
     xf = full(x)
     x2f = full(x2)
-    @test_approx_eq SparseArrays.densemv(A, x; trans='N') Af * xf
-    @test_approx_eq SparseArrays.densemv(A, x2; trans='T') Af.' * x2f
-    @test_approx_eq SparseArrays.densemv(A, x2; trans='C') Af'x2f
+    @test SparseArrays.densemv(A, x; trans='N') ≈ Af * xf
+    @test SparseArrays.densemv(A, x2; trans='T') ≈ Af.' * x2f
+    @test SparseArrays.densemv(A, x2; trans='C') ≈ Af'x2f
 end
 
 ## sparse A * sparse x -> sparse y
@@ -781,15 +796,15 @@ let A = sprandn(9, 16, 0.5), x = sprand(16, 0.7), x2 = sprand(9, 0.7)
     xf = full(x)
     x2f = full(x2)
 
-    y = A * x
+    y = A*x
     @test isa(y, SparseVector{Float64,Int})
     @test all(nonzeros(y) .!= 0.0)
-    @test_approx_eq full(y) Af * xf
+    @test full(y) ≈ Af * xf
 
     y = At_mul_B(A, x2)
     @test isa(y, SparseVector{Float64,Int})
     @test all(nonzeros(y) .!= 0.0)
-    @test_approx_eq full(y) Af'x2f
+    @test full(y) ≈ Af'x2f
 end
 
 let A = complex(sprandn(7, 8, 0.5), sprandn(7, 8, 0.5)),
@@ -799,17 +814,17 @@ let A = complex(sprandn(7, 8, 0.5), sprandn(7, 8, 0.5)),
     xf = full(x)
     x2f = full(x2)
 
-    y = A * x
+    y = A*x
     @test isa(y, SparseVector{Complex128,Int})
-    @test_approx_eq full(y) Af * xf
+    @test full(y) ≈ Af * xf
 
     y = At_mul_B(A, x2)
     @test isa(y, SparseVector{Complex128,Int})
-    @test_approx_eq full(y) Af.' * x2f
+    @test full(y) ≈ Af.' * x2f
 
     y = Ac_mul_B(A, x2)
     @test isa(y, SparseVector{Complex128,Int})
-    @test_approx_eq full(y) Af'x2f
+    @test full(y) ≈ Af'x2f
 end
 
 # left-division operations involving triangular matrices and sparse vectors (#14005)
@@ -871,6 +886,27 @@ let m = 10
         end
     end
 end
+# The preceding tests miss the edge case where the sparse vector is empty (#16716)
+let
+    origmat = [-1.5 -0.7; 0.0 1.0]
+    transmat = transpose(origmat)
+    utmat = UpperTriangular(origmat)
+    ltmat = LowerTriangular(transmat)
+    uutmat = Base.LinAlg.UnitUpperTriangular(origmat)
+    ultmat = Base.LinAlg.UnitLowerTriangular(transmat)
+
+    zerospvec = spzeros(Float64, 2)
+    zerodvec = zeros(Float64, 2)
+
+    for mat in (utmat, ltmat, uutmat, ultmat)
+        for func in (\, At_ldiv_B, Ac_ldiv_B)
+            @test isequal((func)(mat, zerospvec), zerodvec)
+        end
+        for ipfunc in (A_ldiv_B!, Base.LinAlg.At_ldiv_B!, Base.LinAlg.Ac_ldiv_B!)
+            @test isequal((ipfunc)(mat, copy(zerospvec)), zerospvec)
+        end
+    end
+end
 
 # fkeep!
 let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 7)
@@ -882,12 +918,6 @@ let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 7)
     Base.droptol!(xdrop, 3.)
     @test exact_equal(xdrop, SparseVector(7, Int[], Float64[]))
 
-    # dropzeros
-    xdrop = copy(x)
-    xdrop.nzval[[2, 4, 6]] = 0.0
-    Base.SparseArrays.dropzeros!(xdrop)
-    @test exact_equal(xdrop, SparseVector(7, [1, 3, 5, 7], [3, -1., -2., 3.]))
-
     xdrop = copy(x)
     # This will keep index 1, 3, 4, 7 in xdrop
     f_drop(i, x) = (abs(x) == 1.) || (i in [1, 7])
@@ -895,6 +925,39 @@ let x = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 7)
     @test exact_equal(xdrop, SparseVector(7, [1, 3, 4, 7], [3., -1., 1., 3.]))
 end
 
+# dropzeros[!]
+let testdims = (10, 20, 30), nzprob = 0.4, targetnumposzeros = 5, targetnumnegzeros = 5
+    for m in testdims
+        v = sprand(m, nzprob)
+        struczerosv = find(x -> x == 0, v)
+        poszerosinds = unique(rand(struczerosv, targetnumposzeros))
+        negzerosinds = unique(rand(struczerosv, targetnumnegzeros))
+        vposzeros = setindex!(copy(v), 2, poszerosinds)
+        vnegzeros = setindex!(copy(v), -2, negzerosinds)
+        vbothsigns = setindex!(copy(vposzeros), -2, negzerosinds)
+        map!(x -> x == 2 ? 0.0 : x, vposzeros.nzval)
+        map!(x -> x == -2 ? -0.0 : x, vnegzeros.nzval)
+        map!(x -> x == 2 ? 0.0 : x == -2 ? -0.0 : x, vbothsigns.nzval)
+        for vwithzeros in (vposzeros, vnegzeros, vbothsigns)
+            # Basic functionality / dropzeros!
+            @test dropzeros!(copy(vwithzeros)) == v
+            @test dropzeros!(copy(vwithzeros), false) == v
+            # Basic functionality / dropzeros
+            @test dropzeros(vwithzeros) == v
+            @test dropzeros(vwithzeros, false) == v
+            # Check trimming works as expected
+            @test length(dropzeros!(copy(vwithzeros)).nzval) == length(v.nzval)
+            @test length(dropzeros!(copy(vwithzeros)).nzind) == length(v.nzind)
+            @test length(dropzeros!(copy(vwithzeros), false).nzval) == length(vwithzeros.nzval)
+            @test length(dropzeros!(copy(vwithzeros), false).nzind) == length(vwithzeros.nzind)
+        end
+    end
+    # original dropzeros! test
+    xdrop = sparsevec(1:7, [3., 2., -1., 1., -2., -3., 3.], 7)
+    xdrop.nzval[[2, 4, 6]] = 0.0
+    Base.SparseArrays.dropzeros!(xdrop)
+    @test exact_equal(xdrop, SparseVector(7, [1, 3, 5, 7], [3, -1., -2., 3.]))
+end
 
 # It's tempting to share data between a SparseVector and a SparseArrays,
 # but if that's done, then modifications to one or the other will cause
@@ -967,3 +1030,15 @@ for Tv in [Float32, Float64, Int64, Int32, Complex128]
         end
     end
 end
+
+# ref 13130 and 16661
+@test issparse([sprand(10,10,.1) sprand(10,.1)])
+@test issparse([sprand(10,1,.1); sprand(10,.1)])
+
+@test issparse([sprand(10,10,.1) rand(10)])
+@test issparse([sprand(10,1,.1)  rand(10)])
+@test issparse([sprand(10,2,.1) sprand(10,1,.1) rand(10)])
+@test issparse([sprand(10,1,.1); rand(10)])
+
+@test issparse([sprand(10,.1)  rand(10)])
+@test issparse([sprand(10,.1); rand(10)])

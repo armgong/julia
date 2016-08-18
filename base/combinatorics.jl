@@ -70,6 +70,10 @@ function isperm(A)
     true
 end
 
+isperm(p::Tuple{}) = true
+isperm(p::Tuple{Int}) = p[1] == 1
+isperm(p::Tuple{Int,Int}) = ((p[1] == 1) & (p[2] == 2)) | ((p[1] == 2) & (p[2] == 1))
+
 function permute!!{T<:Integer}(a, p::AbstractVector{T})
     count = 0
     start = 0
@@ -147,6 +151,12 @@ function invperm(a::AbstractVector)
     end
     b
 end
+
+function invperm(p::Union{Tuple{},Tuple{Int},Tuple{Int,Int}})
+    isperm(p) || throw(ArgumentError("argument is not a permutation"))
+    p  # in dimensions 0-2, every permutation is its own inverse
+end
+invperm(a::Tuple) = (invperm([a...])...,)
 
 #XXX This function should be moved to Combinatorics.jl but is currently used by Base.DSP.
 """

@@ -19,7 +19,7 @@ else
 end
 typealias CdoubleMax Union{Float16, Float32, Float64}
 
-gmp_version() = VersionNumber(String(unsafe_load(cglobal((:__gmp_version, :libgmp), Ptr{Cchar}))))
+gmp_version() = VersionNumber(unsafe_string(unsafe_load(cglobal((:__gmp_version, :libgmp), Ptr{Cchar}))))
 gmp_bits_per_limb() = Int(unsafe_load(cglobal((:__gmp_bits_per_limb, :libgmp), Cint)))
 
 const GMP_VERSION = gmp_version()
@@ -44,13 +44,10 @@ type BigInt <: Integer
     function BigInt()
         b = new(zero(Cint), zero(Cint), C_NULL)
         ccall((:__gmpz_init,:libgmp), Void, (Ptr{BigInt},), &b)
-        finalizer(b, _gmp_clear_func)
+        finalizer(b, cglobal((:__gmpz_clear, :libgmp)))
         return b
     end
 end
-
-_gmp_clear_func = C_NULL
-_mpfr_clear_func = C_NULL
 
 function __init__()
     try
@@ -60,8 +57,6 @@ function __init__()
                          "Please rebuild Julia."))
         end
 
-        global _gmp_clear_func = cglobal((:__gmpz_clear, :libgmp))
-        global _mpfr_clear_func = cglobal((:mpfr_clear, :libmpfr))
         ccall((:__gmp_set_memory_functions, :libgmp), Void,
               (Ptr{Void},Ptr{Void},Ptr{Void}),
               cglobal(:jl_gc_counted_malloc),
@@ -81,13 +76,17 @@ signed(x::BigInt) = x
 
 convert(::Type{BigInt}, x::BigInt) = x
 
-function tryparse_internal(::Type{BigInt}, s::AbstractString, startpos::Int, endpos::Int, base::Int, raise::Bool)
+function tryparse_internal(::Type{BigInt}, s::AbstractString, startpos::Int, endpos::Int, base_::Integer, raise::Bool)
     _n = Nullable{BigInt}()
 
     # don't make a copy in the common case where we are parsing a whole String
     bstr = startpos == start(s) && endpos == endof(s) ? String(s) : String(SubString(s,startpos,endpos))
 
-    sgn, base, i = Base.parseint_preamble(true,base,bstr,start(bstr),endof(bstr))
+    sgn, base, i = Base.parseint_preamble(true,Int(base_),bstr,start(bstr),endof(bstr))
+    if !(2 <= base <= 62)
+        raise && throw(ArgumentError("invalid base: base must be 2 ≤ base ≤ 62, got $base"))
+        return _n
+    end
     if i == 0
         raise && throw(ArgumentError("premature end of integer: $(repr(bstr))"))
         return _n
@@ -429,6 +428,7 @@ end
 ^(x::BigInt , y::Bool   ) = y ? x : one(x)
 ^(x::BigInt , y::Integer) = bigint_pow(x, y)
 ^(x::Integer, y::BigInt ) = bigint_pow(BigInt(x), y)
+^(x::Bool   , y::BigInt ) = Base.power_by_squaring(x, y)
 
 function powermod(x::BigInt, p::BigInt, m::BigInt)
     r = BigInt()
@@ -514,8 +514,7 @@ hex(n::BigInt) = base(16, n)
 function base(b::Integer, n::BigInt)
     2 <= b <= 62 || throw(ArgumentError("base must be 2 ≤ base ≤ 62, got $b"))
     p = ccall((:__gmpz_get_str,:libgmp), Ptr{UInt8}, (Ptr{UInt8}, Cint, Ptr{BigInt}), C_NULL, b, &n)
-    len = Int(ccall(:strlen, Csize_t, (Cstring,), p))
-    String(pointer_to_array(p,len,true))
+    unsafe_wrap(String, p, true)
 end
 
 function ndigits0z(x::BigInt, b::Integer=10)
@@ -554,5 +553,15 @@ Base.checked_rem(a::BigInt, b::BigInt) = rem(a, b)
 Base.checked_fld(a::BigInt, b::BigInt) = fld(a, b)
 Base.checked_mod(a::BigInt, b::BigInt) = mod(a, b)
 Base.checked_cld(a::BigInt, b::BigInt) = cld(a, b)
+
+function Base.deepcopy_internal(x::BigInt, stackdict::ObjectIdDict)
+    if haskey(stackdict, x)
+        return stackdict[x]
+    end
+    y = BigInt()
+    ccall((:__gmpz_set,:libgmp), Void, (Ptr{BigInt}, Ptr{BigInt}), &y, &x)
+    stackdict[x] = y
+    return y
+end
 
 end # module

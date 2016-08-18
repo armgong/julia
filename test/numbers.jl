@@ -1128,7 +1128,7 @@ end
 @test Complex(1,2) + 1//2 == Complex(3//2,2//1)
 @test Complex(1,2) + 1//2 * 0.5 == Complex(1.25,2.0)
 @test (Complex(1,2) + 1//2) * 0.5 == Complex(0.75,1.0)
-@test_approx_eq (Complex(1,2)/Complex(2.5,3.0))*Complex(2.5,3.0) Complex(1,2)
+@test (Complex(1,2)/Complex(2.5,3.0))*Complex(2.5,3.0) ≈ Complex(1,2)
 @test 0.7 < real(sqrt(Complex(0,1))) < 0.707107
 
 for T in Base.BitSigned_types
@@ -2082,6 +2082,12 @@ for f in (trunc, round, floor, ceil)
 
 @test isa(convert(Float64, big(1)//2), Float64)
 
+# issue 16513
+@test convert(Rational{Int32}, pi) == 1068966896 // 340262731
+@test convert(Rational{Int64}, pi) == 2646693125139304345 // 842468587426513207
+@test convert(Rational{Int128}, pi) == 60728338969805745700507212595448411044 // 19330430665609526556707216376512714945
+@test_throws ArgumentError convert(Rational{BigInt}, pi)
+
 # issue 5935
 @test rationalize(Int8,  nextfloat(0.1)) == 1//10
 @test rationalize(Int64, nextfloat(0.1)) == 300239975158034//3002399751580339
@@ -2361,6 +2367,7 @@ end
 @test widen(Int32(42)) === Int64(42)
 @test widen(Int8) === Int32
 @test widen(Float32) === Float64
+@test widen(Float16) === Float32
 ## Note: this should change to e.g. Float128 at some point
 @test widen(Float64) === BigFloat
 @test widen(BigInt) === BigInt
@@ -2424,7 +2431,7 @@ end
 # Fill a pre allocated 2x4 matrix
 let a = zeros(Int,(2,4))
     for i in 0:3
-        digits!(sub(a,:,i+1),i,2)
+        digits!(view(a,:,i+1),i,2)
     end
     @test a == [0 1 0 1;
                 0 0 1 1]
@@ -2469,14 +2476,34 @@ for x in [1.23, 7, e, 4//5] #[FP, Int, Irrational, Rat]
     @test isreal(x) == true
 end
 
-#eltype{T<:Number}(::Type{T}) = T
-for T in [subtypes(Complex); subtypes(Real)]
-    @test eltype(T) == T
+function allsubtypes!(m::Module, x::DataType, sts::Set)
+    for s in names(m, true)
+        if isdefined(m, s) && !Base.isdeprecated(m, s)
+            t = getfield(m, s)
+            if isa(t, Type) && t <: x
+                push!(sts, t)
+            elseif isa(t, Module) && t !== m && module_name(t) === s && module_parent(t) === m
+                allsubtypes!(t, x, sts)
+            end
+        end
+    end
 end
 
-#ndims{T<:Number}(::Type{T}) = 0
-for x in [subtypes(Complex); subtypes(Real)]
-    @test ndims(x) == 0
+let number_types = Set()
+    allsubtypes!(Base, Number, number_types)
+    allsubtypes!(Core, Number, number_types)
+
+    @test !isempty(number_types)
+
+    #eltype{T<:Number}(::Type{T}) = T
+    for T in number_types
+        @test eltype(T) == T
+    end
+
+    #ndims{T<:Number}(::Type{T}) = 0
+    for x in number_types
+        @test ndims(x) == 0
+    end
 end
 
 #getindex(x::Number) = x
@@ -2633,16 +2660,16 @@ end
 let T = Rational
     x = Complex{T}(1//3 + 1//4*im)
     y = Complex{T}(1//2 + 1//5*im)
-    xf = Complex{Float64}(1//3 + 1//4*im)
-    yf = Complex{Float64}(1//2 + 1//5*im)
+    xf = Complex{BigFloat}(1//3 + 1//4*im)
+    yf = Complex{BigFloat}(1//2 + 1//5*im)
     yi = 4
 
-    @test_approx_eq x^y big(xf)^big(yf)
-    @test_approx_eq x^yi big(xf)^yi
-    @test_approx_eq x^true big(xf)^true
-    @test_approx_eq x^false big(xf)^false
-    @test_approx_eq x^1 big(xf)^1
-    @test_approx_eq xf^Rational(2, 1) xf*xf
+    @test x^y ≈ xf^yf
+    @test x^yi ≈ xf^yi
+    @test x^true ≈ xf^true
+    @test x^false == xf^false
+    @test x^1 ≈ xf^1
+    @test xf^Rational(2, 1) ≈ xf*xf
     @test Complex(1., 1.)^Rational(2,1) == Complex(1., 1.)*Complex(1.,1.) == Complex(0., 2.)
 end
 
@@ -2742,3 +2769,84 @@ testmi(typemin(Int)+1:typemin(Int)+1000, -100:100)
 @test_throws ArgumentError Base.multiplicativeinverse(0)
 testmi(map(UInt32, 0:1000), map(UInt32, 1:100))
 testmi(typemax(UInt32)-UInt32(1000):typemax(UInt32), map(UInt32, 1:100))
+
+@test ndims(1) == 0
+@test size(1,1) == 1
+@test_throws BoundsError size(1,-1)
+@test indices(1) == ()
+@test indices(1,1) == 1:1
+@test_throws BoundsError indices(1,-1)
+
+# issue #15920
+@test Rational(0, 1) / Complex(3, 2) == 0
+
+# issue #16282
+@test_throws MethodError 3 // 4.5im
+
+# PR #16995
+let types = (Base.BitInteger_types..., BigInt, Bool,
+             Rational{Int}, Rational{BigInt},
+             Float16, Float32, Float64, BigFloat,
+             Complex{Int}, Complex{UInt}, Complex32, Complex64, Complex128)
+    for S in types
+        for op in (+, -)
+            if S === Float16
+                # broken, fixme then remove this branch
+                @test_throws ErrorException @inferred(Base.promote_op(op, S))
+                T = Base.promote_op(op, S)
+            else
+                T = @inferred Base.promote_op(op, S)
+            end
+            t = @inferred op(one(S))
+            @test T === typeof(t)
+        end
+    end
+
+    @test @inferred(Base.promote_op(!, Bool)) === Bool
+
+    for R in types, S in types
+        for op in (+, -, *, /, ^)
+            if R === Float16 || S === Float16
+                # broken, fixme then remove this branch
+                @test_throws ErrorException @inferred(Base.promote_op(op, R, S))
+                T = Base.promote_op(op, R, S)
+            else
+                T = @inferred Base.promote_op(op, R, S)
+            end
+            t = @inferred op(one(R), one(S))
+            @test T === typeof(t)
+        end
+    end
+end
+
+let types = (Base.BitInteger_types..., BigInt, Bool,
+             Rational{Int}, Rational{BigInt},
+             Float16, Float32, Float64, BigFloat)
+    for S in types, T in types
+        for op in (<, >, <=, >=, (==))
+            if S === Float16 || T === Float16
+                # broken, fixme then remove this branch
+                @test_throws ErrorException @inferred(Base.promote_op(op, S, T))
+                @test Base.promote_op(op, S, T) === Bool
+            else
+                @test @inferred(Base.promote_op(op, S, T)) === Bool
+            end
+        end
+    end
+end
+
+let types = (Base.BitInteger_types..., BigInt, Bool)
+    for S in types
+        T = @inferred Base.promote_op(~, S)
+        t = @inferred ~one(S)
+        @test T === typeof(t)
+    end
+
+    for S in types, T in types
+        for op in (&, |, <<, >>, (>>>), %, ÷)
+            T = @inferred Base.promote_op(op, S, T)
+            t = @inferred op(one(S), one(T))
+            @test T === typeof(t)
+        end
+    end
+end

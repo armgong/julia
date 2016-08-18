@@ -588,7 +588,7 @@ function normestinv{T}(A::SparseMatrixCSC{T}, t::Integer = min(2,maximum(size(A)
     X[1:n,1] = 1
     for j = 2:t
         while true
-            _rand_pm1!(slice(X,1:n,j))
+            _rand_pm1!(view(X,1:n,j))
             yaux = X[1:n,j]' * X[1:n,1:j-1]
             if !_any_abs_eq(yaux,n)
                 break
@@ -649,7 +649,7 @@ function normestinv{T}(A::SparseMatrixCSC{T}, t::Integer = min(2,maximum(size(A)
                         end
                     end
                     if repeated
-                        _rand_pm1!(slice(S,1:n,j))
+                        _rand_pm1!(view(S,1:n,j))
                     else
                         break
                     end
@@ -855,6 +855,32 @@ end
 
 scale!(A::SparseMatrixCSC, b::Number) = (scale!(A.nzval, b); A)
 scale!(b::Number, A::SparseMatrixCSC) = (scale!(b, A.nzval); A)
+
+function (\)(A::SparseMatrixCSC, B::AbstractVecOrMat)
+    m, n = size(A)
+    if m == n
+        if istril(A)
+            if istriu(A)
+                return Diagonal(A) \ B
+            else
+                return LowerTriangular(A) \ B
+            end
+        elseif istriu(A)
+            return UpperTriangular(A) \ B
+        end
+        if ishermitian(A)
+            try
+                return cholfact(Hermitian(A)) \ B
+            catch e
+                isa(e, PosDefException) || rethrow(e)
+                return ldltfact(Hermitian(A)) \ B
+            end
+        end
+        return lufact(A) \ B
+    else
+        return qrfact(A) \ B
+    end
+end
 
 function factorize(A::SparseMatrixCSC)
     m, n = size(A)

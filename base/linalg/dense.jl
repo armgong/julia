@@ -36,25 +36,6 @@ isposdef(x::Number) = imag(x)==0 && real(x) > 0
 stride1(x::Array) = 1
 stride1(x::StridedVector) = stride(x, 1)::Int
 
-import Base: mapreduce_seq_impl
-
-mapreduce_seq_impl{T<:BlasReal}(::typeof(abs), ::typeof(+), a::Union{Array{T},StridedVector{T}}, ifirst::Int, ilast::Int) =
-    BLAS.asum(ilast-ifirst+1, pointer(a, ifirst), stride1(a))
-
-function mapreduce_seq_impl{T<:BlasReal}(::typeof(abs2), ::typeof(+), a::Union{Array{T},StridedVector{T}}, ifirst::Int, ilast::Int)
-    n = ilast-ifirst+1
-    px = pointer(a, ifirst)
-    incx = stride1(a)
-    BLAS.dot(n, px, incx, px, incx)
-end
-
-function mapreduce_seq_impl{T<:BlasComplex}(::typeof(abs2), ::typeof(+), a::Union{Array{T},StridedVector{T}}, ifirst::Int, ilast::Int)
-    n = ilast-ifirst+1
-    px = pointer(a, ifirst)
-    incx = stride1(a)
-    real(BLAS.dotc(n, px, incx, px, incx))
-end
-
 function norm{T<:BlasFloat, TI<:Integer}(x::StridedVector{T}, rx::Union{UnitRange{TI},Range{TI}})
     if minimum(rx) < 1 || maximum(rx) > length(x)
         throw(BoundsError(x, rx))
@@ -381,6 +362,40 @@ function inv{T}(A::StridedMatrix{T})
     return convert(typeof(parent(Ai)), Ai)
 end
 
+"""
+    factorize(A)
+
+Compute a convenient factorization of `A`, based upon the type of the input matrix.
+`factorize` checks `A` to see if it is symmetric/triangular/etc. if `A` is passed
+as a generic matrix. `factorize` checks every element of `A` to verify/rule out
+each property. It will short-circuit as soon as it can rule out symmetry/triangular
+structure. The return value can be reused for efficient solving of multiple
+systems. For example: `A=factorize(A); x=A\\b; y=A\\C`.
+
+| Properties of `A`          | type of factorization                          |
+|:---------------------------|:-----------------------------------------------|
+| Positive-definite          | Cholesky (see [`cholfact`](:func:`cholfact`))  |
+| Dense Symmetric/Hermitian  | Bunch-Kaufman (see [`bkfact`](:func:`bkfact`)) |
+| Sparse Symmetric/Hermitian | LDLt (see [`ldltfact`](:func:`ldltfact`))      |
+| Triangular                 | Triangular                                     |
+| Diagonal                   | Diagonal                                       |
+| Bidiagonal                 | Bidiagonal                                     |
+| Tridiagonal                | LU (see [`lufact`](:func:`lufact`))            |
+| Symmetric real tridiagonal | LDLt (see [`ldltfact`](:func:`ldltfact`))      |
+| General square             | LU (see [`lufact`](:func:`lufact`))            |
+| General non-square         | QR (see [`qrfact`](:func:`qrfact`))            |
+
+If `factorize` is called on a Hermitian positive-definite matrix, for instance, then `factorize`
+will return a Cholesky factorization.
+
+Example:
+```julia
+A = diagm(rand(5)) + diagm(rand(4),1); #A is really bidiagonal
+factorize(A) #factorize will check to see that A is already factorized
+```
+This returns a `5×5 Bidiagonal{Float64}`, which can now be passed to other linear algebra functions
+(e.g. eigensolvers) which will use specialized methods for `Bidiagonal` types.
+"""
 function factorize{T}(A::StridedMatrix{T})
     m, n = size(A)
     if m == n

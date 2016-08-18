@@ -100,11 +100,7 @@ requested conversion:
     ERROR: MethodError: Cannot `convert` an object of type String to an object of type AbstractFloat
     This may have arisen from a call to the constructor AbstractFloat(...),
     since type constructors fall back to convert methods.
-    Closest candidates are:
-      convert(::Type{AbstractFloat}, ::Bool)
-      convert(::Type{AbstractFloat}, ::Int8)
-      convert(::Type{AbstractFloat}, ::Int16)
-      ...
+     ...
 
 Some languages consider parsing strings as numbers or formatting
 numbers as strings to be conversions (many dynamic languages will even
@@ -146,22 +142,24 @@ to one and zero:
 
     julia> convert(Bool, 1im)
     ERROR: InexactError()
-     in convert at complex.jl:18
+     in convert(::Type{Bool}, ::Complex{Int64}) at ./complex.jl:23
+     ...
 
     julia> convert(Bool, 0im)
     false
 
 The method signatures for conversion methods are often quite a bit more
 involved than this example, especially for parametric types. The example
-above is meant to be pedagogical, and is not the actual julia behaviour.
-This is the actual implementation in julia::
+above is meant to be pedagogical, and is not the actual Julia behaviour.
+This is the actual implementation in Julia::
 
     convert{T<:Real}(::Type{T}, z::Complex) = (imag(z)==0 ? convert(T,real(z)) :
                                                throw(InexactError()))
 
     julia> convert(Bool, 1im)
     ERROR: InexactError()
-     in convert at complex.jl:18
+     in convert(::Type{Bool}, ::Complex{Int64}) at ./complex.jl:18
+     ...
 
 
 Case Study: Rational Conversions
@@ -268,7 +266,7 @@ That is really all there is to using promotions. The rest is just a
 matter of clever application, the most typical "clever" application
 being the definition of catch-all methods for numeric operations like
 the arithmetic operators ``+``, ``-``, ``*`` and ``/``. Here are some of
-the the catch-all method definitions given in
+the catch-all method definitions given in
 `promotion.jl <https://github.com/JuliaLang/julia/blob/master/base/promotion.jl>`_::
 
     +(x::Number, y::Number) = +(promote(x,y)...)

@@ -38,8 +38,13 @@ end
 
 function rst(io::IO, list::List)
     for (i, item) in enumerate(list.items)
-        print(io, list.ordered ? "$i. " : "* ")
-        rstinline(io, item)
+        bullet = isordered(list) ? "$(i + list.ordered - 1). " : "* "
+        print(io, bullet)
+        lines = split(rstrip(sprint(buf -> rst(buf, item))), '\n')
+        for (n, line) in enumerate(lines)
+            print(io, (n == 1 || isempty(line)) ? "" : " "^length(bullet), line)
+            n < length(lines) && println(io)
+        end
         println(io)
     end
 end
@@ -48,6 +53,16 @@ function rst(io::IO, q::BlockQuote)
     s = sprint(buf -> rst(buf, q.content))
     for line in split(rstrip(s), "\n")
         println(io, "    ", line)
+    end
+    println(io)
+end
+
+function rst(io::IO, md::Admonition)
+    s = sprint(buf -> rst(buf, md.content))
+    title = md.title == ucfirst(md.category) ? "" : md.title
+    println(io, ".. ", md.category, "::", isempty(title) ? "" : " $title")
+    for line in split(rstrip(s), "\n")
+        println(io, isempty(line) ? "" : "   ", line)
     end
     println(io)
 end

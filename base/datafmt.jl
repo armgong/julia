@@ -18,12 +18,13 @@ const offs_chunk_size = 5000
 countlines(f::AbstractString, eol::Char='\n') = open(io->countlines(io,eol), f)::Int
 function countlines(io::IO, eol::Char='\n')
     isascii(eol) || throw(ArgumentError("only ASCII line terminators are supported"))
+    aeol = UInt8(eol)
     a = Array{UInt8}(8192)
     nl = 0
     while !eof(io)
         nb = readbytes!(io, a)
         @simd for i=1:nb
-            @inbounds nl += a[i] == UInt8(eol)
+            @inbounds nl += a[i] == aeol
         end
     end
     nl
@@ -40,26 +41,22 @@ readdlm(input, dlm::Char, eol::Char; opts...) =
 readdlm(input, dlm::Char, T::Type, eol::Char; opts...) =
     readdlm_auto(input, dlm, T, eol, false; opts...)
 
-function readdlm_auto(input, dlm::Char, T::Type, eol::Char, auto::Bool; opts...)
+readdlm_auto(input::Vector{UInt8}, dlm::Char, T::Type, eol::Char, auto::Bool; opts...) =
+    readdlm_string(String(input), dlm, T, eol, auto, val_opts(opts))
+readdlm_auto(input::IO, dlm::Char, T::Type, eol::Char, auto::Bool; opts...) =
+    readdlm_string(readstring(input), dlm, T, eol, auto, val_opts(opts))
+function readdlm_auto(input::AbstractString, dlm::Char, T::Type, eol::Char, auto::Bool; opts...)
     optsd = val_opts(opts)
     use_mmap = get(optsd, :use_mmap, is_windows() ? false : true)
-    if isa(input, AbstractString)
-        fsz = filesize(input)
-        if use_mmap && fsz > 0 && fsz < typemax(Int)
-            input = as_mmap(input, fsz)
-        else
-            input = readstring(input)
-        end
-    end
-    sinp = isa(input, Vector{UInt8}) ? String(input) :
-           isa(input, IO) ? readstring(input) :
-           input
-    readdlm_string(sinp, dlm, T, eol, auto, optsd)
-end
-
-function as_mmap(fname::AbstractString, fsz::Int64)
-    open(fname) do io
-        Mmap.mmap(io, Vector{UInt8}, (Int(fsz),))
+    fsz = filesize(input)
+    if use_mmap && fsz > 0 && fsz < typemax(Int)
+        a = Mmap.mmap(input, Vector{UInt8}, (Int(fsz),))
+        # TODO: It would be nicer to use String(a) without making a copy,
+        # but because the mmap'ed array is not NUL-terminated this causes
+        # jl_try_substrtod to segfault below.
+        return readdlm_string(String(copy(a)), dlm, T, eol, auto, optsd)
+    else
+        return readdlm_string(readstring(input), dlm, T, eol, auto, optsd)
     end
 end
 
@@ -292,16 +289,24 @@ end
 const valid_opts = [:header, :has_header, :use_mmap, :quotes, :comments, :dims, :comment_char, :skipstart, :skipblanks]
 const valid_opt_types = [Bool, Bool, Bool, Bool, Bool, NTuple{2,Integer}, Char, Integer, Bool]
 const deprecated_opts = Dict(:has_header => :header)
+
 function val_opts(opts)
     d = Dict{Symbol,Union{Bool,NTuple{2,Integer},Char,Integer}}()
     for (opt_name, opt_val) in opts
-        !in(opt_name, valid_opts) && throw(ArgumentError("unknown option $opt_name"))
+        if opt_name == :ignore_invalid_chars
+            Base.depwarn("the ignore_invalid_chars option is no longer supported and will be ignored", :val_opts)
+            continue
+        end
+        in(opt_name, valid_opts) ||
+            throw(ArgumentError("unknown option $opt_name"))
         opt_typ = valid_opt_types[findfirst(valid_opts, opt_name)]
-        !isa(opt_val, opt_typ) && throw(ArgumentError("$opt_name should be of type $opt_typ, got $(typeof(opt_val))"))
+        isa(opt_val, opt_typ) ||
+            throw(ArgumentError("$opt_name should be of type $opt_typ, got $(typeof(opt_val))"))
         d[opt_name] = opt_val
-        haskey(deprecated_opts, opt_name) && warn("$opt_name is deprecated, use $(deprecated_opts[opt_name]) instead")
+        haskey(deprecated_opts, opt_name) &&
+            Base.depwarn("$opt_name is deprecated, use $(deprecated_opts[opt_name]) instead", :val_opts)
     end
-    d
+    return d
 end
 
 function dlm_fill(T::DataType, offarr::Vector{Vector{Int}}, dims::NTuple{2,Integer}, has_header::Bool, sbuff::String, auto::Bool, eol::Char)
@@ -331,7 +336,7 @@ function dlm_fill(T::DataType, offarr::Vector{Vector{Int}}, dims::NTuple{2,Integ
 end
 
 function colval(sbuff::String, startpos::Int, endpos::Int, cells::Array{Bool,2}, row::Int, col::Int)
-    n = tryparse_internal(Bool, sbuff, startpos, endpos, false)
+    n = tryparse_internal(Bool, sbuff, startpos, endpos, 0, false)
     isnull(n) || (cells[row, col] = get(n))
     isnull(n)
 end
@@ -363,7 +368,7 @@ function colval(sbuff::String, startpos::Int, endpos::Int, cells::Array{Any,2}, 
         isnull(ni64) || (cells[row, col] = get(ni64); return false)
 
         # check Bool
-        nb = tryparse_internal(Bool, sbuff, startpos, endpos, false)
+        nb = tryparse_internal(Bool, sbuff, startpos, endpos, 0, false)
         isnull(nb) || (cells[row, col] = get(nb); return false)
 
         # check float64
@@ -567,12 +572,11 @@ function writedlm(io::IO, a::AbstractMatrix, dlm; opts...)
     optsd = val_opts(opts)
     quotes = get(optsd, :quotes, true)
     pb = PipeBuffer()
-    nr = size(a, 1)
-    nc = size(a, 2)
-    for i = 1:nr  # fixme (iter): improve if timholy/ArrayIteration.jl is merged into Base
-        for j = 1:nc
+    lastc = last(indices(a, 2))
+    for i = indices(a, 1)
+        for j = indices(a, 2)
             writedlm_cell(pb, a[i, j], dlm, quotes)
-            j == nc ? write(pb,'\n') : print(pb,dlm)
+            j == lastc ? write(pb,'\n') : print(pb,dlm)
         end
         (nb_available(pb) > (16*1024)) && write(io, takebuf_array(pb))
     end

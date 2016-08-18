@@ -102,7 +102,7 @@ type _FDWatcher
             if fd.fd+1 > length(FDWatchers)
                 old_len = length(FDWatchers)
                 resize!(FDWatchers, fd.fd+1)
-                fill!(sub(FDWatchers, old_len+1:fd.fd+1), nothing)
+                fill!(view(FDWatchers, old_len+1:fd.fd+1), nothing)
             elseif FDWatchers[fd.fd + 1] !== nothing
                 this = FDWatchers[fd.fd + 1]::_FDWatcher
                 this.refcount = (this.refcount[1] + Int(readable), this.refcount[2] + Int(writable))
@@ -224,7 +224,7 @@ end
 
 function uv_fseventscb(handle::Ptr{Void}, filename::Ptr, events::Int32, status::Int32)
     t = @handle_as handle FileMonitor
-    fname = filename == C_NULL ? "" : String(convert(Ptr{UInt8}, filename))
+    fname = filename == C_NULL ? "" : unsafe_string(convert(Ptr{UInt8}, filename))
     if status != 0
         notify_error(t.notify, UVError("FileMonitor", status))
     else
@@ -392,13 +392,13 @@ function watch_file(s::AbstractString, timeout_s::Real=-1)
         if timeout_s >= 0
             result = fetimeout()
 
-            @schedule (try result = wait(fm); catch e; notify_error(wt, e); end; notify(wt))
+            @schedule (try _, result = wait(fm); catch e; notify_error(wt, e); end; notify(wt))
             @schedule (sleep(timeout_s); notify(wt))
 
             wait(wt)
             return result
         else
-            return wait(fm)
+            return wait(fm)[2]
         end
     finally
         close(fm)

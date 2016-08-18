@@ -7,6 +7,11 @@ end
 Complex(x::Real, y::Real) = Complex(promote(x,y)...)
 Complex(x::Real) = Complex(x, zero(x))
 
+"""
+    im
+
+The imaginary unit.
+"""
 const im = Complex(false,true)
 
 typealias Complex128 Complex{Float64}
@@ -26,17 +31,6 @@ promote_rule{T<:Real,S<:Real}(::Type{Complex{T}}, ::Type{S}) =
 promote_rule{T<:Real,S<:Real}(::Type{Complex{T}}, ::Type{Complex{S}}) =
     Complex{promote_type(T,S)}
 
-promote_op{T<:Real,S<:Real}(op, ::Type{Complex{T}}, ::Type{Complex{S}}) =
-    Complex{promote_op(op,T,S)}
-promote_op{T<:Real,S<:Real}(op, ::Type{Complex{T}}, ::Type{S}) =
-    Complex{promote_op(op,T,S)}
-promote_op{T<:Real,S<:Real}(op, ::Type{T}, ::Type{Complex{S}}) =
-    Complex{promote_op(op,T,S)}
-promote_op{T<:Integer,S<:Integer}(::typeof(^), ::Type{T}, ::Type{Complex{S}}) =
-    Complex{Float64}
-promote_op{T<:Integer,S<:Integer}(::typeof(.^), ::Type{T}, ::Type{Complex{S}}) =
-    Complex{Float64}
-
 widen{T}(::Type{Complex{T}}) = Complex{widen(T)}
 
 real(z::Complex) = z.re
@@ -53,6 +47,11 @@ complex{T<:Real}(::Type{Complex{T}}) = Complex{T}
 
 isreal(x::Real) = true
 isreal(z::Complex) = imag(z) == 0
+"""
+    isimag(z) -> Bool
+
+Test whether `z` is purely imaginary, i.e. has a real part equal to 0.
+"""
 isimag(z::Number) = real(z) == 0
 isinteger(z::Complex) = isreal(z) & isinteger(real(z))
 isfinite(z::Complex) = isfinite(real(z)) & isfinite(imag(z))
@@ -457,11 +456,11 @@ function log1p{T}(z::Complex{T})
     end
 end
 
-function ^{T<:AbstractFloat}(z::Complex{T}, p::Complex{T})
-    if p==2 #square
+function ^{T<:AbstractFloat}(z::Complex{T}, p::Complex{T})::Complex{T}
+    if p == 2 #square
         zr, zi = reim(z)
         x = (zr-zi)*(zr+zi)
-        y = 2zr*zi
+        y = 2*zr*zi
         if isnan(x)
             if isinf(y)
                 x = copysign(zero(T),zr)
@@ -761,6 +760,14 @@ end
 
 #Rounding complex numbers
 #Requires two different RoundingModes for the real and imaginary components
+"""
+    round(z, RoundingModeReal, RoundingModeImaginary)
+
+Returns the nearest integral value of the same type as the complex-valued `z` to `z`,
+breaking ties using the specified [`RoundingMode`](:obj:`RoundingMode`)s. The first
+[`RoundingMode`](:obj:`RoundingMode`) is used for rounding the real components while the
+second is used for rounding the imaginary components.
+"""
 function round{T<:AbstractFloat, MR, MI}(z::Complex{T}, ::RoundingMode{MR}, ::RoundingMode{MI})
     Complex(round(real(z), RoundingMode{MR}()),
             round(imag(z), RoundingMode{MI}()))

@@ -12,9 +12,43 @@ type Bidiagonal{T} <: AbstractMatrix{T}
         new(dv, ev, isupper)
     end
 end
+"""
+    Bidiagonal(dv, ev, isupper::Bool)
+
+Constructs an upper (`isupper=true`) or lower (`isupper=false`) bidiagonal matrix using the
+given diagonal (`dv`) and off-diagonal (`ev`) vectors.  The result is of type `Bidiagonal`
+and provides efficient specialized linear solvers, but may be converted into a regular
+matrix with [`full`](:func:`full`). `ev`'s length must be one less than the length of `dv`.
+
+**Example**
+
+```julia
+dv = rand(5)
+ev = rand(4)
+Bu = Bidiagonal(dv, ev, true) #e is on the first superdiagonal
+Bl = Bidiagonal(dv, ev, false) #e is on the first subdiagonal
+```
+"""
 Bidiagonal{T}(dv::AbstractVector{T}, ev::AbstractVector{T}, isupper::Bool) = Bidiagonal{T}(collect(dv), collect(ev), isupper)
 Bidiagonal(dv::AbstractVector, ev::AbstractVector) = throw(ArgumentError("did you want an upper or lower Bidiagonal? Try again with an additional true (upper) or false (lower) argument."))
 
+"""
+    Bidiagonal(dv, ev, uplo::Char)
+
+Constructs an upper (`uplo='U'`) or lower (`uplo='L'`) bidiagonal matrix using the
+given diagonal (`dv`) and off-diagonal (`ev`) vectors.  The result is of type `Bidiagonal`
+and provides efficient specialized linear solvers, but may be converted into a regular
+matrix with [`full`](:func:`full`). `ev`'s length must be one less than the length of `dv`.
+
+**Example**
+
+```julia
+dv = rand(5)
+ev = rand(4)
+Bu = Bidiagonal(dv, ev, 'U') #e is on the first superdiagonal
+Bl = Bidiagonal(dv, ev, 'L') #e is on the first subdiagonal
+```
+"""
 #Convert from BLAS uplo flag to boolean internal
 Bidiagonal(dv::AbstractVector, ev::AbstractVector, uplo::Char) = begin
     if uplo === 'U'
@@ -31,6 +65,20 @@ function Bidiagonal{Td,Te}(dv::AbstractVector{Td}, ev::AbstractVector{Te}, isupp
     Bidiagonal(convert(Vector{T}, dv), convert(Vector{T}, ev), isupper)
 end
 
+"""
+    Bidiagonal(A, isupper::Bool)
+
+Construct a `Bidiagonal` matrix from the main diagonal of `A` and
+its first super- (if `isupper=true`) or sub-diagonal (if `isupper=false`).
+
+**Example**
+
+```julia
+A = rand(5,5)
+Bu = Bidiagonal(A, true) #contains the main diagonal and first superdiagonal of A
+Bl = Bidiagonal(A, false) #contains the main diagonal and first subdiagonal of A
+```
+"""
 Bidiagonal(A::AbstractMatrix, isupper::Bool)=Bidiagonal(diag(A), diag(A, isupper?1:-1), isupper)
 
 function getindex{T}(A::Bidiagonal{T}, i::Integer, j::Integer)
@@ -66,7 +114,6 @@ function Base.replace_in_print_matrix(A::Bidiagonal,i::Integer,j::Integer,s::Abs
 end
 
 #Converting from Bidiagonal to dense Matrix
-full{T}(M::Bidiagonal{T}) = convert(Matrix{T}, M)
 function convert{T}(::Type{Matrix{T}}, A::Bidiagonal)
     n = size(A, 1)
     B = zeros(T, n, n)
@@ -82,6 +129,8 @@ function convert{T}(::Type{Matrix{T}}, A::Bidiagonal)
     return B
 end
 convert{T}(::Type{Matrix}, A::Bidiagonal{T}) = convert(Matrix{T}, A)
+convert(::Type{Array}, A::Bidiagonal) = convert(Matrix, A)
+full(A::Bidiagonal) = convert(Array, A)
 promote_rule{T,S}(::Type{Matrix{T}}, ::Type{Bidiagonal{S}})=Matrix{promote_type(T,S)}
 
 #Converting from Bidiagonal to Tridiagonal
@@ -120,15 +169,12 @@ svdfact(M::Bidiagonal; thin::Bool=true) = svdfact!(copy(M),thin=thin)
 ####################
 
 function show(io::IO, M::Bidiagonal)
-    if get(io, :multiline, false)
-        Base.showarray(io, M)
-    else
-        println(io, summary(M), ":")
-        print(io, " diag:")
-        print_matrix(io, (M.dv)')
-        print(io, M.isupper?"\n super:":"\n sub:")
-        print_matrix(io, (M.ev)')
-    end
+    # TODO: make this readable and one-line
+    println(io, summary(M), ":")
+    print(io, " diag:")
+    print_matrix(io, (M.dv)')
+    print(io, M.isupper?"\n super:":"\n sub:")
+    print_matrix(io, (M.ev)')
 end
 
 size(M::Bidiagonal) = (length(M.dv), length(M.dv))

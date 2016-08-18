@@ -2,7 +2,11 @@
 
 function StrArrayStruct{T<:AbstractString}(strs::T...)
     strcount = length(strs)
-    map(s->Base.unsafe_convert(Cstring, String(s)), strs) # check for null-strings
+    for s in strs
+        if Base.containsnul(s)
+            throw("embedded NULs are not allowed in C strings: $(repr(s))")
+        end
+    end
     sa_strings = convert(Ptr{Cstring}, Libc.malloc(sizeof(Cstring) * strcount))
     for i=1:strcount
         len = length(strs[i])
@@ -19,7 +23,7 @@ StrArrayStruct{T<:AbstractString}(strs::Vector{T}) = StrArrayStruct(strs...)
 function Base.convert(::Type{Vector{AbstractString}}, sa::StrArrayStruct)
     arr = Array{AbstractString}(sa.count)
     for i=1:sa.count
-        arr[i] = String(unsafe_load(sa.strings, i))
+        arr[i] = unsafe_string(unsafe_load(sa.strings, i))
     end
     return arr
 end

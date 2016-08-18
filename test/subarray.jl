@@ -1,25 +1,20 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
 using Base.Test
-# import Base: ViewIndex, dimsizeexpr, rangetype, merge_indexes, first_index, stride1expr, tailsize
-using Base.Cartesian
-
-print_underestimates = false
 
 ######## Utilities ###########
 
 # Generate an array similar to A[indx1, indx2, ...], but only call
-# getindex with scalar-valued indexes. This will be safe even after
-# getindex starts calling sub/slice.
+# getindex with scalar-valued indexes. This will be safe even if
+# `getindex` someday calls `view`.
 
-# The "nodrop" variant is similar to current getindex/sub, except it
-# doesn't drop any dimensions (not even trailing ones)
+# The "nodrop" variant does not drop any dimensions (not even trailing ones)
 function Agen_nodrop(A::AbstractArray, I...)
     irep = replace_colon(A, I)
     _Agen(A, irep...)
 end
 
-# This does the same thing as slice
+# This drops scalar dimensions
 function Agen_slice(A::AbstractArray, I...)
     irep = replace_colon(A, I)
     B = _Agen(A, irep...)
@@ -173,25 +168,19 @@ function runsubarraytests(A::Array, I...)
     # Direct test of linear indexing inference
     C = Agen_nodrop(A, I...)
     ld = min(single_stride_dim(C), dim_break_linindex(I))
-    # sub
-    S = sub(A, I...)
+    S = view(A, I...)
     if Base.iscontiguous(S)
         @test S.stride1 == 1
     end
     test_linear(S, C)
     test_cartesian(S, C)
     test_mixed(S, C)
-    # slice
-    S = slice(A, I...)
-    test_linear(S, C)
-    test_cartesian(S, C)
-    test_mixed(S, C)
 end
 
 function runsubarraytests(A::ANY, I...)
-    # When A was created with sub, we have to check bounds, since some
+    # When A was created with view, we have to check bounds, since some
     # of the "residual" dimensions have size 1. It's possible that we
-    # need dedicated tests for sub.
+    # need dedicated tests for view.
     for d = 1:length(I)-1
         if !isa(I[d], Colon) && any(I[d] .> size(A,d))
             return nothing
@@ -213,22 +202,9 @@ function runsubarraytests(A::ANY, I...)
             Cdim += 1
         end
     end
-    # sub
     local S
     try
-        S = sub(A, I...)
-    catch err
-        @show typeof(A)
-        @show A.indexes
-        @show I
-        rethrow(err)
-    end
-    test_linear(S, C)
-    test_cartesian(S, C)
-    test_mixed(S, C)
-    # slice
-    try
-        S = slice(A, I...)
+        S = view(A, I...)
     catch err
         @show typeof(A)
         @show A.indexes
@@ -276,9 +252,9 @@ runviews{T}(SB::AbstractArray{T,0}, indexN, indexNN, indexNNN) = nothing
 testfull = Bool(parse(Int,(get(ENV, "JULIA_TESTFULL", "0"))))
 
 ### Views from Arrays ###
-index5 = (1, :, 2:5, [4,1,5], reshape([2]), sub(1:5,[2 3 4 1]))  # all work with at least size 5
-index25 = (3, :, 2:11, [19,9,7], reshape([10]), sub(1:25,[19 15; 4 24]))
-index125 = (113, :, 85:121, [99,14,103], reshape([72]), sub(1:125,reshape([25,4,102,67], 1, 2, 2)))
+index5 = (1, :, 2:5, [4,1,5], reshape([2]), view(1:5,[2 3 4 1]))  # all work with at least size 5
+index25 = (3, :, 2:11, [19,9,7], reshape([10]), view(1:25,[19 15; 4 24]))
+index125 = (113, :, 85:121, [99,14,103], reshape([72]), view(1:125,reshape([25,4,102,67], 1, 2, 2)))
 
 if testfull
     let A = copy(reshape(1:5*7*11, 11, 7, 5))
@@ -295,10 +271,8 @@ oindex = (:, 6, 3:7, reshape([12]), [8,4,6,12,5,7], [3:7 1:5 2:6 4:8 5:9])
 if testfull
     let B = copy(reshape(1:13^3, 13, 13, 13))
         for o3 in oindex, o2 in oindex, o1 in oindex
-            sliceB = slice(B, o1, o2, o3)
-            runviews(sliceB, index5, index25, index125)
-            subB = sub(B, o1, o2, o3)
-            runviews(subB, index5, index25, index125)
+            viewB = view(B, o1, o2, o3)
+            runviews(viewB, index5, index25, index125)
         end
     end
 end
@@ -317,35 +291,34 @@ if !testfull
                      (13:-2:1,:,:),
                      ([8,4,6,12,5,7],:,3:7),
                      (6,6,[8,4,6,12,5,7]),
-                     (1,:,sub(1:13,[9,12,4,13,1])),
-                     (sub(1:13,[9,12,4,13,1]),2:6,4),
+                     (1,:,view(1:13,[9,12,4,13,1])),
+                     (view(1:13,[9,12,4,13,1]),2:6,4),
                      ([1:5 2:6 3:7 4:8 5:9], :, 3),
                      (:, [46:-1:42 88:-1:84 22:-1:18 49:-1:45 8:-1:4]))
             runsubarraytests(B, oind...)
-            sliceB = slice(B, oind...)
-            runviews(sliceB, index5, index25, index125)
-            subB = sub(B, oind...)
-            runviews(subB, index5, index25, index125)
+            viewB = view(B, oind...)
+            runviews(viewB, index5, index25, index125)
         end
     end
 end
 
 # issue #11289
 x11289 = randn(5,5)
-@test isempty(sub(x11289, Int[], :))
-@test isempty(sub(x11289, [2,5], Int[]))
-@test isempty(sub(x11289, Int[], 2))
+@test isempty(view(x11289, Int[], :))
+@test isempty(view(x11289, [2,5], Int[]))
+@test isempty(view(x11289, Int[], 2))
 
 ####### "Classical" tests #######
 
-# sub
+# Tests where non-trailing dimensions are preserved
 A = copy(reshape(1:120, 3, 5, 8))
-sA = sub(A, 2, 1:5, :)
+sA = view(A, 2:2, 1:5, :)
 @test strides(sA) == (1, 3, 15)
 @test parent(sA) == A
-@test parentindexes(sA) == (Base.NoSlice(2), 1:5, :)
+@test parentindexes(sA) == (2:2, 1:5, :)
 @test Base.parentdims(sA) == [1:3;]
 @test size(sA) == (1, 5, 8)
+@test indices(sA) === (Base.OneTo(1), Base.OneTo(5), Base.OneTo(8))
 @test sA[1, 2, 1:8][:] == [5:15:120;]
 sA[2:5:end] = -1
 @test all(sA[2:5:end] .== -1)
@@ -354,7 +327,7 @@ sA[2:5:end] = -1
 @test stride(sA,3) == 15
 @test stride(sA,4) == 120
 test_bounds(sA)
-sA = sub(A, 1:3, 1:5, 5)
+sA = view(A, 1:3, 1:5, 5)
 @test Base.parentdims(sA) == [1:2;]
 sA[1:3,1:5] = -2
 @test all(A[:,:,5] .== -2)
@@ -362,38 +335,46 @@ sA[:] = -3
 @test all(A[:,:,5] .== -3)
 @test strides(sA) == (1,3)
 test_bounds(sA)
-sA = sub(A, 1:3, 3, 2:5)
+sA = view(A, 1:3, 3:3, 2:5)
 @test Base.parentdims(sA) == [1:3;]
 @test size(sA) == (3,1,4)
+@test indices(sA) === (Base.OneTo(3), Base.OneTo(1), Base.OneTo(4))
 @test sA == A[1:3,3:3,2:5]
 @test sA[:] == A[1:3,3,2:5][:]
 test_bounds(sA)
-sA = sub(A, 1:2:3, 1:3:5, 1:2:8)
+sA = view(A, 1:2:3, 1:3:5, 1:2:8)
 @test Base.parentdims(sA) == [1:3;]
 @test strides(sA) == (2,9,30)
 @test sA[:] == A[1:2:3, 1:3:5, 1:2:8][:]
 # issue #8807
-@test sub(sub([1:5;], 1:5), 1:5) == [1:5;]
+@test view(view([1:5;], 1:5), 1:5) == [1:5;]
 # Test with mixed types
 @test sA[:, Int16[1,2], big(2)] == [31 40; 33 42]
 test_bounds(sA)
+sA = view(A, 1:1, 1:5, [1 3; 4 2])
+@test ndims(sA) == 4
+@test indices(sA) === (Base.OneTo(1), Base.OneTo(5), Base.OneTo(2), Base.OneTo(2))
+sA = view(A, 1:2, 3, [1 3; 4 2])
+@test ndims(sA) == 3
+@test indices(sA) === (Base.OneTo(2), Base.OneTo(2), Base.OneTo(2))
 
-# sub logical indexing #4763
-A = sub([1:10;], 5:8)
+# logical indexing #4763
+A = view([1:10;], 5:8)
 @test A[A.<7] == [5, 6]
 @test Base.unsafe_getindex(A, A.<7) == [5, 6]
 B = reshape(1:16, 4, 4)
-sB = sub(B, 2:3, 2:3)
+sB = view(B, 2:3, 2:3)
 @test sB[sB.>8] == [10, 11]
 @test Base.unsafe_getindex(sB, sB.>8) == [10, 11]
 
-# slice
+# Tests where dimensions are dropped
 A = copy(reshape(1:120, 3, 5, 8))
-sA = slice(A, 2, :, 1:8)
+sA = view(A, 2, :, 1:8)
 @test parent(sA) == A
 @test parentindexes(sA) == (2, :, 1:8)
 @test Base.parentdims(sA) == [2:3;]
 @test size(sA) == (5, 8)
+@test indices(sA) === (Base.OneTo(5), Base.OneTo(8))
 @test strides(sA) == (3,15)
 @test sA[2, 1:8][:] == [5:15:120;]
 @test sA[:,1] == [2:3:14;]
@@ -402,14 +383,16 @@ sA[2:5:end] = -1
 @test all(sA[2:5:end] .== -1)
 @test all(A[5:15:120] .== -1)
 test_bounds(sA)
-sA = slice(A, 1:3, 1:5, 5)
+sA = view(A, 1:3, 1:5, 5)
 @test Base.parentdims(sA) == [1:2;]
 @test size(sA) == (3,5)
+@test indices(sA) === (Base.OneTo(3),Base.OneTo(5))
 @test strides(sA) == (1,3)
 test_bounds(sA)
-sA = slice(A, 1:2:3, 3, 1:2:8)
+sA = view(A, 1:2:3, 3, 1:2:8)
 @test Base.parentdims(sA) == [1,3]
 @test size(sA) == (2,4)
+@test indices(sA) === (Base.OneTo(2), Base.OneTo(4))
 @test strides(sA) == (2,30)
 @test sA[:] == A[sA.indexes...][:]
 test_bounds(sA)
@@ -422,56 +405,82 @@ a = [5:8;]
 A = rand(2, 2, 3)
 msk = ones(Bool, 2, 2)
 msk[2,1] = false
-sA = sub(A, :, :, 1)
+sA = view(A, :, :, 1)
 sA[msk] = 1.0
 @test sA[msk] == ones(countnz(msk))
 
 # bounds checking upon construction; see #4044, #10296
-@test_throws BoundsError sub(1:10, 8:11)
+@test_throws BoundsError view(1:10, 8:11)
 A = reshape(1:20, 5, 4)
-sA = sub(A, 1:2, 1:3)
-@test_throws BoundsError sub(sA, 1:3, 1:3)
-@test_throws BoundsError sub(sA, 1:2, 1:4)
-sub(sA, 1:2, 1:2)
-@test_throws BoundsError sub(A, 17:23)
-sub(A, 17:20)
+sA = view(A, 1:2, 1:3)
+@test_throws BoundsError view(sA, 1:3, 1:3)
+@test_throws BoundsError view(sA, 1:2, 1:4)
+view(sA, 1:2, 1:2)
+@test_throws BoundsError view(A, 17:23)
+view(A, 17:20)
 
 # Linear indexing by one multidimensional array:
 A = reshape(1:120, 3, 5, 8)
-sA = sub(A, :, :, :)
+sA = view(A, :, :, :)
 @test sA[[72 17; 107 117]] == [72 17; 107 117]
 @test sA[[99 38 119 14 76 81]] == [99 38 119 14 76 81]
 @test sA[[ones(Int, 2, 2, 2); 2ones(Int, 2, 2, 2)]] == [ones(Int, 2, 2, 2); 2ones(Int, 2, 2, 2)]
-sA = sub(A, 1:2, 2:3, 3:4)
+sA = view(A, 1:2, 2:3, 3:4)
 @test sA[(1:8)'] == [34 35 37 38 49 50 52 53]
 @test sA[[1 2 4 4; 6 1 1 4]] == [34 35 38 38; 50 34 34 38]
 
 # issue #11871
 let a = ones(Float64, (2,2)),
-    b = sub(a, 1:2, 1:2)
+    b = view(a, 1:2, 1:2)
     b[2] = 2
     @test b[2] === 2.0
 end
 
 # issue #15138
 let a = [1,2,3],
-    b = sub(a, UInt(1):UInt(2))
-    @test b == slice(a, UInt(1):UInt(2)) == slice(slice(a, :), UInt(1):UInt(2)) == [1,2]
+    b = view(a, UInt(1):UInt(2))
+    @test b == view(a, UInt(1):UInt(2)) == view(view(a, :), UInt(1):UInt(2)) == [1,2]
 end
 
 let A = reshape(1:4, 2, 2)
-    B = sub(A, :, :)
+    B = view(A, :, :)
     @test parent(B) === A
-    @test parent(sub(B, 0x1, :)) === parent(slice(B, 0x1, :)) === A
+    @test parent(view(B, 0x1, :)) === parent(view(B, 0x1, :)) === A
 end
 
 # issue #15168
-let A = rand(10), sA = sub(copy(A), :)
+let A = rand(10), sA = view(copy(A), :)
     @test sA[Int16(1)] === sA[Int32(1)] === sA[Int64(1)] === A[1]
     permute!(sA, collect(Int16, 1:10))
     @test A == sA
 end
 
 # the following segfaults with LLVM 3.8 on Windows, ref #15417
-@test collect(sub(sub(reshape(1:13^3, 13, 13, 13), 3:7, 6, :), 1:2:5, :, 1:2:5)) ==
+@test collect(view(view(reshape(1:13^3, 13, 13, 13), 3:7, 6:6, :), 1:2:5, :, 1:2:5)) ==
     cat(3,[68,70,72],[406,408,410],[744,746,748])
+
+
+
+# tests @view (and replace_ref_end!)
+X = reshape(1:24,2,3,4)
+Y = 4:-1:1
+
+@test isa(@view(X[1:3]), SubArray)
+
+
+@test X[1:end] == @view X[1:end]
+@test X[1:end-3] == @view X[1:end-3]
+@test X[1:end,2,2] == @view X[1:end,2,2]
+@test X[1,1:end-2] == @view X[1,1:end-2]
+@test X[1,2,1:end-2] == @view X[1,2,1:end-2]
+@test X[1,2,Y[2:end]] == @view X[1,2,Y[2:end]]
+@test X[1:end,2,Y[2:end]] == @view X[1:end,2,Y[2:end]]
+
+u = (1,2:3)
+@test X[u...,2:end] == @view X[u...,2:end]
+@test X[(1,)...,(2,)...,2:end] == @view X[(1,)...,(2,)...,2:end]
+
+# test macro hygiene
+let size=(x,y)-> error("should not happen")
+    @test X[1:end,2,2] == @view X[1:end,2,2]
+end

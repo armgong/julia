@@ -85,10 +85,10 @@ for (i, T) in enumerate(types)
     show(io1, x1)
     @test takebuf_string(io1) == @sprintf("Nullable{%s}()", T)
     show(io1, x2)
-    show(io2, get(x2))
+    showcompact(io2, get(x2))
     @test takebuf_string(io1) == @sprintf("Nullable{%s}(%s)", T, takebuf_string(io2))
     show(io1, x3)
-    show(io2, get(x3))
+    showcompact(io2, get(x3))
     @test takebuf_string(io1) == @sprintf("Nullable{%s}(%s)", T, takebuf_string(io2))
 
     a1 = [x2]
@@ -101,6 +101,13 @@ for (i, T) in enumerate(types)
     show(IOContext(io2, compact=true), x2)
     @test takebuf_string(io1) ==
         @sprintf("Nullable{%s}[%s]", string(T), takebuf_string(io2))
+end
+
+module NullableTestEnum
+    io = IOBuffer()
+    @enum TestEnum a b
+    show(io, Nullable(a))
+    Base.Test.@test takebuf_string(io) == "Nullable{NullableTestEnum.TestEnum}(a)"
 end
 
 # showcompact(io::IO, x::Nullable)
@@ -137,12 +144,17 @@ for T in types
     @test get(x3) === one(T)
 end
 
+@test_throws NullException get(Nullable())
+
 # get{S, T}(x::Nullable{S}, y::T)
 for T in types
+    x0 = Nullable()
     x1 = Nullable{T}()
     x2 = Nullable(zero(T))
     x3 = Nullable(one(T))
 
+    @test get(x0, zero(T)) === zero(T)
+    @test get(x0, one(T)) === one(T)
     @test get(x1, zero(T)) === zero(T)
     @test get(x1, one(T)) === one(T)
     @test get(x2, one(T)) === zero(T)
@@ -160,12 +172,20 @@ for T in types
     @test isnull(x3) === false
 end
 
+@test isnull(Nullable())
+
 # function isequal{S, T}(x::Nullable{S}, y::Nullable{T})
 for T in types
+    x0 = Nullable()
     x1 = Nullable{T}()
     x2 = Nullable{T}()
     x3 = Nullable(zero(T))
     x4 = Nullable(one(T))
+
+    @test isequal(x0, x1) === true
+    @test isequal(x0, x2) === true
+    @test isequal(x0, x3) === false
+    @test isequal(x0, x4) === false
 
     @test isequal(x1, x1) === true
     @test isequal(x1, x2) === true
@@ -190,10 +210,16 @@ end
 
 # function =={S, T}(x::Nullable{S}, y::Nullable{T})
 for T in types
+    x0 = Nullable()
     x1 = Nullable{T}()
     x2 = Nullable{T}()
     x3 = Nullable(zero(T))
     x4 = Nullable(one(T))
+
+    @test_throws NullException (x0 == x1)
+    @test_throws NullException (x0 == x2)
+    @test_throws NullException (x0 == x3)
+    @test_throws NullException (x0 == x4)
 
     @test_throws NullException (x1 == x1)
     @test_throws NullException (x1 == x2)
@@ -218,16 +244,21 @@ end
 
 # function hash(x::Nullable, h::UInt)
 for T in types
+    x0 = Nullable()
     x1 = Nullable{T}()
     x2 = Nullable{T}()
     x3 = Nullable(zero(T))
     x4 = Nullable(one(T))
 
+    @test isa(hash(x0), UInt)
     @test isa(hash(x1), UInt)
     @test isa(hash(x2), UInt)
     @test isa(hash(x3), UInt)
     @test isa(hash(x4), UInt)
 
+    @test hash(x0) == hash(x2)
+    @test hash(x0) != hash(x3)
+    @test hash(x0) != hash(x4)
     @test hash(x1) == hash(x2)
     @test hash(x1) != hash(x3)
     @test hash(x1) != hash(x4)
@@ -276,6 +307,13 @@ end
 @test promote_type(Nullable{Union{}}, Int) === Nullable{Int}
 @test promote_type(Nullable{Float64}, Nullable{Int}) === Nullable{Float64}
 @test promote_type(Nullable{Union{}}, Nullable{Int}) === Nullable{Int}
+@test promote_type(Nullable{Date}, Nullable{DateTime}) === Nullable{DateTime}
+
+@test Base.promote_op(+, Nullable{Int}, Nullable{Int}) == Nullable{Int}
+@test Base.promote_op(-, Nullable{Int}, Nullable{Int}) == Nullable{Int}
+@test Base.promote_op(+, Nullable{Float64}, Nullable{Int}) == Nullable{Float64}
+@test Base.promote_op(-, Nullable{Float64}, Nullable{Int}) == Nullable{Float64}
+@test Base.promote_op(-, Nullable{DateTime}, Nullable{DateTime}) == Nullable{Base.Dates.Millisecond}
 
 # issue #11675
 @test repr(Nullable()) == "Nullable{Union{}}()"

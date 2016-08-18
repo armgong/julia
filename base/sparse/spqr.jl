@@ -142,22 +142,33 @@ qrfact(A::SparseMatrixCSC) = qrfact(A, Val{true})
 # With a real lhs and complex rhs with the same precision, we can reinterpret
 # the complex rhs as a real rhs with twice the number of columns
 #
-# This definition is similar to the definition in factorization.jl except the we here have to use
-# \ instead of A_ldiv_B! because of limitations in SPQR
-function (\)(F::Factorization{Float64}, B::StridedVector{Complex{Float64}})
+# This definition is similar to the definition in factorization.jl except that
+# here we have to use \ instead of A_ldiv_B! because of limitations in SPQR
+
+## Two helper methods
+_ret_size(F::Factorization, b::AbstractVector) = (size(F, 2),)
+_ret_size(F::Factorization, B::AbstractMatrix) = (size(F, 2), size(B, 2))
+
+function (\)(F::Factorization{Float64}, B::VecOrMat{Complex{Float64}})
+# |z1|z3|  reinterpret  |x1|x2|x3|x4|  transpose  |x1|y1|  reshape  |x1|y1|x3|y3|
+# |z2|z4|      ->       |y1|y2|y3|y4|     ->      |x2|y2|     ->    |x2|y2|x4|y4|
+#                                                 |x3|y3|
+#                                                 |x4|y4|
     c2r = reshape(transpose(reinterpret(Float64, B, (2, length(B)))), size(B, 1), 2*size(B, 2))
     x = F\c2r
-    return reinterpret(Complex{Float64}, transpose(reshape(x, div(length(x), 2), 2)), (size(F,2),))
+
+# |z1|z3|  reinterpret  |x1|x2|x3|x4|  transpose  |x1|y1|  reshape  |x1|y1|x3|y3|
+# |z2|z4|      <-       |y1|y2|y3|y4|     <-      |x2|y2|     <-    |x2|y2|x4|y4|
+#                                                 |x3|y3|
+#                                                 |x4|y4|
+    return reinterpret(Complex{Float64}, transpose(reshape(x, (length(x) >> 1), 2)), _ret_size(F, B))
 end
-function (\)(F::Factorization{Float64}, B::StridedMatrix{Complex{Float64}})
-    c2r = reshape(transpose(reinterpret(Float64, B, (2, length(B)))), size(B, 1), 2*size(B, 2))
-    x = F\c2r
-    return reinterpret(Complex{Float64}, transpose(reshape(x, div(length(x), 2), 2)), (size(F,2), size(B,2)))
-end
+
 function (\){T<:VTypes}(F::Factorization{T}, B::StridedVecOrMat{T})
     QtB = qmult(QTX, F, Dense(B))
     convert(typeof(B), solve(RETX_EQUALS_B, F, QtB))
 end
+
 (\)(F::Factorization, B::StridedVecOrMat) = F\convert(AbstractArray{eltype(F)}, B)
 
 end # module

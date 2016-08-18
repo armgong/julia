@@ -36,7 +36,7 @@ for eltya in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
     if eltya <: BlasFloat
         num = rand(eltya)
         @test lu(num) == (one(eltya),num,1)
-        @test_approx_eq full(lufact(num)) eltya[num]
+        @test full(lufact(num)) ≈ eltya[num]
     end
     for eltyb in (Float32, Float64, Complex64, Complex128, Int)
         b = eltyb == Int ? rand(1:5, n, 2) : convert(Matrix{eltyb}, eltyb <: Complex ? complex(breal, bimg) : breal)
@@ -50,19 +50,30 @@ debug && println("(Automatic) Square LU decomposition")
         @test_throws KeyError lua[:Z]
         l,u,p = lua[:L], lua[:U], lua[:p]
         ll,ul,pl = lu(a)
-        @test_approx_eq ll * ul a[pl,:]
-        @test_approx_eq l*u a[p,:]
-        @test_approx_eq (l*u)[invperm(p),:] a
-        @test_approx_eq a * inv(lua) eye(n)
-        @test norm(a*(lua\b) - b, 1) < ε*κ*n*2 # Two because the right hand side has two columns
-        @test norm(a'*(lua'\b) - b, 1) < ε*κ*n*2 # Two because the right hand side has two columns
-        @test norm(a'*(lua'\a') - a', 1) < ε*κ*n^2
-        @test norm(a*(lua\c) - c, 1) < ε*κ*n # c is a vector
-        @test norm(a'*(lua'\c) - c, 1) < ε*κ*n # c is a vector
-        @test_approx_eq full(lua) a
-        if eltya <: Real && eltyb <: Real
-            @test norm(a.'*(lua.'\b) - b,1) < ε*κ*n*2 # Two because the right hand side has two columns
-            @test norm(a.'*(lua.'\c) - c,1) < ε*κ*n
+        @test ll * ul ≈ a[pl,:]
+        @test l*u ≈ a[p,:]
+        @test (l*u)[invperm(p),:] ≈ a
+        @test a * inv(lua) ≈ eye(n)
+        let Bs = b, Cs = c
+            for atype in ("Array", "SubArray")
+                if atype == "Array"
+                    b = Bs
+                    c = Cs
+                else
+                    b = view(Bs, 1:n, 1)
+                    c = view(Cs, 1:n)
+                end
+                @test norm(a*(lua\b) - b, 1) < ε*κ*n*2 # Two because the right hand side has two columns
+                @test norm(a'*(lua'\b) - b, 1) < ε*κ*n*2 # Two because the right hand side has two columns
+                @test norm(a'*(lua'\a') - a', 1) < ε*κ*n^2
+                @test norm(a*(lua\c) - c, 1) < ε*κ*n # c is a vector
+                @test norm(a'*(lua'\c) - c, 1) < ε*κ*n # c is a vector
+                @test full(lua) ≈ a
+                if eltya <: Real && eltyb <: Real
+                    @test norm(a.'*(lua.'\b) - b,1) < ε*κ*n*2 # Two because the right hand side has two columns
+                    @test norm(a.'*(lua.'\c) - c,1) < ε*κ*n
+                end
+            end
         end
         if eltya <: BlasFloat && eltyb <: BlasFloat
             e = rand(eltyb,n,n)
@@ -74,21 +85,30 @@ debug && println("Tridiagonal LU")
         lud   = lufact(d)
         @test lufact(lud) == lud
         @test_throws KeyError lud[:Z]
-        @test_approx_eq lud[:L]*lud[:U] lud[:P]*full(d)
-        @test_approx_eq lud[:L]*lud[:U] full(d)[lud[:p],:]
-        @test_approx_eq full(lud) d
-        @test norm(d*(lud\b) - b, 1) < ε*κd*n*2 # Two because the right hand side has two columns
-        if eltya <: Real
-            @test norm((lud.'\b) - full(d.')\b, 1) < ε*κd*n*2 # Two because the right hand side has two columns
-        end
-        if eltya <: Complex
-            @test norm((lud'\b) - full(d')\b, 1) < ε*κd*n*2 # Two because the right hand side has two columns
-        end
+        @test lud[:L]*lud[:U] ≈ lud[:P]*full(d)
+        @test lud[:L]*lud[:U] ≈ full(d)[lud[:p],:]
+        @test full(lud) ≈ d
         f = zeros(eltyb, n+1)
         @test_throws DimensionMismatch lud\f
         @test_throws DimensionMismatch lud.'\f
         @test_throws DimensionMismatch lud'\f
+        let Bs = b
+            for atype in ("Array", "SubArray")
+                if atype == "Array"
+                    b = Bs
+                else
+                    b = view(Bs, 1:n, 1)
+                end
 
+                @test norm(d*(lud\b) - b, 1) < ε*κd*n*2 # Two because the right hand side has two columns
+                if eltya <: Real
+                    @test norm((lud.'\b) - full(d.')\b, 1) < ε*κd*n*2 # Two because the right hand side has two columns
+                end
+                if eltya <: Complex
+                    @test norm((lud'\b) - full(d')\b, 1) < ε*κd*n*2 # Two because the right hand side has two columns
+                end
+            end
+        end
         if eltya <: BlasFloat && eltyb <: BlasFloat
             e = rand(eltyb,n,n)
             @test norm(e/lud - e/d,1) < ε*κ*n^2
@@ -106,11 +126,11 @@ debug && println("Tridiagonal LU")
 
 debug && println("Thin LU")
         lua   = @inferred lufact(a[:,1:n1])
-        @test_approx_eq lua[:L]*lua[:U] lua[:P]*a[:,1:n1]
+        @test lua[:L]*lua[:U] ≈ lua[:P]*a[:,1:n1]
 
 debug && println("Fat LU")
         lua   = lufact(a[1:n1,:])
-        @test_approx_eq lua[:L]*lua[:U] lua[:P]*a[1:n1,:]
+        @test lua[:L]*lua[:U] ≈ lua[:P]*a[1:n1,:]
     end
 end
 
@@ -129,11 +149,20 @@ b = rand(1:10,n,2)
 @inferred lufact(a)
 lua   = factorize(a)
 l,u,p = lua[:L], lua[:U], lua[:p]
-@test_approx_eq l*u a[p,:]
-@test_approx_eq l[invperm(p),:]*u a
-@test_approx_eq a * inv(lua) eye(n)
-@test_approx_eq a*(lua\b) b
-@test_approx_eq @inferred(det(a)) det(Array{Float64}(a))
+@test l*u ≈ a[p,:]
+@test l[invperm(p),:]*u ≈ a
+@test a*inv(lua) ≈ eye(n)
+let Bs = b
+    for atype in ("Array", "SubArray")
+        if atype == "Array"
+            b = Bs
+        else
+            b = view(Bs, 1:n, 1)
+        end
+        @test a*(lua\b) ≈ b
+    end
+end
+@test @inferred(det(a)) ≈ det(Array{Float64}(a))
 ## Hilbert Matrix (very ill conditioned)
 ## Testing Rational{BigInt} and BigFloat version
 nHilbert = 50
@@ -152,7 +181,7 @@ for elty in (Float32, Float64, Complex64, Complex128)
                                -0.5     -0.5       0.1     1.0])
     F = eigfact(A, permute=false, scale=false)
     eig(A, permute=false, scale=false)
-    @test_approx_eq F[:vectors]*Diagonal(F[:values])/F[:vectors] A
+    @test F[:vectors]*Diagonal(F[:values])/F[:vectors] ≈ A
     F = eigfact(A)
     # @test norm(F[:vectors]*Diagonal(F[:values])/F[:vectors] - A) > 0.01
 end

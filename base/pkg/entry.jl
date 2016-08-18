@@ -295,18 +295,42 @@ function pin(pkg::AbstractString, head::AbstractString)
     should_resolve = true
     with(GitRepo, pkg) do repo
         id = if isempty(head) # get HEAD commit
-            LibGit2.head_oid(repo)
-        else
             # no need to resolve, branch will be from HEAD
             should_resolve = false
+            LibGit2.head_oid(repo)
+        else
             LibGit2.revparseid(repo, head)
         end
         commit = LibGit2.get(LibGit2.GitCommit, repo, id)
-        branch = "pinned.$(string(id)[1:8]).tmp"
-        info("Creating $pkg branch $branch")
         try
-            ref = LibGit2.create_branch(repo, branch, commit)
-            finalize(ref)
+            # note: changing the following naming scheme requires a corresponding change in Read.ispinned()
+            branch = "pinned.$(string(id)[1:8]).tmp"
+            if LibGit2.isattached(repo) && LibGit2.branch(repo) == branch
+                info("Package $pkg is already pinned" * (isempty(head) ? "" : " to the selected commit"))
+                should_resolve = false
+                return
+            end
+            ref = LibGit2.lookup_branch(repo, branch)
+            try
+                if ref !== nothing
+                    if LibGit2.revparseid(repo, branch) != id
+                        throw(PkgError("Package $pkg: existing branch $branch has been edited and doesn't correspond to its original commit"))
+                    end
+                    info("Package $pkg: checking out existing branch $branch")
+                else
+                    info("Creating $pkg branch $branch")
+                    ref = LibGit2.create_branch(repo, branch, commit)
+                end
+
+                # checkout selected branch
+                with(LibGit2.peel(LibGit2.GitTree, ref)) do btree
+                    LibGit2.checkout_tree(repo, btree)
+                end
+                # switch head to the branch
+                LibGit2.head!(repo, ref)
+            finally
+                finalize(ref)
+            end
         finally
             finalize(commit)
         end
@@ -325,7 +349,7 @@ function pin(pkg::AbstractString, ver::VersionNumber)
     pin(pkg, avail[ver].sha1)
 end
 
-function update(branch::AbstractString)
+function update(branch::AbstractString, upkgs::Set{String})
     info("Updating METADATA...")
     with(GitRepo, "METADATA") do repo
         try
@@ -366,7 +390,14 @@ function update(branch::AbstractString)
         end
     end
     instd = Read.installed(avail)
-    free  = Read.free(instd)
+    reqs = Reqs.parse("REQUIRE")
+    if !isempty(upkgs)
+        for (pkg, (v,f)) in instd
+            satisfies(pkg, v, reqs) || throw(PkgError("Package $pkg: current package status does not satisfy the requirements, cannot do a partial update; use `Pkg.update()`"))
+        end
+    end
+    dont_update = Query.partial_update_mask(instd, avail, upkgs)
+    free  = Read.free(instd,dont_update)
     for (pkg,ver) in free
         try
             Cache.prefetch(pkg, Read.url(pkg), [a.sha1 for (v,a)=avail[pkg]])
@@ -375,49 +406,56 @@ function update(branch::AbstractString)
             push!(deferred_errors, PkgError("Package $pkg: unable to update cache.", cex))
         end
     end
+    fixed = Read.fixed(avail,instd,dont_update)
     creds = LibGit2.CachedCredentials()
-    fixed = Read.fixed(avail,instd)
-    stopupdate = false
-    for (pkg,ver) in fixed
-        ispath(pkg,".git") || continue
-        with(GitRepo, pkg) do repo
-            if LibGit2.isattached(repo)
-                if LibGit2.isdirty(repo)
-                    warn("Package $pkg: skipping update (dirty)...")
-                else
-                    prev_sha = string(LibGit2.head_oid(repo))
-                    success = true
-                    try
-                        LibGit2.fetch(repo, payload = Nullable(creds))
-                        LibGit2.reset!(creds)
-                        LibGit2.merge!(repo, fastforward=true)
-                    catch err
-                        cex = CapturedException(err, catch_backtrace())
-                        push!(deferred_errors, PkgError("Package $pkg cannot be updated.", cex))
-                        success = false
-                        stopupdate = isa(err, InterruptException)
-                    end
-                    if success
-                        post_sha = string(LibGit2.head_oid(repo))
-                        branch = LibGit2.branch(repo)
-                        info("Updating $pkg $branch...",
-                            prev_sha != post_sha ? " $(prev_sha[1:8]) → $(post_sha[1:8])" : "")
+    try
+        stopupdate = false
+        for (pkg,ver) in fixed
+            ispath(pkg,".git") || continue
+            pkg in dont_update && continue
+            with(GitRepo, pkg) do repo
+                if LibGit2.isattached(repo)
+                    if LibGit2.isdirty(repo)
+                        warn("Package $pkg: skipping update (dirty)...")
+                    elseif Read.ispinned(repo)
+                        info("Package $pkg: skipping update (pinned)...")
+                    else
+                        prev_sha = string(LibGit2.head_oid(repo))
+                        success = true
+                        try
+                            LibGit2.fetch(repo, payload = Nullable(creds))
+                            LibGit2.reset!(creds)
+                            LibGit2.merge!(repo, fastforward=true)
+                        catch err
+                            cex = CapturedException(err, catch_backtrace())
+                            push!(deferred_errors, PkgError("Package $pkg cannot be updated.", cex))
+                            success = false
+                            stopupdate = isa(err, InterruptException)
+                        end
+                        if success
+                            post_sha = string(LibGit2.head_oid(repo))
+                            branch = LibGit2.branch(repo)
+                            info("Updating $pkg $branch...",
+                                prev_sha != post_sha ? " $(prev_sha[1:8]) → $(post_sha[1:8])" : "")
+                        end
                     end
                 end
             end
-        end
-        stopupdate && break
-        if haskey(avail,pkg)
-            try
-                Cache.prefetch(pkg, Read.url(pkg), [a.sha1 for (v,a)=avail[pkg]])
-            catch err
-                cex = CapturedException(err, catch_backtrace())
-                push!(deferred_errors, PkgError("Package $pkg: unable to update cache.", cex))
+            stopupdate && break
+            if haskey(avail,pkg)
+                try
+                    Cache.prefetch(pkg, Read.url(pkg), [a.sha1 for (v,a)=avail[pkg]])
+                catch err
+                    cex = CapturedException(err, catch_backtrace())
+                    push!(deferred_errors, PkgError("Package $pkg: unable to update cache.", cex))
+                end
             end
         end
+    finally
+        Base.securezero!(creds)
     end
     info("Computing changes...")
-    resolve(Reqs.parse("REQUIRE"), avail, instd, fixed, free)
+    resolve(reqs, avail, instd, fixed, free, upkgs)
     # Don't use instd here since it may have changed
     updatehook(sort!(collect(keys(installed()))))
 
@@ -433,7 +471,9 @@ function resolve(
     instd :: Dict = Read.installed(avail),
     fixed :: Dict = Read.fixed(avail,instd),
     have  :: Dict = Read.free(instd),
+    upkgs :: Set{String} = Set{String}()
 )
+    orig_reqs = reqs
     reqs = Query.requirements(reqs,fixed,avail)
     deps, conflicts = Query.dependencies(avail,fixed)
 
@@ -453,6 +493,11 @@ function resolve(
 
     deps = Query.prune_dependencies(reqs,deps)
     want = Resolve.resolve(reqs,deps)
+
+    if !isempty(upkgs)
+        orig_deps, _ = Query.dependencies(avail)
+        Query.check_partial_updates(orig_reqs,orig_deps,want,fixed,upkgs)
+    end
 
     # compare what is installed with what should be
     changes = Query.diff(have, want, avail, fixed)
@@ -565,7 +610,7 @@ function build!(pkgs::Vector, errs::Dict, seen::Set=Set())
             end
         end
     """
-    io, pobj = open(pipeline(detach(`$(Base.julia_cmd())
+    io, pobj = open(pipeline(detach(`$(Base.julia_cmd()) -O0
                                     --compilecache=$(Bool(Base.JLOptions().use_compilecache) ? "yes" : "no")
                                     --history-file=no
                                     --color=$(Base.have_color ? "yes" : "no")
@@ -659,8 +704,9 @@ function test!(pkg::AbstractString,
             try
                 color = Base.have_color? "--color=yes" : "--color=no"
                 codecov = coverage? ["--code-coverage=user", "--inline=no"] : ["--code-coverage=none"]
+                compilecache = "--compilecache=" * (Bool(Base.JLOptions().use_compilecache) ? "yes" : "no")
                 julia_exe = Base.julia_cmd()
-                run(`$julia_exe --check-bounds=yes $codecov $color $test_path`)
+                run(`$julia_exe --check-bounds=yes $codecov $color $compilecache $test_path`)
                 info("$pkg tests passed")
             catch err
                 warnbanner(err, label="[ ERROR: $pkg ]")

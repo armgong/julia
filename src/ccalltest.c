@@ -196,6 +196,125 @@ typedef struct {
     char z;
 } struct_big;
 
+typedef struct {
+    int64_t r1;
+    int64_t r2;
+    int64_t r3;
+    int64_t r4;
+    int64_t r5;
+    int64_t r6;
+    int64_t r7;
+    int64_t r8;
+} struct_huge1a;
+
+typedef struct {
+    int64_t r1;
+    int64_t r2;
+    int64_t r3;
+    int64_t r4;
+    int64_t r5;
+    int64_t r6;
+    int64_t r7;
+    int64_t r8;
+    int64_t r9;
+} struct_huge1b;
+
+typedef struct {
+    double f1;
+    double f2;
+    double f3;
+    double f4;
+    double f5;
+    double f6;
+    double f7;
+    double f8;
+} struct_huge2a;
+
+typedef struct {
+    double f1;
+    double f2;
+    double f3;
+    double f4;
+    double f5;
+    double f6;
+    double f7;
+    double f8;
+    double f9;
+} struct_huge2b;
+
+typedef struct {
+    complex float f12;
+    complex float f34;
+    complex float f56;
+    float f7;
+    float f8;
+} struct_huge3a;
+
+typedef struct {
+    complex float r1;
+    complex float r2;
+    complex float r3;
+    complex float r4;
+    complex float r5;
+    complex float r6;
+    complex float r7;
+    float r8a;
+    float r8b;
+} struct_huge3b;
+
+typedef struct {
+    complex float r1;
+    complex float r2;
+    complex float r3;
+    complex float r4;
+    complex float r5;
+    complex float r6;
+    complex float r7;
+    float r8a;
+    float r8b;
+    float r9;
+} struct_huge3c;
+
+typedef struct {
+    complex double r12;
+    complex double r34;
+    complex float r5;
+    complex double r67;
+    double r8;
+} struct_huge4a;
+
+typedef struct {
+    complex double r12;
+    complex double r34;
+    complex float r5;
+    complex double r67;
+    complex double r89;
+} struct_huge4b;
+
+typedef struct {
+    complex int r1;
+    complex int r2;
+    complex int r3;
+    complex int r4;
+    complex int r5;
+    complex int r6;
+    complex int r7;
+    complex int r8;
+} struct_huge5a;
+
+typedef struct {
+    complex int r1;
+    complex int r2;
+    complex int r3;
+    complex int r4;
+    complex int r5;
+    complex int r6;
+    complex int r7;
+    complex int r8;
+    complex int r9;
+} struct_huge5b;
+
+
 JL_DLLEXPORT struct1 test_1(struct1 a, float b) {
     //Unpack a "small" struct { float, double }
     if (verbose) fprintf(stderr,"%g + %g i & %g\n", a.x, a.y, b);
@@ -367,6 +486,25 @@ JL_DLLEXPORT struct_big test_big(struct_big a) {
     return a;
 }
 
+#define test_huge(suffix, reg) \
+JL_DLLEXPORT struct_huge##suffix test_huge##suffix(char a, struct_huge##suffix b, char c) { \
+    if (verbose) fprintf(stderr,"%c-%c\n", a, c); \
+    b.reg *= 39; \
+    return b; \
+}
+
+test_huge(1a, r1);
+test_huge(1b, r1);
+test_huge(2a, f1);
+test_huge(2b, f1);
+test_huge(3a, f12);
+test_huge(3b, r1);
+test_huge(3c, r1);
+test_huge(4a, r12);
+test_huge(4b, r12);
+test_huge(5a, r1);
+test_huge(5b, r1);
+
 JL_DLLEXPORT int get_c_int(void)
 {
     return c_int;
@@ -397,7 +535,7 @@ JL_DLLEXPORT void *test_echo_p(void *p) {
 
 #include <xmmintrin.h>
 
-JL_DLLEXPORT __m128i test_m128i(__m128i a, __m128i b, __m128i c, __m128i d )
+JL_DLLEXPORT __m128i test_m128i(__m128i a, __m128i b, __m128i c, __m128i d)
 {
     // 64-bit x86 has only level 2 SSE, which does not have a <4 x int32> multiplication,
     // so we use floating-point instead, and assume caller knows about the hack.
@@ -406,7 +544,7 @@ JL_DLLEXPORT __m128i test_m128i(__m128i a, __m128i b, __m128i c, __m128i d )
                                                     _mm_cvtepi32_ps(_mm_sub_epi32(c,d)))));
 }
 
-JL_DLLEXPORT __m128 test_m128(__m128 a, __m128 b, __m128 c, __m128 d )
+JL_DLLEXPORT __m128 test_m128(__m128 a, __m128 b, __m128 c, __m128 d)
 {
     return _mm_add_ps(a, _mm_mul_ps(b, _mm_sub_ps(c, d)));
 }
@@ -457,13 +595,13 @@ JL_DLLEXPORT int64x2_t test_aa64_vec_1(int32x2_t v1, float _v2, int32x2_t v3)
     return vmovl_s32(v1 * v2 + v3);
 }
 
-// This is a homogenious short vector aggregate
+// This is a homogeneous short vector aggregate
 typedef struct {
     int8x8_t v1;
     float32x2_t v2;
 } struct_aa64_3;
 
-// This is NOT a homogenious short vector aggregate
+// This is NOT a homogeneous short vector aggregate
 typedef struct {
     float32x2_t v2;
     int16x8_t v1;
@@ -473,6 +611,115 @@ JL_DLLEXPORT struct_aa64_3 test_aa64_vec_2(struct_aa64_3 v1, struct_aa64_4 v2)
 {
     struct_aa64_3 x = {v1.v1 + vmovn_s16(v2.v1), v1.v2 - v2.v2};
     return x;
+}
+
+#endif
+
+#if defined(_CPU_PPC64_)
+
+typedef int32_t int32x2_t __attribute__ ((vector_size (8)));
+typedef float float32x2_t __attribute__ ((vector_size (8)));
+typedef int32_t int32x4_t __attribute__ ((vector_size (16)));
+typedef float float32x4_t __attribute__ ((vector_size (16)));
+typedef double float64x2_t __attribute__ ((vector_size (16)));
+
+typedef struct {
+    int64_t m;
+    float32x4_t v;
+} struct_huge1_ppc64;
+
+typedef struct {
+    float32x4_t v1;
+    int32x2_t v2;
+} struct_huge2_ppc64;
+
+typedef struct {
+    float32x4_t v1;
+    struct {
+        float f1;
+        float f2;
+        float f3;
+        float f4;
+    };
+} struct_huge3_ppc64;
+
+typedef struct {
+    float32x2_t v1;
+    float64x2_t v2;
+} struct_huge4_ppc64;
+
+typedef struct {
+    float32x4_t v1[9];
+} struct_huge5_ppc64;
+
+typedef struct {
+    float32x4_t v1[8];
+    float32x4_t v2;
+} struct_huge6_ppc64;
+
+typedef struct {
+    float32x4_t v1[8];
+} struct_huge1_ppc64_hva;
+
+typedef struct {
+    struct {
+        float32x4_t vf[2];
+    } v[2];
+} struct_huge2_ppc64_hva;
+
+typedef struct {
+    float32x4_t vf1;
+    struct {
+        float32x4_t vf2[2];
+    };
+} struct_huge3_ppc64_hva;
+
+typedef struct {
+    int32x4_t v1;
+    float32x4_t v2;
+} struct_huge4_ppc64_hva;
+
+typedef struct {
+    float32x4_t v1;
+    float64x2_t v2;
+} struct_huge5_ppc64_hva;
+
+test_huge(1_ppc64, m);
+test_huge(2_ppc64, v1[0]);
+test_huge(3_ppc64, v1[0]);
+test_huge(4_ppc64, v1[0]);
+test_huge(5_ppc64, v1[0][0]);
+test_huge(6_ppc64, v1[0][0]);
+test_huge(1_ppc64_hva, v1[0][0]);
+test_huge(2_ppc64_hva, v[0].vf[0][0]);
+test_huge(3_ppc64_hva, vf1[0]);
+test_huge(4_ppc64_hva, v1[0]);
+test_huge(5_ppc64_hva, v1[0]);
+
+JL_DLLEXPORT int64_t test_ppc64_vec1long(
+        int64_t d1, int64_t d2, int64_t d3, int64_t d4, int64_t d5, int64_t d6,
+        int64_t d7, int64_t d8, int64_t d9, struct_huge1_ppc64 vs)
+{
+    return d1 + d2 + d3 + d4 + d5 + d6 + d7 + d8 + d9 + vs.m + vs.v[0] + vs.v[1] + vs.v[2] + vs.v[3];
+}
+
+JL_DLLEXPORT int64_t test_ppc64_vec1long_vec(
+        int64_t d1, int64_t d2, int64_t d3, int64_t d4, int64_t d5, int64_t d6,
+        int64_t d7, int64_t d8, int64_t d9, float32x4_t vs)
+{
+    return d1 + d2 + d3 + d4 + d5 + d6 + d7 + d8 + d9 + vs[0] + vs[1] + vs[2] + vs[3];
+}
+
+JL_DLLEXPORT float32x4_t test_ppc64_vec2(int64_t d1, float32x4_t a, float32x4_t b, float32x4_t c, float32x4_t d,
+                                         float32x4_t e, float32x4_t f, float32x4_t g, float32x4_t h, float32x4_t i,
+                                         float32x4_t j, float32x4_t k, float32x4_t l, float32x4_t m, float32x4_t n)
+{
+    float32x4_t r;
+    r[0] = d1 + a[0] + b[0] + c[0] + d[0] + e[0] + f[0] + g[0] + h[0] + i[0] + j[0] + k[0] + l[0] + m[0] + n[0];
+    r[1] = d1 + a[1] + b[1] + c[1] + d[1] + e[1] + f[1] + g[1] + h[1] + i[1] + j[1] + k[1] + l[1] + m[1] + n[1];
+    r[2] = d1 + a[2] + b[2] + c[2] + d[2] + e[2] + f[2] + g[2] + h[2] + i[2] + j[2] + k[2] + l[2] + m[2] + n[2];
+    r[3] = d1 + a[3] + b[3] + c[3] + d[3] + e[3] + f[3] + g[3] + h[3] + i[3] + j[3] + k[3] + l[3] + m[3] + n[3];
+    return r;
 }
 
 #endif
