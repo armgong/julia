@@ -1005,6 +1005,23 @@ function (~)(B::BitArray)
     return C
 end
 
+"""
+    flipbits!(B::BitArray{N}) -> BitArray{N}
+
+Performs a bitwise not operation on `B`. See [`~`](:ref:`~ operator <~>`).
+
+```jldoctest
+julia> A = trues(2,2)
+2×2 BitArray{2}:
+ true  true
+ true  true
+
+julia> flipbits!(A)
+2×2 BitArray{2}:
+ false  false
+ false  false
+```
+"""
 function flipbits!(B::BitArray)
     Bc = B.chunks
     @inbounds if !isempty(Bc)
@@ -1035,18 +1052,29 @@ for f in (:+, :-)
         return r
     end
 end
+
 for (f) in (:.+, :.-)
-    for (arg1, arg2, T, fargs) in ((:(B::BitArray), :(x::Bool)    , Int                                   , :(b, x)),
-                                   (:(B::BitArray), :(x::Number)  , :(promote_array_type($f, BitArray, typeof(x))), :(b, x)),
-                                   (:(x::Bool)    , :(B::BitArray), Int                                   , :(x, b)),
-                                   (:(x::Number)  , :(B::BitArray), :(promote_array_type($f, typeof(x), BitArray)), :(x, b)))
+    for (arg1, arg2, T, t) in ((:(B::BitArray), :(x::Bool)    , Int               , (:b, :x)),
+                               (:(B::BitArray), :(x::Number)  , :(Bool, typeof(x)), (:b, :x)),
+                               (:(x::Bool)    , :(B::BitArray), Int               , (:x, :b)),
+                               (:(x::Number)  , :(B::BitArray), :(typeof(x), Bool), (:x, :b)))
         @eval function ($f)($arg1, $arg2)
-            r = Array{$T}(size(B))
+            $(if T === Int
+                quote
+                    r = Array{Int}(size(B))
+                end
+            else
+                quote
+                    T = promote_op($f, $(T.args[1]), $(T.args[2]))
+                    T === Any && return [($f)($(t[1]), $(t[2])) for b in B]
+                    r = Array{T}(size(B))
+                end
+            end)
             bi = start(B)
             ri = 1
             while !done(B, bi)
                 b, bi = next(B, bi)
-                @inbounds r[ri] = ($f)($fargs...)
+                @inbounds r[ri] = ($f)($(t[1]), $(t[2]))
                 ri += 1
             end
             return r
@@ -1078,9 +1106,8 @@ function div(x::Bool, B::BitArray)
 end
 function div(x::Number, B::BitArray)
     all(B) || throw(DivideError())
-    pt = promote_array_type(div, typeof(x), BitArray)
     y = div(x, true)
-    reshape(pt[ y for i = 1:length(B) ], size(B))
+    return fill(y, size(B))
 end
 
 function mod(A::BitArray, B::BitArray)
@@ -1099,15 +1126,16 @@ function mod(x::Bool, B::BitArray)
 end
 function mod(x::Number, B::BitArray)
     all(B) || throw(DivideError())
-    pt = promote_array_type(mod, typeof(x), BitArray)
     y = mod(x, true)
-    reshape(pt[ y for i = 1:length(B) ], size(B))
+    return fill(y, size(B))
 end
 
 for f in (:div, :mod)
     @eval begin
         function ($f)(B::BitArray, x::Number)
-            F = Array{promote_array_type($f, BitArray, typeof(x))}(size(B))
+            T = promote_op($f, Bool, typeof(x))
+            T === Any && return [($f)(b, x) for b in B]
+            F = Array{T}(size(B))
             for i = 1:length(F)
                 F[i] = ($f)(B[i], x)
             end
@@ -1273,7 +1301,8 @@ end
 
 function flipdim(A::BitArray, d::Integer)
     nd = ndims(A)
-    sd = d > nd ? 1 : size(A, d)
+    1 ≤ d ≤ nd || throw(ArgumentError("dimension $d is not 1 ≤ $d ≤ $nd"))
+    sd = size(A, d)
     if sd == 1
         return copy(A)
     end
@@ -1404,6 +1433,12 @@ end
 
 (>>)(B::BitVector, i::Int) = B >>> i
 
+"""
+    rol!(dest::BitVector, src::BitVector, i::Integer) -> BitVector
+
+Performs a left rotation operation on `src` and puts the result into `dest`.
+`i` controls how far to rotate the bits.
+"""
 function rol!(dest::BitVector, src::BitVector, i::Integer)
     length(dest) == length(src) || throw(ArgumentError("destination and source should be of same size"))
     n = length(dest)
@@ -1416,14 +1451,67 @@ function rol!(dest::BitVector, src::BitVector, i::Integer)
     return dest
 end
 
+"""
+    rol!(B::BitVector, i::Integer) -> BitVector
+
+Performs a left rotation operation in-place on `B`.
+`i` controls how far to rotate the bits.
+"""
 function rol!(B::BitVector, i::Integer)
     return rol!(B, B, i)
 end
 
+"""
+    rol(B::BitVector, i::Integer) -> BitVector
+
+Performs a left rotation operation, returning a new `BitVector`.
+`i` controls how far to rotate the bits.
+See also [`rol!`](:func:`rol!`).
+
+```jldoctest
+julia> A = BitArray([true, true, false, false, true])
+5-element BitArray{1}:
+  true
+  true
+ false
+ false
+  true
+
+julia> rol(A,1)
+5-element BitArray{1}:
+  true
+ false
+ false
+  true
+  true
+
+julia> rol(A,2)
+5-element BitArray{1}:
+ false
+ false
+  true
+  true
+  true
+
+julia> rol(A,5)
+5-element BitArray{1}:
+  true
+  true
+ false
+ false
+  true
+```
+"""
 function rol(B::BitVector, i::Integer)
     return rol!(similar(B), B, i)
 end
 
+"""
+    ror!(dest::BitVector, src::BitVector, i::Integer) -> BitVector
+
+Performs a right rotation operation on `src` and puts the result into `dest`.
+`i` controls how far to rotate the bits.
+"""
 function ror!(dest::BitVector, src::BitVector, i::Integer)
     length(dest) == length(src) || throw(ArgumentError("destination and source should be of same size"))
     n = length(dest)
@@ -1436,10 +1524,57 @@ function ror!(dest::BitVector, src::BitVector, i::Integer)
     return dest
 end
 
+"""
+    ror!(B::BitVector, i::Integer) -> BitVector
+
+Performs a right rotation operation in-place on `B`.
+`i` controls how far to rotate the bits.
+"""
 function ror!(B::BitVector, i::Integer)
     return ror!(B, B, i)
 end
 
+"""
+    ror(B::BitVector, i::Integer) -> BitVector
+
+Performs a right rotation operation on `B`, returning a new `BitVector`.
+`i` controls how far to rotate the bits.
+See also [`ror!`](:func:`ror!`).
+
+```jldoctest
+julia> A = BitArray([true, true, false, false, true])
+5-element BitArray{1}:
+  true
+  true
+ false
+ false
+  true
+
+julia> ror(A,1)
+5-element BitArray{1}:
+  true
+  true
+  true
+ false
+ false
+
+julia> ror(A,2)
+5-element BitArray{1}:
+ false
+  true
+  true
+  true
+ false
+
+julia> ror(A,5)
+5-element BitArray{1}:
+  true
+  true
+ false
+ false
+  true
+```
+"""
 function ror(B::BitVector, i::Integer)
     return ror!(similar(B), B, i)
 end

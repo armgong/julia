@@ -17,7 +17,7 @@ end
         1
     end
 
-addprocs(4; exeflags=`$cov_flag $inline_flag --check-bounds=yes --depwarn=error`)
+addprocs(4; exeflags=`$cov_flag $inline_flag --check-bounds=yes --startup-file=no --depwarn=error`)
 
 # Test remote()
 let
@@ -471,6 +471,18 @@ end
 
 for (x,i) in enumerate(d)
     @test x == i
+end
+
+# complex
+sd = SharedArray(Int,10)
+se = SharedArray(Int,10)
+@sync @parallel for i=1:10
+    sd[i] = i
+    se[i] = i
+end
+sc = complex(sd,se)
+for (x,i) in enumerate(sc)
+    @test i == complex(x,x)
 end
 
 # Once finalized accessing remote references and shared arrays should result in exceptions.
@@ -991,7 +1003,7 @@ end
 # issue #15406
 v15406 = remotecall_wait(() -> 1, id_other)
 fetch(v15406)
-remotecall_wait(t -> fetch(t), id_other, v15406)
+remotecall_wait(fetch, id_other, v15406)
 
 # Test various forms of remotecall* invocations
 

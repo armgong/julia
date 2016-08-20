@@ -35,30 +35,26 @@ function !(A::AbstractArray{Bool})
 end
 
 ## Binary arithmetic operators ##
-@pure promote_array_type{S<:Number, A<:AbstractArray}(F, ::Type{S}, ::Type{A}) =
-    promote_array_type(F, S, eltype(A), promote_op(F, S, eltype(A)))
-@pure promote_array_type{S<:Number, A<:AbstractArray}(F, ::Type{A}, ::Type{S}) =
-    promote_array_type(F, S, eltype(A), promote_op(F, eltype(A), S))
 
-@pure promote_array_type{S, A, P}(F, ::Type{S}, ::Type{A}, ::Type{P}) = P
-@pure promote_array_type{S<:Real, A<:AbstractFloat, P}(F, ::Type{S}, ::Type{A}, ::Type{P}) = A
-@pure promote_array_type{S<:Integer, A<:Integer, P}(F::typeof(./), ::Type{S}, ::Type{A}, ::Type{P}) = P
-@pure promote_array_type{S<:Integer, A<:Integer, P}(F::typeof(.\), ::Type{S}, ::Type{A}, ::Type{P}) = P
-@pure promote_array_type{S<:Integer, A<:Integer, P}(F, ::Type{S}, ::Type{A}, ::Type{P}) = A
-@pure promote_array_type{S<:Integer, P}(F::typeof(./), ::Type{S}, ::Type{Bool}, ::Type{P}) = P
-@pure promote_array_type{S<:Integer, P}(F::typeof(.\), ::Type{S}, ::Type{Bool}, ::Type{P}) = P
-@pure promote_array_type{S<:Integer, P}(F, ::Type{S}, ::Type{Bool}, ::Type{P}) = P
+promote_array_type(F, ::Type, ::Type, T::Type) = T
+promote_array_type{S<:Real, A<:AbstractFloat}(F, ::Type{S}, ::Type{A}, ::Type) = A
+promote_array_type{S<:Integer, A<:Integer}(F, ::Type{S}, ::Type{A}, ::Type) = A
+promote_array_type{S<:Integer, A<:Integer}(::typeof(./), ::Type{S}, ::Type{A}, T::Type) = T
+promote_array_type{S<:Integer, A<:Integer}(::typeof(.\), ::Type{S}, ::Type{A}, T::Type) = T
+promote_array_type{S<:Integer}(::typeof(./), ::Type{S}, ::Type{Bool}, T::Type) = T
+promote_array_type{S<:Integer}(::typeof(.\), ::Type{S}, ::Type{Bool}, T::Type) = T
+promote_array_type{S<:Integer}(F, ::Type{S}, ::Type{Bool}, T::Type) = T
 
 for f in (:+, :-, :div, :mod, :&, :|, :$)
-    @eval ($f){S,T}(A::AbstractArray{S}, B::AbstractArray{T}) =
-        _elementwise($f, A, B, promote_eltype_op($f, A, B))
+    @eval ($f){R,S}(A::AbstractArray{R}, B::AbstractArray{S}) =
+        _elementwise($f, promote_op($f, R, S), A, B)
 end
-function _elementwise{S,T}(op, A::AbstractArray{S}, B::AbstractArray{T}, ::Type{Any})
-    promote_shape(A,B) # check size compatibility
+function _elementwise(op, ::Type{Any}, A::AbstractArray, B::AbstractArray)
+    promote_shape(A, B) # check size compatibility
     return broadcast(op, A, B)
 end
-function _elementwise{S,T,R}(op, A::AbstractArray{S}, B::AbstractArray{T}, ::Type{R})
-    F = similar(A, R, promote_shape(A,B))
+function _elementwise{T}(op, ::Type{T}, A::AbstractArray, B::AbstractArray)
+    F = similar(A, T, promote_shape(A, B))
     for (iF, iA, iB) in zip(eachindex(F), eachindex(A), eachindex(B))
         @inbounds F[iF] = op(A[iA], B[iB])
     end
@@ -68,14 +64,20 @@ end
 for f in (:.+, :.-, :.*, :./, :.\, :.^, :.÷, :.%, :.<<, :.>>, :div, :mod, :rem, :&, :|, :$)
     @eval begin
         function ($f){T}(A::Number, B::AbstractArray{T})
-            F = similar(B, promote_array_type($f,typeof(A),typeof(B)))
+            R = promote_op($f, typeof(A), T)
+            S = promote_array_type($f, typeof(A), T, R)
+            S === Any && return [($f)(A, b) for b in B]
+            F = similar(B, S)
             for (iF, iB) in zip(eachindex(F), eachindex(B))
                 @inbounds F[iF] = ($f)(A, B[iB])
             end
             return F
         end
         function ($f){T}(A::AbstractArray{T}, B::Number)
-            F = similar(A, promote_array_type($f,typeof(A),typeof(B)))
+            R = promote_op($f, T, typeof(B))
+            S = promote_array_type($f, typeof(B), T, R)
+            S === Any && return [($f)(a, B) for a in A]
+            F = similar(A, S)
             for (iF, iA) in zip(eachindex(F), eachindex(A))
                 @inbounds F[iF] = ($f)(A[iA], B)
             end
@@ -97,11 +99,9 @@ end
 ## data movement ##
 
 function flipdim{T}(A::Array{T}, d::Integer)
-    if d < 1
-        throw(ArgumentError("dimension d must be ≥ 1"))
-    end
     nd = ndims(A)
-    sd = d > nd ? 1 : size(A, d)
+    1 ≤ d ≤ nd || throw(ArgumentError("dimension $d is not 1 ≤ $d ≤ $nd"))
+    sd = size(A, d)
     if sd == 1 || isempty(A)
         return copy(A)
     end
@@ -159,6 +159,23 @@ function flipdim{T}(A::Array{T}, d::Integer)
     return B
 end
 
+"""
+    rotl90(A)
+
+Rotate matrix `A` left 90 degrees.
+
+```jldoctest
+julia> a = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> rotl90(a)
+2×2 Array{Int64,2}:
+ 2  4
+ 1  3
+```
+"""
 function rotl90(A::AbstractMatrix)
     ind1, ind2 = indices(A)
     B = similar(A, (ind2,ind1))
@@ -168,6 +185,24 @@ function rotl90(A::AbstractMatrix)
     end
     return B
 end
+
+"""
+    rotr90(A)
+
+Rotate matrix `A` right 90 degrees.
+
+```jldoctest
+julia> a = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> rotr90(a)
+2×2 Array{Int64,2}:
+ 3  1
+ 4  2
+```
+"""
 function rotr90(A::AbstractMatrix)
     ind1, ind2 = indices(A)
     B = similar(A, (ind2,ind1))
@@ -177,6 +212,23 @@ function rotr90(A::AbstractMatrix)
     end
     return B
 end
+"""
+    rot180(A)
+
+Rotate matrix `A` 180 degrees.
+
+```jldoctest
+julia> a = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> rot180(a)
+2×2 Array{Int64,2}:
+ 4  3
+ 2  1
+```
+"""
 function rot180(A::AbstractMatrix)
     B = similar(A)
     ind1, ind2 = indices(A,1), indices(A,2)
@@ -186,13 +238,102 @@ function rot180(A::AbstractMatrix)
     end
     return B
 end
+"""
+    rotl90(A, k)
+
+Rotate matrix `A` left 90 degrees an integer `k` number of times.
+If `k` is zero or a multiple of four, this is equivalent to a `copy`.
+
+```jldoctest
+julia> a = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> rotl90(a,1)
+2×2 Array{Int64,2}:
+ 2  4
+ 1  3
+
+julia> rotl90(a,2)
+2×2 Array{Int64,2}:
+ 4  3
+ 2  1
+
+julia> rotl90(a,3)
+2×2 Array{Int64,2}:
+ 3  1
+ 4  2
+
+julia> rotl90(a,4)
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+```
+"""
 function rotl90(A::AbstractMatrix, k::Integer)
     k = mod(k, 4)
     k == 1 ? rotl90(A) :
     k == 2 ? rot180(A) :
     k == 3 ? rotr90(A) : copy(A)
 end
+"""
+    rotr90(A, k)
+
+Rotate matrix `A` right 90 degrees an integer `k` number of times. If `k` is zero or a
+multiple of four, this is equivalent to a `copy`.
+
+```jldoctest
+julia> a = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> rotr90(a,1)
+2×2 Array{Int64,2}:
+ 3  1
+ 4  2
+
+julia> rotr90(a,2)
+2×2 Array{Int64,2}:
+ 4  3
+ 2  1
+
+julia> rotr90(a,3)
+2×2 Array{Int64,2}:
+ 2  4
+ 1  3
+
+julia> rotr90(a,4)
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+```
+"""
 rotr90(A::AbstractMatrix, k::Integer) = rotl90(A,-k)
+"""
+    rot180(A, k)
+
+Rotate matrix `A` 180 degrees an integer `k` number of times.
+If `k` is even, this is equivalent to a `copy`.
+
+```jldoctest
+julia> a = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> rot180(a,1)
+2×2 Array{Int64,2}:
+ 4  3
+ 2  1
+
+julia> rot180(a,2)
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+```
+"""
 rot180(A::AbstractMatrix, k::Integer) = mod(k, 2) == 1 ? rot180(A) : copy(A)
 
 ## Transpose ##
@@ -272,8 +413,8 @@ function ctranspose(A::AbstractMatrix)
 end
 ctranspose{T<:Real}(A::AbstractVecOrMat{T}) = transpose(A)
 
-transpose(x::AbstractVector) = [ transpose(v) for i=1:1, v in x ]
-ctranspose{T}(x::AbstractVector{T}) = T[ ctranspose(v) for i=1:1, v in x ]
+transpose(x::AbstractVector) = [ transpose(v) for i=of_indices(x, OneTo(1)), v in x ]
+ctranspose{T}(x::AbstractVector{T}) = T[ ctranspose(v) for i=of_indices(x, OneTo(1)), v in x ]
 
 _cumsum_type{T<:Number}(v::AbstractArray{T}) = typeof(+zero(T))
 _cumsum_type(v) = typeof(v[1]+v[1])

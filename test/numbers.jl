@@ -120,11 +120,9 @@ end
 let eps = 1//BigInt(2)^7, one_eps = 1+eps,
     eps16 = Float16(Float32(eps)), one_eps16 = Float16(Float32(one_eps))
     @test eps16 == Float16(Float32(eps))
-    # Currently broken in Julia -- enable when "rationalize" is fixed;
-    # see <https://github.com/JuliaLang/julia/issues/9897>
-    # @test rationalize(BigInt, eps16, tol=0) == eps
+    @test rationalize(BigInt, eps16, tol=0) == eps
     @test one_eps16 == Float16(Float32(one_eps))
-    # @test rationalize(BigInt, one_eps16, tol=0) == one_eps
+    @test rationalize(BigInt, one_eps16, tol=0) == one_eps
     @test one_eps16 * one_eps16 - 1 != Float16(Float32(one_eps * one_eps - 1))
     @test (fma(one_eps16, one_eps16, -1) ==
            Float16(Float32(one_eps * one_eps - 1)))
@@ -2167,11 +2165,12 @@ for T in (Int32,Int64), ii = -20:20, jj = -20:20
     @test d == gcd(ib,jb)
     @test lcm(i,j) == lcm(ib,jb)
     @test gcdx(i,j) == gcdx(ib,jb)
-    if j == 0
-        @test_throws ErrorException invmod(i,j)
-        @test_throws ErrorException invmod(ib,jb)
-    elseif d == 1
+    if j == 0 || d != 1
+        @test_throws DomainError invmod(i,j)
+        @test_throws DomainError invmod(ib,jb)
+    else
         n = invmod(i,j)
+        @test div(n, j) == 0
         @test n == invmod(ib,jb)
         @test mod(n*i,j) == mod(1,j)
     end
@@ -2771,11 +2770,17 @@ testmi(map(UInt32, 0:1000), map(UInt32, 1:100))
 testmi(typemax(UInt32)-UInt32(1000):typemax(UInt32), map(UInt32, 1:100))
 
 @test ndims(1) == 0
+@test ndims(Integer) == 0
 @test size(1,1) == 1
 @test_throws BoundsError size(1,-1)
 @test indices(1) == ()
 @test indices(1,1) == 1:1
 @test_throws BoundsError indices(1,-1)
+@test isinteger(Integer(2)) == true
+@test size(1) == ()
+@test length(1) == 1
+@test endof(1) == 1
+@test eltype(Integer) == Integer
 
 # issue #15920
 @test Rational(0, 1) / Complex(3, 2) == 0
@@ -2790,21 +2795,21 @@ let types = (Base.BitInteger_types..., BigInt, Bool,
              Complex{Int}, Complex{UInt}, Complex32, Complex64, Complex128)
     for S in types
         for op in (+, -)
-            T = @inferred Base.promote_op(op, S)
+            T = @inferred Base._promote_op(op, S)
             t = @inferred op(one(S))
             @test T === typeof(t)
         end
-    end
 
-    @test @inferred(Base.promote_op(!, Bool)) === Bool
-
-    for R in types, S in types
-        for op in (+, -, *, /, ^)
-            T = @inferred Base.promote_op(op, R, S)
-            t = @inferred op(one(R), one(S))
-            @test T === typeof(t)
+        for R in types
+            for op in (+, -, *, /, ^)
+                T = @inferred Base._promote_op(op, S, R)
+                t = @inferred op(one(S), one(R))
+                @test T === typeof(t)
+            end
         end
     end
+
+    @test @inferred(Base._promote_op(!, Bool)) === Bool
 end
 
 let types = (Base.BitInteger_types..., BigInt, Bool,
@@ -2812,23 +2817,23 @@ let types = (Base.BitInteger_types..., BigInt, Bool,
              Float16, Float32, Float64, BigFloat)
     for S in types, T in types
         for op in (<, >, <=, >=, (==))
-            @test @inferred(Base.promote_op(op, S, T)) === Bool
+            @test @inferred(Base._promote_op(op, S, T)) === Bool
         end
     end
 end
 
 let types = (Base.BitInteger_types..., BigInt, Bool)
     for S in types
-        T = @inferred Base.promote_op(~, S)
+        T = @inferred Base._promote_op(~, S)
         t = @inferred ~one(S)
         @test T === typeof(t)
-    end
 
-    for S in types, T in types
-        for op in (&, |, <<, >>, (>>>), %, ÷)
-            T = @inferred Base.promote_op(op, S, T)
-            t = @inferred op(one(S), one(T))
-            @test T === typeof(t)
+        for R in types
+            for op in (&, |, <<, >>, (>>>), %, ÷)
+                T = @inferred Base._promote_op(op, S, R)
+                t = @inferred op(one(S), one(R))
+                @test T === typeof(t)
+            end
         end
     end
 end

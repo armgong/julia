@@ -4461,3 +4461,18 @@ end
 #end
 #@test local_innersig(Int32(2)) == ((Int32(2), Int32(1), Int32(2)im), (Int32(2), UInt32(1)))
 #@test local_innersig(Int64(3)) == ((Int64(3), Int64(1), Int64(3)im), (Int64(3), UInt64(1)))
+
+# Issue 4914
+let
+    j(j) = j
+    @test j(1) == 1
+    k(x) = (k = x; k)
+    @test k(1) == 1
+end
+
+# PR #18054: compilation of cfunction leaves IRBuilder in bad state,
+#            causing heap-use-after-free when compiling f18054
+function f18054()
+    return Cint(0)
+end
+cfunction(f18054, Cint, ())

@@ -1404,7 +1404,6 @@ JL_DLLEXPORT void jl_yield(void);
 
 // async signal handling ------------------------------------------------------
 
-JL_DLLEXPORT void jl_sigint_action(void);
 JL_DLLEXPORT void jl_install_sigint_handler(void);
 JL_DLLEXPORT void jl_sigatomic_begin(void);
 JL_DLLEXPORT void jl_sigatomic_end(void);
@@ -1466,6 +1465,7 @@ JL_DLLEXPORT jl_value_t *jl_switchto(jl_task_t *t, jl_value_t *arg);
 JL_DLLEXPORT void JL_NORETURN jl_throw(jl_value_t *e);
 JL_DLLEXPORT void JL_NORETURN jl_rethrow(void);
 JL_DLLEXPORT void JL_NORETURN jl_rethrow_other(jl_value_t *e);
+JL_DLLEXPORT void JL_NORETURN jl_no_exc_handler(jl_value_t *e);
 
 #ifdef JULIA_ENABLE_THREADING
 static inline void jl_lock_frame_push(jl_mutex_t *lock)

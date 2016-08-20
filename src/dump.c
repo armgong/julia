@@ -472,7 +472,7 @@ static int module_in_worklist(jl_module_t *mod)
     return 0;
 }
 
-static int jl_prune_tcache(jl_typemap_entry_t *ml, void *closure)
+static int jl_prune_specializations(jl_typemap_entry_t *ml, void *closure)
 {
     jl_value_t *ret = ml->func.value;
     if (jl_is_lambda_info(ret) &&
@@ -858,7 +858,7 @@ static void jl_serialize_value_(jl_serializer_state *s, jl_value_t *v)
             // go through the t-func cache, replacing ASTs with just return
             // types for abstract argument types. these ASTs are generally
             // not needed (e.g. they don't get inlined).
-            jl_typemap_visitor(*tf, jl_prune_tcache, NULL);
+            jl_typemap_visitor(*tf, jl_prune_specializations, NULL);
         }
         jl_serialize_value(s, tf->unknown);
         jl_serialize_value(s, (jl_value_t*)m->name);
@@ -1752,7 +1752,7 @@ static int read_verify_mod_list(ios_t *s)
         if (m->uuid != uuid) {
             jl_printf(JL_STDERR,
                       "WARNING: Module %s uuid did not match cache file\n"
-                      "  This is likely because module %s does not support"
+                      "  This is likely because module %s does not support\n"
                       "  precompilation but is imported by a module that does.\n",
                       name, name);
             return 0;
@@ -1815,7 +1815,7 @@ static void jl_reinit_item(jl_value_t *v, int how, arraylist_t *tracee_list)
             case 1: { // rehash ObjectIdDict
                 jl_array_t **a = (jl_array_t**)v;
                 // Assume *a don't need a write barrier
-                jl_idtable_rehash(a, jl_array_len(*a));
+                *a = jl_idtable_rehash(*a, jl_array_len(*a));
                 jl_gc_wb(v, *a);
                 break;
             }
@@ -1900,6 +1900,20 @@ static void jl_init_restored_modules(jl_array_t *init_order)
 
 // --- entry points ---
 
+// remove cached types not referenced in the stream
+static void jl_prune_type_cache(jl_svec_t *cache)
+{
+    size_t l = jl_svec_len(cache), ins = 0, i;
+    for(i=0; i < l; i++) {
+        jl_value_t *ti = jl_svecref(cache, i);
+        if (ti == NULL) break;
+        if (ptrhash_get(&backref_table, ti) != HT_NOTFOUND || jl_get_llvm_gv(ti) != 0)
+            jl_svecset(cache, ins++, ti);
+    }
+    if (i > ins)
+        memset(&jl_svec_data(cache)[ins], 0, (i-ins)*sizeof(jl_value_t*));
+}
+
 static void jl_save_system_image_to_stream(ios_t *f)
 {
     jl_gc_collect(1); // full
@@ -1931,6 +1945,10 @@ static void jl_save_system_image_to_stream(ios_t *f)
     jl_serialize_value(&s, jl_top_module);
     jl_serialize_value(&s, jl_typeinf_func);
     jl_serialize_value(&s, jl_type_type->name->mt);
+
+    jl_prune_type_cache(jl_tuple_typename->cache);
+    jl_prune_type_cache(jl_tuple_typename->linearcache);
+    jl_prune_type_cache(jl_type_type->name->cache);
 
     intptr_t i;
     for (i = 0; i < builtin_types.len; i++) {
@@ -2033,7 +2051,6 @@ static void jl_restore_system_image_from_stream(ios_t *f)
         tn->cache = (jl_svec_t*)jl_deserialize_value(&s, NULL); jl_gc_wb(tn, tn->cache);
         tn->linearcache = (jl_svec_t*)jl_deserialize_value(&s, NULL); jl_gc_wb(tn, tn->linearcache);
         jl_resort_type_cache(tn->cache);
-        jl_resort_type_cache(tn->linearcache);
     }
 
     jl_core_module = (jl_module_t*)jl_get_global(jl_main_module,
@@ -2223,35 +2240,46 @@ static jl_datatype_t *jl_recache_type(jl_datatype_t *dt, size_t start, jl_value_
 {
     if (v == NULL)
         v = dt->instance; // the instance before unique'ing
+    jl_svec_t *tt = dt->parameters;
+    if (dt->uid == 0 || dt->uid == -1) {
+        // recache all type parameters
+        size_t i, l = jl_svec_len(tt);
+        for (i = 0; i < l; i++) {
+            jl_datatype_t *p = (jl_datatype_t*)jl_svecref(tt, i);
+            if (jl_is_datatype(p)) {
+                if (p->uid == -1 || p->uid == 0) {
+                    jl_datatype_t *cachep = jl_recache_type(p, start, NULL);
+                    if (p != cachep) {
+                        assert(jl_types_equal((jl_value_t*)p, (jl_value_t*)cachep));
+                        jl_svecset(tt, i, cachep);
+                    }
+                }
+            }
+            else {
+                jl_datatype_t *tp = (jl_datatype_t*)jl_typeof(p);
+                assert(tp->uid != 0);
+                if (tp->uid == -1) {
+                    tp = jl_recache_type(tp, start, NULL);
+                }
+                if (tp->instance && (jl_value_t*)p != tp->instance)
+                    jl_svecset(tt, i, tp->instance);
+            }
+        }
+    }
+
     jl_datatype_t *t; // the type after unique'ing
-    if (dt->uid == -1) {
-        jl_svec_t *tt = dt->parameters;
-        size_t l = jl_svec_len(tt);
-        if (l == 0) { // jl_cache_type doesn't work if length(parameters) == 0
+    if (dt->uid == 0) {
+        return dt;
+    }
+    else if (dt->uid == -1) {
+        if (jl_svec_len(tt) == 0) { // jl_cache_type doesn't work if length(parameters) == 0
             dt->uid = jl_assign_type_uid();
             t = dt;
         }
         else {
-            // recache all type parameters, then type type itself
-            size_t i;
-            for (i = 0; i < l; i++) {
-                jl_datatype_t *p = (jl_datatype_t*)jl_svecref(tt, i);
-                if (jl_is_datatype(p) && p->uid == -1) {
-                    jl_datatype_t *cachep = jl_recache_type(p, start, NULL);
-                    if (p != cachep)
-                        jl_svecset(tt, i, cachep);
-                }
-                jl_datatype_t *tp = (jl_datatype_t*)jl_typeof(p);
-                if (jl_is_datatype_singleton(tp)) {
-                    if (tp->uid == -1) {
-                        tp = jl_recache_type(tp, start, NULL);
-                    }
-                    if ((jl_value_t*)p != tp->instance)
-                        jl_svecset(tt, i, tp->instance);
-                }
-            }
             dt->uid = 0;
             t = (jl_datatype_t*)jl_cache_type_(dt);
+            assert(jl_types_equal((jl_value_t*)t, (jl_value_t*)dt));
         }
     }
     else {

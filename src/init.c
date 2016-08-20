@@ -161,8 +161,8 @@ void jl_init_stack_limits(int ismaster)
 
 static void jl_find_stack_bottom(void)
 {
-#if !defined(_OS_WINDOWS_) && defined(__has_feature)
-#if __has_feature(memory_sanitizer) || __has_feature(address_sanitizer)
+#if !defined(_OS_WINDOWS_)
+#if defined(JL_ASAN_ENABLED) || defined(JL_MSAN_ENABLED)
     struct rlimit rl;
 
     // When using the sanitizers, increase stack size because they bloat
@@ -217,6 +217,7 @@ static struct uv_shutdown_queue_item *next_shutdown_queue_item(struct uv_shutdow
 
 void jl_init_timing(void);
 void jl_destroy_timing(void);
+void jl_uv_call_close_callback(jl_value_t *val);
 
 JL_DLLEXPORT void jl_atexit_hook(int exitcode)
 {
@@ -270,6 +271,13 @@ JL_DLLEXPORT void jl_atexit_hook(int exitcode)
                     continue;
                 }
                 switch(handle->type) {
+                case UV_PROCESS:
+                    // cause Julia to forget about the Process object
+                    if (handle->data)
+                        jl_uv_call_close_callback((jl_value_t*)handle->data);
+                    // and make libuv think it is already dead
+                    ((uv_process_t*)handle)->pid = 0;
+                    // fall-through
                 case UV_TTY:
                 case UV_UDP:
                 case UV_TCP:
@@ -283,7 +291,6 @@ JL_DLLEXPORT void jl_atexit_hook(int exitcode)
                 case UV_PREPARE:
                 case UV_CHECK:
                 case UV_SIGNAL:
-                case UV_PROCESS:
                 case UV_FILE:
                     // These will be shutdown as appropriate by jl_close_uv
                     jl_close_uv(handle);
@@ -619,6 +626,17 @@ void _julia_init(JL_IMAGE_SEARCH rel)
         }
         sched_setaffinity(0, sizeof(cpu_set_t), &cpumask);
     }
+#endif
+
+
+#ifdef JL_ASAN_ENABLED
+    const char *asan_options = getenv("ASAN_OPTIONS");
+    if (!asan_options || !(strstr(asan_options, "allow_user_segv_handler=1") ||
+                           strstr(asan_options, "handle_segv=0"))) {
+        jl_printf(JL_STDERR,"WARNING: ASAN overrides Julia's SIGSEGV handler; "
+                            "disable SIGSEGV handling or allow custom handlers.\n");
+    }
+
 #endif
 
     jl_init_threading();

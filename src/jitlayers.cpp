@@ -23,6 +23,8 @@
 #endif
 #if defined(USE_POLLY)
 #include <polly/RegisterPasses.h>
+#include <polly/LinkAllPasses.h>
+#include <polly/CodeGen/CodegenCleanup.h>
 #endif
 
 #include <llvm/Transforms/Scalar.h>
@@ -102,17 +104,15 @@ void addOptimizationPasses(PassManager *PM)
     PM->add(createVerifierPass());
 #endif
 
-#ifdef __has_feature
-#   if __has_feature(address_sanitizer)
+#if defined(JL_ASAN_ENABLED)
 #   if defined(LLVM37) && !defined(LLVM38)
     // LLVM 3.7 BUG: ASAN pass doesn't properly initialize its dependencies
     initializeTargetLibraryInfoWrapperPassPass(*PassRegistry::getPassRegistry());
 #   endif
     PM->add(createAddressSanitizerFunctionPass());
-#   endif
-#   if __has_feature(memory_sanitizer)
+#endif
+#if defined(JL_MSAN_ENABLED)
     PM->add(llvm::createMemorySanitizerPass(true));
-#   endif
 #endif
     if (jl_options.opt_level == 0) {
         PM->add(createLowerPTLSPass(imaging_mode, tbaa_const));
@@ -165,12 +165,17 @@ void addOptimizationPasses(PassManager *PM)
 
     PM->add(createEarlyCSEPass()); //// ****
 
-#ifdef USE_POLLY
-    polly::registerPollyPasses(*PM);
-#endif
-
     PM->add(createLoopIdiomPass()); //// ****
     PM->add(createLoopRotatePass());           // Rotate loops.
+#ifdef USE_POLLY
+    // LCSSA (which has already run at this point due to the dependencies of the
+    // above passes) introduces redundant phis that hinder Polly. Therefore we
+    // run InstCombine here to remove them.
+    PM->add(createInstructionCombiningPass());
+    PM->add(polly::createCodePreparationPass());
+    polly::registerPollyPasses(*PM);
+    PM->add(polly::createCodegenCleanupPass());
+#endif
     // LoopRotate strips metadata from terminator, so run LowerSIMD afterwards
     PM->add(createLowerSimdLoopPass());        // Annotate loop marked with "simdloop" as LLVM parallel loop
     PM->add(createLICMPass());                 // Hoist loop invariants
@@ -371,7 +376,7 @@ void JuliaOJIT::DebugObjectRegistrar::operator()(ObjectLinkingLayerBase::ObjSetH
             auto NameOrError = Symbol.getName();
             assert(NameOrError);
             auto Name = NameOrError.get();
-            orc::JITSymbol Sym = JIT.CompileLayer.findSymbolIn(H, Name, true);
+            auto Sym = JIT.CompileLayer.findSymbolIn(H, Name, true);
             assert(Sym);
             // note: calling getAddress here eagerly finalizes H
             // as an alternative, we could store the JITSymbol instead
@@ -502,18 +507,25 @@ void JuliaOJIT::addModule(std::unique_ptr<Module> M)
                         // TODO: consider moving the FunctionMover resolver here
                         // Step 0: ObjectLinkingLayer has checked whether it is in the current module
                         // Step 1: See if it's something known to the ExecutionEngine
-                        if (auto Sym = findSymbol(Name, true))
-                          return RuntimeDyld::SymbolInfo(Sym.getAddress(),
-                                                         Sym.getFlags());
+                        if (auto Sym = findSymbol(Name, true)) {
+#ifdef LLVM40
+                            // `findSymbol` already eagerly resolved the address
+                            // return it directly.
+                            return Sym;
+#else
+                            return RuntimeDyld::SymbolInfo(Sym.getAddress(),
+                                                           Sym.getFlags());
+#endif
+                        }
                         // Step 2: Search the program symbols
                         if (uint64_t addr = SectionMemoryManager::getSymbolAddressInProcess(Name))
-                            return RuntimeDyld::SymbolInfo(addr, JITSymbolFlags::Exported);
+                            return JL_SymbolInfo(addr, JITSymbolFlags::Exported);
 #ifdef _OS_LINUX_
                         if (uint64_t addr = resolve_atomic(Name.c_str()))
-                            return RuntimeDyld::SymbolInfo(addr, JITSymbolFlags::Exported);
+                            return JL_SymbolInfo(addr, JITSymbolFlags::Exported);
 #endif
                         // Return failure code
-                        return RuntimeDyld::SymbolInfo(nullptr);
+                        return JL_SymbolInfo(nullptr);
                       },
                       [](const std::string &S) { return nullptr; }
                     );
@@ -531,7 +543,7 @@ void JuliaOJIT::removeModule(ModuleHandleT H)
     CompileLayer.removeModuleSet(H);
 }
 
-orc::JITSymbol JuliaOJIT::findSymbol(const std::string &Name, bool ExportedSymbolsOnly)
+JL_JITSymbol JuliaOJIT::findSymbol(const std::string &Name, bool ExportedSymbolsOnly)
 {
     void *Addr = nullptr;
     if (ExportedSymbolsOnly) {
@@ -541,10 +553,10 @@ orc::JITSymbol JuliaOJIT::findSymbol(const std::string &Name, bool ExportedSymbo
     // Step 2: Search all previously emitted symbols
     if (Addr == nullptr)
         Addr = LocalSymbolTable[Name];
-    return orc::JITSymbol((uintptr_t)Addr, JITSymbolFlags::Exported);
+    return JL_JITSymbol((uintptr_t)Addr, JITSymbolFlags::Exported);
 }
 
-orc::JITSymbol JuliaOJIT::findUnmangledSymbol(const std::string Name)
+JL_JITSymbol JuliaOJIT::findUnmangledSymbol(const std::string Name)
 {
     return findSymbol(getMangledName(Name), true);
 }

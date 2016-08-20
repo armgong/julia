@@ -81,6 +81,16 @@ cmp(x::Integer, y::Integer) = ifelse(isless(x,y), -1, ifelse(isless(y,x), 1, 0))
 
 max(x,y) = ifelse(y < x, x, y)
 min(x,y) = ifelse(y < x, y, x)
+"""
+    minmax(x, y)
+
+Return `(min(x,y), max(x,y))`. See also: [`extrema`](:func:`extrema`) that returns `(minimum(x), maximum(x))`.
+
+```jldoctest
+julia> minmax('c','b')
+('b','c')
+```
+"""
 minmax(x,y) = y < x ? (y, x) : (x, y)
 
 scalarmax(x,y) = max(x,y)
@@ -220,9 +230,9 @@ end
 
 Unsigned right bit shift operator, `x >>> n`. For `n >= 0`, the result is `x`
 shifted right by `n` bits, where `n >= 0`, filling with `0`s. For `n < 0`, this
-is equivalent to `x [<<](:func:`<<`) -n`].
+is equivalent to `x << -n`.
 
-For `Unsigned` integer types, this is eqivalent to [`>>`](:func:`>>`). For
+For `Unsigned` integer types, this is equivalent to [`>>`](:func:`>>`). For
 `Signed` integer types, this is equivalent to `signed(unsigned(x) >> n)`.
 
 ```jldoctest

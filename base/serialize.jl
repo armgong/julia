@@ -6,7 +6,16 @@ import Base: GMP, Bottom, unsafe_convert, uncompressed_ast, datatype_pointerfree
 import Core: svec
 using Base: ViewIndex, index_lengths
 
-export serialize, deserialize
+export serialize, deserialize, SerializationState
+
+type SerializationState{I<:IO} <: AbstractSerializer
+    io::I
+    counter::Int
+    table::ObjectIdDict
+    SerializationState(io::I) = new(io, 0, ObjectIdDict())
+end
+
+SerializationState(io::IO) = SerializationState{typeof(io)}(io)
 
 ## serializing values ##
 
@@ -751,7 +760,7 @@ function deserialize_typename(s::AbstractSerializer, number)
         known_object_data[number] = tn
     end
     if !haskey(object_numbers, tn)
-        # setup up reverse mapping for serialize
+        # set up reverse mapping for serialize
         object_numbers[tn] = number
     end
     deserialize_cycle(s, tn)

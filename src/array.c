@@ -290,13 +290,14 @@ JL_DLLEXPORT jl_array_t *jl_ptr_to_array(jl_value_t *atype, void *data,
     assert(is_ntuple_long(_dims));
     size_t *dims = (size_t*)_dims;
     for (size_t i = 0; i < ndims; i++) {
-        prod = (wideint_t)nel * (wideint_t)dims[i];
-        if (prod > (wideint_t) MAXINTVAL)
+        prod = (wideint_t)nel * (wideint_t)dims[i]; 
+	    if (prod > (wideint_t) MAXINTVAL)
             jl_error("invalid Array dimensions");
         nel = prod;
     }
     if (__unlikely(ndims == 1))
         return jl_ptr_to_array_1d(atype, data, nel, own_buffer);
+
     jl_value_t *el_type = jl_tparam0(atype);
 
     int isunboxed = store_unboxed(el_type);

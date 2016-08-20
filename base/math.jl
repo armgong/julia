@@ -34,6 +34,20 @@ import Core.Intrinsics: sqrt_llvm, box, unbox, powi_llvm
 
 # non-type specific math functions
 
+"""
+    clamp(x, lo, hi)
+
+Return `x` if `lo <= x <= hi`. If `x < lo`, return `lo`. If `x > hi`, return `hi`. Arguments
+are promoted to a common type. Operates elementwise over `x` if `x` is an array.
+
+```jldoctest
+julia> clamp([pi, 1.0, big(10.)], 2., 9.)
+3-element Array{BigFloat,1}:
+ 3.141592653589793238462643383279502884197169399375105820974944592307816406286198
+ 2.000000000000000000000000000000000000000000000000000000000000000000000000000000
+ 9.000000000000000000000000000000000000000000000000000000000000000000000000000000
+```
+"""
 clamp{X,L,H}(x::X, lo::L, hi::H) =
     ifelse(x > hi, convert(promote_type(X,L,H), hi),
            ifelse(x < lo,
@@ -43,6 +57,7 @@ clamp{X,L,H}(x::X, lo::L, hi::H) =
 clamp{T}(x::AbstractArray{T,1}, lo, hi) = [clamp(xx, lo, hi) for xx in x]
 clamp{T}(x::AbstractArray{T,2}, lo, hi) =
     [clamp(x[i,j], lo, hi) for i in indices(x,1), j in indices(x,2)]
+
 clamp{T}(x::AbstractArray{T}, lo, hi) =
     reshape([clamp(xx, lo, hi) for xx in x], size(x))
 
@@ -50,6 +65,7 @@ clamp{T}(x::AbstractArray{T}, lo, hi) =
     clamp!(array::AbstractArray, lo, hi)
 
 Restrict values in `array` to the specified range, in-place.
+See also [`clamp`](:func:`clamp`).
 """
 function clamp!{T}(x::AbstractArray{T}, lo, hi)
     @inbounds for i in eachindex(x)
@@ -127,6 +143,21 @@ cbrt(x::AbstractFloat) = x^(1//3)
 exp2(x::AbstractFloat) = 2^x
 for f in (:sinh, :cosh, :tanh, :atan, :asinh, :exp, :erf, :erfc, :expm1)
     @eval ($f)(x::AbstractFloat) = error("not implemented for ", typeof(x))
+end
+
+# functions with special cases for integer arguments
+@inline function exp2(x::Base.BitInteger)
+    if x > 1023
+        Inf64
+    elseif x <= -1023
+        # if -1073 < x <= -1023 then Result will be a subnormal number
+        # Hex literal with padding must be used to work on 32bit machine
+        reinterpret(Float64, 0x0000_0000_0000_0001 << ((x + 1074)) % UInt)
+    else
+        # We will cast everything to Int64 to avoid errors in case of Int128
+        # If x is a Int128, and is outside the range of Int64, then it is not -1023<x<=1023
+        reinterpret(Float64, (exponent_bias(Float64) + (x % Int64)) << (significand_bits(Float64)) % UInt)
+    end
 end
 
 # TODO: GNU libc has exp10 as an extension; should openlibm?

@@ -346,6 +346,15 @@ STATIC_INLINE void gc_time_count_mallocd_array(int bits)
                             estimate_freed, sweep_full)
 #endif
 
+#ifdef MEMFENCE
+void gc_verify_tags(void);
+#else
+static inline void gc_verify_tags(void)
+{
+}
+#endif
+
+
 #ifdef GC_VERIFY
 extern jl_value_t *lostval;
 void gc_verify(jl_ptls_t ptls);
@@ -392,7 +401,8 @@ JL_DLLEXPORT extern jl_gc_debug_env_t jl_gc_debug_env;
 int gc_debug_check_other(void);
 int gc_debug_check_pool(void);
 void gc_debug_print(void);
-void gc_scrub(char *stack_hi);
+void gc_scrub_record_task(jl_task_t *ta);
+void gc_scrub(void);
 #else
 #define gc_sweep_always_full 0
 static inline int gc_debug_check_other(void)
@@ -406,9 +416,12 @@ static inline int gc_debug_check_pool(void)
 static inline void gc_debug_print(void)
 {
 }
-static inline void gc_scrub(char *stack_hi)
+static inline void gc_scrub_record_task(jl_task_t *ta)
 {
-    (void)stack_hi;
+    (void)ta;
+}
+static inline void gc_scrub(void)
+{
 }
 #endif
 
@@ -431,8 +444,8 @@ static inline void objprofile_reset(void)
 #endif
 
 #ifdef MEMPROFILE
-static void gc_stats_all_pool(void);
-static void gc_stats_big_obj(void);
+void gc_stats_all_pool(void);
+void gc_stats_big_obj(void);
 #else
 #define gc_stats_all_pool()
 #define gc_stats_big_obj()

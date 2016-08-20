@@ -12,6 +12,20 @@
 #define sleep(x) Sleep(1000*x)
 #endif
 
+#if defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define JL_ASAN_ENABLED     // Clang flavor
+#endif
+#elif defined(__SANITIZE_ADDRESS__)
+#define JL_ASAN_ENABLED     // GCC flavor
+#endif
+
+#if defined(__has_feature)
+#if __has_feature(memory_sanitizer)
+#define JL_MSAN_ENABLED
+#endif
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -35,9 +49,6 @@ void jl_call_tracer(tracer_cb callback, jl_value_t *tracee);
 
 extern size_t jl_page_size;
 extern jl_function_t *jl_typeinf_func;
-#if defined(JL_USE_INTEL_JITEVENTS)
-extern unsigned sig_stack_size;
-#endif
 
 JL_DLLEXPORT extern int jl_lineno;
 JL_DLLEXPORT extern const char *jl_filename;
@@ -411,7 +422,7 @@ int32_t jl_get_llvm_gv(jl_value_t *p);
 int32_t jl_assign_functionID(/*llvm::Function*/void *function);
 // the first argument to jl_idtable_rehash is used to return a value
 // make sure it is rooted if it is used after the function returns
-void jl_idtable_rehash(jl_array_t **pa, size_t newsz);
+JL_DLLEXPORT jl_array_t *jl_idtable_rehash(jl_array_t *a, size_t newsz);
 
 JL_DLLEXPORT jl_methtable_t *jl_new_method_table(jl_sym_t *name, jl_module_t *module);
 jl_lambda_info_t *jl_get_specialization1(jl_tupletype_t *types);

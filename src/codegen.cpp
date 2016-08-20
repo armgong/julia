@@ -381,6 +381,7 @@ static Function *gcroot_func;
 static Function *gckill_func;
 static Function *jlcall_frame_func;
 static Function *gcroot_flush_func;
+static Function *except_enter_func;
 
 static std::vector<Type *> two_pvalue_llvmt;
 static std::vector<Type *> three_pvalue_llvmt;
@@ -505,7 +506,6 @@ typedef struct {
     std::vector<bool> ssavalue_assigned;
     std::map<int, jl_arrayvar_t> *arrayvars;
     std::map<int, BasicBlock*> *labels;
-    std::map<int, Value*> *handlers;
     jl_module_t *module;
     jl_lambda_info_t *linfo;
     const char *name;
@@ -989,10 +989,8 @@ void *jl_function_ptr(jl_function_t *f, jl_value_t *rt, jl_value_t *argt)
 // it generally helps to have define KEEP_BODIES if you plan on using this
 extern "C" JL_DLLEXPORT
 void *jl_function_ptr_by_llvm_name(char *name) {
-#ifdef __has_feature
-#if __has_feature(memory_sanitizer)
+#ifdef JL_MSAN_ENABLED
     __msan_unpoison_string(name);
-#endif
 #endif
     return (void*)(intptr_t)jl_ExecutionEngine->FindFunctionNamed(name);
 }
@@ -3261,18 +3259,7 @@ static jl_cgval_t emit_expr(jl_value_t *expr, jl_codectx_t *ctx)
     else if (head == enter_sym) {
         assert(jl_is_long(args[0]));
         int labl = jl_unbox_long(args[0]);
-        Value *jbuf = builder.CreateGEP((*ctx->handlers)[labl],
-                                        ConstantInt::get(T_size,0));
-        builder.CreateCall(prepare_call(jlenter_func), jbuf);
-#ifndef _OS_WINDOWS_
-#ifdef LLVM37
-        CallInst *sj = builder.CreateCall(prepare_call(setjmp_func), { jbuf, ConstantInt::get(T_int32,0) });
-#else
-        CallInst *sj = builder.CreateCall2(prepare_call(setjmp_func), jbuf, ConstantInt::get(T_int32,0));
-#endif
-#else
-        CallInst *sj = builder.CreateCall(prepare_call(setjmp_func), jbuf);
-#endif
+        CallInst *sj = builder.CreateCall(prepare_call(except_enter_func));
         // We need to mark this on the call site as well. See issue #6757
         sj->setCanReturnTwice();
         Value *isz = builder.CreateICmpEQ(sj, ConstantInt::get(T_int32,0));
@@ -3468,7 +3455,7 @@ static Function *gen_cfun_wrapper(jl_function_t *ff, jl_value_t *jlrettype, jl_t
     DebugLoc noDbg;
     builder.SetCurrentDebugLocation(noDbg);
 
-    jl_codectx_t ctx;
+    jl_codectx_t ctx = {};
     ctx.f = cw;
     ctx.linfo = lam;
     ctx.sret = false;
@@ -3826,7 +3813,7 @@ static Function *gen_jlcall_wrapper(jl_lambda_info_t *lam, Function *f, bool sre
     DebugLoc noDbg;
     builder.SetCurrentDebugLocation(noDbg);
 
-    jl_codectx_t ctx;
+    jl_codectx_t ctx = {};
     ctx.f = w;
     ctx.linfo = lam;
     ctx.sret = false;
@@ -3894,11 +3881,9 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
     //jl_printf(JL_STDOUT, "\n");
     std::map<int, jl_arrayvar_t> arrayvars;
     std::map<int, BasicBlock*> labels;
-    std::map<int, Value*> handlers;
-    jl_codectx_t ctx;
+    jl_codectx_t ctx = {};
     ctx.arrayvars = &arrayvars;
     ctx.labels = &labels;
-    ctx.handlers = &handlers;
     ctx.module = lam->def ? lam->def->module : ptls->current_module;
     ctx.linfo = lam;
     ctx.name = jl_symbol_name(lam->def ? lam->def->name : anonymous_sym);
@@ -4330,21 +4315,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
     // step 7. set up GC frame
     allocate_gc_frame(b0, &ctx);
 
-    // step 8. allocate space for exception handler contexts
-    for(i=0; i < stmtslen; i++) {
-        jl_value_t *stmt = jl_array_ptr_ref(stmts,i);
-        if (jl_is_expr(stmt) && ((jl_expr_t*)stmt)->head == enter_sym) {
-            int labl = jl_unbox_long(jl_exprarg(stmt,0));
-            AllocaInst *handlr =
-                builder.CreateAlloca(T_int8,
-                                     ConstantInt::get(T_int32,
-                                                      sizeof(jl_handler_t)));
-            handlr->setAlignment(16);
-            handlers[labl] = handlr;
-        }
-    }
-
-    // step 9. allocate local variables slots
+    // step 8. allocate local variables slots
     // must be in the first basic block for the llvm mem2reg pass to work
 
     // get pointers for locals stored in the gc frame array (argTemp)
@@ -4408,7 +4379,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
         maybe_alloc_arrayvar(i, &ctx);
     }
 
-    // step 10. move args into local variables
+    // step 9. move args into local variables
     Function::arg_iterator AI = f->arg_begin();
     if (ctx.sret)
         AI++; // skip sret slot
@@ -4511,7 +4482,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
         }
     }
 
-    // step 11. allocate rest argument if necessary
+    // step 10. allocate rest argument if necessary
     if (va && ctx.vaSlot != -1) {
         jl_varinfo_t &vi = ctx.slots[ctx.vaSlot];
         if (!vi.escapes) {
@@ -4549,7 +4520,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
         }
     }
 
-    // step 12. associate labels with basic blocks to resolve forward jumps
+    // step 11. associate labels with basic blocks to resolve forward jumps
     BasicBlock *prev=NULL;
     for(i=0; i < stmtslen; i++) {
         jl_value_t *ex = jl_array_ptr_ref(stmts,i);
@@ -4569,7 +4540,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
         }
     }
 
-    // step 13. compile body statements
+    // step 12. compile body statements
     if (ctx.debug_enabled)
         // set initial line number
         builder.SetCurrentDebugLocation(topdebugloc);
@@ -4747,7 +4718,9 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
         }
     }
 
-    // step 14, Apply LLVM level inlining
+    builder.ClearInsertionPoint();
+
+    // step 13, Apply LLVM level inlining
     for(std::vector<CallInst*>::iterator it = ctx.to_inline.begin(); it != ctx.to_inline.end(); ++it) {
         Function *inlinef = (*it)->getCalledFunction();
         assert(inlinef->getParent());
@@ -4762,7 +4735,7 @@ static std::unique_ptr<Module> emit_function(jl_lambda_info_t *lam, jl_llvm_func
         }
     }
 
-    // step 15. Perform any delayed instantiations
+    // step 14. Perform any delayed instantiations
     if (ctx.debug_enabled) {
         ctx.dbuilder->finalize();
     }
@@ -5534,6 +5507,12 @@ static void init_julia_llvm_env(Module *m)
                                          Function::ExternalLinkage,
                                          "julia.gcroot_flush", m);
     add_named_global(gcroot_flush_func, (void*)NULL, /*dllimport*/false);
+
+    except_enter_func = Function::Create(FunctionType::get(T_int32, false),
+                                         Function::ExternalLinkage,
+                                         "julia.except_enter", m);
+    except_enter_func->addFnAttr(Attribute::ReturnsTwice);
+    add_named_global(except_enter_func, (void*)NULL, /*dllimport*/false);
 
     // set up optimization passes
 #ifdef LLVM37

@@ -202,9 +202,11 @@ Getting Around
 
    .. Docstring generated from Julia source
 
-   Return an array of methods with an argument of type ``typ``\ . If optional ``showparents`` is ``true``\ , also return arguments with a parent type of ``typ``\ , excluding type ``Any``\ .
+   Return an array of methods with an argument of type ``typ``\ .
 
-   The optional second argument restricts the search to a particular module or function.
+   The optional second argument restricts the search to a particular module or function (the default is all modules, starting from Main).
+
+   If optional ``showparents`` is ``true``\ , also return arguments with a parent type of ``typ``\ , excluding type ``Any``\ .
 
 .. function:: @show
 
@@ -307,7 +309,7 @@ All Objects
 
    .. Docstring generated from Julia source
 
-   Get a unique integer id for ``x``\ . ``object_id(x)==object_id(y)`` if and only if ``is(x,y)``\ .
+   Get a hash value for ``x`` based on object identity. ``object_id(x)==object_id(y)`` if ``x === y``\ .
 
 .. function:: hash(x[, h::UInt])
 
@@ -955,13 +957,13 @@ System
 
    .. Docstring generated from Julia source
 
-   Print and return the time elapsed since the last :func:`tic`\ .
+   Print and return the time elapsed since the last :func:`tic`\ . The macro call ``@time expr`` can also be used to time evaluation.
 
 .. function:: toq()
 
    .. Docstring generated from Julia source
 
-   Return, but do not print, the time elapsed since the last :func:`tic`\ .
+   Return, but do not print, the time elapsed since the last :func:`tic`\ . The macro calls ``@timed expr`` and ``@elapsed expr`` also return evaluation time.
 
 .. function:: @time
 
@@ -969,11 +971,15 @@ System
 
    A macro to execute an expression, printing the time it took to execute, the number of allocations, and the total number of bytes its execution caused to be allocated, before returning the value of the expression.
 
+   See also :func:`@timev`\ , :func:`@timed`\ , :func:`@elapsed`\ , and :func:`@allocated`\ .
+
 .. function:: @timev
 
    .. Docstring generated from Julia source
 
    This is a verbose version of the ``@time`` macro. It first prints the same information as ``@time``\ , then any non-zero memory allocation counters, and then returns the value of the expression.
+
+   See also :func:`@time`\ , :func:`@timed`\ , :func:`@elapsed`\ , and :func:`@allocated`\ .
 
 .. function:: @timed
 
@@ -981,17 +987,23 @@ System
 
    A macro to execute an expression, and return the value of the expression, elapsed time, total bytes allocated, garbage collection time, and an object with various memory allocation counters.
 
+   See also :func:`@time`\ , :func:`@timev`\ , :func:`@elapsed`\ , and :func:`@allocated`\ .
+
 .. function:: @elapsed
 
    .. Docstring generated from Julia source
 
    A macro to evaluate an expression, discarding the resulting value, instead returning the number of seconds it took to execute as a floating-point number.
 
+   See also :func:`@time`\ , :func:`@timev`\ , :func:`@timed`\ , and :func:`@allocated`\ .
+
 .. function:: @allocated
 
    .. Docstring generated from Julia source
 
    A macro to evaluate an expression, discarding the resulting value, instead returning the total number of bytes allocated during evaluation of the expression. Note: the expression is evaluated inside a local function, instead of the current context, in order to eliminate the effects of compilation, however, there still may be some allocations due to JIT compilation. This also makes the results inconsistent with the ``@time`` macros, which do not try to adjust for the effects of compilation.
+
+   See also :func:`@time`\ , :func:`@timev`\ , :func:`@timed`\ , and :func:`@elapsed`\ .
 
 .. function:: EnvHash() -> EnvHash
 
@@ -1250,7 +1262,7 @@ Errors
 
    Returns a lambda that retries function ``f`` up to ``n`` times in the event of an exception. If ``retry_on`` is a ``Type`` then retry only for exceptions of that type. If ``retry_on`` is a function ``test_error(::Exception) -> Bool`` then retry only if it is true.
 
-   The first retry happens after a gap of 50 milliseconds or ``max_delay``\ , whichever is lower. Subsequently, the delays between retries are exponentially increased with a random factor upto ``max_delay``\ .
+   The first retry happens after a gap of 50 milliseconds or ``max_delay``\ , whichever is lower. Subsequently, the delays between retries are exponentially increased with a random factor up to ``max_delay``\ .
 
    **Examples**
 
@@ -1342,6 +1354,12 @@ Reflection
    .. Docstring generated from Julia source
 
    Determine the module containing the definition of a ``DataType``\ .
+
+.. function:: Base.datatype_name(t::DataType) -> Symbol
+
+   .. Docstring generated from Julia source
+
+   Get the name of a ``DataType`` (without its parent module) as a symbol.
 
 .. function:: isconst([m::Module], s::Symbol) -> Bool
 

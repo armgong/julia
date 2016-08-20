@@ -31,15 +31,7 @@ function steprange_last{T}(start::T, step, stop)
         last = stop
     else
         if (step > z) != (stop > start)
-            # empty range has a special representation where stop = start-1
-            # this is needed to avoid the wrap-around that can happen computing
-            # start - step, which leads to a range that looks very large instead
-            # of empty.
-            if step > z
-                last = start - one(stop-start)
-            else
-                last = start + one(stop-start)
-            end
+            last = steprange_last_empty(start, step, stop)
         else
             diff = stop - start
             if T<:Signed && (diff > zero(diff)) != (stop > start)
@@ -57,6 +49,21 @@ function steprange_last{T}(start::T, step, stop)
     end
     last
 end
+
+function steprange_last_empty{T<:Integer}(start::T, step, stop)
+    # empty range has a special representation where stop = start-1
+    # this is needed to avoid the wrap-around that can happen computing
+    # start - step, which leads to a range that looks very large instead
+    # of empty.
+    if step > zero(step)
+        last = start - one(stop-start)
+    else
+        last = start + one(stop-start)
+    end
+    last
+end
+# For types where x+one(x) may not be well-defined
+steprange_last_empty(start, step, stop) = start - step
 
 steprem(start,stop,step) = (stop-start) % step
 
@@ -325,6 +332,24 @@ isempty(r::AbstractUnitRange) = first(r) > last(r)
 isempty(r::FloatRange) = length(r) == 0
 isempty(r::LinSpace) = length(r) == 0
 
+"""
+    step(r)
+
+Get the step size of a [`Range`](:obj:`Range`) object.
+```jldoctest
+julia> step(1:10)
+1
+
+julia> step(1:2:10)
+2
+
+julia> step(2.5:0.3:10.9)
+0.3
+
+julia> step(linspace(2.5,10.9,85))
+0.1
+```
+"""
 step(r::StepRange) = r.step
 step(r::AbstractUnitRange) = 1
 step(r::FloatRange) = r.step/r.divisor
@@ -474,10 +499,11 @@ end
 
 getindex(r::Range, ::Colon) = copy(r)
 
-function getindex{T<:Integer}(r::UnitRange, s::AbstractUnitRange{T})
+function getindex{T<:Integer}(r::AbstractUnitRange, s::AbstractUnitRange{T})
     @_inline_meta
     @boundscheck checkbounds(r, s)
-    st = oftype(r.start, r.start + first(s)-1)
+    f = first(r)
+    st = oftype(f, f + first(s)-1)
     range(st, length(s))
 end
 

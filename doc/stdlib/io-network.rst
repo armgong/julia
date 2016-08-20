@@ -134,7 +134,7 @@ General I/O
 
    Write the canonical binary representation of a value to the given I/O stream or file. Returns the number of bytes written into the stream.
 
-   You can write multiple values with the same :func:``write`` call. i.e. the following are equivalent:
+   You can write multiple values with the same ``write`` call. i.e. the following are equivalent:
 
    .. code-block:: julia
 
@@ -168,11 +168,17 @@ General I/O
 
    See ``read`` for a description of the ``all`` option.
 
-.. function:: read(stream::IO, nb=typemax(Int); all=true)
+.. function:: read(s::IO, nb=typemax(Int))
 
    .. Docstring generated from Julia source
 
-   Read at most ``nb`` bytes from ``stream``\ , returning a ``Vector{UInt8}`` of the bytes read.
+   Read at most ``nb`` bytes from ``s``\ , returning a ``Vector{UInt8}`` of the bytes read.
+
+.. function:: read(s::IOStream, nb::Integer; all=true)
+
+   .. Docstring generated from Julia source
+
+   Read at most ``nb`` bytes from ``s``\ , returning a ``Vector{UInt8}`` of the bytes read.
 
    If ``all`` is ``true`` (the default), this function will block repeatedly trying to read all requested bytes, until an error or end-of-file occurs. If ``all`` is ``false``\ , at most one ``read`` call is performed, and the amount of data returned is device-dependent. Note that not all stream types support the ``all`` option.
 
@@ -618,11 +624,11 @@ Text I/O
 
    The columns are assumed to be separated by one or more whitespaces. The end of line delimiter is taken as ``\n``\ . If all data is numeric, the result will be a numeric array. If some elements cannot be parsed as numbers, a heterogeneous array of numbers and strings is returned.
 
-.. function:: writedlm(f, A, delim='\\t')
+.. function:: writedlm(f, A, delim='\\t'; opts)
 
    .. Docstring generated from Julia source
 
-   Write ``A`` (a vector, matrix or an iterable collection of iterable rows) as text to ``f`` (either a filename string or an ``IO`` stream) using the given delimiter ``delim`` (which defaults to tab, but can be any printable Julia object, typically a ``Char`` or ``AbstractString``\ ).
+   Write ``A`` (a vector, matrix, or an iterable collection of iterable rows) as text to ``f`` (either a filename string or an :class:`IO` stream) using the given delimiter ``delim`` (which defaults to tab, but can be any printable Julia object, typically a ``Char`` or ``AbstractString``\ ).
 
    For example, two vectors ``x`` and ``y`` of the same length can be written as two columns of tab-delimited text to ``f`` by either ``writedlm(f, [x y])`` or by ``writedlm(f, zip(x, y))``\ .
 
@@ -632,11 +638,11 @@ Text I/O
 
    Equivalent to ``readdlm`` with ``delim`` set to comma.
 
-.. function:: writecsv(filename, A)
+.. function:: writecsv(filename, A; opts)
 
    .. Docstring generated from Julia source
 
-   Equivalent to ``writedlm`` with ``delim`` set to comma.
+   Equivalent to :func:`writedlm` with ``delim`` set to comma.
 
 .. function:: Base64EncodePipe(ostream)
 

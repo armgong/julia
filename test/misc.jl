@@ -138,6 +138,21 @@ end
 # lock / unlock
 let l = ReentrantLock()
     lock(l)
+    success = Ref(false)
+    @test trylock(l) do
+        @test lock(l) do
+            success[] = true
+            return :foo
+        end === :foo
+        return :bar
+    end === :bar
+    @test success[]
+    t = @async begin
+        @test trylock(l) do
+            @test false
+        end === false
+    end
+    wait(t)
     unlock(l)
     @test_throws ErrorException unlock(l)
 end
@@ -406,7 +421,7 @@ let a = [1,2,3]
     @test a == [0,0,0]
 end
 let creds = Base.LibGit2.CachedCredentials()
-    creds[:pass, "foo"] = "bar"
+    LibGit2.get_creds!(creds, "foo", LibGit2.SSHCredentials()).pass = "bar"
     securezero!(creds)
-    @test creds[:pass, "foo"] == "\0\0\0"
+    @test LibGit2.get_creds!(creds, "foo", nothing).pass == "\0\0\0"
 end

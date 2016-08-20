@@ -45,7 +45,7 @@ const NaN = NaN64
 ## conversions to floating-point ##
 convert(::Type{Float16}, x::Integer) = convert(Float16, convert(Float32,x))
 for t in (Int8,Int16,Int32,Int64,Int128,UInt8,UInt16,UInt32,UInt64,UInt128)
-    @eval promote_rule(::Type{Float16}, ::Type{$t}) = Float32
+    @eval promote_rule(::Type{Float16}, ::Type{$t}) = Float16
 end
 promote_rule(::Type{Float16}, ::Type{Bool}) = Float16
 
@@ -229,6 +229,8 @@ promote_rule(::Type{Float64}, ::Type{Float32}) = Float64
 
 widen(::Type{Float16}) = Float32
 widen(::Type{Float32}) = Float64
+
+_default_type(T::Union{Type{Real},Type{AbstractFloat}}) = Float64
 
 ## floating point arithmetic ##
 -(x::Float32) = box(Float32,neg_float(unbox(Float32,x)))
@@ -519,9 +521,9 @@ exponent_one(::Type{Float32}) =     0x3f80_0000
 exponent_half(::Type{Float32}) =    0x3f00_0000
 significand_mask(::Type{Float32}) = 0x007f_ffff
 
-significand_bits{T<:AbstractFloat}(::Type{T}) = trailing_ones(significand_mask(T))
-exponent_bits{T<:AbstractFloat}(::Type{T}) = sizeof(T)*8 - significand_bits(T) - 1
-exponent_bias{T<:AbstractFloat}(::Type{T}) = Int(exponent_one(T) >> significand_bits(T))
+@pure significand_bits{T<:AbstractFloat}(::Type{T}) = trailing_ones(significand_mask(T))
+@pure exponent_bits{T<:AbstractFloat}(::Type{T}) = sizeof(T)*8 - significand_bits(T) - 1
+@pure exponent_bias{T<:AbstractFloat}(::Type{T}) = Int(exponent_one(T) >> significand_bits(T))
 
 ## Array operations on floating point numbers ##
 
