@@ -16,12 +16,16 @@ srand(123)
 @test one(UniformScaling(rand(Complex128))) == one(UniformScaling{Complex128})
 @test eltype(one(UniformScaling(rand(Complex128)))) == Complex128
 @test -one(UniformScaling(2)) == UniformScaling(-1)
+@test istriu(I)
+@test istril(I)
+@test issymmetric(I)
+@test issymmetric(UniformScaling(complex(1.0,1.0)))
+@test ishermitian(I)
+@test !ishermitian(UniformScaling(complex(1.0,1.0)))
 
 α = randn()
 @test α .* UniformScaling(1.0) == UniformScaling(1.0) .* α
 @test UniformScaling(α)./α == UniformScaling(1.0)
-@test α + UniformScaling(1.0) == UniformScaling(1.0) + α
-@test α - UniformScaling(1.0) == -(UniformScaling(1.0) - α)
 @test copy(UniformScaling(one(Float64))) == UniformScaling(one(Float64))
 @test sprint(show,UniformScaling(one(Float32))) == "UniformScaling{Float32}\n1.0*I"
 
