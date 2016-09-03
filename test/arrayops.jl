@@ -124,6 +124,14 @@ a = zeros(0, 5)  # an empty linearslow array
 s = view(a, :, [2,3,5])
 @test length(reshape(s, length(s))) == 0
 
+# reshape(a, Val{N})
+a = ones(Int,3,3)
+s = view(a, 1:2, 1:2)
+for N in (1,3)
+    @test isa(reshape(a, Val{N}), Array{Int,N})
+    @test isa(reshape(s, Val{N}), Base.ReshapedArray{Int,N})
+end
+
 @test reshape(1:5, (5,)) === 1:5
 @test reshape(1:5, 5) === 1:5
 
@@ -137,6 +145,22 @@ for idx in ((3,), (2,2), (Base.ReshapedIndex(1),))
         @test err.msg == "indexed assignment fails for a reshaped range; consider calling collect"
     end
 end
+
+# conversion from ReshapedArray to Array (#18262)
+a = Base.ReshapedArray(1:3, (3, 1), ())
+@test convert(Array, a) == a
+@test convert(Array{Int}, a) == a
+@test convert(Array{Float64}, a) == a
+@test convert(Matrix, a) == a
+@test convert(Matrix{Int}, a) == a
+@test convert(Matrix{Float64}, a) == a
+b = Base.ReshapedArray(1:3, (3,), ())
+@test convert(Array, b) == b
+@test convert(Array{Int}, b) == b
+@test convert(Array{Float64}, b) == b
+@test convert(Vector, b) == b
+@test convert(Vector{Int}, b) == b
+@test convert(Vector{Float64}, b) == b
 
 # operations with LinearFast ReshapedArray
 b = collect(1:12)
@@ -1319,6 +1343,14 @@ indexes = collect(R)
 @test length(indexes) == 12
 @test length(R) == 12
 @test ndims(R) == 2
+@test in(CartesianIndex((2,3)), R)
+@test in(CartesianIndex((3,3)), R)
+@test in(CartesianIndex((3,5)), R)
+@test in(CartesianIndex((5,5)), R)
+@test !in(CartesianIndex((1,3)), R)
+@test !in(CartesianIndex((3,2)), R)
+@test !in(CartesianIndex((3,6)), R)
+@test !in(CartesianIndex((6,5)), R)
 
 @test CartesianRange((3:5,-7:7)) == CartesianRange(CartesianIndex{2}(3,-7),CartesianIndex{2}(5,7))
 @test CartesianRange((3,-7:7)) == CartesianRange(CartesianIndex{2}(3,-7),CartesianIndex{2}(3,7))

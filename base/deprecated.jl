@@ -461,12 +461,11 @@ end
 
 @deprecate ==(x::Char, y::Integer) UInt32(x) == y
 @deprecate ==(x::Integer, y::Char) x == UInt32(y)
+# Note: when these deprecations are deleted, the specialized definitions isequal(x::Char, y::Integer)
+# and isequal(x::Integer, y::Char) in operators.jl can be deleted, too
 @deprecate isless(x::Char, y::Integer) UInt32(x) < y
 @deprecate isless(x::Integer, y::Char) x < UInt32(y)
 
-# delete these methods along with deprecations:
-isequal(x::Char, y::Integer) = false
-isequal(x::Integer, y::Char) = false
 
 #6674 and #4233
 macro windows(qm,ex)
@@ -794,5 +793,76 @@ end
 @deprecate (+)(x::Number, J::UniformScaling) x + J.λ
 @deprecate (-)(J::UniformScaling, x::Number) J.λ - x
 @deprecate (-)(x::Number, J::UniformScaling) x - J.λ
+
+# Deprecate methods that convert Diagonal and Bidiagonal to <:AbstractTriangular.
+function convert(::Type{UpperTriangular}, A::Diagonal)
+    depwarn(string("`convert(::Type{UpperTriangular}, A::Diagonal)` and other methods ",
+        "that convert `Diagonal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `UpperTriangular` constructor directly ",
+        "(`UpperTriangular(A)`) instead."), :convert)
+    UpperTriangular(A)
+end
+function convert(::Type{LowerTriangular}, A::Diagonal)
+    depwarn(string("`convert(::Type{LowerTriangular}, A::Diagonal)` and other methods ",
+        "that convert `Diagonal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `LowerTriangular` constructor directly ",
+        "(`LowerTriangular(A)`) instead."), :convert)
+    LowerTriangular(A)
+end
+function convert(::Type{Base.LinAlg.UnitUpperTriangular}, A::Diagonal)
+    depwarn(string("`convert(::Type{UnitUpperTriangular}, A::Diagonal)` and other methods ",
+        "that convert `Diagonal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `UnitUpperTriangular` constructor directly ",
+        "(`Base.LinAlg.UnitUpperTriangular(A)`) instead."), :convert)
+    if !all(A.diag .== one(eltype(A)))
+        throw(ArgumentError("matrix cannot be represented as UnitUpperTriangular"))
+    end
+    Base.LinAlg.UnitUpperTriangular(full(A))
+end
+function convert(::Type{Base.LinAlg.UnitLowerTriangular}, A::Diagonal)
+    depwarn(string("`convert(::Type{UnitLowerTriangular}, A::Diagonal)` and other methods ",
+        "that convert `Diagonal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `UnitLowerTriangular` constructor directly ",
+        "(`Base.LinAlg.UnitLowerTriangular(A)`) instead."), :convert)
+    if !all(A.diag .== one(eltype(A)))
+        throw(ArgumentError("matrix cannot be represented as UnitLowerTriangular"))
+    end
+    Base.LinAlg.UnitLowerTriangular(full(A))
+end
+function convert(::Type{LowerTriangular}, A::Bidiagonal)
+    depwarn(string("`convert(::Type{LowerTriangular}, A::Bidiagonal)` and other methods ",
+        "that convert `Diagonal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `LowerTriangular` constructor directly (`LowerTriangular(A)`) ",
+        "instead."), :convert)
+    if !A.isupper
+        LowerTriangular(full(A))
+    else
+        throw(ArgumentError("Bidiagonal matrix must have lower off diagonal to be converted to LowerTriangular"))
+    end
+end
+function convert(::Type{UpperTriangular}, A::Bidiagonal)
+    depwarn(string("`convert(::Type{UpperTriangular}, A::Bidiagonal)` and other methods ",
+        "that convert `Diagoinal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `UpperTriangular` constructor directly (`UpperTriangular(A)`) ",
+        "instead."), :convert)
+    if A.isupper
+        UpperTriangular(full(A))
+    else
+        throw(ArgumentError("Bidiagonal matrix must have upper off diagonal to be converted to UpperTriangular"))
+    end
+end
+
+# Deprecate vectorized unary functions over sparse matrices in favor of compact broadcast syntax (#17265).
+for f in (:sin, :sinh, :sind, :asin, :asinh, :asind,
+        :tan, :tanh, :tand, :atan, :atanh, :atand,
+        :sinpi, :cosc, :ceil, :floor, :trunc, :round, :real, :imag,
+        :log1p, :expm1, :abs, :abs2, :conj,
+        :log, :log2, :log10, :exp, :exp2, :exp10, :sinc, :cospi,
+        :cos, :cosh, :cosd, :acos, :acosd,
+        :cot, :coth, :cotd, :acot, :acotd,
+        :sec, :sech, :secd, :asech,
+        :csc, :csch, :cscd, :acsch)
+    @eval @deprecate $f(A::SparseMatrixCSC) $f.(A)
+end
 
 # End deprecations scheduled for 0.6

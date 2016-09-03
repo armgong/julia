@@ -101,6 +101,7 @@ jl_sym_t *meta_sym; jl_sym_t *compiler_temp_sym;
 jl_sym_t *inert_sym; jl_sym_t *vararg_sym;
 jl_sym_t *unused_sym; jl_sym_t *static_parameter_sym;
 jl_sym_t *polly_sym; jl_sym_t *inline_sym;
+jl_sym_t *propagate_inbounds_sym;
 
 typedef struct {
     int64_t a;
@@ -349,6 +350,8 @@ static void jl_lambda_info_set_ast(jl_lambda_info_t *li, jl_expr_t *ast)
                     li->pure = 1;
                 else if (ma == (jl_value_t*)inline_sym)
                     li->inlineable = 1;
+                else if (ma == (jl_value_t*)propagate_inbounds_sym)
+                    li->propagate_inbounds = 1;
                 else
                     jl_array_ptr_set(meta, ins++, ma);
             }
@@ -431,6 +434,7 @@ JL_DLLEXPORT jl_lambda_info_t *jl_new_lambda_info_uninit(void)
     li->constval = NULL;
     li->pure = 0;
     li->inlineable = 0;
+    li->propagate_inbounds = 0;
     return li;
 }
 
@@ -544,6 +548,7 @@ static jl_lambda_info_t *jl_copy_lambda(jl_lambda_info_t *linfo)
     new_linfo->sparam_vals = linfo->sparam_vals;
     new_linfo->pure = linfo->pure;
     new_linfo->inlineable = linfo->inlineable;
+    new_linfo->propagate_inbounds = linfo->propagate_inbounds;
     new_linfo->nargs = linfo->nargs;
     new_linfo->isva = linfo->isva;
     new_linfo->rettype = linfo->rettype;
@@ -553,7 +558,7 @@ static jl_lambda_info_t *jl_copy_lambda(jl_lambda_info_t *linfo)
 }
 
 // return a new lambda-info that has some extra static parameters merged in
-JL_DLLEXPORT jl_lambda_info_t *jl_get_specialized(jl_method_t *m, jl_tupletype_t *types, jl_svec_t *sp)
+JL_DLLEXPORT jl_lambda_info_t *jl_get_specialized(jl_method_t *m, jl_tupletype_t *types, jl_svec_t *sp, int allow_exec)
 {
     jl_lambda_info_t *linfo = m->lambda_template;
     jl_lambda_info_t *new_linfo;
@@ -564,6 +569,13 @@ JL_DLLEXPORT jl_lambda_info_t *jl_get_specialized(jl_method_t *m, jl_tupletype_t
         new_linfo->specTypes = types;
         new_linfo->def = m;
         new_linfo->sparam_vals = sp;
+    }
+    else if (!allow_exec) {
+        new_linfo = jl_copy_lambda(linfo);
+        new_linfo->specTypes = types;
+        new_linfo->def = m;
+        new_linfo->sparam_vals = sp;
+        jl_set_lambda_code_null(new_linfo);
     }
     else {
         new_linfo = jl_instantiate_staged(m, types, sp);

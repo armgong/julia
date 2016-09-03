@@ -11,7 +11,9 @@ LIBGIT2_OPTS := $(CMAKE_COMMON) -DCMAKE_BUILD_TYPE=Release -DTHREADSAFE=ON
 ifeq ($(OS),WINNT)
 LIBGIT2_OPTS += -DWIN32=ON -DMINGW=ON
 ifneq ($(ARCH),x86_64)
+ifneq ($(USECLANG),1)
 LIBGIT2_OPTS += -DCMAKE_C_FLAGS="-mincoming-stack-boundary=2"
+endif
 endif
 ifeq ($(BUILD_OS),WINNT)
 LIBGIT2_OPTS += -G"MSYS Makefiles"
@@ -71,7 +73,7 @@ endif
 	echo 1 > $@
 
 $(LIBGIT2_OBJ_TARGET): $(LIBGIT2_OBJ_SOURCE) | $(build_shlibdir)
-ifeq ($(BUILD_OS),WINNT)
+ifeq ($(OS),WINNT)
 	cp $< $@
 else
 	$(call make-install,$(LIBGIT2_SRC_DIR),)

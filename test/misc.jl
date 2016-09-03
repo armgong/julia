@@ -230,7 +230,8 @@ module Tmp14173
     A = randn(2000, 2000)
 end
 whos(IOBuffer(), Tmp14173) # warm up
-@test @allocated(whos(IOBuffer(), Tmp14173)) < 10000
+const MEMDEBUG = ccall(:jl_is_memdebug, Bool, ())
+@test @allocated(whos(IOBuffer(), Tmp14173)) < (MEMDEBUG ? 30000 : 8000)
 
 ## test conversion from UTF-8 to UTF-16 (for Windows APIs)
 
@@ -433,4 +434,19 @@ let creds = Base.LibGit2.CachedCredentials()
     LibGit2.get_creds!(creds, "foo", LibGit2.SSHCredentials()).pass = "bar"
     securezero!(creds)
     @test LibGit2.get_creds!(creds, "foo", nothing).pass == "\0\0\0"
+end
+
+# Test that we can VirtualProtect jitted code to writable
+if is_windows()
+    @noinline function WeVirtualProtectThisToRWX(x, y)
+        x+y
+    end
+
+    let addr = cfunction(WeVirtualProtectThisToRWX, UInt64, (UInt64, UInt64))
+        addr = addr-(UInt64(addr)%4096)
+        const PAGE_EXECUTE_READWRITE = 0x40
+        oldPerm = Ref{UInt32}()
+        err = ccall(:VirtualProtect,stdcall,Cint,(Ptr{Void}, Csize_t, UInt32, Ptr{UInt32}), addr, 4096, PAGE_EXECUTE_READWRITE, oldPerm)
+        err == 0 && error(Libc.GetLastError())
+    end
 end
