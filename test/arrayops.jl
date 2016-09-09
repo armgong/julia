@@ -124,6 +124,14 @@ a = zeros(0, 5)  # an empty linearslow array
 s = view(a, :, [2,3,5])
 @test length(reshape(s, length(s))) == 0
 
+# reshape(a, Val{N})
+a = ones(Int,3,3)
+s = view(a, 1:2, 1:2)
+for N in (1,3)
+    @test isa(reshape(a, Val{N}), Array{Int,N})
+    @test isa(reshape(s, Val{N}), Base.ReshapedArray{Int,N})
+end
+
 @test reshape(1:5, (5,)) === 1:5
 @test reshape(1:5, 5) === 1:5
 
@@ -137,6 +145,22 @@ for idx in ((3,), (2,2), (Base.ReshapedIndex(1),))
         @test err.msg == "indexed assignment fails for a reshaped range; consider calling collect"
     end
 end
+
+# conversion from ReshapedArray to Array (#18262)
+a = Base.ReshapedArray(1:3, (3, 1), ())
+@test convert(Array, a) == a
+@test convert(Array{Int}, a) == a
+@test convert(Array{Float64}, a) == a
+@test convert(Matrix, a) == a
+@test convert(Matrix{Int}, a) == a
+@test convert(Matrix{Float64}, a) == a
+b = Base.ReshapedArray(1:3, (3,), ())
+@test convert(Array, b) == b
+@test convert(Array{Int}, b) == b
+@test convert(Array{Float64}, b) == b
+@test convert(Vector, b) == b
+@test convert(Vector{Int}, b) == b
+@test convert(Vector{Float64}, b) == b
 
 # operations with LinearFast ReshapedArray
 b = collect(1:12)
@@ -248,7 +272,7 @@ let
     @test eltype(X) == Float32
     @test Base.elsize(X) == sizeof(Float32)
     @test !isinteger(X)
-    @test isnan(X) == [trues(6);falses(5)]
+    @test isnan.(X) == [trues(6);falses(5)]
     @test X[7:11] == [1:5;]
     X = get(A, (2:4, 9:-2:-13), 0)
     Xv = zeros(Int, 3, 12)
@@ -1319,6 +1343,14 @@ indexes = collect(R)
 @test length(indexes) == 12
 @test length(R) == 12
 @test ndims(R) == 2
+@test in(CartesianIndex((2,3)), R)
+@test in(CartesianIndex((3,3)), R)
+@test in(CartesianIndex((3,5)), R)
+@test in(CartesianIndex((5,5)), R)
+@test !in(CartesianIndex((1,3)), R)
+@test !in(CartesianIndex((3,2)), R)
+@test !in(CartesianIndex((3,6)), R)
+@test !in(CartesianIndex((6,5)), R)
 
 @test CartesianRange((3:5,-7:7)) == CartesianRange(CartesianIndex{2}(3,-7),CartesianIndex{2}(5,7))
 @test CartesianRange((3,-7:7)) == CartesianRange(CartesianIndex{2}(3,-7),CartesianIndex{2}(3,7))
@@ -1656,6 +1688,18 @@ end
 @test cumsum([1 2; 3 4], 1) == [1 2; 4 6]
 @test cumsum([1 2; 3 4], 2) == [1 3; 3 7]
 @test cumsum([1 2; 3 4], 3) == [1 2; 3 4]
+
+# issue #18363
+@test_throws DimensionMismatch cumsum!([0,0], 1:4)
+@test cumsum(Any[])::Vector{Any} == Any[]
+@test cumsum(Any[1, 2.3])::Vector{Any} == [1, 3.3] == cumsum(Real[1, 2.3])::Vector{Real}
+@test cumsum([true,true,true]) == [1,2,3]
+@test cumsum(0x00:0xff)[end] === 0x80 # overflow
+@test cumsum([[true], [true], [false]])::Vector{Vector{Int}} == [[1], [2], [2]]
+
+#issue #18336
+@test cumsum([-0.0, -0.0])[1] === cumsum([-0.0, -0.0])[2] === -0.0
+@test cumprod(-0.0im + (0:0))[1] === Complex(0.0, -0.0)
 
 module TestNLoops15895
 

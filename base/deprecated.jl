@@ -461,12 +461,11 @@ end
 
 @deprecate ==(x::Char, y::Integer) UInt32(x) == y
 @deprecate ==(x::Integer, y::Char) x == UInt32(y)
+# Note: when these deprecations are deleted, the specialized definitions isequal(x::Char, y::Integer)
+# and isequal(x::Integer, y::Char) in operators.jl can be deleted, too
 @deprecate isless(x::Char, y::Integer) UInt32(x) < y
 @deprecate isless(x::Integer, y::Char) x < UInt32(y)
 
-# delete these methods along with deprecations:
-isequal(x::Char, y::Integer) = false
-isequal(x::Integer, y::Char) = false
 
 #6674 and #4233
 macro windows(qm,ex)
@@ -794,5 +793,206 @@ end
 @deprecate (+)(x::Number, J::UniformScaling) x + J.λ
 @deprecate (-)(J::UniformScaling, x::Number) J.λ - x
 @deprecate (-)(x::Number, J::UniformScaling) x - J.λ
+
+# Deprecate methods that convert Diagonal and Bidiagonal to <:AbstractTriangular.
+function convert(::Type{UpperTriangular}, A::Diagonal)
+    depwarn(string("`convert(::Type{UpperTriangular}, A::Diagonal)` and other methods ",
+        "that convert `Diagonal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `UpperTriangular` constructor directly ",
+        "(`UpperTriangular(A)`) instead."), :convert)
+    UpperTriangular(A)
+end
+function convert(::Type{LowerTriangular}, A::Diagonal)
+    depwarn(string("`convert(::Type{LowerTriangular}, A::Diagonal)` and other methods ",
+        "that convert `Diagonal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `LowerTriangular` constructor directly ",
+        "(`LowerTriangular(A)`) instead."), :convert)
+    LowerTriangular(A)
+end
+function convert(::Type{Base.LinAlg.UnitUpperTriangular}, A::Diagonal)
+    depwarn(string("`convert(::Type{UnitUpperTriangular}, A::Diagonal)` and other methods ",
+        "that convert `Diagonal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `UnitUpperTriangular` constructor directly ",
+        "(`Base.LinAlg.UnitUpperTriangular(A)`) instead."), :convert)
+    if !all(A.diag .== one(eltype(A)))
+        throw(ArgumentError("matrix cannot be represented as UnitUpperTriangular"))
+    end
+    Base.LinAlg.UnitUpperTriangular(full(A))
+end
+function convert(::Type{Base.LinAlg.UnitLowerTriangular}, A::Diagonal)
+    depwarn(string("`convert(::Type{UnitLowerTriangular}, A::Diagonal)` and other methods ",
+        "that convert `Diagonal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `UnitLowerTriangular` constructor directly ",
+        "(`Base.LinAlg.UnitLowerTriangular(A)`) instead."), :convert)
+    if !all(A.diag .== one(eltype(A)))
+        throw(ArgumentError("matrix cannot be represented as UnitLowerTriangular"))
+    end
+    Base.LinAlg.UnitLowerTriangular(full(A))
+end
+function convert(::Type{LowerTriangular}, A::Bidiagonal)
+    depwarn(string("`convert(::Type{LowerTriangular}, A::Bidiagonal)` and other methods ",
+        "that convert `Diagonal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `LowerTriangular` constructor directly (`LowerTriangular(A)`) ",
+        "instead."), :convert)
+    if !A.isupper
+        LowerTriangular(full(A))
+    else
+        throw(ArgumentError("Bidiagonal matrix must have lower off diagonal to be converted to LowerTriangular"))
+    end
+end
+function convert(::Type{UpperTriangular}, A::Bidiagonal)
+    depwarn(string("`convert(::Type{UpperTriangular}, A::Bidiagonal)` and other methods ",
+        "that convert `Diagoinal`/`Bidiagonal` to `<:AbstractTriangular` are deprecated. ",
+        "Consider calling the `UpperTriangular` constructor directly (`UpperTriangular(A)`) ",
+        "instead."), :convert)
+    if A.isupper
+        UpperTriangular(full(A))
+    else
+        throw(ArgumentError("Bidiagonal matrix must have upper off diagonal to be converted to UpperTriangular"))
+    end
+end
+
+# Deprecate vectorized unary functions over sparse matrices in favor of compact broadcast syntax (#17265).
+for f in (:sin, :sinh, :sind, :asin, :asinh, :asind,
+        :tan, :tanh, :tand, :atan, :atanh, :atand,
+        :sinpi, :cosc, :ceil, :floor, :trunc, :round, :real, :imag,
+        :log1p, :expm1, :abs, :abs2, :conj,
+        :log, :log2, :log10, :exp, :exp2, :exp10, :sinc, :cospi,
+        :cos, :cosh, :cosd, :acos, :acosd,
+        :cot, :coth, :cotd, :acot, :acotd,
+        :sec, :sech, :secd, :asech,
+        :csc, :csch, :cscd, :acsch)
+    @eval @deprecate $f(A::SparseMatrixCSC) $f.(A)
+end
+
+# For deprecating vectorized functions in favor of compact broadcast syntax
+macro dep_vectorize_1arg(S, f)
+    S = esc(S)
+    f = esc(f)
+    T = esc(:T)
+    x = esc(:x)
+    AbsArr = esc(:AbstractArray)
+    :( @deprecate $f{$T<:$S}($x::$AbsArr{$T}) $f.($x) )
+end
+macro dep_vectorize_2arg(S, f)
+    S = esc(S)
+    f = esc(f)
+    T1 = esc(:T1)
+    T2 = esc(:T2)
+    x = esc(:x)
+    y = esc(:y)
+    AbsArr = esc(:AbstractArray)
+    quote
+        @deprecate $f{$T1<:$S}($x::$S, $y::$AbsArr{$T1}) $f.($x,$y)
+        @deprecate $f{$T1<:$S}($x::$AbsArr{$T1}, $y::$S) $f.($x,$y)
+        @deprecate $f{$T1<:$S,$T2<:$S}($x::$AbsArr{$T1}, $y::$AbsArr{$T2}) $f.($x,$y)
+    end
+end
+
+# Deprecate @vectorize_1arg-vectorized functions from...
+for f in (
+        # base/special/trig.jl
+        :sinpi, :cospi, :sinc, :cosc,
+        # base/special/log.jl
+        :log, :log1p,
+        # base/special/gamma.jl
+        :gamma, :lfact, :digamma, :trigamma, :zeta, :eta,
+        # base/special/erf.jl
+        :erfcx, :erfi, :dawson,
+        # base/special/bessel.jl
+        :airyprime, :airyai, :airyaiprime, :airybi, :airybiprime,
+        :airy, :airyx, :besselj0, :besselj1, :bessely0, :bessely1,
+        # base/math.jl
+        :cbrt, :sinh, :cosh, :tanh, :atan, :asinh, :exp, :erf, :erfc, :exp2,
+        :expm1, :exp10, :sin, :cos, :tan, :asin, :acos, :acosh, :atanh,
+        #=:log,=# :log2, :log10, :lgamma, #=:log1p,=# :sqrt,
+        # base/floatfuncs.jl
+        :abs, :abs2, :angle, :isnan, :isinf, :isfinite,
+        # base/fastmath.jl
+        :acos_fast, :acosh_fast, :angle_fast, :asin_fast, :asinh_fast,
+        :atan_fast, :atanh_fast, :cbrt_fast, :cis_fast, :cos_fast,
+        :cosh_fast, :exp10_fast, :exp2_fast, :exp_fast, :expm1_fast,
+        :lgamma_fast, :log10_fast, :log1p_fast, :log2_fast, :log_fast,
+        :sin_fast, :sinh_fast, :sqrt_fast, :tan_fast, :tanh_fast,
+        # base/complex.jl
+        :cis,
+        )
+    @eval @dep_vectorize_1arg Number $f
+end
+for f in (
+        :invdigamma, # base/special/gamma.jl
+        :erfinc, :erfcinv, # base/special/erf.jl
+        :trunc, :floor, :ceil, :round, # base/floatfuncs.jl
+        :rad2deg, :deg2rad, :exponent, :significand, # base/math.jl
+        :unix2datetime, :rata2datetime, :julian2datetime, # base/dates/conversions.jl
+        :sind, :cosd, :tand, :asind, :acosd, :atand, :asecd, :acscd, :acotd, # base/special/trig.jl
+        )
+    @eval @dep_vectorize_1arg Real $f
+end
+# base/complex.jl
+@dep_vectorize_1arg Complex round
+@dep_vectorize_1arg Complex float
+for f in (
+        # base/dates/accessors.jl
+        :year, :month, :day, :week, :dayofmonth, :yearmonth, :monthday, :yearmonthday,
+        # base/dates/adjusters.jl
+        :firstdayofweek, :lastdayofweek, :firstdayofmonth,
+        :lastdayofmonth, :firstdayofyear, :lastdayofyear,
+        :firstdayofquarter, :lastdayofquarter,
+        # base/dates/query.jl
+        :dayname, :dayabbr, :dayofweek, :dayofweekofmonth,
+        :daysofweekinmonth, :monthname, :monthabbr, :daysinmonth,
+        :isleapyear, :dayofyear, :daysinyear, :quarterofyear, :dayofquarter,
+    )
+    @eval @dep_vectorize_1arg Dates.TimeType $f
+end
+for f in (
+    :hour, :minute, :second, :millisecond, # base/dates/accessors.jl
+    :Date, :datetime2unix, :datetime2rata, :datetime2julian, # base/dates/conversions.jl
+    )
+    @eval @dep_vectorize_1arg Dates.DateTime $f
+end
+@dep_vectorize_1arg Dates.Date Datetime # base/dates/conversions.jl
+
+# Deprecate @vectorize_2arg-vectorized functions from...
+for f in (
+        # base/special/gamma.jl
+        :polygamma, :zeta, :beta, :lbeta,
+        # base/special/bessel.jl
+        :airy, :airyx, :besseli, :besselix, :besselj, :besseljx,
+        :besselk, :besselkx, :bessely, :besselyx, :besselh,
+        :besselhx, :hankelh1, :hankelh2, :hankelh1x, :hankelh2x,
+        # base/math.jl
+        :log, :hypot, :atan2,
+        # base/fastmath.jl
+        :pow_fast, :atan2_fast, :hypot_fast, :max_fast, :min_fast, :minmax_fast,
+    )
+    @eval @dep_vectorize_2arg Number $f
+end
+for f in (
+        :max, :min, # base/math.jl
+        :copysign, :flipsign, # base/floatfuncs.jl
+    )
+    @eval @dep_vectorize_2arg Real $f
+end
+
+# Deprecate @vectorize_1arg and @vectorize_2arg themselves
+macro vectorize_1arg(S,f)
+    depwarn(string("`@vectorize_1arg` is deprecated in favor of compact broadcast syntax. ",
+        "Instead of `@vectorize_1arg`'ing function `f` and calling `f(arg)`, call `f.(arg)`."),
+        :vectorize_1arg)
+    quote
+        @dep_vectorize_1arg($(esc(S)),$(esc(f)))
+    end
+end
+macro vectorize_2arg(S,f)
+    depwarn(string("`@vectorize_2arg` is deprecated in favor of compact broadcast syntax. ",
+        "Instead of `@vectorize_2arg`'ing function `f` and calling `f(arg1, arg2)`, call ",
+        "`f.(arg1,arg2)`. "), :vectorize_2arg)
+    quote
+        @dep_vectorize_2arg($(esc(S)),$(esc(f)))
+    end
+end
+export @vectorize_1arg, @vectorize_2arg
 
 # End deprecations scheduled for 0.6

@@ -96,7 +96,18 @@ static DIType julia_type_to_di(jl_value_t *jt, DIBuilder *dbuilder, bool isboxed
     jl_datatype_t *jdt = (jl_datatype_t*)jt;
     if (jdt->ditype != NULL) {
 #ifdef LLVM37
-        return (llvm::DIType*)jdt->ditype;
+        DIType* t = (DIType*)jdt->ditype;
+#ifndef LLVM39
+        // On LLVM 3.7 and 3.8, DICompositeType with a unique name
+        // are ref'd by their unique name and needs to be explicitly
+        // retained in order to be used in the module.
+        if (auto *Composite = dyn_cast<DICompositeType>(t)) {
+            if (Composite->getRawIdentifier()) {
+                dbuilder->retainType(Composite);
+            }
+        }
+#endif
+        return t;
 #else
         return DIType((llvm::MDNode*)jdt->ditype);
 #endif
@@ -130,17 +141,22 @@ static DIType julia_type_to_di(jl_value_t *jt, DIBuilder *dbuilder, bool isboxed
     else if (jl_is_structtype(jt)) {
         jl_datatype_t *jst = (jl_datatype_t*)jt;
         size_t ntypes = jl_datatype_nfields(jst);
+        const char *tname = jl_symbol_name(jdt->name->name);
+        std::stringstream unique_name;
+        unique_name << tname << "_" << globalUnique++;
         llvm::DICompositeType *ct = dbuilder->createStructType(
             NULL,                       // Scope
-            jl_symbol_name(jdt->name->name),      // Name
+            tname,                      // Name
             NULL,                       // File
             0,                          // LineNumber
             8 * jdt->size,              // SizeInBits
-            8 * jdt->layout->alignment, // AlignmentInBits
+            8 * jdt->layout->alignment, // AlignInBits
             0,                          // Flags
             NULL,                       // DerivedFrom
             DINodeArray(),              // Elements
-            dwarf::DW_LANG_Julia        // RuntimeLanguage
+            dwarf::DW_LANG_Julia,       // RuntimeLanguage
+            nullptr,                    // VTableHolder
+            unique_name.str()           // UniqueIdentifier
             );
         jdt->ditype = ct;
         std::vector<llvm::Metadata*> Elements;
@@ -725,26 +741,12 @@ static void emit_typecheck(const jl_cgval_t &x, jl_value_t *type, const std::str
     builder.SetInsertPoint(passBB);
 }
 
-static bool is_inbounds(jl_codectx_t *ctx)
-{
-    // inbounds rule is either of top two values on inbounds stack are true
-    bool inbounds = !ctx->inbounds.empty() && ctx->inbounds.back();
-    if (ctx->inbounds.size() > 1)
-        inbounds |= ctx->inbounds[ctx->inbounds.size()-2];
-    return inbounds;
-}
-
-static bool is_bounds_check_block(jl_codectx_t *ctx)
-{
-    return !ctx->boundsCheck.empty() && ctx->boundsCheck.back();
-}
-
 #define CHECK_BOUNDS 1
 static Value *emit_bounds_check(const jl_cgval_t &ainfo, jl_value_t *ty, Value *i, Value *len, jl_codectx_t *ctx)
 {
     Value *im1 = builder.CreateSub(i, ConstantInt::get(T_size, 1));
 #if CHECK_BOUNDS==1
-    if ((!is_inbounds(ctx) &&
+    if ((!ctx->is_inbounds &&
          jl_options.check_bounds != JL_OPTIONS_CHECK_BOUNDS_OFF) ||
          jl_options.check_bounds == JL_OPTIONS_CHECK_BOUNDS_ON) {
         Value *ok = builder.CreateICmpULT(im1, len);
@@ -1246,6 +1248,14 @@ static void assign_arrayvar(jl_arrayvar_t &av, const jl_cgval_t &ainfo, jl_codec
         builder.CreateStore(emit_arraysize(ainfo, i+1, ctx), av.sizes[i]);
 }
 
+// Returns the size of the array represented by `tinfo` for the given dimension `dim` if
+// `dim` is a valid dimension, otherwise returns constant one.
+static Value *emit_arraysize_for_unsafe_dim(const jl_cgval_t &tinfo, jl_value_t *ex, size_t dim,
+                                            size_t nd, jl_codectx_t *ctx)
+{
+    return dim > nd ? ConstantInt::get(T_size, 1) : emit_arraysize(tinfo, ex, dim, ctx);
+}
+
 static Value *emit_array_nd_index(const jl_cgval_t &ainfo, jl_value_t *ex, size_t nd, jl_value_t **args,
                                   size_t nidxs, jl_codectx_t *ctx)
 {
@@ -1253,7 +1263,7 @@ static Value *emit_array_nd_index(const jl_cgval_t &ainfo, jl_value_t *ex, size_
     Value *i = ConstantInt::get(T_size, 0);
     Value *stride = ConstantInt::get(T_size, 1);
 #if CHECK_BOUNDS==1
-    bool bc = (!is_inbounds(ctx) &&
+    bool bc = (!ctx->is_inbounds &&
                jl_options.check_bounds != JL_OPTIONS_CHECK_BOUNDS_OFF) ||
         jl_options.check_bounds == JL_OPTIONS_CHECK_BOUNDS_ON;
     BasicBlock *failBB=NULL, *endBB=NULL;
@@ -1266,12 +1276,12 @@ static Value *emit_array_nd_index(const jl_cgval_t &ainfo, jl_value_t *ex, size_
     for(size_t k=0; k < nidxs; k++) {
         idxs[k] = emit_unbox(T_size, emit_expr(args[k], ctx), NULL);
     }
+    Value *ii;
     for(size_t k=0; k < nidxs; k++) {
-        Value *ii = builder.CreateSub(idxs[k], ConstantInt::get(T_size, 1));
+        ii = builder.CreateSub(idxs[k], ConstantInt::get(T_size, 1));
         i = builder.CreateAdd(i, builder.CreateMul(ii, stride));
         if (k < nidxs-1) {
-            Value *d =
-                k >= nd ? ConstantInt::get(T_size, 1) : emit_arraysize(ainfo, ex, k+1, ctx);
+            Value *d = emit_arraysize_for_unsafe_dim(ainfo, ex, k+1, nd, ctx);
 #if CHECK_BOUNDS==1
             if (bc) {
                 BasicBlock *okBB = BasicBlock::Create(jl_LLVMContext, "ib");
@@ -1286,9 +1296,21 @@ static Value *emit_array_nd_index(const jl_cgval_t &ainfo, jl_value_t *ex, size_
     }
 #if CHECK_BOUNDS==1
     if (bc) {
-        Value *alen = emit_arraylen(ainfo, ex, ctx);
-        // if !(i < alen) goto error
-        builder.CreateCondBr(builder.CreateICmpULT(i, alen), endBB, failBB);
+        // We have already emitted a bounds check for each index except for
+        // the last one which we therefore have to do here.
+        bool linear_indexing = nidxs < nd;
+        if (linear_indexing) {
+            // Compare the linearized index `i` against the linearized size of
+            // the accessed array, i.e. `if !(i < alen) goto error`.
+            Value *alen = emit_arraylen(ainfo, ex, ctx);
+            builder.CreateCondBr(builder.CreateICmpULT(i, alen), endBB, failBB);
+        } else {
+            // Compare the last index of the access against the last dimension of
+            // the accessed array, i.e. `if !(last_index < last_dimension) goto error`.
+            Value *last_index = ii;
+            Value *last_dimension = emit_arraysize_for_unsafe_dim(ainfo, ex, nidxs, nd, ctx);
+            builder.CreateCondBr(builder.CreateICmpULT(last_index, last_dimension), endBB, failBB);
+        }
 
         ctx->f->getBasicBlockList().push_back(failBB);
         builder.SetInsertPoint(failBB);

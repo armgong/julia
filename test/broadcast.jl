@@ -220,7 +220,7 @@ let A = [sqrt(i)+j for i = 1:3, j=1:4]
     @test atan2.(log.(A), sum(A,1)) == broadcast(atan2, broadcast(log, A), sum(A, 1))
 end
 let x = sin.(1:10)
-    @test atan2.((x->x+1).(x), (x->x+2).(x)) == atan2(x+1, x+2) == atan2(x.+1, x.+2)
+    @test atan2.((x->x+1).(x), (x->x+2).(x)) == broadcast(atan2, x+1, x+2) == broadcast(atan2, x.+1, x.+2)
     @test sin.(atan2.([x+1,x+2]...)) == sin.(atan2.(x+1,x+2))
     @test sin.(atan2.(x, 3.7)) == broadcast(x -> sin(atan2(x,3.7)), x)
     @test atan2.(x, 3.7) == broadcast(x -> atan2(x,3.7), x) == broadcast(atan2, x, 3.7)
@@ -235,7 +235,7 @@ end
 let x = sin.(1:10), a = [x]
     @test cos.(x) == cos.(a...)
     @test atan2.(x,x) == atan2.(a..., a...) == atan2.([x, x]...)
-    @test atan2.(x, cos.(x)) == atan2.(a..., cos.(x)) == atan2(x, cos.(a...)) == atan2(a..., cos.(a...))
+    @test atan2.(x, cos.(x)) == atan2.(a..., cos.(x)) == broadcast(atan2, x, cos.(a...)) == broadcast(atan2, a..., cos.(a...))
     @test ((args...)->cos(args[1])).(x) == cos.(x) == ((y,args...)->cos(y)).(x)
 end
 @test atan2.(3,4) == atan2(3,4) == (() -> atan2(3,4)).()
@@ -289,6 +289,13 @@ let identity = error, x = [1,2,3]
     @test x == [1,1,1]
 end
 
+# make sure scalars are inlined, which causes f.(x,scalar) to lower to a "thunk"
+import Base.Meta: isexpr
+@test isexpr(expand(:(f.(x,y))), :call)
+@test isexpr(expand(:(f.(x,1))), :thunk)
+@test isexpr(expand(:(f.(x,1.0))), :thunk)
+@test isexpr(expand(:(f.(x,$π))), :thunk)
+
 # PR 16988
 @test Base.promote_op(+, Bool) === Int
 @test isa(broadcast(+, [true]), Array{Int,1})
@@ -304,9 +311,19 @@ end
 let f17314 = x -> x < 0 ? false : x
     @test eltype(broadcast(f17314, 1:3)) === Int
     @test eltype(broadcast(f17314, -1:1)) === Integer
-    @test eltype(broadcast(f17314, Int[])) === Union{}
+    @test eltype(broadcast(f17314, Int[])) === Any
 end
 let io = IOBuffer()
     broadcast(x->print(io,x), 1:5) # broadcast with side effects
     @test takebuf_array(io) == [0x31,0x32,0x33,0x34,0x35]
+end
+
+# Issue 18176
+let f18176(a, b, c) = a + b + c
+    @test f18176.(1.0:2, 3, 4) == f18176.(3.0, 1.0:2, 4.0) == broadcast(f18176, 3, 4, 1.0:2)
+end
+
+# Issue #17984
+let A17984 = []
+    @test isa(abs.(A17984), Array{Any,1})
 end

@@ -889,7 +889,11 @@ function bind(server::PipeServer, name::AbstractString)
     return true
 end
 
+"""
+    listen(path::AbstractString) -> PipeServer
 
+Create and listen on a named pipe / UNIX domain socket.
+"""
 function listen(path::AbstractString)
     sock = PipeServer()
     bind(sock, path) || throw(ArgumentError("could not listen on path $path"))
@@ -913,6 +917,12 @@ end
 
 # Libuv will internally reset read/writability, which is uses to
 # mark that this is an invalid pipe.
+
+"""
+    connect(path::AbstractString) -> PipeEndpoint
+
+Connect to the named pipe / UNIX domain socket at `path`.
+"""
 connect(path::AbstractString) = connect(init_pipe!(PipeEndpoint(); readable=false, writable=false, julia_only=true),path)
 
 _fd(x::IOStream) = RawFD(fd(x))
@@ -954,6 +964,91 @@ for (x, writable, unix_fd, c_symbol) in
         end
     end
 end
+
+"""
+    redirect_stdout([stream]) -> (rd, wr)
+
+Create a pipe to which all C and Julia level [`STDOUT`](:obj:`STDOUT`) output
+will be redirected.
+Returns a tuple `(rd, wr)` representing the pipe ends.
+Data written to [`STDOUT`](:obj:`STDOUT`) may now be read from the `rd` end of
+the pipe. The `wr` end is given for convenience in case the old
+[`STDOUT`](:obj:`STDOUT`) object was cached by the user and needs to be replaced
+elsewhere.
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
+"""
+redirect_stdout
+
+"""
+    redirect_stderr([stream]) -> (rd, wr)
+
+Like [`redirect_stdout`](:func:`redirect_stdout`), but for [`STDERR`](:obj:`STDERR`).
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
+"""
+redirect_stderr
+
+"""
+    redirect_stdin([stream]) -> (rd, wr)
+
+Like [`redirect_stdout`](:func:`redirect_stdout`), but for [`STDIN`](:obj:`STDIN`).
+Note that the order of the return tuple is still `(rd, wr)`,
+i.e. data to be read from [`STDIN`](:obj:`STDIN`) may be written to `wr`.
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
+"""
+redirect_stdin
+
+for (F,S) in ((:redirect_stdin, :STDIN), (:redirect_stdout, :STDOUT), (:redirect_stderr, :STDERR))
+    @eval function $F(f::Function, stream)
+        STDOLD = $S
+        local ret
+        $F(stream)
+        try
+            ret = f()
+        finally
+            $F(STDOLD)
+        end
+        ret
+    end
+end
+
+"""
+    redirect_stdout(f::Function, stream)
+
+Run the function `f` while redirecting [`STDOUT`](:obj:`STDOUT`) to `stream`.
+Upon completion, [`STDOUT`](:obj:`STDOUT`) is restored to its prior setting.
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
+"""
+redirect_stdout(f::Function, stream)
+
+"""
+    redirect_stderr(f::Function, stream)
+
+Run the function `f` while redirecting [`STDERR`](:obj:`STDERR`) to `stream`.
+Upon completion, [`STDERR`](:obj:`STDERR`) is restored to its prior setting.
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
+"""
+redirect_stderr(f::Function, stream)
+
+"""
+    redirect_stdin(f::Function, stream)
+
+Run the function `f` while redirecting [`STDIN`](:obj:`STDIN`) to `stream`.
+Upon completion, [`STDIN`](:obj:`STDIN`) is restored to its prior setting.
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
+"""
+redirect_stdin(f::Function, stream)
 
 mark(x::LibuvStream)     = mark(x.buffer)
 unmark(x::LibuvStream)   = unmark(x.buffer)

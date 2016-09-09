@@ -51,6 +51,13 @@ size{N}(x, d1::Integer, d2::Integer, dx::Vararg{Integer, N}) = (size(x, d1), siz
     indices(A, d)
 
 Returns the valid range of indices for array `A` along dimension `d`.
+
+```jldoctest
+julia> A = ones(5,6,7);
+
+julia> indices(A,2)
+Base.OneTo(6)
+```
 """
 function indices{T,N}(A::AbstractArray{T,N}, d)
     @_inline_meta
@@ -61,6 +68,13 @@ end
     indices(A)
 
 Returns the tuple of valid indices for array `A`.
+
+```jldoctest
+julia> A = ones(5,6,7);
+
+julia> indices(A)
+(Base.OneTo(5),Base.OneTo(6),Base.OneTo(7))
+```
 """
 function indices(A)
     @_inline_meta
@@ -88,6 +102,15 @@ is `indices(A, 1)`.
 
 Calling this function is the "safe" way to write algorithms that
 exploit linear indexing.
+
+```jldoctest
+julia> A = ones(5,6,7);
+
+julia> b = linearindices(A);
+
+julia> extrema(b)
+(1,210)
+```
 """
 linearindices(A)                 = (@_inline_meta; OneTo(_length(A)))
 linearindices(A::AbstractVector) = (@_inline_meta; indices1(A))
@@ -243,9 +266,9 @@ linearindexing(::LinearIndexing, ::LinearIndexing) = LinearSlow()
 
 # The overall hierarchy is
 #     `checkbounds(A, I...)` ->
-#         `checkbounds(Bool, A, I...)` -> either of:
-#             - `checkbounds_logical(Bool, A, I)` when `I` is a single logical array
-#             - `checkbounds_indices(Bool, IA, I)` otherwise (uses `checkindex`)
+#         `checkbounds(Bool, A, I...)` ->
+#             `checkbounds_indices(Bool, IA, I)`, which recursively calls
+#                 `checkindex` for each dimension
 #
 # See the "boundscheck" devdocs for more information.
 #
@@ -261,17 +284,18 @@ linearindexing(::LinearIndexing, ::LinearIndexing) = LinearSlow()
 Return `true` if the specified indices `I` are in bounds for the given
 array `A`. Subtypes of `AbstractArray` should specialize this method
 if they need to provide custom bounds checking behaviors; however, in
-many cases one can rely on `A`'s indices and `checkindex`.
+many cases one can rely on `A`'s indices and [`checkindex`](:func:`checkindex`).
 
-See also `checkindex`.
+See also [`checkindex`](:func:`checkindex`).
 """
 function checkbounds(::Type{Bool}, A::AbstractArray, I...)
     @_inline_meta
     checkbounds_indices(Bool, indices(A), I)
 end
-function checkbounds(::Type{Bool}, A::AbstractArray, I::AbstractArray{Bool})
+# As a special extension, allow using logical arrays that match the source array exactly
+function checkbounds{_,N}(::Type{Bool}, A::AbstractArray{_,N}, I::AbstractArray{Bool,N})
     @_inline_meta
-    checkbounds_logical(Bool, A, I)
+    indices(A) == indices(I)
 end
 
 """
@@ -297,7 +321,7 @@ usually in a 1-for-1 fashion,
     checkbounds_indices(Bool, (IA1, IA...), (I1, I...)) = checkindex(Bool, IA1, I1) &
                                                           checkbounds_indices(Bool, IA, I)
 
-Note that `checkindex` is being used to perform the actual
+Note that [`checkindex`](:func:`checkindex`) is being used to perform the actual
 bounds-check for a single dimension of the array.
 
 There are two important exceptions to the 1-1 rule: linear indexing and
@@ -323,35 +347,6 @@ function checkbounds_indices(::Type{Bool}, IA::Tuple, I::Tuple{Any})
     checkindex(Bool, OneTo(trailingsize(IA)), I[1])  # linear indexing
 end
 
-"""
-    checkbounds_logical(Bool, A, I::AbstractArray{Bool})
-
-Return `true` if the logical array `I` is consistent with the indices
-of `A`. `I` and `A` should have the same size and compatible indices.
-"""
-function checkbounds_logical(::Type{Bool}, A::AbstractArray, I::AbstractArray{Bool})
-    indices(A) == indices(I)
-end
-function checkbounds_logical(::Type{Bool}, A::AbstractArray, I::AbstractVector{Bool})
-    length(A) == length(I)
-end
-function checkbounds_logical(::Type{Bool}, A::AbstractVector, I::AbstractArray{Bool})
-    length(A) == length(I)
-end
-function checkbounds_logical(::Type{Bool}, A::AbstractVector, I::AbstractVector{Bool})
-    indices(A) == indices(I)
-end
-
-"""
-    checkbounds_logical(A, I::AbstractArray{Bool})
-
-Throw an error if the logical array `I` is inconsistent with the indices of `A`.
-"""
-function checkbounds_logical(A, I::AbstractVector{Bool})
-    checkbounds_logical(Bool, A, I) || throw_boundserror(A, I)
-    nothing
-end
-
 throw_boundserror(A, I) = (@_noinline_meta; throw(BoundsError(A, I)))
 
 # check along a single dimension
@@ -362,6 +357,14 @@ Return `true` if the given `index` is within the bounds of
 `inds`. Custom types that would like to behave as indices for all
 arrays can extend this method in order to provide a specialized bounds
 checking implementation.
+
+```jldoctest
+julia> checkindex(Bool,1:20,8)
+true
+
+julia> checkindex(Bool,1:20,21)
+false
+```
 """
 checkindex(::Type{Bool}, inds::AbstractUnitRange, i) = throw(ArgumentError("unable to check bounds for indices of type $(typeof(i))"))
 checkindex(::Type{Bool}, inds::AbstractUnitRange, i::Real) = (first(inds) <= i) & (i <= last(inds))
@@ -370,7 +373,19 @@ function checkindex(::Type{Bool}, inds::AbstractUnitRange, r::Range)
     @_propagate_inbounds_meta
     isempty(r) | (checkindex(Bool, inds, first(r)) & checkindex(Bool, inds, last(r)))
 end
-checkindex{N}(::Type{Bool}, indx::AbstractUnitRange, I::AbstractArray{Bool,N}) = N == 1 && indx == indices1(I)
+checkindex(::Type{Bool}, indx::AbstractUnitRange, I::AbstractVector{Bool}) = indx == indices1(I)
+# Logical indexing is an exception to the "output dimensionality is the sum of
+# the dimensionality of the indices" rule; `A[A.<0]` always returns a vector,
+# regardless of the dimensionalities of `A and `A.<0`. This method goes one step
+# further and ignores singleton dimensions for logical mask indices. While a
+# little strange, it enables idioms like `A[:, sum(A, 1) .< 0]`. Ref #18271.
+function checkindex(::Type{Bool}, indx::AbstractUnitRange, I::AbstractArray{Bool})
+    # Ensure that there's no more than one non-singleton dimension and that it
+    # matches the source array's index. Note that there's an ambiguity at length
+    # 1, since we cannot tell which dimension should be the non-singleton one.
+    @_inline_meta
+    length(indx) == prod(map(length, indices(I))) && any(x->x==indx, indices(I))
+end
 function checkindex(::Type{Bool}, inds::AbstractUnitRange, I::AbstractArray)
     @_inline_meta
     b = true
@@ -648,11 +663,6 @@ function copy_transpose!{R,S}(B::AbstractVecOrMat{R}, ir_dest::Range{Int}, jr_de
     return B
 end
 
-function copymutable(a::AbstractArray)
-    @_propagate_inbounds_meta
-    copy!(similar(a), a)
-end
-copymutable(itr) = collect(itr)
 """
     copymutable(a)
 
@@ -661,7 +671,11 @@ this is equivalent to `copy(a)`, but for other array types it may
 differ depending on the type of `similar(a)`.  For generic iterables
 this is equivalent to `collect(a)`.
 """
-copymutable
+function copymutable(a::AbstractArray)
+    @_propagate_inbounds_meta
+    copy!(similar(a), a)
+end
+copymutable(itr) = collect(itr)
 
 zero{T}(x::AbstractArray{T}) = fill!(similar(x), zero(T))
 
@@ -677,6 +691,51 @@ done(A::AbstractArray,i) = (@_propagate_inbounds_meta; done(i[1], i[2]))
 
 # eachindex iterates over all indices. LinearSlow definitions are later.
 eachindex(A::AbstractVector) = (@_inline_meta(); indices1(A))
+
+"""
+    eachindex(A...)
+
+Creates an iterable object for visiting each index of an AbstractArray `A` in an efficient
+manner. For array types that have opted into fast linear indexing (like `Array`), this is
+simply the range `1:length(A)`. For other array types, this returns a specialized Cartesian
+range to efficiently index into the array with indices specified for every dimension. For
+other iterables, including strings and dictionaries, this returns an iterator object
+supporting arbitrary index types (e.g. unevenly spaced or non-integer indices).
+
+Example for a sparse 2-d array:
+
+```jldoctest
+julia> A = sparse([1, 1, 2], [1, 3, 1], [1, 2, -5])
+2×3 sparse matrix with 3 Int64 nonzero entries:
+        [1, 1]  =  1
+        [2, 1]  =  -5
+        [1, 3]  =  2
+
+julia> for iter in eachindex(A)
+           @show iter.I[1], iter.I[2]
+           @show A[iter]
+       end
+(iter.I[1],iter.I[2]) = (1,1)
+A[iter] = 1
+(iter.I[1],iter.I[2]) = (2,1)
+A[iter] = -5
+(iter.I[1],iter.I[2]) = (1,2)
+A[iter] = 0
+(iter.I[1],iter.I[2]) = (2,2)
+A[iter] = 0
+(iter.I[1],iter.I[2]) = (1,3)
+A[iter] = 2
+(iter.I[1],iter.I[2]) = (2,3)
+A[iter] = 0
+```
+
+If you supply more than one `AbstractArray` argument, `eachindex` will create an
+iterable object that is fast for all arguments (a [`UnitRange`](:obj:`UnitRange`)
+if all inputs have fast linear indexing, a [`CartesianRange`](:obj:`CartesianRange`)
+otherwise).
+If the arrays have different sizes and/or dimensionalities, `eachindex` returns an
+iterable that spans the largest range along each dimension.
+"""
 eachindex(A::AbstractArray) = (@_inline_meta(); eachindex(linearindexing(A), A))
 
 function eachindex(A::AbstractArray, B::AbstractArray)
@@ -1419,6 +1478,22 @@ function sub2ind(A::AbstractArray, I...)
     @_inline_meta
     sub2ind(indices(A), I...)
 end
+
+"""
+    ind2sub(a, index) -> subscripts
+
+Returns a tuple of subscripts into array `a` corresponding to the linear index `index`.
+
+```jldoctest
+julia> A = ones(5,6,7);
+
+julia> ind2sub(A,35)
+(5,1,2)
+
+julia> ind2sub(A,70)
+(5,2,3)
+```
+"""
 function ind2sub(A::AbstractArray, ind)
     @_inline_meta
     ind2sub(indices(A), ind)
@@ -1430,6 +1505,20 @@ sub2ind(::DimsInteger) = 1
 sub2ind(::Indices) = 1
 sub2ind(::Tuple{}, I::Integer...) = (@_inline_meta; _sub2ind((), 1, 1, I...))
 # Generic cases
+
+"""
+    sub2ind(dims, i, j, k...) -> index
+
+The inverse of [`ind2sub`](:func:`ind2sub`), returns the linear index corresponding to the provided subscripts.
+
+```jldoctest
+julia> sub2ind((5,6,7),1,2,3)
+66
+
+julia> sub2ind((5,6,7),1,6,3)
+86
+```
+"""
 sub2ind(dims::DimsInteger, I::Integer...) = (@_inline_meta; _sub2ind(dims, 1, 1, I...))
 sub2ind(inds::Indices, I::Integer...) = (@_inline_meta; _sub2ind(inds, 1, 1, I...))
 # In 1d, there's a question of whether we're doing cartesian indexing
@@ -1455,6 +1544,32 @@ offsetin(i, l::Integer) = i-1
 offsetin(i, r::AbstractUnitRange) = i-first(r)
 
 ind2sub(::Tuple{}, ind::Integer) = (@_inline_meta; ind == 1 ? () : throw(BoundsError()))
+
+"""
+    ind2sub(dims, index) -> subscripts
+
+Returns a tuple of subscripts into an array with dimensions `dims`,
+corresponding to the linear index `index`.
+
+**Example**:
+
+```
+i, j, ... = ind2sub(size(A), indmax(A))
+```
+
+provides the indices of the maximum element.
+
+```jldoctest
+julia> ind2sub((3,4),2)
+(2,1)
+
+julia> ind2sub((3,4),3)
+(3,1)
+
+julia> ind2sub((3,4),4)
+(1,2)
+```
+"""
 ind2sub(dims::DimsInteger, ind::Integer) = (@_inline_meta; _ind2sub(dims, ind-1))
 ind2sub(inds::Indices, ind::Integer)     = (@_inline_meta; _ind2sub(inds, ind-1))
 ind2sub(inds::Indices{1}, ind::Integer) = throw(ArgumentError("Linear indexing is not defined for one-dimensional arrays"))
@@ -1478,7 +1593,12 @@ _div(ind, d::Integer) = div(ind, d), 1, d
 _div(ind, r::AbstractUnitRange) = (d = unsafe_length(r); (div(ind, d), first(r), d))
 
 # Vectorized forms
-function sub2ind{N,T<:Integer}(inds::Union{Dims{N},Indices{N}}, I::AbstractVector{T}...)
+function sub2ind{T<:Integer}(inds::Indices{1}, I1::AbstractVector{T}, I::AbstractVector{T}...)
+    throw(ArgumentError("Linear indexing is not defined for one-dimensional arrays"))
+end
+sub2ind{T<:Integer}(inds::Tuple{OneTo}, I1::AbstractVector{T}, I::AbstractVector{T}...) = _sub2ind_vecs(inds, I1, I...)
+sub2ind{T<:Integer}(inds::Union{DimsInteger,Indices}, I1::AbstractVector{T}, I::AbstractVector{T}...) = _sub2ind_vecs(inds, I1, I...)
+function _sub2ind_vecs(inds, I::AbstractVector...)
     I1 = I[1]
     Iinds = indices1(I1)
     for j = 2:length(I)
@@ -1502,7 +1622,7 @@ sub2ind_vec(inds, i, I) = (@_inline_meta; _sub2ind_vec(inds, (), i, I...))
 _sub2ind_vec(inds, out, i, I1, I...) = (@_inline_meta; _sub2ind_vec(inds, (out..., I1[i]), i, I...))
 _sub2ind_vec(inds, out, i) = (@_inline_meta; sub2ind(inds, out...))
 
-function ind2sub{N,T<:Integer}(inds::Union{Dims{N},Indices{N}}, ind::AbstractVector{T})
+function ind2sub{N,T<:Integer}(inds::Union{DimsInteger{N},Indices{N}}, ind::AbstractVector{T})
     M = length(ind)
     t = ntuple(n->similar(ind),Val{N})
     for (i,idx) in enumerate(ind)  # FIXME: change to eachindexvalue
@@ -1656,15 +1776,22 @@ function mapslices(f, A::AbstractArray, dims::AbstractVector)
 end
 
 # These are needed because map(eltype, As) is not inferrable
-promote_eltype_op(::Any) = (@_pure_meta; Bottom)
+promote_eltype_op(::Any) = (@_pure_meta; Any)
 promote_eltype_op(op, A) = (@_pure_meta; promote_op(op, eltype(A)))
 promote_eltype_op{T}(op, ::AbstractArray{T}) = (@_pure_meta; promote_op(op, T))
 promote_eltype_op{T}(op, ::AbstractArray{T}, A) = (@_pure_meta; promote_op(op, T, eltype(A)))
 promote_eltype_op{T}(op, A, ::AbstractArray{T}) = (@_pure_meta; promote_op(op, eltype(A), T))
 promote_eltype_op{R,S}(op, ::AbstractArray{R}, ::AbstractArray{S}) = (@_pure_meta; promote_op(op, R, S))
+promote_eltype_op(op, A, B) = (@_pure_meta; promote_op(op, eltype(A), eltype(B)))
 promote_eltype_op(op, A, B, C, D...) = (@_pure_meta; promote_eltype_op(op, promote_eltype_op(op, A, B), C, D...))
 
 ## 1 argument
+
+"""
+    map!(function, collection)
+
+In-place version of [`map`](:func:`map`).
+"""
 map!{F}(f::F, A::AbstractArray) = map!(f, A, A)
 function map!{F}(f::F, dest::AbstractArray, A::AbstractArray)
     for (i,j) in zip(eachindex(dest),eachindex(A))
@@ -1677,6 +1804,26 @@ end
 map(f, A::Union{AbstractArray,AbstractSet,Associative}) = collect_similar(A, Generator(f,A))
 
 # default to returning an Array for `map` on general iterators
+"""
+    map(f, c...) -> collection
+
+Transform collection `c` by applying `f` to each element. For multiple collection arguments,
+apply `f` elementwise.
+
+```jldoctest
+julia> map((x) -> x * 2, [1, 2, 3])
+3-element Array{Int64,1}:
+ 2
+ 4
+ 6
+
+julia> map(+, [1, 2, 3], [10, 20, 30])
+3-element Array{Int64,1}:
+ 11
+ 22
+ 33
+```
+"""
 map(f, A) = collect(Generator(f,A))
 
 ## 2 argument
@@ -1699,6 +1846,12 @@ function map_n!{F}(f::F, dest::AbstractArray, As)
     return dest
 end
 
+"""
+    map!(function, destination, collection...)
+
+Like [`map`](:func:`map`), but stores the result in `destination` rather than a new
+collection. `destination` must be at least as large as the first collection.
+"""
 map!{F}(f::F, dest::AbstractArray, As::AbstractArray...) = map_n!(f, dest, As)
 
 map(f) = f()

@@ -9,7 +9,8 @@ const MAX_TUPLETYPE_LEN = 15
 const MAX_TUPLE_DEPTH = 4
 
 const MAX_TUPLE_SPLAT = 16
-const MAX_UNION_SPLITTING = 6
+const MAX_UNION_SPLITTING = 4
+const UNION_SPLIT_MISMATCH_ERROR = false
 
 # alloc_elim_pass! relies on `Slot_AssignedOnce | Slot_UsedUndef` being
 # SSA. This should be true now but can break if we start to track conditional
@@ -1279,6 +1280,13 @@ widenconst(t::ANY) = t
 
 issubstate(a::VarState, b::VarState) = (a.typ ⊑ b.typ && a.undef <= b.undef)
 
+# Meta expression head, these generally can't be deleted even when they are
+# in a dead branch but can be ignored when analyzing uses/liveness.
+is_meta_expr_head(head::Symbol) =
+    (head === :inbounds || head === :boundscheck || head === :meta ||
+     head === :line)
+is_meta_expr(ex::Expr) = is_meta_expr_head(ex.head)
+
 function tmerge(typea::ANY, typeb::ANY)
     typea ⊑ typeb && return typeb
     typeb ⊑ typea && return typea
@@ -1388,9 +1396,7 @@ function find_ssavalue_uses(e::ANY, uses, line)
     elseif isa(e,Expr)
         b = e::Expr
         head = b.head
-        if head === :line
-            return
-        end
+        is_meta_expr_head(head) && return
         if head === :(=)
             if isa(b.args[1],SSAValue)
                 id = (b.args[1]::SSAValue).id+1
@@ -1416,7 +1422,7 @@ end
 # create a specialized LambdaInfo from a method
 function specialize_method(method::Method, types::ANY, sp::SimpleVector, cached)
     if cached
-        return ccall(:jl_specializations_get_linfo, Ref{LambdaInfo}, (Any, Any, Any), method, types, sp)
+        return ccall(:jl_specializations_get_linfo, Ref{LambdaInfo}, (Any, Any, Any, Cint), method, types, sp, true)
     else
         return ccall(:jl_get_specialized, Ref{LambdaInfo}, (Any, Any, Any), method, types, sp)
     end
@@ -1438,6 +1444,7 @@ function unshare_linfo!(li::LambdaInfo)
 end
 
 inlining_enabled() = (JLOptions().can_inline == 1)
+coverage_enabled() = (JLOptions().code_coverage != 0)
 
 #### entry points for inferring a LambdaInfo given a type signature ####
 function typeinf_edge(method::Method, atypes::ANY, sparams::SimpleVector, needtree::Bool, optimize::Bool, cached::Bool, caller)
@@ -1603,6 +1610,7 @@ function typeinf_ext(linfo::LambdaInfo)
             linfo.ssavaluetypes = code.ssavaluetypes
             linfo.pure = code.pure
             linfo.inlineable = code.inlineable
+            linfo.propagate_inbounds = code.propagate_inbounds
             ccall(:jl_set_lambda_rettype, Void, (Any, Any), linfo, code.rettype)
             if code.jlcall_api == 2
                 linfo.constval = code.constval
@@ -1900,6 +1908,8 @@ function finish(me::InferenceState)
     end
     type_annotate!(me.linfo, me.stmt_types, me, me.nargs)
 
+    do_coverage = coverage_enabled()
+    force_noinline = false
     # run optimization passes on fulltree
     if me.optimize
         # This pass is required for the AST to be valid in codegen
@@ -1909,11 +1919,14 @@ function finish(me::InferenceState)
         # optimizing and use unoptimized IR in codegen.
         gotoifnot_elim_pass!(me.linfo, me)
         inlining_pass!(me.linfo, me)
-        inbounds_meta_elim_pass!(me.linfo.code)
+        void_use_elim_pass!(me.linfo, me)
         alloc_elim_pass!(me.linfo, me)
         getfield_elim_pass!(me.linfo, me)
-        # remove placeholders
-        filter!(x->x!==nothing, me.linfo.code)
+        # Clean up for `alloc_elim_pass!` and `getfield_elim_pass!`
+        void_use_elim_pass!(me.linfo, me)
+        meta_elim_pass!(me.linfo, me.linfo.code::Array{Any,1}, do_coverage)
+        # Pop metadata before label reindexing
+        force_noinline = popmeta!(me.linfo.code::Array{Any,1}, :noinline)[1]
         reindex_labels!(me.linfo, me)
     end
     widen_all_consts!(me.linfo)
@@ -1921,8 +1934,11 @@ function finish(me::InferenceState)
     ispure = me.linfo.pure
     ccall(:jl_set_lambda_rettype, Void, (Any, Any), me.linfo, widenconst(me.bestguess))
 
-    if (isa(me.bestguess,Const) && me.bestguess.val !== nothing) ||
-        (isType(me.bestguess) && !has_typevars(me.bestguess.parameters[1],true))
+    # Do not emit `jlcall_api == 2` if coverage is enabled so that we don't
+    # need to add coverage support to the `jl_call_method_internal` fast path
+    if !do_coverage &&
+        ((isa(me.bestguess,Const) && me.bestguess.val !== nothing) ||
+         (isType(me.bestguess) && !has_typevars(me.bestguess.parameters[1],true)))
         if !ispure && length(me.linfo.code) < 10
             ispure = true
             for stmt in me.linfo.code
@@ -1948,7 +1964,7 @@ function finish(me::InferenceState)
     end
 
     # determine and cache inlineability
-    if !me.linfo.inlineable
+    if !me.linfo.inlineable && !force_noinline
         me.linfo.inlineable = me.linfo.jlcall_api==2 || isinlineable(me.linfo)
     end
 
@@ -2024,7 +2040,7 @@ function eval_annotate(e::ANY, vtypes::ANY, sv::InferenceState, undefs, pass)
 
     e = e::Expr
     head = e.head
-    if is(head,:line) || is(head,:const)
+    if is_meta_expr_head(head) || is(head,:const)
         return e
     elseif is(head,:(=))
         e.args[2] = eval_annotate(e.args[2], vtypes, sv, undefs, pass)
@@ -2038,18 +2054,6 @@ function eval_annotate(e::ANY, vtypes::ANY, sv::InferenceState, undefs, pass)
         end
     end
     return e
-end
-
-function expr_cannot_delete(ex::Expr)
-    # This alone should be enough for any sane use of
-    # `Expr(:inbounds)` and `Expr(:boundscheck)`. However, it is still possible
-    # to have these embeded in other expressions (e.g. `return @inbounds ...`)
-    # so we check recursively if there's a matching expression
-    (ex.head === :inbounds || ex.head === :boundscheck) && return true
-    for arg in ex.args
-        isa(arg, Expr) && expr_cannot_delete(arg::Expr) && return true
-    end
-    return false
 end
 
 # annotate types of all symbols in AST
@@ -2080,7 +2084,8 @@ function type_annotate!(linfo::LambdaInfo, states::Array{Any,1}, sv::ANY, nargs)
                 record_slot_type!(id, widenconst(states[i+1][id].typ), linfo.slottypes)
             end
         elseif optimize
-            if isa(expr, Expr) && expr_cannot_delete(expr::Expr)
+            if ((isa(expr, Expr) && is_meta_expr(expr::Expr)) ||
+                isa(expr, LineNumberNode))
                 i += 1
                 continue
             end
@@ -2151,9 +2156,10 @@ function substitute!(e::ANY, na, argexprs, spvals, offset)
     end
     if isa(e,Expr)
         e = e::Expr
-        if e.head === :static_parameter
+        head = e.head
+        if head === :static_parameter
             return spvals[e.args[1]]
-        elseif e.head !== :line
+        elseif !is_meta_expr_head(head)
             for i=1:length(e.args)
                 e.args[i] = substitute!(e.args[i], na, argexprs, spvals, offset)
             end
@@ -2166,7 +2172,8 @@ end
 function occurs_more(e::ANY, pred, n)
     if isa(e,Expr)
         e = e::Expr
-        e.head === :line && return 0
+        head = e.head
+        is_meta_expr_head(head) && return 0
         c = 0
         for a = e.args
             c += occurs_more(a, pred, n)
@@ -2251,8 +2258,7 @@ function effect_free(e::ANY, linfo::LambdaInfo, allow_volatile::Bool)
     elseif isa(e, Expr)
         e = e::Expr
         head = e.head
-        if head === :static_parameter || head === :meta || head === :line ||
-            head === :inbounds || head === :boundscheck
+        if head === :static_parameter || is_meta_expr_head(head)
             return true
         end
         ea = e.args
@@ -2261,12 +2267,15 @@ function effect_free(e::ANY, linfo::LambdaInfo, allow_volatile::Bool)
                 if !allow_volatile
                     if is_known_call(e, arrayref, linfo) || is_known_call(e, arraylen, linfo)
                         return false
-                    elseif is_known_call(e, getfield, linfo) && !isa(exprtype(e,linfo), Const)
-                        # first argument must be immutable to ensure e is affect_free
-                        a = ea[2]
-                        typ = widenconst(exprtype(a, linfo))
-                        if !isa(typ, DataType) || typ.mutable || typ.abstract
-                            return false
+                    elseif is_known_call(e, getfield, linfo)
+                        et = exprtype(e,linfo)
+                        if !isa(et,Const) && !(isType(et) && isleaftype(et))
+                            # first argument must be immutable to ensure e is affect_free
+                            a = ea[2]
+                            typ = widenconst(exprtype(a, linfo))
+                            if !isa(typ, DataType) || typ.mutable || typ.abstract
+                                return false
+                            end
                         end
                     end
                 end
@@ -2434,7 +2443,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
                                 all = false
                             end
                         end
-                        if all
+                        if UNION_SPLIT_MISMATCH_ERROR && all
                             error_label === nothing && (error_label = genlabel(sv))
                             push!(stmts, GotoNode(error_label.label))
                         else
@@ -2473,7 +2482,6 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
                 if spec_miss !== nothing
                     push!(stmts, merge)
                 end
-                #println(stmts)
                 return (ret_var, stmts)
             end
         else
@@ -2520,6 +2528,30 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
         return invoke_NF()
     end
 
+    na = method.lambda_template.nargs
+    # check for vararg function
+    isva = false
+    if na > 0 && method.lambda_template.isva
+        @assert length(argexprs) >= na-1
+        # construct tuple-forming expression for argument tail
+        vararg = mk_tuplecall(argexprs[na:end], sv)
+        argexprs = Any[argexprs[1:(na-1)]..., vararg]
+        isva = true
+    elseif na != length(argexprs)
+        # we have a method match only because an earlier
+        # inference step shortened our call args list, even
+        # though we have too many arguments to actually
+        # call this function
+        return NF
+    end
+
+    @assert na == length(argexprs)
+
+    for i = 1:length(methsp)
+        si = methsp[i]
+        isa(si, TypeVar) && return NF
+    end
+
     (linfo, ty, inferred) = typeinf(method, metharg, methsp, false)
     if linfo === nothing || !inferred
         return invoke_NF()
@@ -2536,36 +2568,13 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
         return invoke_NF()
     end
 
-    na = linfo.nargs
-    # check for vararg function
-    isva = false
-    if na > 0 && linfo.isva
-        @assert length(argexprs) >= na-1
-        # construct tuple-forming expression for argument tail
-        vararg = mk_tuplecall(argexprs[na:end], sv)
-        argexprs = Any[argexprs[1:(na-1)]..., vararg]
-        isva = true
-    elseif na != length(argexprs)
-        # we have a method match only because an earlier
-        # inference step shortened our call args list, even
-        # though we have too many arguments to actually
-        # call this function
-        return NF
-    end
-
-    @assert na == length(argexprs)
-
     spvals = Any[]
     for i = 1:length(methsp)
-        si = methsp[i]
-        if isa(si, TypeVar)
-            return NF
-        end
-        push!(spvals, si)
+        push!(spvals, methsp[i])
     end
-    for i=1:length(spvals)
+    for i = 1:length(spvals)
         si = spvals[i]
-        if isa(si,Symbol) || isa(si,SSAValue) || isa(si,Slot)
+        if isa(si, Symbol) || isa(si, SSAValue) || isa(si, Slot)
             spvals[i] = QuoteNode(si)
         end
     end
@@ -2582,7 +2591,7 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
 
     body = Expr(:block)
     body.args = ast
-    propagate_inbounds, _ = popmeta!(body, :propagate_inbounds)
+    propagate_inbounds = linfo.propagate_inbounds
 
     # see if each argument occurs only once in the body expression
     stmts = Any[]
@@ -2719,18 +2728,48 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
         end
     end
 
-    if !isempty(stmts)
-        if all(stmt -> (isa(stmt,Expr) && stmt.head === :line) || isa(stmt, LineNumberNode) || stmt === nothing,
-               stmts)
+    do_coverage = coverage_enabled()
+    inlining_ignore = function (stmt::ANY)
+        isa(stmt, Expr) && return is_meta_expr(stmt::Expr)
+        isa(stmt, LineNumberNode) && return true
+        stmt === nothing && return true
+        return false
+    end
+    if do_coverage
+        line = if !isempty(stmts) && isa(stmts[1], LineNumberNode)
+            (shift!(stmts)::LineNumberNode).line
+        else
+            linfo.def.line
+        end
+        # Check if we are switching module, which is necessary to catch user
+        # code inlined into `Base` with `--code-coverage=user`.
+        # Assume we are inlining directly into `enclosing` instead of another
+        # function inlined in it
+        mod = linfo.def.module
+        if mod === sv.mod
+            unshift!(stmts, Expr(:meta, :push_loc, linfo.def.file,
+                                 linfo.def.name, line))
+        else
+            unshift!(stmts, Expr(:meta, :push_loc, linfo.def.file,
+                                 linfo.def.name, line, mod))
+        end
+        push!(stmts, Expr(:meta, :pop_loc))
+    elseif !isempty(stmts)
+        if all(inlining_ignore, stmts)
             empty!(stmts)
         else
-            local line::Int = linfo.def.line
-            if isa(stmts[1], LineNumberNode)
-                line = shift!(stmts).line
+            line = if isa(stmts[1], LineNumberNode)
+                (shift!(stmts)::LineNumberNode).line
+            else
+                linfo.def.line
             end
-            unshift!(stmts, Expr(:meta, :push_loc, linfo.def.file, linfo.def.name, line))
-            isa(stmts[end], LineNumberNode) && pop!(stmts)
-            push!(stmts, Expr(:meta, :pop_loc))
+            unshift!(stmts, Expr(:meta, :push_loc, linfo.def.file,
+                                 linfo.def.name, line))
+            if isa(stmts[end], LineNumberNode)
+                stmts[end] = Expr(:meta, :pop_loc)
+            else
+                push!(stmts, Expr(:meta, :pop_loc))
+            end
         end
     end
     if !isempty(stmts) && !propagate_inbounds
@@ -2766,10 +2805,10 @@ inline_worthy(body::ANY, cost::Integer) = true
 
 # should the expression be part of the inline cost model
 function inline_ignore(ex::ANY)
-    isa(ex, LineNumberNode) ||
-    ex === nothing ||
-    isa(ex, Expr) && ((ex::Expr).head === :line ||
-                      (ex::Expr).head === :meta)
+    if isa(ex, LineNumberNode) || ex === nothing
+        return true
+    end
+    return isa(ex, Expr) && is_meta_expr(ex::Expr)
 end
 
 function inline_worthy(body::Expr, cost::Integer=1000) # precondition: 0 < cost; nominal cost = 1000
@@ -2779,7 +2818,7 @@ function inline_worthy(body::Expr, cost::Integer=1000) # precondition: 0 < cost;
     symlim = 1000 + 5_000_000 ÷ cost
     nstmt = 0
     for stmt in body.args
-        if !inline_ignore(stmt)
+        if !(isa(stmt, SSAValue) || inline_ignore(stmt))
             nstmt += 1
         end
     end
@@ -2796,7 +2835,7 @@ end
 ssavalue_increment(body::ANY, incr) = body
 ssavalue_increment(body::SSAValue, incr) = SSAValue(body.id + incr)
 function ssavalue_increment(body::Expr, incr)
-    if body.head === :line
+    if is_meta_expr(body)
         return body
     end
     for i in 1:length(body.args)
@@ -3164,6 +3203,8 @@ function occurs_outside_getfield(linfo::LambdaInfo, e::ANY, sym::ANY,
     end
     if isa(e,Expr)
         e = e::Expr
+        head = e.head
+        is_meta_expr_head(head) && return false
         if is_known_call(e, getfield, linfo) && symequal(e.args[2],sym)
             idx = e.args[3]
             if isa(idx,QuoteNode) && (idx.value in field_names)
@@ -3174,11 +3215,11 @@ function occurs_outside_getfield(linfo::LambdaInfo, e::ANY, sym::ANY,
             end
             return true
         end
-        if is(e.head,:(=))
+        if head === :(=)
             return occurs_outside_getfield(linfo, e.args[2], sym, sv,
                                            field_count, field_names)
         else
-            if (e.head === :block && isa(sym, Slot) &&
+            if (head === :block && isa(sym, Slot) &&
                 linfo.slotflags[(sym::Slot).id] & Slot_UsedUndef == 0)
                 ignore_void = true
             else
@@ -3197,14 +3238,281 @@ function occurs_outside_getfield(linfo::LambdaInfo, e::ANY, sym::ANY,
     return false
 end
 
-# removes inbounds metadata if we never encounter an inbounds=true or
-# boundscheck context in the method body
-function inbounds_meta_elim_pass!(code::Array{Any,1})
-    if findfirst(x -> isa(x, Expr) &&
-                      ((x.head === :inbounds && x.args[1] === true) || x.head === :boundscheck),
-                 code) == 0
-        filter!(x -> !(isa(x, Expr) && x.head === :inbounds), code)
+function void_use_elim_pass!(linfo::LambdaInfo, sv)
+    # Remove top level SSAValue and slots that is `!usedUndef`.
+    # Also remove some `nothing` while we are at it....
+    not_void_use = function (ex::ANY)
+        if isa(ex, SSAValue)
+            # Explicitly listed here for clarity
+            return false
+        elseif isa(ex, Slot)
+            return linfo.slotflags[(ex::Slot).id] & Slot_UsedUndef != 0
+        elseif isa(ex, GlobalRef)
+            ex = ex::GlobalRef
+            return !isdefined(ex.mod, ex.name)
+        elseif (isa(ex, Expr) || isa(ex, GotoNode) || isa(ex, LineNumberNode) ||
+                isa(ex, NewvarNode) || isa(ex, Symbol) || isa(ex, LabelNode))
+            # This is a list of special type handled by the compiler
+            return true
+        end
+        return false
     end
+    filter!(not_void_use, linfo.code::Array{Any,1})
+    return
+end
+
+function meta_elim_pass!(linfo::LambdaInfo, code::Array{Any,1}, do_coverage)
+    # 1. Remove place holders
+    #
+    # 2. If coverage is off, remove line number nodes that don't mark any
+    #    real expressions.
+    #
+    # 3. Remove top level SSAValue
+    #
+    # 4. Handle bounds check elision
+    #
+    #    4.1. If check_bounds is always on, delete all `Expr(:boundscheck)`
+    #    4.2. If check_bounds is always off, delete all boundscheck blocks.
+    #    4.3. If check_bounds is default, figure out whether each checkbounds
+    #         blocks needs to be eliminated or could be eliminated when inlined
+    #         into another function. Delete the blocks that should be eliminated
+    #         and delete the `Expr(:boundscheck)` for blocks that will never be
+    #         deleted. (i.e. the ones that are not eliminated with
+    #         `length(inbounds_stack) >= 2`)
+    #
+    #    When deleting IR with boundscheck, keep the label node in order to not
+    #    confuse later passes or codegen. (we could also track if  any SSAValue
+    #    is deleted while still having uses that are not but that's a little
+    #    expensive).
+    #
+    # 5. Clean up `Expr(:inbounds)`
+    #
+    #    Delete all `Expr(:inbounds)` that is unnecessary, which is all of them
+    #    for non-default check_bounds. For default check_bounds this includes
+    #
+    #    * `Expr(:inbounds, true)` in `Expr(:inbounds, true)`
+    #    * `Expr(:inbounds, false)` when
+    #      `!is_inbounds && length(inbounds_stack) >= 2`
+    #
+    #    Functions without `propagate_inbounds` have an implicit `false` on the
+    #    `inbounds_stack`
+    #
+    #    There are other cases in which we can eliminate `Expr(:inbounds)` or
+    #    `Expr(:boundscheck)` (e.g. when they don't enclose any non-meta
+    #    expressions). Those are a little harder to detect and are hopefully
+    #    not too common.
+    check_bounds = JLOptions().check_bounds
+
+    inbounds_stack = linfo.propagate_inbounds ? Bool[] : [false]
+    # Whether the push is deleted (therefore if the pop has to be too)
+    # Shared for `Expr(:boundscheck)` and `Expr(:inbounds)`
+    bounds_elim_stack = Bool[]
+    # The expression index of the push, set to `0` when encountering a
+    # non-meta expression that might be affect by the push.
+    # The clearing needs to be propagated up during pop
+    # This is not pushed to if the push is already eliminated
+    # Also shared for `Expr(:boundscheck)` and `Expr(:inbounds)`
+    bounds_push_pos_stack = [0] # always non-empty
+    # Number of boundscheck pushes in a eliminated boundscheck block
+    void_boundscheck_depth = 0
+    is_inbounds = check_bounds == 2
+    enabled = true
+
+    # Position of the last line number node without any non-meta expressions
+    # in between.
+    prev_dbg_stack = [0] # always non-empty
+    # Whether there's any non-meta exprs after the enclosing `push_loc`
+    push_loc_pos_stack = [0] # always non-empty
+
+    for i in 1:length(code)
+        ex = code[i]
+        if ex === nothing
+            continue
+        elseif isa(ex, SSAValue)
+            code[i] = nothing
+            continue
+        elseif isa(ex, LabelNode)
+            prev_dbg_stack[end] = 0
+            push_loc_pos_stack[end] = 0
+            continue
+        elseif !do_coverage && (isa(ex, LineNumberNode) ||
+                                (isa(ex, Expr) && (ex::Expr).head === :line))
+            prev_label = prev_dbg_stack[end]
+            if prev_label != 0
+                code[prev_label] = nothing
+            end
+            prev_dbg_stack[end] = i
+            continue
+        elseif !isa(ex, Expr)
+            if enabled
+                prev_dbg_stack[end] = 0
+                push_loc_pos_stack[end] = 0
+                bounds_push_pos_stack[end] = 0
+            else
+                code[i] = nothing
+            end
+            continue
+        end
+        ex = ex::Expr
+        args = ex.args
+        head = ex.head
+        if head === :boundscheck
+            if !enabled
+                # we are in an eliminated boundscheck, simply record the number
+                # of push/pop
+                if !(args[1] === :pop)
+                    void_boundscheck_depth += 1
+                elseif void_boundscheck_depth == 0
+                    # There must have been a push
+                    pop!(bounds_elim_stack)
+                    enabled = true
+                else
+                    void_boundscheck_depth -= 1
+                end
+                code[i] = nothing
+            elseif args[1] === :pop
+                # This will also delete pops that don't match
+                if (isempty(bounds_elim_stack) ? true :
+                    pop!(bounds_elim_stack))
+                    code[i] = nothing
+                    continue
+                end
+                push_idx = bounds_push_pos_stack[end]
+                if length(bounds_push_pos_stack) > 1
+                    pop!(bounds_push_pos_stack)
+                end
+                if push_idx > 0
+                    code[push_idx] = nothing
+                    code[i] = nothing
+                else
+                    bounds_push_pos_stack[end] = 0
+                end
+            elseif is_inbounds
+                code[i] = nothing
+                push!(bounds_elim_stack, true)
+                enabled = false
+            elseif check_bounds == 1 || length(inbounds_stack) >= 2
+                # Not inbounds and at least two levels deep, this will never
+                # be eliminated when inlined to another function.
+                code[i] = nothing
+                push!(bounds_elim_stack, true)
+            else
+                push!(bounds_elim_stack, false)
+                push!(bounds_push_pos_stack, i)
+            end
+            continue
+        end
+        if !enabled && !(do_coverage && head === :meta)
+            code[i] = nothing
+            continue
+        end
+        if head === :inbounds
+            if check_bounds != 0
+                code[i] = nothing
+                continue
+            end
+            arg1 = args[1]
+            if arg1 === true
+                if !isempty(inbounds_stack) && inbounds_stack[end]
+                    code[i] = nothing
+                    push!(bounds_elim_stack, true)
+                else
+                    is_inbounds = true
+                    push!(bounds_elim_stack, false)
+                    push!(bounds_push_pos_stack, i)
+                end
+                push!(inbounds_stack, true)
+            elseif arg1 === false
+                if is_inbounds
+                    # There must have been a `true` on the stack so
+                    # `inbounds_stack` must not be empty
+                    if !inbounds_stack[end]
+                        is_inbounds = false
+                    end
+                    push!(bounds_elim_stack, false)
+                    push!(bounds_push_pos_stack, i)
+                elseif length(inbounds_stack) >= 2
+                    code[i] = nothing
+                    push!(bounds_elim_stack, true)
+                else
+                    push!(bounds_elim_stack, false)
+                    push!(bounds_push_pos_stack, i)
+                end
+                push!(inbounds_stack, false)
+            else
+                # pop
+                inbounds_len = length(inbounds_stack)
+                if inbounds_len != 0
+                    pop!(inbounds_stack)
+                    inbounds_len -= 1
+                end
+                # This will also delete pops that don't match
+                if (isempty(bounds_elim_stack) ? true :
+                    pop!(bounds_elim_stack))
+                    # No need to update `is_inbounds` since the push was a no-op
+                    code[i] = nothing
+                    continue
+                end
+                if inbounds_len >= 2
+                    is_inbounds = (inbounds_stack[inbounds_len] ||
+                                   inbounds_stack[inbounds_len - 1])
+                elseif inbounds_len == 1
+                    is_inbounds = inbounds_stack[inbounds_len]
+                else
+                    is_inbounds = false
+                end
+                push_idx = bounds_push_pos_stack[end]
+                if length(bounds_push_pos_stack) > 1
+                    pop!(bounds_push_pos_stack)
+                end
+                if push_idx > 0
+                    code[push_idx] = nothing
+                    code[i] = nothing
+                else
+                    bounds_push_pos_stack[end] = 0
+                end
+            end
+            continue
+        end
+        if head !== :meta
+            prev_dbg_stack[end] = 0
+            push_loc_pos_stack[end] = 0
+            bounds_push_pos_stack[end] = 0
+            continue
+        end
+        nargs = length(args)
+        if do_coverage || nargs == 0
+            continue
+        end
+        arg1 = args[1]
+        if arg1 === :push_loc
+            push!(prev_dbg_stack, 0)
+            push!(push_loc_pos_stack, i)
+        elseif arg1 === :pop_loc
+            prev_dbg = if length(prev_dbg_stack) > 1
+                pop!(prev_dbg_stack)
+            else
+                prev_dbg_stack[end]
+            end
+            if prev_dbg > 0
+                code[prev_dbg] = nothing
+            end
+            push_loc = if length(push_loc_pos_stack) > 1
+                pop!(push_loc_pos_stack)
+            else
+                push_loc_pos_stack[end]
+            end
+            if push_loc > 0
+                code[push_loc] = nothing
+                code[i] = nothing
+            else
+                push_loc_pos_stack[end] = 0
+            end
+        else
+            continue
+        end
+    end
+    filter!(x->x!==nothing, code)
 end
 
 # does the same job as alloc_elim_pass for allocations inline in getfields
@@ -3368,10 +3676,17 @@ function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
                 end
             else
                 vals = Vector{Any}(nv)
+                local new_slots::Vector{Int}
+                if !is_ssa
+                    new_slots = Vector{Int}(nv)
+                end
                 for j=1:nv
                     tupelt = tup[j+1]
-                    if (isa(tupelt,Number) || isa(tupelt,AbstractString) ||
-                        isa(tupelt,QuoteNode) || isa(tupelt, SSAValue))
+                    # If `!is_ssa` we have to create new variables for each
+                    # (used) fields in order to preserve the undef check.
+                    if is_ssa && (isa(tupelt,Number) ||
+                                  isa(tupelt,AbstractString) ||
+                                  isa(tupelt,QuoteNode) || isa(tupelt, SSAValue))
                         vals[j] = tupelt
                     else
                         elty = exprtype(tupelt, linfo)
@@ -3381,7 +3696,9 @@ function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
                             var = var::Slot
                             tmpv = add_slot!(linfo, elty, false,
                                              linfo.slotnames[var.id])
-                            linfo.slotflags[tmpv.id] |= Slot_UsedUndef
+                            slot_id = tmpv.id
+                            new_slots[j] = slot_id
+                            linfo.slotflags[slot_id] |= Slot_UsedUndef
                         end
                         tmp = Expr(:(=), tmpv, tupelt)
                         insert!(body, i+n_ins, tmp)
@@ -3390,7 +3707,10 @@ function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
                     end
                 end
                 replace_getfield!(linfo, bexpr, var, vals, field_names, sv)
-                if isa(var, Slot) && is_ssa
+                if !is_ssa
+                    i += replace_newvar_node!(body, (var::Slot).id,
+                                              new_slots, i)
+                elseif isa(var, Slot)
                     # occurs_outside_getfield might have allowed
                     # void use of the slot, we need to delete them too
                     i -= delete_void_use!(body, var::Slot, i)
@@ -3404,6 +3724,30 @@ function alloc_elim_pass!(linfo::LambdaInfo, sv::InferenceState)
             i += 1
         end
     end
+end
+
+# Return the number of expressions added before `i0`
+function replace_newvar_node!(body, orig, new_slots, i0)
+    nvars = length(new_slots)
+    nvars == 0 && return 0
+    narg = length(body)
+    i = 1
+    nins = 0
+    newvars = [NewvarNode(SlotNumber(id)) for id in new_slots]
+    while i <= narg
+        a = body[i]
+        if isa(a, NewvarNode) && (a::NewvarNode).slot.id == orig
+            splice!(body, i, newvars)
+            if i - nins < i0
+                nins += nvars - 1
+            end
+            narg += nvars - 1
+            i += nvars
+        else
+            i += 1
+        end
+    end
+    return nins
 end
 
 # Return the number of expressions deleted before `i0`

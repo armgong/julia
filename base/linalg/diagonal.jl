@@ -21,8 +21,6 @@ Diagonal(V::AbstractVector) = Diagonal(collect(V))
 convert{T}(::Type{Diagonal{T}}, D::Diagonal{T}) = D
 convert{T}(::Type{Diagonal{T}}, D::Diagonal) = Diagonal{T}(convert(Vector{T}, D.diag))
 convert{T}(::Type{AbstractMatrix{T}}, D::Diagonal) = convert(Diagonal{T}, D)
-convert{T}(::Type{UpperTriangular}, A::Diagonal{T}) = UpperTriangular(A)
-convert{T}(::Type{LowerTriangular}, A::Diagonal{T}) = LowerTriangular(A)
 convert(::Type{Matrix}, D::Diagonal) = diagm(D.diag)
 convert(::Type{Array}, D::Diagonal) = convert(Matrix, D)
 full(D::Diagonal) = convert(Array, D)
@@ -233,17 +231,17 @@ ctranspose(D::Diagonal) = conj(D)
 diag(D::Diagonal) = D.diag
 trace(D::Diagonal) = sum(D.diag)
 det(D::Diagonal) = prod(D.diag)
-logdet{T<:Real}(D::Diagonal{T}) = sum(log(D.diag))
+logdet{T<:Real}(D::Diagonal{T}) = sum(log, D.diag)
 function logdet{T<:Complex}(D::Diagonal{T}) #Make sure branch cut is correct
-    x = sum(log(D.diag))
+    x = sum(log, D.diag)
     -pi<imag(x)<pi ? x : real(x)+(mod2pi(imag(x)+pi)-pi)*im
 end
 # identity matrices via eye(Diagonal{type},n)
 eye{T}(::Type{Diagonal{T}}, n::Int) = Diagonal(ones(T,n))
 
-expm(D::Diagonal) = Diagonal(exp(D.diag))
-logm(D::Diagonal) = Diagonal(log(D.diag))
-sqrtm(D::Diagonal) = Diagonal(sqrt(D.diag))
+expm(D::Diagonal) = Diagonal(exp.(D.diag))
+logm(D::Diagonal) = Diagonal(log.(D.diag))
+sqrtm(D::Diagonal) = Diagonal(sqrt.(D.diag))
 
 #Linear solver
 function A_ldiv_B!(D::Diagonal, B::StridedVecOrMat)
@@ -287,7 +285,7 @@ function pinv{T}(D::Diagonal{T})
 end
 function pinv{T}(D::Diagonal{T}, tol::Real)
     Di = similar(D.diag, typeof(inv(zero(T))))
-    if( !isempty(D.diag) ) maxabsD = maximum(abs(D.diag)) end
+    if( !isempty(D.diag) ) maxabsD = maximum(abs.(D.diag)) end
     for i = 1:length(D.diag)
         if( abs(D.diag[i]) > tol*maxabsD && isfinite(inv(D.diag[i])) )
             Di[i]=inv(D.diag[i])
@@ -305,10 +303,10 @@ eigvecs(D::Diagonal) = eye(D)
 eigfact(D::Diagonal) = Eigen(eigvals(D), eigvecs(D))
 
 #Singular system
-svdvals{T<:Number}(D::Diagonal{T}) = sort(abs(D.diag), rev = true)
+svdvals{T<:Number}(D::Diagonal{T}) = sort!(abs.(D.diag), rev = true)
 svdvals(D::Diagonal) = [svdvals(v) for v in D.diag]
 function svd{T<:Number}(D::Diagonal{T})
-    S   = abs(D.diag)
+    S   = abs.(D.diag)
     piv = sortperm(S, rev = true)
     U   = full(Diagonal(D.diag ./ S))
     Up  = hcat([U[:,i] for i = 1:length(D.diag)][piv]...)

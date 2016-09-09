@@ -66,6 +66,14 @@ temp_pkg_dir() do
     @test sprint(io -> Pkg.status(io)) == "No packages installed\n"
     @test !isempty(Pkg.available())
 
+    # 18325
+    cd(Pkg.dir()) do
+        avail = Pkg.Read.available()
+        avail_copy = Pkg.Query.availcopy(avail);
+        delete!(avail_copy["Example"][v"0.0.1"].requires, "julia")
+        @test haskey(avail["Example"][v"0.0.1"].requires, "julia")
+    end
+
     @test_throws PkgError Pkg.installed("MyFakePackage")
     @test Pkg.installed("Example") === nothing
 
@@ -439,13 +447,13 @@ temp_pkg_dir() do
         touch(depsbuild)
         # Pkg.build works without the src directory now
         # but it's probably fine to require it.
-        msg = readstring(`$(Base.julia_cmd()) -f -e 'redirect_stderr(STDOUT); Pkg.build("BuildFail")'`)
+        msg = readstring(`$(Base.julia_cmd()) --startup-file=no -e 'redirect_stderr(STDOUT); Pkg.build("BuildFail")'`)
         @test contains(msg, "Building BuildFail")
         @test !contains(msg, "ERROR")
         open(depsbuild, "w") do fd
             println(fd, "error(\"Throw build error\")")
         end
-        msg = readstring(`$(Base.julia_cmd()) -f -e 'redirect_stderr(STDOUT); Pkg.build("BuildFail")'`)
+        msg = readstring(`$(Base.julia_cmd()) --startup-file=no -e 'redirect_stderr(STDOUT); Pkg.build("BuildFail")'`)
         @test contains(msg, "Building BuildFail")
         @test contains(msg, "ERROR")
         @test contains(msg, "Pkg.build(\"BuildFail\")")
@@ -456,7 +464,7 @@ temp_pkg_dir() do
     let package = "Example"
         Pkg.rm(package)  # Remove package if installed
         @test Pkg.installed(package) === nothing  # Registered with METADATA but not installed
-        msg = readstring(ignorestatus(`$(Base.julia_cmd()) -f -e "redirect_stderr(STDOUT); Pkg.build(\"$package\")"`))
+        msg = readstring(ignorestatus(`$(Base.julia_cmd()) --startup-file=no -e "redirect_stderr(STDOUT); Pkg.build(\"$package\")"`))
         @test contains(msg, "$package is not an installed package")
         @test !contains(msg, "signal (15)")
     end
@@ -532,5 +540,24 @@ temp_pkg_dir() do
         ret, out, err = @grab_outputs Pkg.update("FixedPointNumbers")
         @test ret === nothing && out == ""
         @test contains(err, nothingtodomsg)
+    end
+
+    # issue #18239
+    let package = "Example"
+        Pkg.free(package)
+        Pkg.rm(package)  # Remove package if installed
+
+        metadata_dir = Pkg.dir("METADATA")
+        const old_commit = "83ff7116e51fc9cdbd7e67affbd344b9f5c9dbf2"
+
+        # Reset METADATA to the second to last update of Example.jl
+        LibGit2.with(LibGit2.GitRepo, metadata_dir) do repo
+            LibGit2.reset!(repo, LibGit2.Oid(old_commit), LibGit2.Consts.RESET_HARD)
+        end
+
+        Pkg.add(package)
+        msg = readstring(ignorestatus(`$(Base.julia_cmd()) --startup-file=no -e
+            "redirect_stderr(STDOUT); using Example; Pkg.update(\"$package\")"`))
+        @test contains(msg, "- $package\nRestart Julia to use the updated versions.")
     end
 end

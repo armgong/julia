@@ -26,7 +26,9 @@ JL_DLLEXPORT jl_module_t *jl_new_module(jl_sym_t *name)
     m->name = name;
     m->parent = NULL;
     m->istopmod = 0;
-    m->uuid = jl_hrtime();
+    static unsigned int mcounter; // simple counter backup, in case hrtime is not incrementing
+    m->uuid = jl_hrtime() + (++mcounter);
+    if (!m->uuid) m->uuid++; // uuid 0 is invalid
     m->counter = 0;
     htable_new(&m->bindings, 0);
     arraylist_new(&m->usings, 0);
@@ -484,7 +486,7 @@ void jl_binding_deprecation_warning(jl_binding_t *b)
         else
             jl_printf(JL_STDERR, "%s is deprecated", jl_symbol_name(b->name));
         jl_value_t *v = b->value;
-        if (v && (jl_is_type(v)/* || (jl_is_function(v) && jl_is_gf(v))*/)) {
+        if (v && (jl_is_type(v) || jl_is_module(v)/* || (jl_is_function(v) && jl_is_gf(v))*/)) {
             jl_printf(JL_STDERR, ", use ");
             jl_static_show(JL_STDERR, v);
             jl_printf(JL_STDERR, " instead");

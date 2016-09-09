@@ -6,6 +6,8 @@ a = rand(8) + im*rand(8)
 @test norm(ifft(fft(a,1),1) - a) < 1e-8
 @test norm(ifft(fft(a,[1]),[1]) - a) < 1e-8
 @test norm(ifft(fft(a,(1,)),(1,)) - a) < 1e-8
+a = rand(-10:10, 8) + im*rand(-10:10, 8)
+@test norm(ifft(fft(a)) - a) < 1e-8
 
 m4 = [16.    2     3    13;
     5    11    10     8;
@@ -252,14 +254,14 @@ function fft_test{T<:Complex}(p::Base.DFT.Plan{T}, ntrials=4,
         z = zeros(T, n)
         i = rand(0:n-1)
         z[i+1] = 1
-        X = exp(twopi_i*i)
+        X = exp.(twopi_i*i)
         err = norm(p*z - X, Inf) / norm(X, Inf)
         err <= tol || error("impulse-response error $err in $p")
 
         # time-shift:
         if n > 1
             s = rand(1:n-1)
-            X = (p*x).*exp(twopi_i*s)
+            X = (p*x).*exp.(twopi_i*s)
             err = norm(p*circshift(x,s) - X, Inf) / norm(X, Inf)
             err <= tol || error("time-shift error $err in $p")
         end

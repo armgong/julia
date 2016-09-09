@@ -318,6 +318,32 @@ let oldout = STDOUT, olderr = STDERR
     end
 end
 
+let filename = tempname()
+    ret = open(filename, "w") do f
+        redirect_stdout(f) do
+            println("hello")
+            [1,3]
+        end
+    end
+    @test ret == [1,3]
+    @test chomp(readstring(filename)) == "hello"
+    ret = open(filename, "w") do f
+        redirect_stderr(f) do
+            warn("hello")
+            [2]
+        end
+    end
+    @test ret == [2]
+    @test contains(readstring(filename), "WARNING: hello")
+    ret = open(filename) do f
+        redirect_stdin(f) do
+            readline()
+        end
+    end
+    @test contains(ret, "WARNING: hello")
+    rm(filename)
+end
+
 # issue #12960
 type T12960 end
 let
@@ -577,3 +603,6 @@ end
 @test repr(NTuple{7,Int64}) == "NTuple{7,Int64}"
 @test repr(Tuple{Float64, Float64, Float64, Float64}) == "NTuple{4,Float64}"
 @test repr(Tuple{Float32, Float32, Float32}) == "Tuple{Float32,Float32,Float32}"
+
+# Test that REPL/mime display of invalid UTF-8 data doesn't throw an exception:
+@test isa(stringmime("text/plain", String(UInt8[0x00:0xff;])), String)

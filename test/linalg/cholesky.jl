@@ -25,7 +25,11 @@ for eltya in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
     a = eltya == Int ? rand(1:7, n, n) : convert(Matrix{eltya}, eltya <: Complex ? complex(areal, aimg) : areal)
     a2 = eltya == Int ? rand(1:7, n, n) : convert(Matrix{eltya}, eltya <: Complex ? complex(a2real, a2img) : a2real)
     apd  = a'*a                  # symmetric positive-definite
-    apds = Symmetric(apd)
+
+    apds  = Symmetric(apd)
+    apdsL = Symmetric(apd, :L)
+    apdh  = Hermitian(apd)
+    apdhL = Hermitian(apd, :L)
     ε = εa = eps(abs(float(one(eltya))))
 
     @inferred cholfact(apd)
@@ -42,11 +46,11 @@ for eltya in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
     #these tests were failing on 64-bit linux when inside the inner loop
     #for eltya = Complex64 and eltyb = Int. The E[i,j] had NaN32 elements
     #but only with srand(1234321) set before the loops.
-    E = abs(apd - r'*r)
+    E = abs.(apd - r'*r)
     for i=1:n, j=1:n
         @test E[i,j] <= (n+1)ε/(1-(n+1)ε)*real(sqrt(apd[i,i]*apd[j,j]))
     end
-    E = abs(apd - full(capd))
+    E = abs.(apd - full(capd))
     for i=1:n, j=1:n
         @test E[i,j] <= (n+1)ε/(1-(n+1)ε)*real(sqrt(apd[i,i]*apd[j,j]))
     end
@@ -62,6 +66,10 @@ for eltya in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
         capds = cholfact(apds)
         @test inv(capds)*apds ≈ eye(n)
         @test abs((det(capds) - det(apd))/det(capds)) <= ε*κ*n
+    else
+        capdh = cholfact(apdh)
+        @test inv(capdh)*apdh ≈ eye(n)
+        @test abs((det(capdh) - det(apd))/det(capdh)) <= ε*κ*n
     end
 
     # test chol of 2x2 Strang matrix
@@ -78,11 +86,26 @@ for eltya in (Float32, Float64, Complex64, Complex128, BigFloat, Int)
     @test tril(lapd.factors) ≈ capd[:L]
     if eltya <: Real
         capds = cholfact(apds)
-        lapds = cholfact(Symmetric(apds.data, :L))
+        lapds = cholfact(apdsL)
+        cl    = chol(apdsL)
         ls = lapds[:L]
         @test ls*ls' ≈ apd
         @test triu(capds.factors) ≈ lapds[:U]
         @test tril(lapds.factors) ≈ capds[:L]
+        @test istriu(cl)
+        @test cl'cl ≈ apds
+        @test cl'cl ≈ apdsL
+    else
+        capdh = cholfact(apdh)
+        lapdh = cholfact(apdhL)
+        cl    = chol(apdhL)
+        ls = lapdh[:L]
+        @test ls*ls' ≈ apd
+        @test triu(capdh.factors) ≈ lapdh[:U]
+        @test tril(lapdh.factors) ≈ capdh[:L]
+        @test istriu(cl)
+        @test cl'cl ≈ apdh
+        @test cl'cl ≈ apdhL
     end
 
     #pivoted upper Cholesky
@@ -207,7 +230,7 @@ let apd = [5.8525753f0 + 0.0f0im -0.79540455f0 + 0.7066077f0im 0.98274714f0 + 1.
         -1.0568488936791578 - 0.06025820467086475im 0.12696236014017806 - 0.09853584666755086im]
     cholfact(apd, :L, Val{true}) \ b
     r = factorize(apd)[:U]
-    E = abs(apd - r'*r)
+    E = abs.(apd - r'*r)
     ε = eps(abs(float(one(Complex64))))
     n = 10
     for i=1:n, j=1:n
@@ -220,4 +243,5 @@ end
 @test_throws ArgumentError cholfact(complex(randn(5,5), randn(5,5)))
 @test_throws ArgumentError Base.LinAlg.chol!(randn(5,5))
 @test_throws ArgumentError Base.LinAlg.cholfact!(randn(5,5),:U,Val{false})
+@test_throws ArgumentError Base.LinAlg.cholfact!(randn(5,5),:U,Val{true})
 @test_throws ArgumentError cholfact(randn(5,5),:U,Val{false})

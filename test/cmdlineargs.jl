@@ -120,6 +120,27 @@ let exename = `$(Base.julia_cmd()) --precompiled=yes --startup-file=no`
     @test readchomp(`$exename -E "Base.JLOptions().opt_level" --optimize`) == "3"
     @test readchomp(`$exename -E "Base.JLOptions().opt_level" -O0`) == "0"
 
+    # -g
+    @test readchomp(`$exename -E "Base.JLOptions().debug_level" -g`) == "2"
+    let code = readstring(`$exename -g0 -e "code_llvm(STDOUT, +, (Int64, Int64), false, true)"`)
+        @test contains(code, "llvm.module.flags")
+        @test !contains(code, "llvm.dbg.cu")
+        @test !contains(code, "int.jl")
+        @test !contains(code, "Int64")
+    end
+    let code = readstring(`$exename -g1 -e "code_llvm(STDOUT, +, (Int64, Int64), false, true)"`)
+        @test contains(code, "llvm.module.flags")
+        @test contains(code, "llvm.dbg.cu")
+        @test contains(code, "int.jl")
+        @test !contains(code, "Int64")
+    end
+    let code = readstring(`$exename -g2 -e "code_llvm(STDOUT, +, (Int64, Int64), false, true)"`)
+        @test contains(code, "llvm.module.flags")
+        @test contains(code, "llvm.dbg.cu")
+        @test contains(code, "int.jl")
+        @test contains(code, "\"Int64\"")
+    end
+
     # --check-bounds
     let JL_OPTIONS_CHECK_BOUNDS_DEFAULT = 0,
         JL_OPTIONS_CHECK_BOUNDS_ON = 1,
@@ -185,6 +206,13 @@ let exename = `$(Base.julia_cmd()) --precompiled=yes --startup-file=no`
     @test readchomp(`$exename --inline=no -E "Bool(Base.JLOptions().can_inline)"`) == "false"
     # --inline takes yes/no as argument
     @test !success(`$exename --inline=false`)
+
+    # --polly
+    @test readchomp(`$exename -E "Bool(Base.JLOptions().polly)"`) == "true"
+    @test readchomp(`$exename --polly=yes -E "Bool(Base.JLOptions().polly)"`) == "true"
+    @test readchomp(`$exename --polly=no -E "Bool(Base.JLOptions().polly)"`) == "false"
+    # --polly takes yes/no as argument
+    @test !success(`$exename --polly=false`)
 
     # --fast-math
     let JL_OPTIONS_FAST_MATH_DEFAULT = 0,

@@ -97,7 +97,7 @@ end
 for i = 1:5
     a = sprand(10, 5, 0.5)
     b = rand(5)
-    @test maximum(abs(a*b - full(a)*b)) < 100*eps()
+    @test maximum(abs.(a*b - full(a)*b)) < 100*eps()
 end
 
 # sparse matrix * BitArray
@@ -117,91 +117,91 @@ for i = 1:5
     d = randn(5) + im*randn(5)
     α = rand(Complex128)
     β = rand(Complex128)
-    @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
-    @test (maximum(abs(A_mul_B!(similar(b), a, b) - full(a)*b)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
-    @test (maximum(abs(A_mul_B!(similar(c), a, c) - full(a)*c)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
-    @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
-    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
-    @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
-    @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
-    @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
-    @test (maximum(abs((a'*c + d) - (full(a)'*c + d))) < 1000*eps())
-    @test (maximum(abs((α*a.'*c + β*d) - (α*full(a).'*c + β*d))) < 1000*eps())
-    @test (maximum(abs((a.'*c + d) - (full(a).'*c + d))) < 1000*eps())
+    @test (maximum(abs.(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs.(A_mul_B!(similar(b), a, b) - full(a)*b)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
+    @test (maximum(abs.(A_mul_B!(similar(c), a, c) - full(a)*c)) < 100*eps()) # for compatibility with present matmul API. Should go away eventually.
+    @test (maximum(abs.(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs.(a.'b - full(a).'b)) < 100*eps())
+    @test (maximum(abs.(a\b - full(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - full(a')\b)) < 1000*eps())
+    @test (maximum(abs.(a.'\b - full(a.')\b)) < 1000*eps())
+    @test (maximum(abs.((a'*c + d) - (full(a)'*c + d))) < 1000*eps())
+    @test (maximum(abs.((α*a.'*c + β*d) - (α*full(a).'*c + β*d))) < 1000*eps())
+    @test (maximum(abs.((a.'*c + d) - (full(a).'*c + d))) < 1000*eps())
     c = randn(6) + im*randn(6)
     @test_throws DimensionMismatch α*a.'*c + β*c
     @test_throws DimensionMismatch α*a.'*ones(5) + β*c
 
     a = speye(5) + 0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2)
     b = randn(5,3)
-    @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
-    @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
-    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
-    @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
-    @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
-    @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
+    @test (maximum(abs.(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs.(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs.(a.'b - full(a).'b)) < 100*eps())
+    @test (maximum(abs.(a\b - full(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - full(a')\b)) < 1000*eps())
+    @test (maximum(abs.(a.'\b - full(a.')\b)) < 1000*eps())
 
     a = speye(5) + tril(0.1*sprandn(5, 5, 0.2))
     b = randn(5,3) + im*randn(5,3)
-    @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
-    @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
-    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
-    @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
-    @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
-    @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
+    @test (maximum(abs.(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs.(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs.(a.'b - full(a).'b)) < 100*eps())
+    @test (maximum(abs.(a\b - full(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - full(a')\b)) < 1000*eps())
+    @test (maximum(abs.(a.'\b - full(a.')\b)) < 1000*eps())
 
     a = speye(5) + tril(0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2))
     b = randn(5,3)
-    @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
-    @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
-    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
-    @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
-    @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
-    @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
+    @test (maximum(abs.(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs.(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs.(a.'b - full(a).'b)) < 100*eps())
+    @test (maximum(abs.(a\b - full(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - full(a')\b)) < 1000*eps())
+    @test (maximum(abs.(a.'\b - full(a.')\b)) < 1000*eps())
 
     a = speye(5) + triu(0.1*sprandn(5, 5, 0.2))
     b = randn(5,3) + im*randn(5,3)
-    @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
-    @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
-    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
-    @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
-    @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
-    @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
+    @test (maximum(abs.(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs.(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs.(a.'b - full(a).'b)) < 100*eps())
+    @test (maximum(abs.(a\b - full(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - full(a')\b)) < 1000*eps())
+    @test (maximum(abs.(a.'\b - full(a.')\b)) < 1000*eps())
 
     a = speye(5) + triu(0.1*sprandn(5, 5, 0.2) + 0.1*im*sprandn(5, 5, 0.2))
     b = randn(5,3)
-    @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
-    @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
-    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
-    @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
-    @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
-    @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
+    @test (maximum(abs.(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs.(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs.(a.'b - full(a).'b)) < 100*eps())
+    @test (maximum(abs.(a\b - full(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - full(a')\b)) < 1000*eps())
+    @test (maximum(abs.(a.'\b - full(a.')\b)) < 1000*eps())
 
     a = speye(5) + triu(0.1*sprandn(5, 5, 0.2))
     b = randn(5,3) + im*randn(5,3)
-    @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
-    @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
-    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
-    @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
-    @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
-    @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
+    @test (maximum(abs.(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs.(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs.(a.'b - full(a).'b)) < 100*eps())
+    @test (maximum(abs.(a\b - full(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - full(a')\b)) < 1000*eps())
+    @test (maximum(abs.(a.'\b - full(a.')\b)) < 1000*eps())
 
     a = spdiagm(randn(5)) + im*spdiagm(randn(5))
     b = randn(5,3)
-    @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
-    @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
-    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
-    @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
-    @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
-    @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
+    @test (maximum(abs.(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs.(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs.(a.'b - full(a).'b)) < 100*eps())
+    @test (maximum(abs.(a\b - full(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - full(a')\b)) < 1000*eps())
+    @test (maximum(abs.(a.'\b - full(a.')\b)) < 1000*eps())
 
     b = randn(5,3) + im*randn(5,3)
-    @test (maximum(abs(a*b - full(a)*b)) < 100*eps())
-    @test (maximum(abs(a'b - full(a)'b)) < 100*eps())
-    @test (maximum(abs(a.'b - full(a).'b)) < 100*eps())
-    @test (maximum(abs(a\b - full(a)\b)) < 1000*eps())
-    @test (maximum(abs(a'\b - full(a')\b)) < 1000*eps())
-    @test (maximum(abs(a.'\b - full(a.')\b)) < 1000*eps())
+    @test (maximum(abs.(a*b - full(a)*b)) < 100*eps())
+    @test (maximum(abs.(a'b - full(a)'b)) < 100*eps())
+    @test (maximum(abs.(a.'b - full(a).'b)) < 100*eps())
+    @test (maximum(abs.(a\b - full(a)\b)) < 1000*eps())
+    @test (maximum(abs.(a'\b - full(a')\b)) < 1000*eps())
+    @test (maximum(abs.(a.'\b - full(a.')\b)) < 1000*eps())
 end
 end
 
@@ -209,9 +209,9 @@ end
 for i = 1:5
     a = sprand(10, 5, 0.7)
     b = sprand(5, 15, 0.3)
-    @test maximum(abs(a*b - full(a)*full(b))) < 100*eps()
-    @test maximum(abs(Base.SparseArrays.spmatmul(a,b,sortindices=:sortcols) - full(a)*full(b))) < 100*eps()
-    @test maximum(abs(Base.SparseArrays.spmatmul(a,b,sortindices=:doubletranspose) - full(a)*full(b))) < 100*eps()
+    @test maximum(abs.(a*b - full(a)*full(b))) < 100*eps()
+    @test maximum(abs.(Base.SparseArrays.spmatmul(a,b,sortindices=:sortcols) - full(a)*full(b))) < 100*eps()
+    @test maximum(abs.(Base.SparseArrays.spmatmul(a,b,sortindices=:doubletranspose) - full(a)*full(b))) < 100*eps()
     @test full(kron(a,b)) == kron(full(a), full(b))
     @test full(kron(full(a),b)) == kron(full(a), full(b))
     @test full(kron(a,full(b))) == kron(full(a), full(b))
@@ -286,7 +286,7 @@ end
 
 # conj
 cA = sprandn(5,5,0.2) + im*sprandn(5,5,0.2)
-@test full(conj(cA)) == conj(full(cA))
+@test full(conj.(cA)) == conj(full(cA))
 
 # Test SparseMatrixCSC [c]transpose[!] and permute[!] methods
 let smalldim = 5, largedim = 10, nzprob = 0.4
@@ -377,7 +377,7 @@ for f in (sum, prod, minimum, maximum)
     end
 
     # case where f(0) would throw
-    @test f(x->sqrt(x-1), pA+1) ≈ f(sqrt(pA))
+    @test f(x->sqrt(x-1), pA+1) ≈ f(sqrt.(pA))
     # these actually throw due to #10533
     # @test f(x->sqrt(x-1), pA+1, 1) ≈ f(sqrt(pA), 1)
     # @test f(x->sqrt(x-1), pA+1, 2) ≈ f(sqrt(pA), 2)
@@ -461,21 +461,46 @@ end
 @test maximum(sparse(-ones(3,3))) == -1
 @test minimum(sparse(ones(3,3))) == 1
 
-# Unary functions
-a = sprand(5,15, 0.5)
-afull = full(a)
-for op in (:sin, :cos, :tan, :ceil, :floor, :abs, :abs2)
-    @eval begin
-        @test ($op)(afull) == full($(op)(a))
+# Test unary functions with specialized broadcast over SparseMatrixCSCs
+let
+    A = sprand(5, 15, 0.5)
+    C = A + im*A
+    Afull = full(A)
+    Cfull = full(C)
+    # Test representatives of [unary functions that map zeros to zeros and may map nonzeros to zeros]
+    @test sin.(Afull) == full(sin.(A))
+    @test tan.(Afull) == full(tan.(A)) # should be redundant with sin test
+    @test ceil.(Afull) == full(ceil.(A))
+    @test floor.(Afull) == full(floor.(A)) # should be redundant with ceil test
+    @test real.(Afull) == full(real.(A))
+    @test imag.(Afull) == full(imag.(A))
+    @test real.(Cfull) == full(real.(C))
+    @test imag.(Cfull) == full(imag.(C))
+    # Test representatives of [unary functions that map zeros to zeros and nonzeros to nonzeros]
+    @test expm1.(Afull) == full(expm1.(A))
+    @test abs.(Afull) == full(abs.(A))
+    @test abs2.(Afull) == full(abs2.(A))
+    @test abs.(Cfull) == full(abs.(C))
+    @test abs2.(Cfull) == full(abs2.(C))
+    # Test representatives of [unary functions that map both zeros and nonzeros to nonzeros]
+    @test cos.(Afull) == full(cos.(A))
+    # Test representatives of remaining vectorized-nonbroadcast unary functions
+    @test ceil(Int, Afull) == full(ceil(Int, A))
+    @test floor(Int, Afull) == full(floor(Int, A))
+    # Tests of real, imag, abs, and abs2 for SparseMatrixCSC{Int,X}s previously elsewhere
+    for T in (Int, Float16, Float32, Float64, BigInt, BigFloat)
+        R = rand(T[1:100;], 2, 2)
+        I = rand(T[1:100;], 2, 2)
+        D = R + I*im
+        S = sparse(D)
+        @test R == real.(S)
+        @test I == imag.(S)
+        @test real.(sparse(R)) == R
+        @test nnz(imag.(sparse(R))) == 0
+        @test abs.(S) == abs.(D)
+        @test abs2.(S) == abs2.(D)
     end
 end
-
-for op in (:ceil, :floor)
-    @eval begin
-        @test ($op)(Int,afull) == full($(op)(Int,a))
-    end
-end
-
 
 # getindex tests
 ni = 23
@@ -872,7 +897,7 @@ end
 @test_throws ArgumentError sparsevec(Dict(-1=>1,1=>2))
 
 # issue #8976
-@test conj(sparse([1im])) == sparse(conj([1im]))
+@test conj.(sparse([1im])) == sparse(conj([1im]))
 @test conj!(sparse([1im])) == sparse(conj!([1im]))
 
 # issue #9525
@@ -1037,19 +1062,6 @@ end
 @test_throws BoundsError sparse([])[1] = 1
 x = speye(100)
 @test_throws BoundsError x[-10:10]
-
-for T in (Int, Float16, Float32, Float64, BigInt, BigFloat)
-    let R=rand(T[1:100;],2,2), I=rand(T[1:100;],2,2)
-        D = R + I*im
-        S = sparse(D)
-        @test R == real(S)
-        @test I == imag(S)
-        @test real(sparse(R)) == R
-        @test nnz(imag(sparse(R))) == 0
-        @test abs(S) == abs(D)
-        @test abs2(S) == abs2(D)
-    end
-end
 
 # issue #10407
 @test maximum(spzeros(5, 5)) == 0.0
@@ -1473,8 +1485,11 @@ let
     @test min(A13024, B13024) == sparse([1,2,5], [1,2,5], fill(true,3))
     @test typeof(min(A13024, B13024)) == SparseMatrixCSC{Bool,Int}
 
-    for op in (+, -, &, |, $, max, min)
+    for op in (+, -, &, |, $)
         @test op(A13024, B13024) == op(full(A13024), full(B13024))
+    end
+    for op in (max, min)
+        @test op(A13024, B13024) == op.(full(A13024), full(B13024))
     end
 end
 

@@ -24,6 +24,10 @@ This section lists changes that do not have deprecation warnings.
   * Keyword arguments are processed left-to-right: if the same keyword is specified more than
     once, the rightmost occurrence takes precedence ([#17785]).
 
+  * The `lgamma(z)` function now uses a different (more standard) branch cut
+    for `real(z) < 0`, which differs from `log(gamma(z))` by multiples of 2π
+    in the imaginary part ([#18330]).
+
 Library improvements
 --------------------
 
@@ -194,6 +198,12 @@ This section lists changes that do not have deprecation warnings.
 
   * `map` on a dictionary now expects a function that expects and returns a `Pair`.
     The result is now another dictionary instead of an array ([#16622]).
+
+  * Bit shift operations (i.e. `<<`, `>>`, and `>>>`) now handle
+    negative shift counts differently: Negative counts are interpreted
+    as shifts in the opposite direction. For example, `4 >> -1 == 4 <<
+    +1 == 8`. Previously, negative counts would implicitly overflow to
+    large positive counts, always yielding either `0` or `-1`.
 
 Library improvements
 --------------------
@@ -472,6 +482,17 @@ Deprecated or removed
   * The no-op `transpose` fallback has been deprecated. Consider introducing suitable
     `transpose` methods or calling `permutedims(x, [2,1])` ([#13171], [#17075], [#17374]).
 
+  * The following macros have been deprecated ([#16219]):
+    * `@windows` is deprecated in favor of `is_windows()`
+    * `@unix` is deprecated in favor of `is_unix()`
+    * `@osx` is deprecated in favor of `is_apple()`
+    * `@linux` is deprecated in favor of `is_linux()`
+    * `@windows_only` is deprecated in favor of `if is_windows()`
+    * `@unix_only` is deprecated in favor of `if is_unix()`
+    * `@osx_only` is deprecated in favor of `if is_apple()`
+    * `@linux_only` is deprecated in favor of `if is_linux()`
+    * NOTE: Using `@static` could be useful/necessary when used in a function's local scope. See details at the section entitled [Handling Operating System Variation](http://docs.julialang.org/en/latest/manual/handling-operating-system-variation/#man-handling-operating-system-variation) in the manual.
+
 Command-line option changes
 ---------------------------
 
@@ -631,3 +652,4 @@ Language tooling improvements
 [#17546]: https://github.com/JuliaLang/julia/issues/17546
 [#17668]: https://github.com/JuliaLang/julia/issues/17668
 [#17785]: https://github.com/JuliaLang/julia/issues/17785
+[#18330]: https://github.com/JuliaLang/julia/issues/18330

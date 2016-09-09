@@ -140,7 +140,7 @@ function chol(A::Hermitian)
     if A.uplo == 'U'
         copy!(AA, A.data)
     else
-        Base.ccopy!(AA, A.data)
+        Base.ctranspose!(AA, A.data)
     end
     chol!(Hermitian(AA, :U))
 end
@@ -150,7 +150,7 @@ function chol{T<:Real,S<:AbstractMatrix}(A::Symmetric{T,S})
     if A.uplo == 'U'
         copy!(AA, A.data)
     else
-        Base.ccopy!(AA, A.data)
+        Base.ctranspose!(AA, A.data)
     end
     chol!(Hermitian(AA, :U))
 end
@@ -426,7 +426,7 @@ function det(C::Cholesky)
     dd
 end
 
-det(C::CholeskyPivoted) = C.rank < size(C.factors, 1) ? real(zero(eltype(C))) : prod(abs2(diag(C.factors)))
+det(C::CholeskyPivoted) = C.rank < size(C.factors, 1) ? real(zero(eltype(C))) : prod(abs2.(diag(C.factors)))
 
 function logdet(C::Cholesky)
     dd = zero(eltype(C))

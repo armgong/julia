@@ -1242,6 +1242,7 @@ static jl_value_t *meet_tvars(jl_tvar_t *a, jl_tvar_t *b)
         return ub;
     }
     jl_value_t *res = (jl_value_t*)jl_new_typevar(underscore_sym, lb, ub);
+    ((jl_tvar_t*)res)->bound = a->bound & b->bound;
     JL_GC_POP();
     return res;
 }
@@ -3880,7 +3881,7 @@ void jl_init_types(void)
     jl_lambda_info_type =
         jl_new_datatype(jl_symbol("LambdaInfo"),
                         jl_any_type, jl_emptysvec,
-                        jl_svec(24,
+                        jl_svec(25,
                                 jl_symbol("rettype"),
                                 jl_symbol("sparam_syms"),
                                 jl_symbol("sparam_vals"),
@@ -3898,13 +3899,14 @@ void jl_init_types(void)
                                 jl_symbol("inferred"),
                                 jl_symbol("pure"),
                                 jl_symbol("inlineable"),
+                                jl_symbol("propagate_inbounds"),
                                 jl_symbol("inInference"),
                                 jl_symbol("inCompile"),
                                 jl_symbol("jlcall_api"),
                                 jl_symbol(""),
                                 jl_symbol("fptr"),
                                 jl_symbol(""), jl_symbol("")),
-                        jl_svec(24,
+                        jl_svec(25,
                                 jl_any_type,
                                 jl_simplevector_type,
                                 jl_simplevector_type,
@@ -3918,6 +3920,7 @@ void jl_init_types(void)
                                 jl_method_type,
                                 jl_any_type,
                                 jl_int32_type,
+                                jl_bool_type,
                                 jl_bool_type,
                                 jl_bool_type,
                                 jl_bool_type,
@@ -3945,7 +3948,7 @@ void jl_init_types(void)
         jl_type_type->name->mt;
 
     jl_intrinsic_type = jl_new_bitstype((jl_value_t*)jl_symbol("IntrinsicFunction"),
-                                        jl_any_type, jl_emptysvec, 32);
+                                        jl_builtin_type, jl_emptysvec, 32);
 
     tv = jl_svec1(tvar("T"));
     jl_ref_type =
@@ -3991,9 +3994,9 @@ void jl_init_types(void)
     jl_svecset(jl_methtable_type->types, 6, jl_int32_type); // DWORD
 #endif
     jl_svecset(jl_methtable_type->types, 7, jl_int32_type); // uint32_t
-    jl_svecset(jl_lambda_info_type->types, 21, jl_voidpointer_type);
     jl_svecset(jl_lambda_info_type->types, 22, jl_voidpointer_type);
     jl_svecset(jl_lambda_info_type->types, 23, jl_voidpointer_type);
+    jl_svecset(jl_lambda_info_type->types, 24, jl_voidpointer_type);
 
     jl_compute_field_offsets(jl_datatype_type);
     jl_compute_field_offsets(jl_typename_type);
@@ -4071,6 +4074,7 @@ void jl_init_types(void)
     compiler_temp_sym = jl_symbol("#temp#");
     polly_sym = jl_symbol("polly");
     inline_sym = jl_symbol("inline");
+    propagate_inbounds_sym = jl_symbol("propagate_inbounds");
 
     tttvar = jl_new_typevar(jl_symbol("T"),
                                   (jl_value_t*)jl_bottom_type,

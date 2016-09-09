@@ -72,7 +72,6 @@ let
             @test_throws ArgumentError eigs(a+a.',which=:LI)
             @test_throws ArgumentError eigs(a,sigma=rand(Complex64))
         end
-        @test_throws Base.LinAlg.PosDefException eigs(a,b)
     end
 end
 
@@ -194,7 +193,7 @@ end
 
 debug && println("complex svds")
 let # complex svds test
-    A = sparse([1, 1, 2, 3, 4], [2, 1, 1, 3, 1], exp(im*[2.0:2:10;]))
+    A = sparse([1, 1, 2, 3, 4], [2, 1, 1, 3, 1], exp.(im*[2.0:2:10;]))
     S1 = svds(A, nsv = 2)
     S2 = svd(full(A))
 
@@ -202,13 +201,13 @@ let # complex svds test
     @test S1[1][:S] ≈ S2[2][1:2]
 
     ## left singular vectors
-    s1_left = abs(S1[1][:U][:,1:2])
-    s2_left = abs(S2[1][:,1:2])
+    s1_left = abs.(S1[1][:U][:,1:2])
+    s2_left = abs.(S2[1][:,1:2])
     @test s1_left ≈ s2_left
 
     ## right singular vectors
-    s1_right = abs(S1[1][:Vt][:,1:2])
-    s2_right = abs(S2[3][:,1:2])
+    s1_right = abs.(S1[1][:Vt][:,1:2])
+    s2_right = abs.(S2[3][:,1:2])
     @test s1_right ≈ s2_right
 
     ## test passing guess for Krylov vectors
@@ -232,3 +231,12 @@ svds(rand(1:10, 10, 8))
 @test_throws MethodError eigs(big(rand(1:10, 10, 10)))
 @test_throws MethodError eigs(big(rand(1:10, 10, 10)), rand(1:10, 10, 10))
 @test_throws MethodError svds(big(rand(1:10, 10, 8)))
+
+# Symmetric generalized with singular B
+let
+    n = 10
+    k = 3
+    A = randn(n,n); A = A'A
+    B = randn(n,k);  B = B*B'
+    @test sort(eigs(A, B, nev = k, sigma = 1.0)[1]) ≈ sort(eigvals(A, B)[1:k])
+end

@@ -603,8 +603,8 @@ function findnz{Tv,Ti}(x::SparseVector{Tv,Ti})
 
     count -= 1
     if numnz != count
-      deleteat!(I, (count+1):numnz)
-      deleteat!(V, (count+1):numnz)
+        deleteat!(I, (count+1):numnz)
+        deleteat!(V, (count+1):numnz)
     end
 
     return (I, V)
@@ -886,12 +886,13 @@ end
 ### Unary Map
 
 # zero-preserving functions (z->z, nz->nz)
-for op in [:-, :abs, :abs2, :conj]
+for op in [:abs, :abs2, :conj]
     @eval begin
         $(op)(x::AbstractSparseVector) =
-            SparseVector(length(x), copy(nonzeroinds(x)), $(op)(nonzeros(x)))
+            SparseVector(length(x), copy(nonzeroinds(x)), $(op).(nonzeros(x)))
     end
 end
+-(x::AbstractSparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), -(nonzeros(x)))
 
 # functions f, such that
 #   f(x) can be zero or non-zero when x != 0
@@ -982,7 +983,6 @@ function _binarymap{Tx,Ty}(f::Function,
                            x::AbstractSparseVector{Tx},
                            y::AbstractSparseVector{Ty},
                            mode::Int)
-
     0 <= mode <= 2 || throw(ArgumentError("Incorrect mode $mode."))
     R = typeof(f(zero(Tx), zero(Ty)))
     n = length(x)
@@ -1124,7 +1124,6 @@ function _binarymap{Tx,Ty}(f::Function,
                            x::AbstractVector{Tx},
                            y::AbstractSparseVector{Ty},
                            mode::Int)
-
     0 <= mode <= 2 || throw(ArgumentError("Incorrect mode $mode."))
     R = typeof(f(zero(Tx), zero(Ty)))
     n = length(x)
@@ -1167,7 +1166,6 @@ function _binarymap{Tx,Ty}(f::Function,
                            x::AbstractSparseVector{Tx},
                            y::AbstractVector{Ty},
                            mode::Int)
-
     0 <= mode <= 2 || throw(ArgumentError("Incorrect mode $mode."))
     R = typeof(f(zero(Tx), zero(Ty)))
     n = length(x)

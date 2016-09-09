@@ -79,6 +79,13 @@ A = rand(5,4,3)
 @test checkbounds(Bool, A, trues(5), trues(12)) == true
 @test checkbounds(Bool, A, trues(5), trues(13)) == false
 @test checkbounds(Bool, A, trues(6), trues(12)) == false
+@test checkbounds(Bool, A, trues(5, 4, 3)) == true
+@test checkbounds(Bool, A, trues(5, 4, 2)) == false
+@test checkbounds(Bool, A, trues(5, 12)) == false
+@test checkbounds(Bool, A, trues(1, 5), trues(1, 4, 1), trues(1, 1, 3)) == true
+@test checkbounds(Bool, A, trues(1, 5), trues(1, 4, 1), trues(1, 1, 2)) == false
+@test checkbounds(Bool, A, trues(1, 5), trues(1, 5, 1), trues(1, 1, 3)) == false
+@test checkbounds(Bool, A, trues(1, 5), :, 2) == true
 
 # array of CartesianIndex
 @test checkbounds(Bool, A, [CartesianIndex((1, 1, 1))]) == true
@@ -405,7 +412,19 @@ function test_primitives{T}(::Type{T}, shape, ::Type{TestAbstractArray})
 
     # convert{T, N}(::Type{Array}, A::AbstractArray{T, N})
     X = [1:10...]
+    Y = [1 2; 3 4]
     @test convert(Array, X) == X
+    @test convert(Array, Y) == Y
+
+    # convert{T}(::Type{Vector}, A::AbstractVector{T})
+    @test convert(Vector, X) == X
+    @test convert(Vector, view(X, 2:4)) == [2,3,4]
+    @test_throws MethodError convert(Vector, Y)
+
+    # convert{T}(::Type{Matrix}, A::AbstractMatrix{T})
+    @test convert(Matrix, Y) == Y
+    @test convert(Matrix, view(Y, 1:2, 1:2)) == Y
+    @test_throws MethodError convert(Matrix, X)
 end
 
 let
@@ -734,3 +753,12 @@ end
 @test ndims(Diagonal(rand(1:5,5))) == 2
 @test ndims(Diagonal{Float64}) == 2
 @test Base.elsize(Diagonal(rand(1:5,5))) == sizeof(Int)
+
+# Issue #17811
+let A17811 = Integer[]
+    I = [abs(x) for x in A17811]
+    @test isa(I, Array{Any,1})
+    push!(I, 1)
+    @test I == Any[1]
+    @test isa(map(abs, A17811), Array{Any,1})
+end
