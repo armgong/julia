@@ -12,7 +12,23 @@ $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/source-extracted: $(SRCDIR)/srccache/
 	touch -c $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/configure # old target
 	echo 1 > $@
 
-$(BUILDDIR)/libunwind-$(UNWIND_VER)/build-configured: $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/source-extracted
+$(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/libunwind-arm-dyn.patch-applied: $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/source-extracted
+	cd $(SRCDIR)/srccache/libunwind-$(UNWIND_VER) && patch -p1 -f < $(SRCDIR)/patches/libunwind-arm-dyn.patch
+	echo 1 > $@
+
+$(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/libunwind-dwarf-ver.patch-applied: $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/libunwind-arm-dyn.patch-applied
+	cd $(SRCDIR)/srccache/libunwind-$(UNWIND_VER) && patch -p1 -f < $(SRCDIR)/patches/libunwind-dwarf-ver.patch
+	echo 1 > $@
+
+$(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/libunwind-prefer-extbl.patch-applied: $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/libunwind-dwarf-ver.patch-applied
+	cd $(SRCDIR)/srccache/libunwind-$(UNWIND_VER) && patch -p1 -f < $(SRCDIR)/patches/libunwind-prefer-extbl.patch
+	echo 1 > $@
+
+$(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/libunwind-arm-pc-offset.patch-applied: $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/libunwind-prefer-extbl.patch-applied
+	cd $(SRCDIR)/srccache/libunwind-$(UNWIND_VER) && patch -p1 -f < $(SRCDIR)/patches/libunwind-arm-pc-offset.patch
+	echo 1 > $@
+
+$(BUILDDIR)/libunwind-$(UNWIND_VER)/build-configured: $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/source-extracted $(SRCDIR)/srccache/libunwind-$(UNWIND_VER)/libunwind-arm-pc-offset.patch-applied
 	mkdir -p $(dir $@)
 	cd $(dir $@) && \
 	$(dir $<)/configure $(CONFIGURE_COMMON) CPPFLAGS="$(CPPFLAGS) $(LIBUNWIND_CPPFLAGS)" CFLAGS="$(CFLAGS) $(LIBUNWIND_CFLAGS)" --disable-shared --disable-minidebuginfo
@@ -28,16 +44,9 @@ ifeq ($(OS),$(BUILD_OS))
 endif
 	echo 1 > $@
 
-define LIBUNWIND_INSTALL
-	$(call MAKE_INSTALL,$1,$2,$3)
-ifneq (,$(filter $(ARCH), powerpc64le ppc64le))
-	@# workaround for configure script bug
-	mv $2/$$(build_prefix)/lib64/libunwind*.a $2/$$(build_libdir)
-  endif
-endef
 $(eval $(call staged-install, \
 	unwind,libunwind-$(UNWIND_VER), \
-	LIBUNWIND_INSTALL,,,))
+	MAKE_INSTALL,,,))
 
 clean-unwind:
 	-rm $(BUILDDIR)/libunwind-$(UNWIND_VER)/build-configured $(BUILDDIR)/libunwind-$(UNWIND_VER)/build-compiled
@@ -74,7 +83,7 @@ $(BUILDDIR)/libosxunwind-$(OSXUNWIND_VER)/build-compiled: $(BUILDDIR)/libosxunwi
 	$(MAKE) -C $(dir $<) $(OSXUNWIND_FLAGS)
 	echo 1 > $@
 
-$(build_prefix)/manifest/osxunwind: $(BUILDDIR)/libosxunwind-$(OSXUNWIND_VER)/build-compiled | $(build_shlibdir) $(build_prefix)/manifest
+$(build_prefix)/manifest/osxunwind: $(BUILDDIR)/libosxunwind-$(OSXUNWIND_VER)/build-compiled | $(build_libdir) $(build_shlibdir) $(build_includedir) $(build_prefix)/manifest
 	cp $(dir $<)/libosxunwind.a $(build_libdir)/libosxunwind.a
 	cp $(dir $<)/libosxunwind.$(SHLIB_EXT) $(build_shlibdir)/libosxunwind.$(SHLIB_EXT)
 	cp -R $(dir $<)/include/* $(build_includedir)

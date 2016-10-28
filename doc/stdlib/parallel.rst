@@ -115,12 +115,53 @@ Tasks
 
    .. Docstring generated from Julia source
 
-   Constructs a ``Channel`` that can hold a maximum of ``sz`` objects of type ``T``\ . ``put!`` calls on a full channel block till an object is removed with ``take!``\ .
+   Constructs a ``Channel`` with an internal buffer that can hold a maximum of ``sz`` objects of type ``T``\ . ``put!`` calls on a full channel block until an object is removed with ``take!``\ .
+
+   ``Channel(0)`` constructs an unbuffered channel. ``put!`` blocks until a matching ``take!`` is called. And vice-versa.
 
    Other constructors:
 
-   * ``Channel()`` - equivalent to ``Channel{Any}(32)``
-   * ``Channel(sz::Int)`` equivalent to ``Channel{Any}(sz)``
+   * ``Channel(Inf)`` - equivalent to ``Channel{Any}(typemax(Int))``
+   * ``Channel(sz)`` equivalent to ``Channel{Any}(sz)``
+
+.. function:: put!(c::Channel, v)
+
+   .. Docstring generated from Julia source
+
+   Appends an item ``v`` to the channel ``c``\ . Blocks if the channel is full.
+
+   For unbuffered channels, blocks until a ``take!`` is performed by a different task.
+
+.. function:: take!(c::Channel)
+
+   .. Docstring generated from Julia source
+
+   Removes and returns a value from a ``Channel``\ . Blocks until data is available.
+
+   For unbuffered channels, blocks until a ``put!`` is performed by a different task.
+
+.. function:: isready(c::Channel)
+
+   .. Docstring generated from Julia source
+
+   Determine whether a ``Channel`` has a value stored to it. Returns immediately, does not block.
+
+   For unbuffered channels returns ``true`` if there are tasks waiting on a ``put!``\ .
+
+.. function:: fetch(c::Channel)
+
+   .. Docstring generated from Julia source
+
+   Waits for and gets the first available item from the channel. Does not remove the item. ``fetch`` is unsupported on an unbuffered (0-size) channel.
+
+.. function:: close(c::Channel)
+
+   .. Docstring generated from Julia source
+
+   Closes a channel. An exception is thrown by:
+
+   * ``put!`` on a closed channel.
+   * ``take!`` and ``fetch`` on an empty, closed channel.
 
 General Parallel Computing Support
 ----------------------------------
@@ -270,18 +311,6 @@ General Parallel Computing Support
    * ``pmap(f, c; retry_n=1)`` and ``asyncmap(retry(remote(f)),c)``
    * ``pmap(f, c; retry_n=1, on_error=e->e)`` and ``asyncmap(x->try retry(remote(f))(x) catch e; e end, c)``
 
-.. function:: remotecall(f, id::Integer, args...; kwargs...) -> Future
-
-   .. Docstring generated from Julia source
-
-   Call a function ``f`` asynchronously on the given arguments on the specified process. Returns a ``Future``\ . Keyword arguments, if any, are passed through to ``f``\ .
-
-.. function:: Base.process_messages(r_stream::IO, w_stream::IO, incoming::Bool=true)
-
-   .. Docstring generated from Julia source
-
-   Called by cluster managers using custom transports. It should be called when the custom transport implementation receives the first message from a remote worker. The custom transport must manage a logical connection to the remote worker and provide two ``IO`` objects, one for incoming messages and the other for messages addressed to the remote worker. If ``incoming`` is ``true``\ , the remote peer initiated the connection. Whichever of the pair initiates the connection sends the cluster cookie and its Julia version number to perform the authentication handshake.
-
 .. function:: RemoteException(captured)
 
    .. Docstring generated from Julia source
@@ -336,7 +365,12 @@ General Parallel Computing Support
 
    * ``Future``\ : Wait for and get the value of a Future. The fetched value is cached locally. Further calls to ``fetch`` on the same reference return the cached value. If the remote value is an exception, throws a ``RemoteException`` which captures the remote exception and backtrace.
    * ``RemoteChannel``\ : Wait for and get the value of a remote reference. Exceptions raised are same as for a ``Future`` .
-   * ``Channel`` : Wait for and get the first available item from the channel.
+
+.. function:: remotecall(f, id::Integer, args...; kwargs...) -> Future
+
+   .. Docstring generated from Julia source
+
+   Call a function ``f`` asynchronously on the given arguments on the specified process. Returns a ``Future``\ . Keyword arguments, if any, are passed through to ``f``\ .
 
 .. function:: remotecall_wait(f, id::Integer, args...; kwargs...)
 
@@ -350,6 +384,20 @@ General Parallel Computing Support
 
    Perform ``fetch(remotecall(...))`` in one message. Keyword arguments, if any, are passed through to ``f``\ . Any remote exceptions are captured in a ``RemoteException`` and thrown.
 
+.. function:: remote_do(f, id::Integer, args...; kwargs...) -> nothing
+
+   .. Docstring generated from Julia source
+
+   Executes ``f`` on worker ``id`` asynchronously. Unlike ``remotecall``\ , it does not store the result of computation, nor is there a way to wait for its completion.
+
+   A successful invocation indicates that the request has been accepted for execution on the remote node.
+
+   While consecutive remotecalls to the same worker are serialized in the order they are invoked, the order of executions on the remote worker is undetermined. For example, ``remote_do(f1, 2); remotecall(f2, 2); remote_do(f3, 2)`` will serialize the call to ``f1``\ , followed by ``f2`` and ``f3`` in that order. However, it is not guaranteed that ``f1`` is executed before ``f3`` on worker 2.
+
+   Any exceptions thrown by ``f`` are printed to ``STDERR`` on the remote worker.
+
+   Keyword arguments, if any, are passed through to ``f``\ .
+
 .. function:: put!(rr::RemoteChannel, args...)
 
    .. Docstring generated from Julia source
@@ -362,29 +410,11 @@ General Parallel Computing Support
 
    Store a value to a ``Future`` ``rr``\ . ``Future``\ s are write-once remote references. A ``put!`` on an already set ``Future`` throws an ``Exception``\ . All asynchronous remote calls return ``Future``\ s and set the value to the return value of the call upon completion.
 
-.. function:: put!(c::Channel, v)
-
-   .. Docstring generated from Julia source
-
-   Appends an item ``v`` to the channel ``c``\ . Blocks if the channel is full.
-
 .. function:: take!(rr::RemoteChannel, args...)
 
    .. Docstring generated from Julia source
 
    Fetch value(s) from a remote channel, removing the value(s) in the processs.
-
-.. function:: take!(c::Channel)
-
-   .. Docstring generated from Julia source
-
-   Removes and returns a value from a ``Channel``\ . Blocks till data is available.
-
-.. function:: isready(c::Channel)
-
-   .. Docstring generated from Julia source
-
-   Determine whether a ``Channel`` has a value stored to it. ``isready`` on ``Channel``\ s is non-blocking.
 
 .. function:: isready(rr::RemoteChannel, args...)
 
@@ -405,15 +435,6 @@ General Parallel Computing Support
        c = Channel(1)
        @async put!(c, remotecall_fetch(long_computation, p))
        isready(c)  # will not block
-
-.. function:: close(c::Channel)
-
-   .. Docstring generated from Julia source
-
-   Closes a channel. An exception is thrown by:
-
-   * ``put!`` on a closed channel.
-   * ``take!`` and ``fetch`` on an empty, closed channel.
 
 .. function:: WorkerPool(workers)
 
@@ -455,23 +476,29 @@ General Parallel Computing Support
 
    Returns a lambda that executes function ``f`` on an available worker using ``remotecall_fetch``\ .
 
-.. function:: remotecall(f, pool::AbstractWorkerPool, args...; kwargs...)
+.. function:: remotecall(f, pool::AbstractWorkerPool, args...; kwargs...) -> Future
 
    .. Docstring generated from Julia source
 
-   Call ``f(args...; kwargs...)`` on one of the workers in ``pool``\ . Returns a ``Future``\ .
+   WorkerPool variant of ``remotecall(f, pid, ....)``\ . Waits for and takes a free worker from ``pool`` and performs a ``remotecall`` on it.
 
-.. function:: remotecall_wait(f, pool::AbstractWorkerPool, args...; kwargs...)
-
-   .. Docstring generated from Julia source
-
-   Call ``f(args...; kwargs...)`` on one of the workers in ``pool``\ . Waits for completion, returns a ``Future``\ .
-
-.. function:: remotecall_fetch(f, pool::AbstractWorkerPool, args...; kwargs...)
+.. function:: remotecall_wait(f, pool::AbstractWorkerPool, args...; kwargs...) -> Future
 
    .. Docstring generated from Julia source
 
-   Call ``f(args...; kwargs...)`` on one of the workers in ``pool``\ . Waits for completion and returns the result.
+   WorkerPool variant of ``remotecall_wait(f, pid, ....)``\ . Waits for and takes a free worker from ``pool`` and performs a ``remotecall_wait`` on it.
+
+.. function:: remotecall_fetch(f, pool::AbstractWorkerPool, args...; kwargs...) -> result
+
+   .. Docstring generated from Julia source
+
+   WorkerPool variant of ``remotecall_fetch(f, pid, ....)``\ . Waits for and takes a free worker from ``pool`` and performs a ``remotecall_fetch`` on it.
+
+.. function:: remote_do(f, pool::AbstractWorkerPool, args...; kwargs...) -> nothing
+
+   .. Docstring generated from Julia source
+
+   WorkerPool variant of ``remote_do(f, pid, ....)``\ . Waits for and takes a free worker from ``pool`` and performs a ``remote_do`` on it.
 
 .. function:: timedwait(testcb::Function, secs::Float64; pollint::Float64=0.1)
 
@@ -537,17 +564,17 @@ General Parallel Computing Support
            body
        end
 
-.. function:: @everywhere
+.. function:: @everywhere expr
 
    .. Docstring generated from Julia source
 
-   Execute an expression on all processes. Errors on any of the processes are collected into a ``CompositeException`` and thrown. For example :
+   Execute an expression under Main everywhere. Equivalent to calling ``eval(Main, expr)`` on all processes. Errors on any of the processes are collected into a ``CompositeException`` and thrown. For example :
 
    .. code-block:: julia
 
        @everywhere bar=1
 
-   will define ``bar`` under module ``Main`` on all processes.
+   will define ``Main.bar`` on all processes.
 
    Unlike ``@spawn`` and ``@spawnat``\ , ``@everywhere`` does not capture any local variables. Prefixing ``@everywhere`` with ``@eval`` allows us to broadcast local variables using interpolation :
 
@@ -555,6 +582,17 @@ General Parallel Computing Support
 
        foo = 1
        @eval @everywhere bar=$foo
+
+   The expression is evaluated under ``Main`` irrespective of where ``@everywhere`` is called from. For example :
+
+   .. code-block:: julia
+
+       module FooBar
+           foo() = @everywhere bar()=myid()
+       end
+       FooBar.foo()
+
+   will result in ``Main.bar`` being defined on all processes and not ``FooBar.bar``\ .
 
 .. function:: clear!(pool::CachingPool) -> pool
 
@@ -966,4 +1004,10 @@ between processes. It is possible for Cluster Managers to provide a different tr
    .. Docstring generated from Julia source
 
    Implemented by cluster managers using custom transports. It should establish a logical connection to worker with id ``pid``\ , specified by ``config`` and return a pair of ``IO`` objects. Messages from ``pid`` to current process will be read off ``instrm``\ , while messages to be sent to ``pid`` will be written to ``outstrm``\ . The custom transport implementation must ensure that messages are delivered and received completely and in order. ``Base.connect(manager::ClusterManager.....)`` sets up TCP/IP socket connections in-between workers.
+
+.. function:: Base.process_messages(r_stream::IO, w_stream::IO, incoming::Bool=true)
+
+   .. Docstring generated from Julia source
+
+   Called by cluster managers using custom transports. It should be called when the custom transport implementation receives the first message from a remote worker. The custom transport must manage a logical connection to the remote worker and provide two ``IO`` objects, one for incoming messages and the other for messages addressed to the remote worker. If ``incoming`` is ``true``\ , the remote peer initiated the connection. Whichever of the pair initiates the connection sends the cluster cookie and its Julia version number to perform the authentication handshake.
 

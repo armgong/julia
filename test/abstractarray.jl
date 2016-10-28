@@ -560,6 +560,9 @@ function test_cat(::Type{TestAbstractArray})
     # check for # of columns mismatch b/w rows
     @test_throws ArgumentError hvcat((3, 2), 1, 2, 3, 4, 5, 6)
     @test_throws ArgumentError Base.typed_hvcat(Int, (3, 2), 1, 2, 3, 4, 5, 6)
+
+    # 18395
+    @test isa(Any["a" 5; 2//3 1.0][2,1], Rational{Int})
 end
 
 function test_ind2sub(::Type{TestAbstractArray})
@@ -762,3 +765,13 @@ let A17811 = Integer[]
     @test I == Any[1]
     @test isa(map(abs, A17811), Array{Any,1})
 end
+
+#copymutable for itrs
+@test Base.copymutable((1,2,3)) == [1,2,3]
+
+#sub2ind for empty tuple
+@test sub2ind(()) == 1
+
+#to_shape
+@test Base.to_shape(()) === ()
+@test Base.to_shape(1) === 1

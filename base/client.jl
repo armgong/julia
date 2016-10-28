@@ -16,10 +16,14 @@ const text_colors = AnyDict(
     :bold    => "\033[1m",
 )
 
+for i in 0:255
+    text_colors[i] = "\033[1m\033[38;5;$(i)m"
+end
+
 # Create a docstring with an automatically generated list
 # of colors.
 const possible_formatting_symbols = [:normal, :bold]
-available_text_colors = collect(keys(text_colors))
+available_text_colors = collect(Iterators.filter(x -> !isa(x, Integer), keys(text_colors)))
 available_text_colors = cat(1,
     sort(intersect(available_text_colors, possible_formatting_symbols), rev=true),
     sort(setdiff(  available_text_colors, possible_formatting_symbols)))
@@ -30,13 +34,13 @@ const available_text_colors_docstring =
 
 """Dictionary of color codes for the terminal.
 
-Available colors are: $available_text_colors_docstring.
+Available colors are: $available_text_colors_docstring as well as the integers 0 to 255 inclusive.
 """
 text_colors
 
 have_color = false
 default_color_warn = :red
-default_color_info = :blue
+default_color_info = :cyan
 if is_windows()
     default_color_input = :normal
     default_color_answer = :normal
@@ -47,8 +51,10 @@ end
 color_normal = text_colors[:normal]
 
 function repl_color(key, default)
-    c = Symbol(get(ENV, key, ""))
-    haskey(text_colors, c) ? c : default
+    env_str = get(ENV, key, "")
+    c = tryparse(Int, env_str)
+    c_conv = isnull(c) ? Symbol(env_str) : get(c)
+    haskey(text_colors, c_conv) ? c_conv : default
 end
 
 warn_color()   = repl_color("JULIA_WARN_COLOR", default_color_warn)
@@ -116,7 +122,7 @@ function eval_user_input(ast::ANY, show_value)
                 ast = expand(ast)
                 value = eval(Main, ast)
                 eval(Main, Expr(:(=), :ans, Expr(:call, ()->value)))
-                if !is(value,nothing) && show_value
+                if value!==nothing && show_value
                     if have_color
                         print(answer_color())
                     end
@@ -161,7 +167,7 @@ function parse_input_line(s::String; filename::String="none")
     # (ex, pos) = ccall(:jl_parse_string, Any,
     #                   (Ptr{UInt8},Csize_t,Int32,Int32),
     #                   s, sizeof(s), pos-1, 1)
-    # if !is(ex,())
+    # if ex!==()
     #     throw(ParseError("extra input after end of expression"))
     # end
     # expr
@@ -212,13 +218,12 @@ function process_options(opts::JLOptions)
     global have_color     = (opts.color == 1)
     global is_interactive = (opts.isinteractive != 0)
     while true
-        # load ~/.juliarc file
-        startup && load_juliarc()
-
-        # startup worker
+        # startup worker.
+        # opts.startupfile, opts.load, etc should should not be processed for workers.
         if opts.worker != C_NULL
             start_worker(unsafe_string(opts.worker)) # does not return
         end
+
         # add processors
         if opts.nprocs > 0
             addprocs(opts.nprocs)
@@ -227,6 +232,10 @@ function process_options(opts::JLOptions)
         if opts.machinefile != C_NULL
             addprocs(load_machine_file(unsafe_string(opts.machinefile)))
         end
+
+        # load ~/.juliarc file
+        startup && load_juliarc()
+
         # load file immediately on all processors
         if opts.load != C_NULL
             @sync for p in procs()

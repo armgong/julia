@@ -30,6 +30,18 @@ read!
     empty!(collection) -> collection
 
 Remove all elements from a `collection`.
+
+```jldoctest
+julia> A = Dict("a" => 1, "b" => 2)
+Dict{String,Int64} with 2 entries:
+  "b" => 2
+  "a" => 1
+
+julia> empty!(A);
+
+julia> A
+Dict{String,Int64} with 0 entries
+```
 """
 empty!
 
@@ -69,7 +81,15 @@ Base.:(//)
 """
     isinteger(x) -> Bool
 
-Test whether `x` or all its elements are numerically equal to some integer
+Test whether `x` or all its elements are numerically equal to some integer.
+
+```jldoctest
+julia> isinteger(4.0)
+true
+
+julia> isinteger([1; 2; 5.5])
+false
+```
 """
 isinteger
 
@@ -77,6 +97,12 @@ isinteger
     ./(x, y)
 
 Element-wise right division operator.
+
+```jldoctest
+julia> [1 2 3] ./ [1 2 3]
+1×3 Array{Float64,2}:
+ 1.0  1.0  1.0
+```
 """
 Base.:(./)
 
@@ -141,6 +167,12 @@ promote_type
 ```
 
 Element-wise multiplication operator.
+
+```jldoctest
+julia> [1 2 3] .* [1 2 3]
+1×3 Array{Int64,2}:
+ 1  4  9
+```
 """
 Base.:(.*)
 
@@ -166,18 +198,17 @@ Subtraction operator.
 -(x, y)
 
 """
-    Nullable(x)
-
-Wrap value `x` in an object of type `Nullable`, which indicates whether a value is present.
-`Nullable(x)` yields a non-empty wrapper, and `Nullable{T}()` yields an empty instance of a
-wrapper that might contain a value of type `T`.
-"""
-Nullable
-
-"""
     bits(n)
 
 A string giving the literal bit representation of a number.
+
+```jldoctest
+julia> bits(4)
+"0000000000000000000000000000000000000000000000000000000000000100"
+
+julia> bits(2.2)
+"0100000000000001100110011001100110011001100110011001100110011010"
+```
 """
 bits
 
@@ -195,6 +226,27 @@ getindex(::Type, elements...)
 Returns a subset of array `A` as specified by `inds`, where each `ind` may be an
 `Int`, a `Range`, or a `Vector`. See the manual section on
 [array indexing](:ref:`array indexing <man-array-indexing>`) for details.
+
+```jldoctest
+julia> A = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> getindex(A, 1)
+1
+
+julia> getindex(A, [2, 1])
+2-element Array{Int64,1}:
+ 3
+ 1
+
+julia> getindex(A, 2:4)
+3-element Array{Int64,1}:
+ 3
+ 2
+ 4
+```
 """
 getindex(::AbstractArray, inds...)
 
@@ -203,6 +255,16 @@ getindex(::AbstractArray, inds...)
 
 Retrieve the value(s) stored at the given key or index within a collection. The syntax
 `a[i,j,...]` is converted by the compiler to `getindex(a, i, j, ...)`.
+
+```jldoctest
+julia> A = Dict("a" => 1, "b" => 2)
+Dict{String,Int64} with 2 entries:
+  "b" => 2
+  "a" => 1
+
+julia> getindex(A, "a")
+1
+```
 """
 getindex(collection, key...)
 
@@ -269,6 +331,12 @@ unsafe_copy!(dest::Array, d, src::Array, so, N)
     .^(x, y)
 
 Element-wise exponentiation operator.
+
+```jldoctest
+julia> [1 2 3] .^ [1 2 3]
+1×3 Array{Int64,2}:
+ 1  4  27
+```
 """
 Base.:(.^)
 
@@ -400,16 +468,25 @@ filter!
     sizeof(T)
 
 Size, in bytes, of the canonical binary representation of the given DataType `T`, if any.
+
+```jldoctest
+julia> sizeof(Float32)
+4
+
+julia> sizeof(Complex128)
+16
+```
+
+If `T` is not a bitstype, an error is thrown.
+
+```jldoctest
+julia> sizeof(Base.LinAlg.LU)
+ERROR: argument is an abstract type; size is indeterminate
+ in sizeof(::Type{T}) at ./essentials.jl:89
+ ...
+```
 """
 sizeof(::Type)
-
-"""
-    ===(x, y)
-    ≡(x,y)
-
-See the [`is`](:func:`is`) operator.
-"""
-Base.:(===)
 
 """
     ReadOnlyMemoryError()
@@ -424,6 +501,14 @@ ReadOnlyMemoryError
 Get the last element of an ordered collection, if it can be computed in O(1) time. This is
 accomplished by calling [`endof`](:func:`endof`) to get the last index. Returns the end
 point of a [`Range`](:obj:`Range`) even if it is empty.
+
+```jldoctest
+julia> last(1:2:10)
+9
+
+julia> last([1; 2; 3; 4])
+4
+```
 """
 last
 
@@ -532,6 +617,13 @@ fd
     ones(type, dims)
 
 Create an array of all ones of specified type. The type defaults to `Float64` if not specified.
+
+```jldoctest
+julia> ones(Complex128, 2, 3)
+2×3 Array{Complex{Float64},2}:
+ 1.0+0.0im  1.0+0.0im  1.0+0.0im
+ 1.0+0.0im  1.0+0.0im  1.0+0.0im
+```
 """
 ones(t,dims)
 
@@ -539,6 +631,18 @@ ones(t,dims)
     ones(A)
 
 Create an array of all ones with the same element type and shape as `A`.
+
+```jldoctest
+julia> A = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> ones(A)
+2×2 Array{Int64,2}:
+ 1  1
+ 1  1
+```
 """
 ones(A)
 
@@ -546,6 +650,32 @@ ones(A)
     reshape(A, dims)
 
 Create an array with the same data as the given array, but with different dimensions.
+
+```jldoctest
+julia> A = collect(1:16)
+16-element Array{Int64,1}:
+  1
+  2
+  3
+  4
+  5
+  6
+  7
+  8
+  9
+ 10
+ 11
+ 12
+ 13
+ 14
+ 15
+ 16
+
+julia> reshape(A, (2, 8))
+2×8 Array{Int64,2}:
+ 1  3  5  7   9  11  13  15
+ 2  4  6  8  10  12  14  16
+```
 """
 reshape
 
@@ -706,6 +836,14 @@ eachmatch
 
 Compute the logarithm of `x` to base 10.
 Throws [`DomainError`](:obj:`DomainError`) for negative `Real` arguments.
+
+```jldoctest
+julia> log10(100)
+2.0
+
+julia> log10(2)
+0.3010299956639812
+```
 """
 log10
 
@@ -743,6 +881,14 @@ truncate
     exp10(x)
 
 Compute ``10^x``.
+
+```jldoctest
+julia> exp10(2)
+100.0
+
+julia> exp10(0.2)
+1.5848931924611136
+```
 """
 exp10
 
@@ -750,6 +896,14 @@ exp10
     &(x, y)
 
 Bitwise and.
+
+```jldoctest
+julia> 4 & 10
+0
+
+julia> 4 & 12
+4
+```
 """
 &
 
@@ -863,6 +1017,14 @@ num
     .<(x, y)
 
 Element-wise less-than comparison operator.
+
+```jldoctest
+julia> [1; 2; 3] .< [2; 1; 4]
+3-element BitArray{1}:
+  true
+ false
+  true
+```
 """
 Base.:(.<)
 
@@ -918,13 +1080,6 @@ Seek a stream relative to the current position.
 skip
 
 """
-    lu(A) -> L, U, p
-
-Compute the LU factorization of `A`, such that `A[p,:] = L*U`.
-"""
-lu
-
-"""
     setdiff!(s, iterable)
 
 Remove each element of `iterable` from set `s` in-place.
@@ -932,9 +1087,17 @@ Remove each element of `iterable` from set `s` in-place.
 setdiff!
 
 """
-    copysign(x, y)
+    copysign(x, y) -> z
 
-Return `x` such that it has the same sign as `y`
+Return `z` which has the magnitude of `x` and the same sign as `y`.
+
+```jldoctest
+julia> copysign(1, -2)
+-1
+
+julia> copysign(-1, 2)
+1
+```
 """
 copysign
 
@@ -1004,6 +1167,22 @@ maximum!
     prod(A, dims)
 
 Multiply elements of an array over the given dimensions.
+
+```jldoctest
+julia> A = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> prod(A, 1)
+1×2 Array{Int64,2}:
+ 3  8
+
+julia> prod(A, 2)
+2×1 Array{Int64,2}:
+  2
+ 12
+```
 """
 prod(A, dims)
 
@@ -1023,13 +1202,6 @@ log1p
 Return `x` with its sign flipped if `y` is negative. For example `abs(x) = flipsign(x,x)`.
 """
 flipsign
-
-"""
-    lbeta(x, y)
-
-Natural logarithm of the absolute value of the beta function ``\\log(|\\operatorname{B}(x,y)|)``.
-"""
-lbeta
 
 """
     randstring([rng,] len=8)
@@ -1088,6 +1260,22 @@ serialize
     sum(A, dims)
 
 Sum elements of an array over the given dimensions.
+
+```jldoctest
+julia> A = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> sum(A, 1)
+1×2 Array{Int64,2}:
+ 4  6
+
+julia> sum(A, 2)
+2×1 Array{Int64,2}:
+ 3
+ 7
+```
 """
 sum(A, dims)
 
@@ -1229,13 +1417,16 @@ endof
 """
     Channel{T}(sz::Int)
 
-Constructs a `Channel` that can hold a maximum of `sz` objects of type `T`. `put!` calls on
-a full channel block till an object is removed with `take!`.
+Constructs a `Channel` with an internal buffer that can hold a maximum of `sz` objects
+of type `T`. `put!` calls on a full channel block until an object is removed with `take!`.
+
+`Channel(0)` constructs an unbuffered channel. `put!` blocks until a matching `take!` is called.
+And vice-versa.
 
 Other constructors:
 
-- `Channel()` - equivalent to `Channel{Any}(32)`
-- `Channel(sz::Int)` equivalent to `Channel{Any}(sz)`
+- `Channel(Inf)` - equivalent to `Channel{Any}(typemax(Int))`
+- `Channel(sz)` equivalent to `Channel{Any}(sz)`
 """
 Channel
 
@@ -1250,15 +1441,16 @@ next
     log2(x)
 
 Compute the logarithm of `x` to base 2. Throws `DomainError` for negative `Real` arguments.
+
+```jldoctest
+julia> log2(4)
+2.0
+
+julia> log2(10)
+3.321928094887362
+```
 """
 log2
-
-"""
-    isnull(x)
-
-Is the `Nullable` object `x` null, i.e. missing a value?
-"""
-isnull
 
 """
     abs2(x)
@@ -1340,14 +1532,6 @@ floating point number. If the string does not contain a valid number, an error i
 parse(T::Type, str, base=Int)
 
 """
-    bkfact!(A) -> BunchKaufman
-
-`bkfact!` is the same as [`bkfact`](:func:`bkfact`), but saves space by overwriting the
-input `A`, instead of creating a copy.
-"""
-bkfact!
-
-"""
     ^(x, y)
 
 Exponentiation operator.
@@ -1378,10 +1562,21 @@ selectperm
 """
     reinterpret(type, A)
 
-Change the type-interpretation of a block of memory. For example,
-`reinterpret(Float32, UInt32(7))` interprets the 4 bytes corresponding to `UInt32(7)` as a
-`Float32`. For arrays, this constructs an array with the same binary data as the given
+Change the type-interpretation of a block of memory.
+For arrays, this constructs an array with the same binary data as the given
 array, but with the specified element type.
+For example,
+`reinterpret(Float32, UInt32(7))` interprets the 4 bytes corresponding to `UInt32(7)` as a
+`Float32`.
+
+```jldoctest
+julia> reinterpret(Float32, UInt32(7))
+1.0f-44
+
+julia> reinterpret(Float32, UInt32[1 2 3 4 5])
+1×5 Array{Float32,2}:
+ 1.4013f-45  2.8026f-45  4.2039f-45  5.60519f-45  7.00649f-45
+```
 """
 reinterpret
 
@@ -1389,6 +1584,17 @@ reinterpret
     ~(x)
 
 Bitwise not.
+
+```jldoctest
+julia> ~4
+-5
+
+julia> ~10
+-11
+
+julia> ~true
+false
+```
 """
 ~
 
@@ -1406,18 +1612,6 @@ Sum squared absolute values of elements of `A` over the singleton dimensions of 
 write results to `r`.
 """
 sumabs2!
-
-"""
-    @sprintf("%Fmt", args...)
-
-Return `@printf` formatted output as string.
-
-    julia> s = @sprintf "this is a %s %15.1f" "test" 34.567;
-
-    julia> println(s)
-    this is a test            34.6
-"""
-:@sprintf
 
 """
     tanh(x)
@@ -1495,13 +1689,6 @@ Compute a type that contains both `T` and `S`.
 typejoin
 
 """
-    beta(x, y)
-
-Euler integral of the first kind ``\\operatorname{B}(x,y) = \\Gamma(x)\\Gamma(y)/\\Gamma(x+y)``.
-"""
-beta
-
-"""
     sin(x)
 
 Compute sine of `x`, where `x` is in radians.
@@ -1536,6 +1723,22 @@ asinh
 Compute the minimum value of an array over the given dimensions. See also the
 [`min(a,b)`](:func:`min`) function to take the minimum of two or more arguments,
 which can be applied elementwise to arrays via `min.(a,b)`.
+
+```jldoctest
+julia> A = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> minimum(A, 1)
+1×2 Array{Int64,2}:
+ 1  2
+
+julia> minimum(A, 2)
+2×1 Array{Int64,2}:
+ 1
+ 3
+```
 """
 minimum(A,dims)
 
@@ -1580,16 +1783,6 @@ end
 ```
 """
 get
-
-"""
-    lufact!(A) -> LU
-
-`lufact!` is the same as [`lufact`](:func:`lufact`), but saves space by overwriting the
-input `A`, instead of creating a copy. An `InexactError` exception is thrown if the
-factorisation produces a number not representable by the element type of `A`, e.g. for
-integer types.
-"""
-lufact!
 
 """
     Mmap.sync!(array)
@@ -1670,26 +1863,13 @@ Run a command object asynchronously, returning the resulting [`Process`](:obj:`P
 spawn
 
 """
-    eta(x)
-
-Dirichlet eta function ``\\eta(s) = \\sum^\\infty_{n=1}(-1)^{n-1}/n^{s}``.
-"""
-eta
-
-"""
     isdefined([m::Module,] s::Symbol)
     isdefined(object, s::Symbol)
     isdefined(object, index::Int)
-    isdefined(a::Array, index::Int)
 
-Tests whether an assignable location is defined. The arguments can be a module and a symbol,
-a composite object and field name (as a symbol) or index, or an `Array` and index.
-With a single symbol argument, tests whether a global variable with that name is defined in
-`current_module()`.
-
-Note: For `AbstractArray`s other than `Array`, `isdefined` tests whether the given field
-index is defined, not the given array index. To test whether an array index is defined, use
-[`isassigned`](:func:`isassigned`).
+Tests whether an assignable location is defined. The arguments can be a module and a symbol
+or a composite object and field name (as a symbol) or index. With a single symbol argument,
+tests whether a global variable with that name is defined in `current_module()`.
 """
 isdefined
 
@@ -1787,6 +1967,22 @@ typemax
     all(A, dims)
 
 Test whether all values along the given dimensions of an array are `true`.
+
+```jldoctest
+julia> A = [true false; true true]
+2×2 Array{Bool,2}:
+ true  false
+ true   true
+
+julia> all(A, 1)
+1×2 Array{Bool,2}:
+ true  false
+
+julia> all(A, 2)
+2×1 Array{Bool,2}:
+ false
+  true
+```
 """
 all(A::AbstractArray, dims)
 
@@ -1990,14 +2186,6 @@ program, in the same manner as C.
 unsafe_store!
 
 """
-    hessfact!(A)
-
-`hessfact!` is the same as [`hessfact`](:func:`hessfact`), but saves space by overwriting
-the input `A`, instead of creating a copy.
-"""
-hessfact!
-
-"""
     readcsv(source, [T::Type]; options...)
 
 Equivalent to `readdlm` with `delim` set to comma, and type optionally defined by `T`.
@@ -2037,6 +2225,14 @@ minimum!
     .-(x, y)
 
 Element-wise subtraction operator.
+
+```jldoctest
+julia> [4; 5; 6] .- [1; 2; 4]
+3-element Array{Int64,1}:
+ 3
+ 3
+ 2
+```
 """
 Base.:(.-)
 
@@ -2148,6 +2344,14 @@ Array
     isreal(x) -> Bool
 
 Test whether `x` or all its elements are numerically equal to some real number.
+
+```jldoctest
+julia> isreal(5.)
+true
+
+julia> isreal([4.; complex(0,1)])
+false
+```
 """
 isreal
 
@@ -2156,6 +2360,14 @@ isreal
 
 Return `true` if and only if all values of `type1` are also of `type2`. Can also be written
 using the `<:` infix operator as `type1 <: type2`.
+
+```jldoctest
+julia> issubtype(Int8, Int32)
+false
+
+julia> Int8 <: Integer
+true
+```
 """
 issubtype(type1, type2)
 
@@ -2197,15 +2409,6 @@ Assign `x` to a named field in `value` of composite type. The syntax `a.b = c` c
 setfield!
 
 """
-    @printf([io::IOStream], "%Fmt", args...)
-
-Print `args` using C `printf()` style format specification string.
-Optionally, an [`IOStream`](:obj:`IOStream`)
-may be passed as the first argument to redirect output.
-"""
-:@printf
-
-"""
     countlines(io,[eol::Char])
 
 Read `io` until the end of the stream/file and count the number of lines. To specify a file
@@ -2218,6 +2421,45 @@ countlines
     .\\(x, y)
 
 Element-wise left division operator.
+
+```jldoctest
+julia> A = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> A .\\ [1 2]
+2×2 Array{Float64,2}:
+ 1.0       1.0
+ 0.333333  0.5
+```
+
+```jldoctest
+julia> A = [1 0; 0 -1];
+
+julia> B = [0 1; 1 0];
+
+julia> C = [A, B]
+2-element Array{Array{Int64,2},1}:
+ [1 0; 0 -1]
+ [0 1; 1 0]
+
+julia> x = [1; 0];
+
+julia> y = [0; 1];
+
+julia> D = [x, y]
+2-element Array{Array{Int64,1},1}:
+ [1,0]
+ [0,1]
+
+julia> C .\\ D
+2-element Array{Array{Float64,1},1}:
+ [1.0,-0.0]
+ [1.0,0.0]
+```
+
+See also [`broadcast`](:func:`broadcast`).
 """
 Base.:(.\)(x,y)
 
@@ -2236,15 +2478,6 @@ Base.:(*)(x, y...)
 Get the system time in seconds since the epoch, with fairly high (typically, microsecond) resolution.
 """
 time()
-
-"""
-    qr(A [,pivot=Val{false}][;thin=true]) -> Q, R, [p]
-
-Compute the (pivoted) QR factorization of `A` such that either `A = Q*R` or `A[:,p] = Q*R`.
-Also see `qrfact`. The default is to compute a thin factorization. Note that `R` is not
-extended with zeros when the full `Q` is requested.
-"""
-qr
 
 """
     TextDisplay(stream)
@@ -2323,6 +2556,14 @@ deserialize
 
 Get the first element of an iterable collection. Returns the start point of a
 [`Range`](:obj:`Range`) even if it is empty.
+
+```jldoctest
+julia> first(2:2:10)
+2
+
+julia> first([1; 2; 3; 4])
+1
+```
 """
 first
 
@@ -2349,47 +2590,40 @@ the current exception (if called within a `catch` block).
 rethrow
 
 """
-    reprmime(mime, x)
-
-Returns an `AbstractString` or `Vector{UInt8}` containing the representation of `x` in the
-requested `mime` type, as written by `show` (throwing a `MethodError` if no appropriate
-`show` is available). An `AbstractString` is returned for MIME types with textual
-representations (such as `"text/html"` or `"application/postscript"`), whereas binary data
-is returned as `Vector{UInt8}`. (The function `istextmime(mime)` returns whether or not Julia
-treats a given `mime` type as text.)
-
-As a special case, if `x` is an `AbstractString` (for textual MIME types) or a
-`Vector{UInt8}` (for binary MIME types), the `reprmime` function assumes that `x` is already
-in the requested `mime` format and simply returns `x`.
-"""
-reprmime
-
-"""
     !(x)
 
 Boolean not.
+
+```jldoctest
+julia> !true
+false
+
+julia> !false
+true
+
+julia> ![true false true]
+1×3 Array{Bool,2}:
+ false  true  false
+```
 """
 Base.:(!)
 
 """
     length(collection) -> Integer
 
-For ordered, indexable collections, the maximum index `i` for which `getindex(collection, i)`
-is valid. For unordered collections, the number of elements.
+For ordered, indexable collections, returns the maximum index `i` for which `getindex(collection, i)`
+is valid.
+For unordered collections, returns the number of elements.
+
+```jldoctest
+julia> length(1:5)
+5
+
+julia> length([1; 2; 3; 4])
+4
+```
 """
 length(collection)
-
-"""
-    bkfact(A) -> BunchKaufman
-
-Compute the Bunch-Kaufman [^Bunch1977] factorization of a real symmetric or complex Hermitian
-matrix `A` and return a `BunchKaufman` object. The following functions are available for
-`BunchKaufman` objects: [`size`](:func:`size`), `\\`, [`inv`](:func:`inv`), [`issymmetric`](:func:`issymmetric`), [`ishermitian`](:func:`ishermitian`).
-
-[^Bunch1977]: J R Bunch and L Kaufman, Some stable methods for calculating inertia and solving symmetric linear systems, Mathematics of Computation 31:137 (1977), 163-179. [url](http://www.ams.org/journals/mcom/1977-31-137/S0025-5718-1977-0428694-0).
-
-"""
-bkfact
 
 """
     searchsortedlast(a, x, [by=<transform>,] [lt=<comparison>,] [rev=false])
@@ -2431,6 +2665,12 @@ NullException
     .==(x, y)
 
 Element-wise equality comparison operator.
+
+```jldoctest
+julia> [1 2 3] .== [1 2 4]
+1×3 BitArray{2}:
+ true  true  false
+```
 """
 Base.:(.==)
 
@@ -2511,16 +2751,6 @@ retrieved by accessing `m.match` and the captured sequences can be retrieved by 
 `m.captures` The optional `idx` argument specifies an index at which to start the search.
 """
 match
-
-"""
-    qrfact!(A [,pivot=Val{false}])
-
-`qrfact!` is the same as [`qrfact`](:func:`qrfact`) when `A` is a subtype of
-`StridedMatrix`, but saves space by overwriting the input `A`, instead of creating a copy.
-An `InexactError` exception is thrown if the factorisation produces a number not
-representable by the element type of `A`, e.g. for integer types.
-"""
-qrfact!
 
 """
     coth(x)
@@ -2731,16 +2961,6 @@ offset `do`. Returns `dest`.
 copy!(dest,d,src,so,N)
 
 """
-    qrfact(A) -> SPQR.Factorization
-
-Compute the QR factorization of a sparse matrix `A`. A fill-reducing permutation is used.
-The main application of this type is to solve least squares problems with `\\`. The function
-calls the C library SPQR and a few additional functions from the library are wrapped but not
-exported.
-"""
-qrfact(A)
-
-"""
     +(x, y...)
 
 Addition operator. `x+y+z+...` calls this function with all arguments, i.e. `+(x, y, z, ...)`.
@@ -2779,19 +2999,6 @@ Reconstruct the matrix `A` from the factorization `F=factorize(A)`.
 full(F)
 
 """
-    full(QRCompactWYQ[, thin=true]) -> Matrix
-
-Converts an orthogonal or unitary matrix stored as a `QRCompactWYQ` object, i.e. in the
-compact WY format [^Bischof1987], to a dense matrix.
-
-Optionally takes a `thin` Boolean argument, which if `true` omits the columns that span the
-rows of `R` in the QR factorization that are zero. The resulting matrix is the `Q` in a thin
-QR factorization (sometimes called the reduced QR factorization). If `false`, returns a `Q`
-that spans all rows of `R` in its corresponding QR factorization.
-"""
-full(::LinAlg.QRCompactWYQ, ?)
-
-"""
     throw(e)
 
 Throw an object as an exception.
@@ -2817,23 +3024,6 @@ Return `true` if `A` is a subset of or equal to `S`.
 issubset
 
 """
-    print_with_color(color::Symbol, [io], strings...)
-
-Print strings in a color specified as a symbol.
-
-`color` may take any of the values $(Base.available_text_colors_docstring).
-"""
-print_with_color
-
-"""
-    stringmime(mime, x)
-
-Returns an `AbstractString` containing the representation of `x` in the requested `mime`
-type. This is similar to [`reprmime`](:func:`reprmime`) except that binary data is base64-encoded as an ASCII string.
-"""
-stringmime
-
-"""
     zero(x)
 
 Get the additive identity element for the type of `x` (`x` can also specify the type itself).
@@ -2851,7 +3041,14 @@ any(::AbstractArray,dims)
     zeros(type, dims)
 
 Create an array of all zeros of specified type.
-The type defaults to Float64 if not specified.
+The type defaults to `Float64` if not specified.
+
+```jldoctest
+julia> zeros(Int8, 2, 3)
+2×3 Array{Int8,2}:
+ 0  0  0
+ 0  0  0
+```
 """
 zeros(t,dims)
 
@@ -2859,6 +3056,18 @@ zeros(t,dims)
     zeros(A)
 
 Create an array of all zeros with the same element type and shape as `A`.
+
+```jldoctest
+julia> A = [1 2; 3 4]
+2×2 Array{Int64,2}:
+ 1  2
+ 3  4
+
+julia> zeros(A)
+2×2 Array{Int64,2}:
+ 0  0
+ 0  0
+```
 """
 zeros(A)
 
@@ -2868,13 +3077,6 @@ zeros(A)
 Create a `Symbol` by concatenating the string representations of the arguments together.
 """
 Symbol
-
-"""
-    zeta(s)
-
-Riemann zeta function ``\\zeta(s)``.
-"""
-zeta(s)
 
 """
     isvalid(value) -> Bool
@@ -2913,6 +3115,24 @@ midpoints
     .+(x, y)
 
 Element-wise addition operator.
+
+```jldoctest
+julia> A = [1 2; 3 4];
+
+julia> B = [5 6; 7 8];
+
+julia> C = [A, B]
+2-element Array{Array{Int64,2},1}:
+ [1 2; 3 4]
+ [5 6; 7 8]
+
+julia> C .+ [[1; 2] [3; 4]]
+2×2 Array{Array{Int64,2},2}:
+ [2 3; 4 5]   [4 5; 6 7]
+ [7 8; 9 10]  [9 10; 11 12]
+```
+
+See also [`broadcast`](:func:`broadcast`).
 """
 Base.:(.+)
 
@@ -2937,6 +3157,20 @@ float
     signbit(x)
 
 Returns `true` if the value of the sign of `x` is negative, otherwise `false`.
+
+```jldoctest
+julia> signbit(-4)
+true
+
+julia> signbit(5)
+false
+
+julia> signbit(5.5)
+false
+
+julia> signbit(-4.1)
+true
+```
 """
 signbit
 
@@ -2969,13 +3203,6 @@ Quit (or control-D at the prompt). The default exit code is zero, indicating tha
 processes completed successfully.
 """
 exit
-
-"""
-    istextmime(m::MIME)
-
-Determine whether a MIME type is text data.
-"""
-istextmime
 
 """
     skipchars(stream, predicate; linecomment::Char)
@@ -3078,6 +3305,14 @@ Val
     |(x, y)
 
 Bitwise or.
+
+```jldoctest
+julia> 4 | 10
+14
+
+julia> 4 | 1
+5
+```
 """
 Base.:(|)
 

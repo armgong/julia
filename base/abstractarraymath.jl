@@ -283,21 +283,6 @@ function cumsum_kbn{T<:AbstractFloat}(A::AbstractArray{T}, axis::Integer=1)
     return B + C
 end
 
-## ipermutedims in terms of permutedims ##
-
-"""
-    ipermutedims(A, perm)
-
-Like [`permutedims`](:func:`permutedims`), except the inverse of the given permutation is applied.
-"""
-function ipermutedims(A::AbstractArray,perm)
-    iperm = Array{Int}(length(perm))
-    for (i,p) = enumerate(perm)
-        iperm[p] = i
-    end
-    return permutedims(A,iperm)
-end
-
 ## Other array functions ##
 
 """

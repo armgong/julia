@@ -335,7 +335,7 @@ convert(::Type{AbstractMatrix}, C::Cholesky) = C.uplo == 'U' ? C[:U]'C[:U] : C[:
 convert(::Type{AbstractArray}, C::Cholesky) = convert(AbstractMatrix, C)
 convert(::Type{Matrix}, C::Cholesky) = convert(Array, convert(AbstractArray, C))
 convert(::Type{Array}, C::Cholesky) = convert(Matrix, C)
-full(C::Cholesky) = convert(Array, C)
+full(C::Cholesky) = convert(AbstractArray, C)
 
 function convert(::Type{AbstractMatrix}, F::CholeskyPivoted)
     ip = invperm(F[:p])
@@ -344,7 +344,7 @@ end
 convert(::Type{AbstractArray}, F::CholeskyPivoted) = convert(AbstractMatrix, F)
 convert(::Type{Matrix}, F::CholeskyPivoted) = convert(Array, convert(AbstractArray, F))
 convert(::Type{Array}, F::CholeskyPivoted) = convert(Matrix, F)
-full(F::CholeskyPivoted) = convert(Array, F)
+full(F::CholeskyPivoted) = convert(AbstractArray, F)
 
 copy(C::Cholesky) = Cholesky(copy(C.factors), C.uplo)
 copy(C::CholeskyPivoted) = CholeskyPivoted(copy(C.factors), C.uplo, C.piv, C.rank, C.tol, C.info)
@@ -421,17 +421,43 @@ function A_ldiv_B!(C::CholeskyPivoted, B::StridedMatrix)
 end
 
 function det(C::Cholesky)
-    dd = one(eltype(C))
-    for i in 1:size(C.factors,1); dd *= abs2(C.factors[i,i]) end
+    dd = one(real(eltype(C)))
+    for i in 1:size(C.factors,1)
+        dd *= real(C.factors[i,i])^2
+    end
     dd
 end
 
-det(C::CholeskyPivoted) = C.rank < size(C.factors, 1) ? real(zero(eltype(C))) : prod(abs2.(diag(C.factors)))
-
 function logdet(C::Cholesky)
-    dd = zero(eltype(C))
-    for i in 1:size(C.factors,1); dd += log(C.factors[i,i]) end
+    dd = zero(real(eltype(C)))
+    for i in 1:size(C.factors,1)
+        dd += log(real(C.factors[i,i]))
+    end
     dd + dd # instead of 2.0dd which can change the type
+end
+
+function det(C::CholeskyPivoted)
+    if C.rank < size(C.factors, 1)
+        return zero(real(eltype(C)))
+    else
+        dd = one(real(eltype(C)))
+        for i in 1:size(C.factors,1)
+            dd *= real(C.factors[i,i])^2
+        end
+        return dd
+    end
+end
+
+function logdet(C::CholeskyPivoted)
+    if C.rank < size(C.factors, 1)
+        return real(eltype(C))(-Inf)
+    else
+        dd = zero(real(eltype(C)))
+        for i in 1:size(C.factors,1)
+            dd += log(real(C.factors[i,i]))
+        end
+        return dd + dd # instead of 2.0dd which can change the type
+    end
 end
 
 inv!{T<:BlasFloat,S<:StridedMatrix}(C::Cholesky{T,S}) =

@@ -59,15 +59,19 @@
 #    name::Symbol
 #end
 
-#type LambdaInfo
-#    ast::Expr
-#    sparams::Tuple
-#    tfunc
-#    name::Symbol
-#    inferred
-#    file::Symbol
-#    line::Int
-#    module::Module
+#type Method
+#end
+
+#type MethodInstance
+#end
+
+#type CodeInfo
+#end
+
+#type TypeMapLevel
+#end
+
+#type TypeMapEntry
 #end
 
 #abstract Ref{T}
@@ -119,7 +123,7 @@ export
     Tuple, Type, TypeConstructor, TypeName, TypeVar, Union, Void,
     SimpleVector, AbstractArray, DenseArray,
     # special objects
-    Function, LambdaInfo, Method, MethodTable, TypeMapEntry, TypeMapLevel,
+    Function, CodeInfo, Method, MethodTable, TypeMapEntry, TypeMapLevel,
     Module, Symbol, Task, Array, WeakRef, VecElement,
     # numeric types
     Number, Real, Integer, Bool, Ref, Ptr,
@@ -136,7 +140,7 @@ export
     Expr, GotoNode, LabelNode, LineNumberNode, QuoteNode,
     GlobalRef, NewvarNode, SSAValue, Slot, SlotNumber, TypedSlot,
     # object model functions
-    fieldtype, getfield, setfield!, nfields, throw, tuple, is, ===, isdefined, eval,
+    fieldtype, getfield, setfield!, nfields, throw, tuple, ===, isdefined, eval,
     # sizeof    # not exported, to avoid conflicting with Base.sizeof
     # type reflection
     issubtype, typeof, isa, typeassert,
@@ -144,8 +148,6 @@ export
     applicable, invoke,
     # constants
     nothing, Main
-
-const (===) = is
 
 typealias AnyVector Array{Any,1}
 
@@ -174,7 +176,7 @@ bitstype 64  UInt64  <: Unsigned
 bitstype 128 Int128  <: Signed
 bitstype 128 UInt128 <: Unsigned
 
-if is(Int,Int64)
+if Int === Int64
     typealias UInt UInt64
 else
     typealias UInt UInt32
@@ -309,6 +311,10 @@ typealias NTuple{N,T} Tuple{Vararg{T,N}}
 # primitive array constructors
 (::Type{Array{T,N}}){T,N}(d::NTuple{N,Int}) =
     ccall(:jl_new_array, Array{T,N}, (Any,Any), Array{T,N}, d)
+(::Type{Array{T,1}}){T}(d::NTuple{1,Int}) = Array{T,1}(getfield(d,1))
+(::Type{Array{T,2}}){T}(d::NTuple{2,Int}) = Array{T,2}(getfield(d,1), getfield(d,2))
+(::Type{Array{T,3}}){T}(d::NTuple{3,Int}) = Array{T,3}(getfield(d,1), getfield(d,2), getfield(d,3))
+(::Type{Array{T,N}}){T,N}(d::Vararg{Int, N}) = ccall(:jl_new_array, Array{T,N}, (Any,Any), Array{T,N}, d)
 (::Type{Array{T,1}}){T}(m::Int) =
     ccall(:jl_alloc_array_1d, Array{T,1}, (Any,Int), Array{T,1}, m)
 (::Type{Array{T,2}}){T}(m::Int, n::Int) =

@@ -95,6 +95,17 @@ Evaluate the polynomial ``\\sum_k c[k] z^{k-1}`` for the coefficients `c[1]`, `c
 that is, the coefficients are given in ascending order by power of `z`.  This macro expands
 to efficient inline code that uses either Horner's method or, for complex `z`, a more
 efficient Goertzel-like algorithm.
+
+```jldoctest
+julia> @evalpoly(3, 1, 0, 1)
+10
+
+julia> @evalpoly(2, 1, 0, 1)
+5
+
+julia> @evalpoly(2, 1, 1, 1)
+7
+```
 """
 macro evalpoly(z, p...)
     a = :($(esc(p[end])))
@@ -193,16 +204,19 @@ end
 # fallback definitions to prevent infinite loop from $f(x::Real) def above
 
 """
-    cbrt(x)
+    cbrt(x::Real)
 
-Return ``x^{1/3}``.  The prefix operator `∛` is equivalent to `cbrt`.
+Return the cube root of `x`, i.e. ``x^{1/3}``. Negative values are accepted
+(returning the negative real root when ``x < 0``).
+
+The prefix operator `∛` is equivalent to `cbrt`.
 
 ```jldoctest
 julia> cbrt(big(27))
 3.000000000000000000000000000000000000000000000000000000000000000000000000000000
 ```
 """
-cbrt(x::AbstractFloat) = x^(1//3)
+cbrt(x::AbstractFloat) = x < 0 ? -(-x)^(1//3) : x^(1//3)
 
 """
     exp2(x)
@@ -314,22 +328,26 @@ atan2(y::Float64, x::Float64) = ccall((:atan2,libm), Float64, (Float64, Float64,
 atan2(y::Float32, x::Float32) = ccall((:atan2f,libm), Float32, (Float32, Float32), y, x)
 
 max{T<:AbstractFloat}(x::T, y::T) = ifelse((y > x) | (signbit(y) < signbit(x)),
-                                    ifelse(isnan(y), x, y), ifelse(isnan(x), y, x))
+                                    ifelse(isnan(x), x, y), ifelse(isnan(y), y, x))
 
 
 min{T<:AbstractFloat}(x::T, y::T) = ifelse((y < x) | (signbit(y) > signbit(x)),
-                                    ifelse(isnan(y), x, y), ifelse(isnan(x), y, x))
+                                    ifelse(isnan(x), x, y), ifelse(isnan(y), y, x))
 
-minmax{T<:AbstractFloat}(x::T, y::T) = ifelse(isnan(x-y), ifelse(isnan(x), (y, y), (x, x)),
-                                       ifelse((y < x) | (signbit(y) > signbit(x)), (y, x),
-                                       ifelse((y > x) | (signbit(y) < signbit(x)), (x, y),
-                                       ifelse(x == x, (x, x), (y, y)))))
+minmax{T<:AbstractFloat}(x::T, y::T) =
+    ifelse(isnan(x) | isnan(y), ifelse(isnan(x), (x,x), (y,y)),
+           ifelse((y > x) | (signbit(x) > signbit(y)), (x,y), (y,x)))
 
 
 """
     ldexp(x, n)
 
 Compute ``x \\times 2^n``.
+
+```jldoctest
+julia> ldexp(5., 2)
+20.0
+```
 """
 ldexp(x::Float64,e::Integer) = ccall((:scalbn,libm),  Float64, (Float64,Int32), x, Int32(e))
 ldexp(x::Float32,e::Integer) = ccall((:scalbnf,libm), Float32, (Float32,Int32), x, Int32(e))
@@ -393,23 +411,20 @@ Return `(x,exp)` such that `x` has a magnitude in the interval ``[1/2, 1)`` or 0
 and `val` is equal to ``x \\times 2^{exp}``.
 """
 function frexp{T<:AbstractFloat}(x::T)
-    xu = reinterpret(Unsigned,x)
-    xe = xu & exponent_mask(T)
-    k = Int(xe >> significand_bits(T))
-    if xe == 0 # x is subnormal
-        x == 0 && return x, 0
-        xs = xu & sign_mask(T)
-        xu $= xs
-        m = leading_zeros(xu)-exponent_bits(T)
-        xu <<= m
-        xu $= xs
-        k = 1-m
-    elseif xe == exponent_mask(T) # NaN or Inf
-        return x,0
+    xu = reinterpret(Unsigned, x)
+    xs = xu & ~sign_mask(T)
+    xs >= exponent_mask(T) && return x, 0 # NaN or Inf
+    k = Int(xs >> significand_bits(T))
+    if xs <= (~exponent_mask(T) & ~sign_mask(T)) # x is subnormal
+        xs == 0 && return x, 0 # +-0
+        m = unsigned(leading_zeros(xs) - exponent_bits(T))
+        xs <<= m
+        xu = xs $ (xu & sign_mask(T))
+        k = 1 - signed(m)
     end
-    k -= (exponent_bias(T)-1)
+    k -= (exponent_bias(T) - 1)
     xu = (xu & ~exponent_mask(T)) | exponent_half(T)
-    reinterpret(T,xu), k
+    return reinterpret(T, xu), k
 end
 
 function frexp{T<:AbstractFloat}(A::Array{T})
@@ -453,6 +468,7 @@ end
     box(Float64, powi_llvm(unbox(Float64,x), unbox(Int32,Int32(y))))
 ^(x::Float32, y::Integer) =
     box(Float32, powi_llvm(unbox(Float32,x), unbox(Int32,Int32(y))))
+^(x::Float16, y::Integer) = Float16(Float32(x)^y)
 
 function angle_restrict_symm(theta)
     const P1 = 4 * 7.8539812564849853515625e-01
@@ -595,6 +611,7 @@ for func in (:atan2,:hypot)
 end
 
 ldexp(a::Float16, b::Integer) = Float16(ldexp(Float32(a), b))
+cbrt(a::Float16) = Float16(cbrt(Float32(a)))
 
 # More special functions
 include("special/trig.jl")

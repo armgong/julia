@@ -328,7 +328,7 @@ types of the arguments given to the constructor. Here are some examples:
     ERROR: MethodError: no method matching Point{T<:Real}(::Int64, ::Float64)
     Closest candidates are:
       Point{T<:Real}{T<:Real}(::T<:Real, !Matched::T<:Real) at none:2
-      Point{T<:Real}{T}(::Any) at sysimg.jl:53
+      Point{T<:Real}{T}(::Any) at sysimg.jl:66
      ...
 
     ## explicit T ##
@@ -427,7 +427,7 @@ However, other similar calls still don't work:
     ERROR: MethodError: no method matching Point{T<:Real}(::Float64, ::Int64)
     Closest candidates are:
       Point{T<:Real}{T<:Real}(::T<:Real, !Matched::T<:Real) at none:2
-      Point{T<:Real}{T}(::Any) at sysimg.jl:53
+      Point{T<:Real}{T}(::Any) at sysimg.jl:66
      ...
 
 For a much more general way of making all such calls work sensibly, see
@@ -501,7 +501,7 @@ which implements Julia's :ref:`man-rational-numbers`::
         complex(real(xy)//yy, imag(xy)//yy)
     end
 
-The first line — ``immutable Rational{T<:Int} <: Real`` — declares that
+The first line — ``immutable Rational{T<:Integer} <: Real`` — declares that
 :class:`Rational` takes one type parameter of an integer type, and is itself
 a real type. The field declarations ``num::T`` and ``den::T`` indicate
 that the data held in a ``Rational{T}`` object are a pair of integers of

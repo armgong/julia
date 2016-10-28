@@ -251,7 +251,8 @@ function versioninfo(io::IO=STDOUT, verbose::Bool=false)
         println(io, "DEBUG build")
     end
     println(io,             "Platform Info:")
-    println(io,             "  System: ", Sys.KERNEL, " (", Sys.MACHINE, ")")
+    println(io,             "  OS: ", is_windows() ? "Windows" : is_apple() ?
+        "macOS" : Sys.KERNEL, " (", Sys.MACHINE, ")")
 
     cpu = Sys.cpu_info()
     println(io,         "  CPU: ", cpu[1].model)
@@ -290,7 +291,7 @@ function versioninfo(io::IO=STDOUT, verbose::Bool=false)
     if verbose
         println(io,         "Environment:")
         for (k,v) in ENV
-            if !is(match(r"JULIA|PATH|FLAG|^TERM$|HOME", String(k)), nothing)
+            if match(r"JULIA|PATH|FLAG|^TERM$|HOME", String(k)) !== nothing
                 println(io, "  $(k) = $(v)")
             end
         end
@@ -316,22 +317,23 @@ See [Manual](:ref:`man-code-warntype`) for more information.
 """
 function code_warntype(io::IO, f, t::ANY)
     emph_io = IOContext(io, :TYPEEMPHASIZE => true)
-    for li in code_typed(f, t)
+    for (src, rettype) in code_typed(f, t)
         println(emph_io, "Variables:")
-        slotnames = lambdainfo_slotnames(li)
+        slotnames = sourceinfo_slotnames(src)
         for i = 1:length(slotnames)
             print(emph_io, "  ", slotnames[i])
-            if isa(li.slottypes,Array)
-                show_expr_type(emph_io, li.slottypes[i], true)
+            if isa(src.slottypes, Array)
+                show_expr_type(emph_io, src.slottypes[i], true)
             end
             print(emph_io, '\n')
         end
         print(emph_io, "\nBody:\n  ")
-        body = Expr(:body); body.args = uncompressed_ast(li)
-        body.typ = li.rettype
+        body = Expr(:body)
+        body.args = src.code
+        body.typ = rettype
         # Fix slot names and types in function body
-        show_unquoted(IOContext(IOContext(emph_io, :LAMBDAINFO => li),
-                                          :LAMBDA_SLOTNAMES => slotnames),
+        show_unquoted(IOContext(IOContext(emph_io, :SOURCEINFO => src),
+                                          :SOURCE_SLOTNAMES => slotnames),
                       body, 2)
         print(emph_io, '\n')
     end
@@ -347,9 +349,12 @@ function gen_call_with_extracted_types(fcn, ex0)
         if any(a->(Meta.isexpr(a, :kw) || Meta.isexpr(a, :parameters)), ex0.args)
             # remove keyword args, but call the kwfunc
             args = filter(a->!(Meta.isexpr(a, :kw) || Meta.isexpr(a, :parameters)), ex0.args)
-            return :($(fcn)(Core.kwfunc($(esc(args[1]))),
-                            Tuple{Vector{Any}, typeof($(esc(args[1]))),
-                                  $(typesof)($(map(esc, args[2:end])...)).parameters...}))
+            return quote
+                local arg1 = $(esc(args[1]))
+                $(fcn)(Core.kwfunc(arg1),
+                       Tuple{Vector{Any}, Core.Typeof(arg1),
+                             $(typesof)($(map(esc, args[2:end])...)).parameters...})
+            end
         elseif ex0.head == :call
             return Expr(:call, fcn, esc(ex0.args[1]),
                         Expr(:call, typesof, map(esc, ex0.args[2:end])...))
@@ -493,7 +498,7 @@ function type_close_enough(x::ANY, t::ANY)
     x == t && return true
     return (isa(x,DataType) && isa(t,DataType) && x.name === t.name &&
             !isleaftype(t) && x <: t) ||
-           (isa(x,Union) && isa(t,DataType) && any(u -> is(u,t), x.types))
+           (isa(x,Union) && isa(t,DataType) && any(u -> u===t, x.types))
 end
 
 # `methodswith` -- shows a list of methods using the type given
@@ -706,12 +711,12 @@ whos(pat::Regex) = whos(STDOUT, current_module(), pat)
 #################################################################################
 
 """
-    Base.summarysize(obj; exclude=Union{Module,Function,DataType,TypeName}) -> Int
+    Base.summarysize(obj; exclude=Union{Module,DataType,TypeName}) -> Int
 
 Compute the amount of memory used by all unique objects reachable from the argument.
 Keyword argument `exclude` specifies a type of objects to exclude from the traversal.
 """
-summarysize(obj; exclude = Union{Module,Function,DataType,TypeName}) =
+summarysize(obj; exclude = Union{Module,DataType,TypeName}) =
     summarysize(obj, ObjectIdDict(), exclude)
 
 summarysize(obj::Symbol, seen, excl) = 0

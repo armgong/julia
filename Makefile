@@ -19,7 +19,7 @@ default: $(JULIA_BUILD_MODE) # contains either "debug" or "release"
 all: debug release
 
 # sort is used to remove potential duplicates
-DIRS := $(sort $(build_bindir) $(build_depsbindir) $(build_libdir) $(build_private_libdir) $(build_libexecdir) $(build_sysconfdir)/julia $(build_datarootdir)/julia $(build_man1dir))
+DIRS := $(sort $(build_bindir) $(build_depsbindir) $(build_libdir) $(build_private_libdir) $(build_libexecdir) $(build_includedir) $(build_includedir)/julia $(build_sysconfdir)/julia $(build_datarootdir)/julia $(build_man1dir))
 ifneq ($(BUILDROOT),$(JULIAHOME))
 BUILDDIRS := $(BUILDROOT) $(addprefix $(BUILDROOT)/,base src ui doc deps test test/perf)
 BUILDDIRMAKE := $(addsuffix /Makefile,$(BUILDDIRS))
@@ -80,7 +80,7 @@ endif
 julia-deps: | $(DIRS) $(build_datarootdir)/julia/base $(build_datarootdir)/julia/test
 	@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT)/deps
 
-julia-base: julia-deps $(build_sysconfdir)/julia/juliarc.jl $(build_man1dir)/julia.1
+julia-base: julia-deps $(build_sysconfdir)/julia/juliarc.jl $(build_man1dir)/julia.1 $(build_datarootdir)/julia/julia-config.jl
 	@$(MAKE) $(QUIET_MAKE) -C $(BUILDROOT)/base
 
 julia-libccalltest: julia-deps
@@ -177,6 +177,9 @@ ifeq ($(OS), WINNT)
 $(build_sysconfdir)/julia/juliarc.jl: $(JULIAHOME)/contrib/windows/juliarc.jl
 endif
 
+$(build_datarootdir)/julia/julia-config.jl : $(JULIAHOME)/contrib/julia-config.jl | $(build_datarootdir)/julia
+	$(INSTALL_M) $< $(dir $@)
+
 $(build_private_libdir)/%.$(SHLIB_EXT): $(build_private_libdir)/%.o
 	@$(call PRINT_LINK, $(CXX) $(LDFLAGS) -shared $(fPIC) -L$(build_private_libdir) -L$(build_libdir) -L$(build_shlibdir) -o $@ $< \
 		$(if $(findstring -debug.$(SHLIB_EXT),$(notdir $@)),-ljulia-debug,-ljulia) \
@@ -189,7 +192,7 @@ CORE_SRCS := $(addprefix $(JULIAHOME)/, \
 		base/abstractarray.jl \
 		base/array.jl \
 		base/bool.jl \
-		base/dict.jl \
+		base/associative.jl \
 		base/error.jl \
 		base/essentials.jl \
 		base/generator.jl \
@@ -198,7 +201,6 @@ CORE_SRCS := $(addprefix $(JULIAHOME)/, \
 		base/inference.jl \
 		base/int.jl \
 		base/intset.jl \
-		base/iterator.jl \
 		base/nofloat_hashing.jl \
 		base/number.jl \
 		base/operators.jl \
@@ -362,30 +364,16 @@ endif
 			fi \
 		done \
 	done
-
-	# Copy in libssl and libcrypto if they exist
-ifeq ($(OS),Linux)
-	-$(INSTALL_M) $(build_libdir)/libssl*.so* $(DESTDIR)$(private_libdir)
-	-$(INSTALL_M) $(build_libdir)/libcrypto*.so* $(DESTDIR)$(private_libdir)
-endif
 endif
 
-ifeq ($(USE_SYSTEM_LIBUV),0)
-ifeq ($(OS),WINNT)
-	$(INSTALL_F) $(build_includedir)/tree.h $(DESTDIR)$(includedir)/julia
-endif
-	$(INSTALL_F) $(build_includedir)/uv* $(DESTDIR)$(includedir)/julia
-endif
-	$(INSTALL_F) $(addprefix $(JULIAHOME)/,src/julia.h src/julia_threads.h src/support/*.h) $(DESTDIR)$(includedir)/julia
-	$(INSTALL_F) $(BUILDROOT)/src/julia_version.h $(DESTDIR)$(includedir)/julia
+	# Copy public headers
+	cp -L $(build_includedir)/julia/* $(DESTDIR)$(includedir)/julia
 	# Copy system image
 	-$(INSTALL_F) $(build_private_libdir)/sys.ji $(DESTDIR)$(private_libdir)
 	$(INSTALL_M) $(build_private_libdir)/sys.$(SHLIB_EXT) $(DESTDIR)$(private_libdir)
 	$(INSTALL_M) $(build_private_libdir)/sys-debug.$(SHLIB_EXT) $(DESTDIR)$(private_libdir)
 	# Copy in system image build script
 	$(INSTALL_M) $(JULIAHOME)/contrib/build_sysimg.jl $(DESTDIR)$(datarootdir)/julia/
-	# Copy in standalone julia-config script
-	$(INSTALL_M) $(JULIAHOME)/contrib/julia-config.jl $(DESTDIR)$(datarootdir)/julia/
 	# Copy in all .jl sources as well
 	cp -R -L $(build_datarootdir)/julia $(DESTDIR)$(datarootdir)/
 	# Copy documentation
@@ -459,10 +447,9 @@ ifneq ($(OS), WINNT)
 endif
 ifeq ($(OS), Linux)
 	-$(JULIAHOME)/contrib/fixup-libstdc++.sh $(DESTDIR)$(libdir) $(DESTDIR)$(private_libdir)
-	# We need to bundle ca certs on linux now that we're using libgit2 with ssl
-ifeq ($(shell [ -e $(shell openssl version -d | cut -d '"' -f 2)/cert.pem ] && echo exists),exists)
-	-cp $(shell openssl version -d | cut -d '"' -f 2)/cert.pem $(DESTDIR)$(datarootdir)/julia/
-endif
+
+	# Copy over any bundled ca certs we picked up from the system during buildi
+	-cp $(build_datarootdir)/julia/cert.pem $(DESTDIR)$(datarootdir)/julia/
 endif
 	# Copy in juliarc.jl files per-platform for binary distributions as well
 	# Note that we don't install to sysconfdir: we always install to $(DESTDIR)$(prefix)/etc.
@@ -549,16 +536,12 @@ clean: | $(CLEAN_TARGETS)
 
 cleanall: clean
 	@-$(MAKE) -C $(BUILDROOT)/src clean-flisp clean-support
-	-rm -fr $(build_shlibdir)
-ifeq ($(OS),WINNT)
-	-rm -rf $(build_prefix)/lib
-endif
 	@-$(MAKE) -C $(BUILDROOT)/deps clean-libuv
+	-rm -fr $(build_prefix) $(build_staging)
 
 distcleanall: cleanall
 	@-$(MAKE) -C $(BUILDROOT)/deps distcleanall
 	@-$(MAKE) -C $(BUILDROOT)/doc cleanall
-	-rm -fr $(build_prefix) $(build_staging)
 
 .PHONY: default debug release check-whitespace release-candidate \
 	julia-debug julia-release julia-deps \

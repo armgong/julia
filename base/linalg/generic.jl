@@ -420,7 +420,7 @@ function vecnorm(itr, p::Real=2)
         vecnormp(itr,p)
     end
 end
-@inline vecnorm(x::Number, p::Real=2) = p == 0 ? real(x==0 ? zero(x) : one(x)) : abs(x)
+@inline vecnorm(x::Number, p::Real=2) = p == 0 ? (x==0 ? zero(abs(x)) : one(abs(x))) : abs(x)
 
 norm(x::AbstractVector, p::Real=2) = vecnorm(x, p)
 
@@ -704,7 +704,7 @@ function issymmetric(A::AbstractMatrix)
     if indsm != indsn
         return false
     end
-    for i = first(indsn):last(indsn)-1, j = (i+1):last(indsn)
+    for i = first(indsn):last(indsn), j = (i):last(indsn)
         if A[i,j] != transpose(A[j,i])
             return false
         end
@@ -712,7 +712,7 @@ function issymmetric(A::AbstractMatrix)
     return true
 end
 
-issymmetric(x::Number) = true
+issymmetric(x::Number) = x == x
 
 """
     ishermitian(A) -> Bool
@@ -874,7 +874,7 @@ function linreg(x::AbstractVector, y::AbstractVector)
     # where
     # b = cov(X, Y)/var(X)
     # a = mean(Y) - b*mean(X)
-    size(x) == size(y) || throw(DimensionMismatch("x and y must be the same size"))
+    size(x) == size(y) || throw(DimensionMismatch("x has size $(size(x)) and y has size $(size(y)), but these must be the same size"))
     mx = mean(x)
     my = mean(y)
     # don't need to worry about the scaling (n vs n - 1) since they cancel in the ratio
@@ -976,7 +976,7 @@ end
 @inline function reflectorApply!(x::AbstractVector, τ::Number, A::StridedMatrix) # apply reflector from left
     m, n = size(A)
     if length(x) != m
-        throw(DimensionMismatch("reflector must have same length as first dimension of matrix"))
+        throw(DimensionMismatch("reflector has length $(length(x)), which must match the first dimension of matrix A, $m"))
     end
     @inbounds begin
         for j = 1:n

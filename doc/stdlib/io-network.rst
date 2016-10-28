@@ -502,13 +502,13 @@ Text I/O
 
    Print (using :func:`print`\ ) ``xs`` followed by a newline. If ``io`` is not supplied, prints to :obj:`STDOUT`\ .
 
-.. function:: print_with_color(color::Symbol, [io], strings...)
+.. function:: print_with_color(color::Union{Symbol, Int}, [io], strings...)
 
    .. Docstring generated from Julia source
 
    Print strings in a color specified as a symbol.
 
-   ``color`` may take any of the values ``:normal``\ , ``:bold``\ , ``:black``\ , ``:blue``\ , ``:cyan``\ , ``:green``\ , ``:magenta``\ , ``:red``\ , ``:white``\ , or  ``:yellow``\ .
+   ``color`` may take any of the values ``:normal``\ , ``:bold``\ , ``:black``\ , ``:blue``\ , ``:cyan``\ , ``:green``\ , ``:magenta``\ , ``:red``\ , ``:white``\ , or  ``:yellow`` or an integer between 0 and 255 inclusive. Note that not all terminals support 256 colors.
 
 .. function:: info(msg...; prefix="INFO: ")
 
@@ -534,7 +534,17 @@ Text I/O
 
    .. Docstring generated from Julia source
 
-   Print ``args`` using C ``printf()`` style format specification string. Optionally, an :obj:`IOStream` may be passed as the first argument to redirect output.
+   Print ``args`` using C ``printf()`` style format specification string, with some caveats: ``Inf`` and ``NaN`` are printed consistently as ``Inf`` and ``NaN`` for flags ``%a``\ , ``%A``\ , ``%e``\ , ``%E``\ , ``%f``\ , ``%F``\ , ``%g``\ , and ``%G``\ .
+
+   Optionally, an :obj:`IOStream` may be passed as the first argument to redirect output.
+
+   **Examples**
+
+   .. doctest::
+
+       julia> @printf("%f %F %f %F\n", Inf, Inf, NaN, NaN)
+       Inf Inf NaN NaN
+
 
 .. function:: @sprintf("%Fmt", args...)
 
@@ -542,7 +552,9 @@ Text I/O
 
    Return ``@printf`` formatted output as string.
 
-   .. code-block:: julia
+   **Examples**
+
+   .. doctest::
 
        julia> s = @sprintf "this is a %s %15.1f" "test" 34.567;
 
@@ -706,6 +718,8 @@ Text I/O
 
    Return the nominal size of the screen that may be used for rendering output to this io object
 
+.. _man-multimedia-io:
+
 Multimedia I/O
 --------------
 
@@ -780,7 +794,7 @@ Julia environments (such as the IPython-based IJulia notebook).
 
    Returns an ``AbstractString`` or ``Vector{UInt8}`` containing the representation of ``x`` in the requested ``mime`` type, as written by ``show`` (throwing a ``MethodError`` if no appropriate ``show`` is available). An ``AbstractString`` is returned for MIME types with textual representations (such as ``"text/html"`` or ``"application/postscript"``\ ), whereas binary data is returned as ``Vector{UInt8}``\ . (The function ``istextmime(mime)`` returns whether or not Julia treats a given ``mime`` type as text.)
 
-   As a special case, if ``x`` is an ``AbstractString`` (for textual MIME types) or a ``Vector{UInt8}`` (for binary MIME types), the ``reprmime`` function assumes that ``x`` is already in the requested ``mime`` format and simply returns ``x``\ .
+   As a special case, if ``x`` is an ``AbstractString`` (for textual MIME types) or a ``Vector{UInt8}`` (for binary MIME types), the ``reprmime`` function assumes that ``x`` is already in the requested ``mime`` format and simply returns ``x``\ . This special case does not apply to the ``"text/plain"`` MIME type. This is useful so that raw data can be passed to ``display(m::MIME, x)``\ .
 
 .. function:: stringmime(mime, x)
 
@@ -837,7 +851,7 @@ stack with:
 
    .. Docstring generated from Julia source
 
-   Determine whether a MIME type is text data.
+   Determine whether a MIME type is text data. MIME types are assumed to be binary data except for a set of types known to be text data (possibly Unicode).
 
 Memory-mapped I/O
 -----------------

@@ -66,7 +66,7 @@ this cannot be used with empty collections (see `reduce(op, itr)`).
 function mapfoldl(f, op, itr)
     i = start(itr)
     if done(itr, i)
-        return Base.mr_empty(f, op, eltype(itr))
+        return Base.mr_empty_iter(f, op, itr, iteratoreltype(itr))
     end
     (x, i) = next(itr, i)
     v0 = f(x)
@@ -201,7 +201,8 @@ pairwise_blocksize(::typeof(abs2), ::typeof(+)) = 4096
 
 
 # handling empty arrays
-mr_empty(f, op, T) = throw(ArgumentError("reducing over an empty collection is not allowed"))
+_empty_reduce_error() = throw(ArgumentError("reducing over an empty collection is not allowed"))
+mr_empty(f, op, T) = _empty_reduce_error()
 # use zero(T)::T to improve type information when zero(T) is not defined
 mr_empty(::typeof(identity), op::typeof(+), T) = r_promote(op, zero(T)::T)
 mr_empty(::typeof(abs), op::typeof(+), T) = r_promote(op, abs(zero(T)::T))
@@ -213,6 +214,11 @@ mr_empty(::typeof(abs), op::typeof(max), T) = mr_empty(abs, scalarmax, T)
 mr_empty(::typeof(abs2), op::typeof(max), T) = mr_empty(abs2, scalarmax, T)
 mr_empty(f, op::typeof(&), T) = true
 mr_empty(f, op::typeof(|), T) = false
+
+mr_empty_iter(f, op, itr, ::HasEltype) = mr_empty(f, op, eltype(itr))
+mr_empty_iter(f, op::typeof(&), itr, ::EltypeUnknown) = true
+mr_empty_iter(f, op::typeof(|), itr, ::EltypeUnknown) = false
+mr_empty_iter(f, op, itr, ::EltypeUnknown) = _empty_reduce_error()
 
 _mapreduce(f, op, A::AbstractArray) = _mapreduce(f, op, linearindexing(A), A)
 
@@ -503,58 +509,13 @@ function extrema(itr)
     s = start(itr)
     done(itr, s) && throw(ArgumentError("collection must be non-empty"))
     (v, s) = next(itr, s)
-    while v != v && !done(itr, s)
-        (x, s) = next(itr, s)
-        v = x
-    end
-    vmin = v
-    vmax = v
+    vmin = vmax = v
     while !done(itr, s)
         (x, s) = next(itr, s)
-        if x > vmax
-            vmax = x
-        elseif x < vmin
-            vmin = x
-        end
+        vmax = max(x, vmax)
+        vmin = min(x, vmin)
     end
     return (vmin, vmax)
-end
-
-"""
-    extrema(A,dims) -> Array{Tuple}
-
-Compute the minimum and maximum elements of an array over the given dimensions.
-"""
-function extrema(A::AbstractArray, dims)
-    sz = [size(A)...]
-    sz[[dims...]] = 1
-    B = Array{Tuple{eltype(A),eltype(A)}}(sz...)
-    extrema!(B, A)
-end
-
-@generated function extrema!{T,N}(B, A::AbstractArray{T,N})
-    quote
-        sA = size(A)
-        sB = size(B)
-        @nloops $N i B begin
-            AI = @nref $N A i
-            (@nref $N B i) = (AI, AI)
-        end
-        Bmax = sB
-        Istart = ones(Int,ndims(A))
-        Istart[([sB...].==1) & ([sA...].!=1)] = 2
-        @inbounds @nloops $N i d->(Istart[d]:size(A,d)) begin
-            AI = @nref $N A i
-            @nexprs $N d->(j_d = min(Bmax[d], i_{d}))
-            BJ = @nref $N B j
-            if AI < BJ[1]
-                (@nref $N B j) = (AI, BJ[2])
-            elseif AI > BJ[2]
-                (@nref $N B j) = (BJ[1], AI)
-            end
-        end
-        B
-    end
 end
 
 ## all & any
@@ -708,5 +669,16 @@ end
 
 Counts the number of nonzero values in array `A` (dense or sparse). Note that this is not a constant-time operation.
 For sparse matrices, one should usually use [`nnz`](:func:`nnz`), which returns the number of stored values.
+
+```jldoctest
+julia> A = [1 2 4; 0 0 1; 1 1 0]
+3×3 Array{Int64,2}:
+ 1  2  4
+ 0  0  1
+ 1  1  0
+
+julia> countnz(A)
+6
+```
 """
 countnz(a) = count(x -> x != 0, a)

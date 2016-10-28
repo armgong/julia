@@ -4,13 +4,6 @@ Julia v0.6.0 Release Notes
 New language features
 ---------------------
 
-  * The REPL now supports something called *prompt pasting*.
-    This activates when pasting text that starts with `julia> ` into the REPL.
-    In that case, only expressions starting with `julia> ` are parsed, the rest are removed.
-    This makes it possible to paste a chunk of code that has been copied from a REPL session
-    without having to scrub away prompts and outputs.
-    This can be disabled or enabled at will with `Base.REPL.enable_promptpaste(::Bool)`.
-
 Language changes
 ----------------
 
@@ -28,14 +21,50 @@ This section lists changes that do not have deprecation warnings.
     for `real(z) < 0`, which differs from `log(gamma(z))` by multiples of 2π
     in the imaginary part ([#18330]).
 
+  * `broadcast` now handles tuples, and treats any argument that is not a tuple
+    or an array as a "scalar" ([#16986]).
+
 Library improvements
 --------------------
+
+  * `max`, `min`, and related functions (`minmax`, `maximum`, `minimum`, `extrema`) now return `NaN` for `NaN` arguments ([#12563]).
+
+  * The `chop` and `chomp` functions now return a `SubString` ([#18339]).
+
+  * The REPL now supports something called *prompt pasting* ([#17599]).
+    This activates when pasting text that starts with `julia> ` into the REPL.
+    In that case, only expressions starting with `julia> ` are parsed, the rest are removed.
+    This makes it possible to paste a chunk of code that has been copied from a REPL session
+    without having to scrub away prompts and outputs.
+    This can be disabled or enabled at will with `Base.REPL.enable_promptpaste(::Bool)`.
+
+  * The function `print_with_color` can now take a color represented by an integer between 0 and 255 inclusive as its first argument ([#18473]).
+    For a number to color mapping please refer to [this chart](https://upload.wikimedia.org/wikipedia/en/1/15/Xterm_256color_chart.svg).
+    It is also possible to use numbers as colors in environment variables that customizes colors in the REPL.
+    For example, to get orange warning messages, simply set `ENV["JULIA_WARN_COLOR"] = 208`.
+    Please note that not all terminals support 256 colors.
+
+  * The default color for info messages has been changed from blue to cyan ([#18442]).
+    This can be changed back to the original color by setting the environment variable `JULIA_INFO_COLOR` to `"blue"`.
+    One way of doing this is by adding `ENV["JULIA_INFO_COLOR"] = :blue` to the `.juliarc.jl` file.
+    For more information regarding customizing colors in the REPL, see this [manual section]( http://docs.julialang.org/en/latest/manual/interacting-with-julia/#customizing-colors).
+
+  * Iteration utilities that wrap iterators and return other iterators (`enumerate`, `zip`, `rest`,
+    `countfrom`, `take`, `drop`, `cycle`, `repeated`, `product`, `flatten`, `partition`) have been
+    moved to the module `Base.Iterators` ([#18839]).
+
+  * BitArrays can now be constructed from arbitrary iterables, in particular from generator expressions,
+    e.g. `BitArray(isodd(x) for x = 1:100)` ([#19018]).
 
 Compiler/Runtime improvements
 -----------------------------
 
 Deprecated or removed
 ---------------------
+
+  * `isdefined(a::Array, i::Int)` has been deprecated in favor of `isassigned` ([#18346]).
+
+  * `is` has been deprecated in favor of `===` (which used to be an alias for `is`) ([#17758]).
 
 Julia v0.5.0 Release Notes
 ==========================
@@ -549,6 +578,7 @@ Language tooling improvements
 [#11242]: https://github.com/JuliaLang/julia/issues/11242
 [#11688]: https://github.com/JuliaLang/julia/issues/11688
 [#12231]: https://github.com/JuliaLang/julia/issues/12231
+[#12563]: https://github.com/JuliaLang/julia/issues/12563
 [#12819]: https://github.com/JuliaLang/julia/issues/12819
 [#12872]: https://github.com/JuliaLang/julia/issues/12872
 [#13062]: https://github.com/JuliaLang/julia/issues/13062
@@ -636,6 +666,7 @@ Language tooling improvements
 [#16854]: https://github.com/JuliaLang/julia/issues/16854
 [#16953]: https://github.com/JuliaLang/julia/issues/16953
 [#16972]: https://github.com/JuliaLang/julia/issues/16972
+[#16986]: https://github.com/JuliaLang/julia/issues/16986
 [#17033]: https://github.com/JuliaLang/julia/issues/17033
 [#17037]: https://github.com/JuliaLang/julia/issues/17037
 [#17075]: https://github.com/JuliaLang/julia/issues/17075
@@ -650,6 +681,14 @@ Language tooling improvements
 [#17404]: https://github.com/JuliaLang/julia/issues/17404
 [#17510]: https://github.com/JuliaLang/julia/issues/17510
 [#17546]: https://github.com/JuliaLang/julia/issues/17546
+[#17599]: https://github.com/JuliaLang/julia/issues/17599
 [#17668]: https://github.com/JuliaLang/julia/issues/17668
+[#17758]: https://github.com/JuliaLang/julia/issues/17758
 [#17785]: https://github.com/JuliaLang/julia/issues/17785
 [#18330]: https://github.com/JuliaLang/julia/issues/18330
+[#18339]: https://github.com/JuliaLang/julia/issues/18339
+[#18346]: https://github.com/JuliaLang/julia/issues/18346
+[#18442]: https://github.com/JuliaLang/julia/issues/18442
+[#18473]: https://github.com/JuliaLang/julia/issues/18473
+[#18839]: https://github.com/JuliaLang/julia/issues/18839
+[#19018]: https://github.com/JuliaLang/julia/issues/19018

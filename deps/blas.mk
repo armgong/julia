@@ -48,7 +48,7 @@ endif
 
 # Decide whether to build for 32-bit or 64-bit arch
 ifneq ($(BUILD_OS),$(OS))
-OPENBLAS_BUILD_OPTS += OSNAME=$(OS) CROSS=1 HOSTCC=$(HOSTCC)
+OPENBLAS_BUILD_OPTS += OSNAME=$(OS) CROSS=1 HOSTCC=$(HOSTCC) CROSS_SUFFIX=$(CROSS_COMPILE)
 endif
 ifeq ($(OS),WINNT)
 ifneq ($(ARCH),x86_64)
@@ -131,7 +131,7 @@ $(SRCDIR)/srccache/lapack-$(LAPACK_VER).tgz: | $(SRCDIR)/srccache
 $(BUILDDIR)/lapack-$(LAPACK_VER)/source-extracted: $(SRCDIR)/srccache/lapack-$(LAPACK_VER).tgz
 	$(JLCHECKSUM) $<
 	mkdir -p $(BUILDDIR)
-	cd $(BUILDDIR) && $(TAR) zxf $<
+	cd $(BUILDDIR) && $(TAR) -zxf $<
 	cp $(dir $@)INSTALL/make.inc.gfortran $(dir $@)make.inc
 	echo 1 > $@
 

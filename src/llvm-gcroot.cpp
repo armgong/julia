@@ -11,12 +11,14 @@
 #include <llvm/IR/Instructions.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Intrinsics.h>
+#include <llvm/IR/LegacyPassManager.h>
 #include <llvm/Support/raw_ostream.h>
 #include <llvm/Transforms/Utils/BasicBlockUtils.h>
-#ifdef LLVM36
+#if JL_LLVM_VERSION >= 30600
 #include <llvm/IR/DIBuilder.h>
 #include <llvm/IR/DebugInfoMetadata.h>
 #endif
+#include <llvm/IR/MDBuilder.h>
 
 #include <vector>
 #include <queue>
@@ -26,13 +28,15 @@
 
 #include "julia.h"
 
-#ifdef LLVM37
+#if JL_LLVM_VERSION >= 30700
 #define LLVM37_param(x) (x),
 #else
 #define LLVM37_param(x)
 #endif
 
 using namespace llvm;
+
+extern MDNode *tbaa_make_child(const char *name, MDNode *parent, bool isConstant=false);
 
 namespace {
 
@@ -80,7 +84,7 @@ static void tbaa_decorate_gcframe(Instruction *inst,
 {
     if (!visited.insert(inst).second)
         return;
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
     Value::user_iterator I = inst->user_begin(), E = inst->user_end();
 #else
     Value::use_iterator I = inst->use_begin(), E = inst->use_end();
@@ -358,7 +362,7 @@ void JuliaGCAllocator::lowerHandlers()
 #endif
             // We need to mark this on the call site as well. See issue #6757
             sj->setCanReturnTwice();
-#ifdef LLVM36
+#if JL_LLVM_VERSION >= 30600
             if (auto dbg = enter->getMetadata(LLVMContext::MD_dbg)) {
                 new_enter->setMetadata(LLVMContext::MD_dbg, dbg);
                 sj->setMetadata(LLVMContext::MD_dbg, dbg);
@@ -427,7 +431,7 @@ void JuliaGCAllocator::collapseRedundantRoots()
             bool variable_slot = true; // whether this gc-root is only used as a variable-slot; e.g. whether theLoad is theValue
             LoadInst *theLoad = NULL;
             for (User::use_iterator use = callInst->use_begin(), usee = callInst->use_end(); use != usee; ) {
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
                 User *user = use->getUser();
 #else
                 User *user = use.getUse().getUser();
@@ -472,7 +476,7 @@ void JuliaGCAllocator::collapseRedundantRoots()
                 // this gc-root is never loaded from, so we don't need it as a variable location
                 // delete any stores to this gc-root that would be keeping an otherwise-unused value alive
                 for (User::use_iterator use = callInst->use_begin(), usee = callInst->use_end(); use != usee; ) {
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
                     User *user = use->getUser();
 #else
                     User *user = use.getUse().getUser();
@@ -491,7 +495,7 @@ void JuliaGCAllocator::collapseRedundantRoots()
                 }
                 else if (callInst->hasOneUse()) {
                     User::use_iterator use = callInst->use_begin();
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
                     theStore = cast<StoreInst>(use->getUser());
 #else
                     theStore = cast<StoreInst>(use.getUse().getUser());
@@ -507,7 +511,7 @@ void JuliaGCAllocator::collapseRedundantRoots()
                     User::use_iterator value_use = theValue->use_begin();
                     if (theLoad && *value_use == theStore)
                         ++value_use;
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
                     StoreInst *theOther = dyn_cast<StoreInst>(value_use->getUser());
                     unsigned OperandNo = value_use->getOperandNo();
 #else
@@ -542,7 +546,7 @@ void JuliaGCAllocator::collapseRedundantRoots()
                                 }
                                 if (++bbi == bbi_end) {
                                     // iterate the basicblock forward, if it's a simple branch
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
                                     BasicBlock *next = current->getUniqueSuccessor();
 #else
                                     succ_iterator SI = succ_begin(current), E = succ_end(current);
@@ -597,7 +601,7 @@ void JuliaGCAllocator::collapseRedundantRoots()
                             }
                             else {
                                 for (User::use_iterator use = callInst->use_begin(), usee = callInst->use_end(); use != usee; ) {
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
                                     User *user = use->getUser();
 #else
                                     User *user = use.getUse().getUser();
@@ -762,7 +766,7 @@ void JuliaGCAllocator::allocate_frame()
             frames.push(std::make_pair(arg_n, callInst));
             // the jlcall frame should have been passed to exactly one call (the jlcall) -- find its basic-block
             for (User::use_iterator use = callInst->use_begin(), usee = callInst->use_end(); use != usee; ++use) {
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
                 User *user = use->getUser();
 #else
                 User *user = use.getUse().getUser();
@@ -997,7 +1001,7 @@ void JuliaGCAllocator::allocate_frame()
  *         Replace(slot, newslot) -> at InsertPoint(gc-frame)
  *         CreateStore(NULL, newslot) -> at InsertPoint(gc-frame)
  */
-#ifdef LLVM36
+#if JL_LLVM_VERSION >= 30600
     DIBuilder dbuilder(M, false);
 #endif
     unsigned argSpaceSize = 0;
@@ -1009,7 +1013,7 @@ void JuliaGCAllocator::allocate_frame()
                 unsigned offset = 2 + argSpaceSize++;
                 Instruction *argTempi = GetElementPtrInst::Create(LLVM37_param(NULL) gcframe, ArrayRef<Value*>(ConstantInt::get(T_int32, offset)));
                 argTempi->insertAfter(last_gcframe_inst);
-#ifdef LLVM36
+#if JL_LLVM_VERSION >= 30600
                 Metadata *md = ValueAsMetadata::getIfExists(callInst);
                 if (md) {
                     Value *mdValue = MetadataAsValue::get(M.getContext(), md);
@@ -1028,7 +1032,7 @@ void JuliaGCAllocator::allocate_frame()
                                 addr.append(expr->elements_begin(), expr->elements_end());
                                 expr = dbuilder.createExpression(addr);
                                 dbuilder.insertDeclare(gcframe, dinfo, expr,
-#ifdef LLVM37
+#if JL_LLVM_VERSION >= 30700
                                                 dbg->getDebugLoc(),
 #endif
                                                 dbg->getParent());
@@ -1056,7 +1060,7 @@ void JuliaGCAllocator::allocate_frame()
             }
         }
     }
-#ifdef LLVM36
+#if JL_LLVM_VERSION >= 30600
     dbuilder.finalize();
 #endif
 
@@ -1130,15 +1134,12 @@ void JuliaGCAllocator::allocate_frame()
 
 struct LowerGCFrame: public ModulePass {
     static char ID;
-    LowerGCFrame(MDNode *_tbaa_gcframe=nullptr)
-        : ModulePass(ID),
-          tbaa_gcframe(_tbaa_gcframe)
+    LowerGCFrame() : ModulePass(ID)
     {}
 
 private:
-    MDNode *tbaa_gcframe; // One `LLVMContext` only
     void runOnFunction(Module *M, Function &F, Function *ptls_getter,
-                       Type *T_pjlvalue);
+                       Type *T_pjlvalue, MDNode *tbaa_gcframe);
     bool runOnModule(Module &M) override;
 };
 
@@ -1175,6 +1176,10 @@ static void ensure_enter_function(Module &M)
 
 bool LowerGCFrame::runOnModule(Module &M)
 {
+    MDBuilder mbuilder(M.getContext());
+    MDNode *tbaa_root = mbuilder.createTBAARoot("jtbaa");
+    MDNode *tbaa_gcframe = tbaa_make_child("jtbaa_gcframe", tbaa_root);
+
     Function *ptls_getter = M.getFunction("jl_get_ptls_states");
     ensure_enter_function(M);
     FunctionType *functype = nullptr;
@@ -1188,7 +1193,7 @@ bool LowerGCFrame::runOnModule(Module &M)
     for (auto F = M.begin(), E = M.end(); F != E; ++F) {
         if (F->isDeclaration())
             continue;
-        runOnFunction(&M, *F, ptls_getter, T_pjlvalue);
+        runOnFunction(&M, *F, ptls_getter, T_pjlvalue, tbaa_gcframe);
     }
 
     // Cleanup for GC frame lowering.
@@ -1201,7 +1206,7 @@ bool LowerGCFrame::runOnModule(Module &M)
 }
 
 void LowerGCFrame::runOnFunction(Module *M, Function &F, Function *ptls_getter,
-                                 Type *T_pjlvalue)
+                                 Type *T_pjlvalue, MDNode *tbaa_gcframe)
 {
     CallInst *ptlsStates = nullptr;
     for (auto I = F.getEntryBlock().begin(), E = F.getEntryBlock().end();
@@ -1240,8 +1245,12 @@ void jl_dump_bb_uses(std::map<BasicBlock*, std::map<frame_register, liveness::id
 }
 #endif
 
-Pass *createLowerGCFramePass(MDNode *tbaa_gcframe)
+Pass *createLowerGCFramePass()
 {
-    assert(tbaa_gcframe);
-    return new LowerGCFrame(tbaa_gcframe);
+    return new LowerGCFrame();
+}
+
+extern "C" JL_DLLEXPORT
+void LLVMAddLowerGCFramePass(LLVMPassManagerRef PM) {
+    unwrap(PM)->add(createLowerGCFramePass());
 }

@@ -71,7 +71,7 @@ function typejoin(a::ANY, b::ANY)
     elseif b <: Tuple
         return Any
     end
-    while !is(b,Any)
+    while b !== Any
         if a <: b.name.primary
             while a.name !== b.name
                 a = supertype(a)
@@ -226,7 +226,7 @@ if isdefined(Core, :Inference)
     end
     function _promote_op(op, R::ANY, S::ANY)
         F = typeof(a -> op(a...))
-        G = Tuple{Generator{Zip2{Tuple{R},Tuple{S}},F}}
+        G = Tuple{Generator{Iterators.Zip2{Tuple{R},Tuple{S}},F}}
         return Core.Inference.return_type(first, G)
     end
 else

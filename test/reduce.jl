@@ -144,13 +144,13 @@ prod2(itr) = invoke(prod, Tuple{Any}, itr)
 @test isnan(minimum([NaN]))
 @test isequal(extrema([NaN]), (NaN, NaN))
 
-@test maximum([NaN, 2., 3.]) == 3.
-@test minimum([NaN, 2., 3.]) == 2.
-@test extrema([NaN, 2., 3.]) == (2., 3.)
+@test isnan(maximum([NaN, 2., 3.]))
+@test isnan(minimum([NaN, 2., 3.]))
+@test isequal(extrema([NaN, 2., 3.]), (NaN,NaN))
 
-@test maximum([4., 3., NaN, 5., 2.]) == 5.
-@test minimum([4., 3., NaN, 5., 2.]) == 2.
-@test extrema([4., 3., NaN, 5., 2.]) == (2., 5.)
+@test isnan(maximum([4., 3., NaN, 5., 2.]))
+@test isnan(minimum([4., 3., NaN, 5., 2.]))
+@test isequal(extrema([4., 3., NaN, 5., 2.]), (NaN,NaN))
 
 @test maxabs(Int[]) == 0
 @test_throws ArgumentError Base.minabs(Int[])
@@ -298,3 +298,8 @@ let A = collect(1:10)
     @test A ∌ 11
     @test contains(==,A,6)
 end
+
+# issue #18695
+test18695(r) = sum( t^2 for t in r )
+@test @inferred(test18695([1.0,2.0,3.0,4.0])) == 30.0
+@test_throws ArgumentError test18695(Any[])

@@ -2,7 +2,7 @@
 
 # Method and method table pretty-printing
 
-function argtype_decl(env, n, sig, i, nargs, isva) # -> (argname, argtype)
+function argtype_decl(env, n, sig::DataType, i::Int, nargs, isva::Bool) # -> (argname, argtype)
     t = sig.parameters[i]
     if i == nargs && isva && !isvarargtype(t)
         t = Vararg{t,length(sig.parameters)-nargs+1}
@@ -39,15 +39,19 @@ function arg_decl_parts(m::Method)
     else
         tv = Any[tv...]
     end
-    li = m.lambda_template
-    file, line = "", 0
-    if li !== nothing && isdefined(li, :slotnames)
-        argnames = li.slotnames[1:li.nargs]
-        decls = Any[argtype_decl(:tvar_env => tv, argnames[i], m.sig, i, li.nargs, li.isva)
-                    for i = 1:li.nargs]
-        if isdefined(li, :def)
-            file, line = li.def.file, li.def.line
-        end
+    if m.isstaged
+        src = m.unspecialized.inferred
+    elseif isdefined(m, :source)
+        src = m.source
+    else
+        src = nothing
+    end
+    file = m.file
+    line = m.line
+    if src !== nothing && src.slotnames !== nothing
+        argnames = src.slotnames[1:m.nargs]
+        decls = Any[argtype_decl(:tvar_env => tv, argnames[i], m.sig, i, m.nargs, m.isva)
+                    for i = 1:m.nargs]
     else
         decls = Any[("", "") for i = 1:length(m.sig.parameters)]
     end
@@ -59,7 +63,8 @@ function kwarg_decl(sig::ANY, kwtype::DataType)
     kwli = ccall(:jl_methtable_lookup, Any, (Any, Any), kwtype.name.mt, sig)
     if kwli !== nothing
         kwli = kwli::Method
-        kws = filter(x->!('#' in string(x)), kwli.lambda_template.slotnames[kwli.lambda_template.nargs+1:end])
+        src = kwli.isstaged ? kwli.unspecialized.inferred : kwli.source
+        kws = filter(x->!('#' in string(x)), src.slotnames[kwli.nargs+1:end])
         # ensure the kwarg... is always printed last. The order of the arguments are not
         # necessarily the same as defined in the function
         i = findfirst(x -> endswith(string(x), "..."), kws)
@@ -82,7 +87,7 @@ function show(io::IO, m::Method; kwtype::Nullable{DataType}=Nullable{DataType}()
                 # TODO: more accurate test? (tn.name === "#" name)
             ft == typeof(getfield(ft.name.module, ft.name.mt.name))
         print(io, ft.name.mt.name)
-    elseif isa(ft, DataType) && is(ft.name, Type.name) && isleaftype(ft)
+    elseif isa(ft, DataType) && ft.name === Type.name && isleaftype(ft)
         f = ft.parameters[1]
         if isa(f, DataType) && isempty(f.parameters)
             print(io, f)
@@ -203,7 +208,7 @@ function show(io::IO, ::MIME"text/html", m::Method; kwtype::Nullable{DataType}=N
             isdefined(ft.name.module, ft.name.mt.name) &&
             ft == typeof(getfield(ft.name.module, ft.name.mt.name))
         print(io, ft.name.mt.name)
-    elseif isa(ft, DataType) && is(ft.name, Type.name) && isleaftype(ft)
+    elseif isa(ft, DataType) && ft.name === Type.name && isleaftype(ft)
         f = ft.parameters[1]
         if isa(f, DataType) && isempty(f.parameters)
             print(io, f)

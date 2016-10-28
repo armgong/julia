@@ -64,12 +64,38 @@ Mathematical Operators
 
    Element-wise addition operator.
 
+   .. doctest::
+
+       julia> A = [1 2; 3 4];
+
+       julia> B = [5 6; 7 8];
+
+       julia> C = [A, B]
+       2-element Array{Array{Int64,2},1}:
+        [1 2; 3 4]
+        [5 6; 7 8]
+
+       julia> C .+ [[1; 2] [3; 4]]
+       2×2 Array{Array{Int64,2},2}:
+        [2 3; 4 5]   [4 5; 6 7]
+        [7 8; 9 10]  [9 10; 11 12]
+
+   See also :func:`broadcast`\ .
+
 .. _.-:
 .. function:: .-(x, y)
 
    .. Docstring generated from Julia source
 
    Element-wise subtraction operator.
+
+   .. doctest::
+
+       julia> [4; 5; 6] .- [1; 2; 4]
+       3-element Array{Int64,1}:
+        3
+        3
+        2
 
 .. _.*:
 .. function:: .*(x, y)
@@ -78,12 +104,24 @@ Mathematical Operators
 
    Element-wise multiplication operator.
 
+   .. doctest::
+
+       julia> [1 2 3] .* [1 2 3]
+       1×3 Array{Int64,2}:
+        1  4  9
+
 .. _./:
 .. function:: ./(x, y)
 
    .. Docstring generated from Julia source
 
    Element-wise right division operator.
+
+   .. doctest::
+
+       julia> [1 2 3] ./ [1 2 3]
+       1×3 Array{Float64,2}:
+        1.0  1.0  1.0
 
 .. _.\\:
 .. function:: .\\(x, y)
@@ -92,12 +130,57 @@ Mathematical Operators
 
    Element-wise left division operator.
 
+   .. doctest::
+
+       julia> A = [1 2; 3 4]
+       2×2 Array{Int64,2}:
+        1  2
+        3  4
+
+       julia> A .\ [1 2]
+       2×2 Array{Float64,2}:
+        1.0       1.0
+        0.333333  0.5
+
+   .. doctest::
+
+       julia> A = [1 0; 0 -1];
+
+       julia> B = [0 1; 1 0];
+
+       julia> C = [A, B]
+       2-element Array{Array{Int64,2},1}:
+        [1 0; 0 -1]
+        [0 1; 1 0]
+
+       julia> x = [1; 0];
+
+       julia> y = [0; 1];
+
+       julia> D = [x, y]
+       2-element Array{Array{Int64,1},1}:
+        [1,0]
+        [0,1]
+
+       julia> C .\ D
+       2-element Array{Array{Float64,1},1}:
+        [1.0,-0.0]
+        [1.0,0.0]
+
+   See also :func:`broadcast`\ .
+
 .. _.^:
 .. function:: .^(x, y)
 
    .. Docstring generated from Julia source
 
    Element-wise exponentiation operator.
+
+   .. doctest::
+
+       julia> [1 2 3] .^ [1 2 3]
+       1×3 Array{Int64,2}:
+        1  4  27
 
 .. function:: fma(x, y, z)
 
@@ -372,21 +455,13 @@ Mathematical Operators
 
    Not-equals comparison operator. Always gives the opposite answer as ``==``\ . New types should generally not implement this, and rely on the fallback definition ``!=(x,y) = !(x==y)`` instead.
 
-.. _===:
-.. function:: ===(x, y)
-              ≡(x,y)
-
-   .. Docstring generated from Julia source
-
-   See the :func:`is` operator.
-
 .. _!==:
 .. function:: !==(x, y)
               ≢(x,y)
 
    .. Docstring generated from Julia source
 
-   Equivalent to ``!is(x, y)``\ .
+   Equivalent to ``!(x === y)``\ .
 
 .. _<:
 .. function:: <(x, y)
@@ -425,6 +500,12 @@ Mathematical Operators
 
    Element-wise equality comparison operator.
 
+   .. doctest::
+
+       julia> [1 2 3] .== [1 2 4]
+       1×3 BitArray{2}:
+        true  true  false
+
 .. _.!=:
 .. function:: .!=(x, y)
               .≠(x,y)
@@ -439,6 +520,14 @@ Mathematical Operators
    .. Docstring generated from Julia source
 
    Element-wise less-than comparison operator.
+
+   .. doctest::
+
+       julia> [1; 2; 3] .< [2; 1; 4]
+       3-element BitArray{1}:
+         true
+        false
+         true
 
 .. _.<=:
 .. function:: .<=(x, y)
@@ -476,6 +565,17 @@ Mathematical Operators
 
    Bitwise not.
 
+   .. doctest::
+
+       julia> ~4
+       -5
+
+       julia> ~10
+       -11
+
+       julia> ~true
+       false
+
 .. _&:
 .. function:: &(x, y)
 
@@ -483,12 +583,28 @@ Mathematical Operators
 
    Bitwise and.
 
+   .. doctest::
+
+       julia> 4 & 10
+       0
+
+       julia> 4 & 12
+       4
+
 .. _|:
 .. function:: |(x, y)
 
    .. Docstring generated from Julia source
 
    Bitwise or.
+
+   .. doctest::
+
+       julia> 4 | 10
+       14
+
+       julia> 4 | 1
+       5
 
 .. _$:
 .. function:: $(x, y)
@@ -503,6 +619,18 @@ Mathematical Operators
    .. Docstring generated from Julia source
 
    Boolean not.
+
+   .. doctest::
+
+       julia> !true
+       false
+
+       julia> !false
+       true
+
+       julia> ![true false true]
+       1×3 Array{Bool,2}:
+        false  true  false
 
 .. _&&:
 .. function:: x && y
@@ -853,11 +981,27 @@ Mathematical Functions
 
    Compute the logarithm of ``x`` to base 2. Throws ``DomainError`` for negative ``Real`` arguments.
 
+   .. doctest::
+
+       julia> log2(4)
+       2.0
+
+       julia> log2(10)
+       3.321928094887362
+
 .. function:: log10(x)
 
    .. Docstring generated from Julia source
 
    Compute the logarithm of ``x`` to base 10. Throws :obj:`DomainError` for negative ``Real`` arguments.
+
+   .. doctest::
+
+       julia> log10(100)
+       2.0
+
+       julia> log10(2)
+       0.3010299956639812
 
 .. function:: log1p(x)
 
@@ -896,11 +1040,24 @@ Mathematical Functions
 
    Compute :math:`10^x`\ .
 
+   .. doctest::
+
+       julia> exp10(2)
+       100.0
+
+       julia> exp10(0.2)
+       1.5848931924611136
+
 .. function:: ldexp(x, n)
 
    .. Docstring generated from Julia source
 
    Compute :math:`x \times 2^n`\ .
+
+   .. doctest::
+
+       julia> ldexp(5., 2)
+       20.0
 
 .. function:: modf(x)
 
@@ -1199,17 +1356,43 @@ Mathematical Functions
 
    The overflow protection may impose a perceptible performance penalty.
 
+.. function:: Base.add_with_overflow(x, y) -> (r, f)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``r = x+y``\ , with the flag ``f`` indicating whether overflow has occurred.
+
+.. function:: Base.sub_with_overflow(x, y) -> (r, f)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``r = x-y``\ , with the flag ``f`` indicating whether overflow has occurred.
+
+.. function:: Base.mul_with_overflow(x, y) -> (r, f)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``r = x*y``\ , with the flag ``f`` indicating whether overflow has occurred.
+
 .. function:: abs2(x)
 
    .. Docstring generated from Julia source
 
    Squared absolute value of ``x``\ .
 
-.. function:: copysign(x, y)
+.. function:: copysign(x, y) -> z
 
    .. Docstring generated from Julia source
 
-   Return ``x`` such that it has the same sign as ``y``
+   Return ``z`` which has the magnitude of ``x`` and the same sign as ``y``\ .
+
+   .. doctest::
+
+       julia> copysign(1, -2)
+       -1
+
+       julia> copysign(-1, 2)
+       1
 
 .. function:: sign(x)
 
@@ -1222,6 +1405,20 @@ Mathematical Functions
    .. Docstring generated from Julia source
 
    Returns ``true`` if the value of the sign of ``x`` is negative, otherwise ``false``\ .
+
+   .. doctest::
+
+       julia> signbit(-4)
+       true
+
+       julia> signbit(5)
+       false
+
+       julia> signbit(5.5)
+       false
+
+       julia> signbit(-4.1)
+       true
 
 .. function:: flipsign(x, y)
 
@@ -1246,11 +1443,13 @@ Mathematical Functions
        julia> isqrt(5)
        2
 
-.. function:: cbrt(x)
+.. function:: cbrt(x::Real)
 
    .. Docstring generated from Julia source
 
-   Return :math:`x^{1/3}`\ .  The prefix operator ``∛`` is equivalent to ``cbrt``\ .
+   Return the cube root of ``x``\ , i.e. :math:`x^{1/3}`\ . Negative values are accepted (returning the negative real root when :math:`x < 0`\ ).
+
+   The prefix operator ``∛`` is equivalent to ``cbrt``\ .
 
    .. doctest::
 
@@ -1503,7 +1702,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Compute the inverse digamma function of ``x``\ .
+   Compute the inverse :func:`digamma` function of ``x``\ .
 
 .. function:: trigamma(x)
 
@@ -1679,7 +1878,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Natural logarithm of the absolute value of the beta function :math:`\log(|\operatorname{B}(x,y)|)`\ .
+   Natural logarithm of the absolute value of the :func:`beta` function :math:`\log(|\operatorname{B}(x,y)|)`\ .
 
 .. function:: eta(x)
 
@@ -1721,6 +1920,17 @@ Mathematical Functions
    .. Docstring generated from Julia source
 
    Evaluate the polynomial :math:`\sum_k c[k] z^{k-1}` for the coefficients ``c[1]``\ , ``c[2]``\ , ...; that is, the coefficients are given in ascending order by power of ``z``\ .  This macro expands to efficient inline code that uses either Horner's method or, for complex ``z``\ , a more efficient Goertzel-like algorithm.
+
+   .. doctest::
+
+       julia> @evalpoly(3, 1, 0, 1)
+       10
+
+       julia> @evalpoly(2, 1, 0, 1)
+       5
+
+       julia> @evalpoly(2, 1, 1, 1)
+       7
 
 Statistics
 ----------

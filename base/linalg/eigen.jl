@@ -27,7 +27,7 @@ isposdef(A::Union{Eigen,GeneralizedEigen}) = isreal(A.values) && all(A.values .>
 
 function eigfact!{T<:BlasReal}(A::StridedMatrix{T}; permute::Bool=true, scale::Bool=true)
     n = size(A, 2)
-    n==0 && return Eigen(zeros(T, 0), zeros(T, 0, 0))
+    n == 0 && return Eigen(zeros(T, 0), zeros(T, 0, 0))
     issymmetric(A) && return eigfact!(Symmetric(A))
     A, WR, WI, VL, VR, _ = LAPACK.geevx!(permute ? (scale ? 'B' : 'P') : (scale ? 'S' : 'N'), 'N', 'V', 'N', A)
     all(WI .== 0.) && return Eigen(WR, VR)
@@ -384,4 +384,4 @@ convert(::Type{AbstractMatrix}, F::Eigen) = F.vectors * Diagonal(F.values) / F.v
 convert(::Type{AbstractArray}, F::Eigen) = convert(AbstractMatrix, F)
 convert(::Type{Matrix}, F::Eigen) = convert(Array, convert(AbstractArray, F))
 convert(::Type{Array}, F::Eigen) = convert(Matrix, F)
-full(F::Eigen) = convert(Array, F)
+full(F::Eigen) = convert(AbstractArray, F)

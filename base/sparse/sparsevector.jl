@@ -96,7 +96,7 @@ Duplicates are combined using the `combine` function, which defaults to
 `+` if no `combine` argument is provided, unless the elements of `V` are Booleans
 in which case `combine` defaults to `|`.
 """
-function sparsevec{Tv,Ti<:Integer}(I::AbstractVector{Ti}, V::AbstractVector{Tv}, combine::Function)
+function sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::AbstractVector, combine::Function)
     length(I) == length(V) ||
         throw(ArgumentError("index and value vectors must be the same length"))
     len = 0
@@ -106,37 +106,37 @@ function sparsevec{Tv,Ti<:Integer}(I::AbstractVector{Ti}, V::AbstractVector{Tv},
             len = i
         end
     end
-    _sparsevector!(collect(Ti, I), collect(Tv, V), len, combine)
+    _sparsevector!(collect(I), collect(V), len, combine)
 end
 
-function sparsevec{Tv,Ti<:Integer}(I::AbstractVector{Ti}, V::AbstractVector{Tv}, len::Integer, combine::Function)
+function sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::AbstractVector, len::Integer, combine::Function)
     length(I) == length(V) ||
         throw(ArgumentError("index and value vectors must be the same length"))
-    maxi = convert(Ti, len)
     for i in I
-        1 <= i <= maxi || throw(ArgumentError("An index is out of bound."))
+        1 <= i <= len || throw(ArgumentError("An index is out of bound."))
     end
-    _sparsevector!(collect(Ti, I), collect(Tv, V), len, combine)
+    _sparsevector!(collect(I), collect(V), len, combine)
 end
 
-sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::Union{Number, AbstractVector}) =
+sparsevec(I::AbstractVector, V::Union{Number, AbstractVector}, args...) =
+    sparsevec(Vector{Int}(I), V, args...)
+
+sparsevec(I::AbstractVector, V::Union{Number, AbstractVector}) =
     sparsevec(I, V, +)
 
-sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::Union{Number, AbstractVector},
-    len::Integer) =
+sparsevec(I::AbstractVector, V::Union{Number, AbstractVector}, len::Integer) =
     sparsevec(I, V, len, +)
 
-sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::Union{Bool, AbstractVector{Bool}}) =
+sparsevec(I::AbstractVector, V::Union{Bool, AbstractVector{Bool}}) =
     sparsevec(I, V, |)
 
-sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, V::Union{Bool, AbstractVector{Bool}},
-    len::Integer) =
+sparsevec(I::AbstractVector, V::Union{Bool, AbstractVector{Bool}}, len::Integer) =
     sparsevec(I, V, len, |)
 
-sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, v::Number, combine::Function) =
+sparsevec(I::AbstractVector, v::Number, combine::Function) =
     sparsevec(I, fill(v, length(I)), combine)
 
-sparsevec{Ti<:Integer}(I::AbstractVector{Ti}, v::Number, len::Integer, combine::Function) =
+sparsevec(I::AbstractVector, v::Number, len::Integer, combine::Function) =
     sparsevec(I, fill(v, length(I)), len, combine)
 
 
@@ -842,27 +842,48 @@ hcat(Xin::Union{Vector, AbstractSparseVector}...) = hcat(map(sparse, Xin)...)
 vcat(Xin::Union{Vector, AbstractSparseVector}...) = vcat(map(sparse, Xin)...)
 
 
-### Sparse/special/dense vector/matrix concatenation
+### Concatenation of un/annotated sparse/special/dense vectors/matrices
 
-# TODO: These methods should be moved to a more appropriate location, particularly some
-# future equivalent of base/linalg/special.jl dedicated to interactions between a broader
-# set of matrix types.
+# TODO: These methods and definitions should be moved to a more appropriate location,
+# particularly some future equivalent of base/linalg/special.jl dedicated to interactions
+# between a broader set of matrix types.
 
-# TODO: A similar definition also exists in base/linalg/bidiag.jl. These definitions should
-# be consolidated in a more appropriate location, for example base/linalg/special.jl.
-SpecialArrays = Union{Diagonal, Bidiagonal, Tridiagonal, SymTridiagonal}
+# TODO: A definition similar to the third exists in base/linalg/bidiag.jl. These definitions
+# should be consolidated in a more appropriate location, e.g. base/linalg/special.jl.
+typealias _SparseArrays Union{SparseVector, SparseMatrixCSC}
+typealias _SpecialArrays Union{Diagonal, Bidiagonal, Tridiagonal, SymTridiagonal}
+typealias _SparseConcatArrays Union{_SpecialArrays, _SparseArrays}
 
-function hcat(Xin::Union{Vector, Matrix, SparseVector, SparseMatrixCSC, SpecialArrays}...)
+typealias _Symmetric_SparseConcatArrays{T,A<:_SparseConcatArrays} Symmetric{T,A}
+typealias _Hermitian_SparseConcatArrays{T,A<:_SparseConcatArrays} Hermitian{T,A}
+typealias _Triangular_SparseConcatArrays{T,A<:_SparseConcatArrays} Base.LinAlg.AbstractTriangular{T,A}
+typealias _Annotated_SparseConcatArrays Union{_Triangular_SparseConcatArrays, _Symmetric_SparseConcatArrays, _Hermitian_SparseConcatArrays}
+
+typealias _Symmetric_DenseArrays{T,A<:Matrix} Symmetric{T,A}
+typealias _Hermitian_DenseArrays{T,A<:Matrix} Hermitian{T,A}
+typealias _Triangular_DenseArrays{T,A<:Matrix} Base.LinAlg.AbstractTriangular{T,A}
+typealias _Annotated_DenseArrays Union{_Triangular_DenseArrays, _Symmetric_DenseArrays, _Hermitian_DenseArrays}
+typealias _Annotated_Typed_DenseArrays{T} Union{_Triangular_DenseArrays{T}, _Symmetric_DenseArrays{T}, _Hermitian_DenseArrays{T}}
+
+typealias _SparseConcatGroup Union{Vector, Matrix, _SparseConcatArrays, _Annotated_SparseConcatArrays, _Annotated_DenseArrays}
+typealias _DenseConcatGroup Union{Vector, Matrix, _Annotated_DenseArrays}
+typealias _TypedDenseConcatGroup{T} Union{Vector{T}, Matrix{T}, _Annotated_Typed_DenseArrays{T}}
+
+# Concatenations involving un/annotated sparse/special matrices/vectors should yield sparse arrays
+function cat(catdims, Xin::_SparseConcatGroup...)
+    X = SparseMatrixCSC[issparse(x) ? x : sparse(x) for x in Xin]
+    T = promote_eltype(Xin...)
+    Base.cat_t(catdims, T, X...)
+end
+function hcat(Xin::_SparseConcatGroup...)
     X = SparseMatrixCSC[issparse(x) ? x : sparse(x) for x in Xin]
     hcat(X...)
 end
-
-function vcat(Xin::Union{Vector, Matrix, SparseVector, SparseMatrixCSC, SpecialArrays}...)
+function vcat(Xin::_SparseConcatGroup...)
     X = SparseMatrixCSC[issparse(x) ? x : sparse(x) for x in Xin]
     vcat(X...)
 end
-
-function hvcat(rows::Tuple{Vararg{Int}}, X::Union{Vector, Matrix, SparseVector, SparseMatrixCSC, SpecialArrays}...)
+function hvcat(rows::Tuple{Vararg{Int}}, X::_SparseConcatGroup...)
     nbr = length(rows)  # number of block rows
 
     tmp_rows = Array{SparseMatrixCSC}(nbr)
@@ -874,11 +895,16 @@ function hvcat(rows::Tuple{Vararg{Int}}, X::Union{Vector, Matrix, SparseVector, 
     vcat(tmp_rows...)
 end
 
-function cat(catdims, Xin::Union{Vector, Matrix, SparseVector, SparseMatrixCSC, SpecialArrays}...)
-    X = SparseMatrixCSC[issparse(x) ? x : sparse(x) for x in Xin]
-    T = promote_eltype(Xin...)
-    Base.cat_t(catdims, T, X...)
-end
+# Concatenations strictly involving un/annotated dense matrices/vectors should yield dense arrays
+cat(catdims, xs::_DenseConcatGroup...) = Base.cat_t(catdims, promote_eltype(xs...), xs...)
+vcat(A::_DenseConcatGroup...) = Base.typed_vcat(promote_eltype(A...), A...)
+hcat(A::_DenseConcatGroup...) = Base.typed_hcat(promote_eltype(A...), A...)
+hvcat(rows::Tuple{Vararg{Int}}, xs::_DenseConcatGroup...) = Base.typed_hvcat(promote_eltype(xs...), rows, xs...)
+# For performance, specially handle the case where the matrices/vectors have homogeneous eltype
+cat{T}(catdims, xs::_TypedDenseConcatGroup{T}...) = Base.cat_t(catdims, T, xs...)
+vcat{T}(A::_TypedDenseConcatGroup{T}...) = Base.typed_vcat(T, A...)
+hcat{T}(A::_TypedDenseConcatGroup{T}...) = Base.typed_hcat(T, A...)
+hvcat{T}(rows::Tuple{Vararg{Int}}, xs::_TypedDenseConcatGroup{T}...) = Base.typed_hvcat(T, rows, xs...)
 
 
 ### math functions
@@ -886,7 +912,8 @@ end
 ### Unary Map
 
 # zero-preserving functions (z->z, nz->nz)
-for op in [:abs, :abs2, :conj]
+broadcast(::typeof(abs), x::AbstractSparseVector) = SparseVector(length(x), copy(nonzeroinds(x)), abs.(nonzeros(x)))
+for op in [:abs2, :conj]
     @eval begin
         $(op)(x::AbstractSparseVector) =
             SparseVector(length(x), copy(nonzeroinds(x)), $(op).(nonzeros(x)))
@@ -1331,8 +1358,8 @@ end
 
 scale!(x::AbstractSparseVector, a::Real) = (scale!(nonzeros(x), a); x)
 scale!(x::AbstractSparseVector, a::Complex) = (scale!(nonzeros(x), a); x)
-scale!(a::Real, x::AbstractSparseVector) = scale!(nonzeros(x), a)
-scale!(a::Complex, x::AbstractSparseVector) = scale!(nonzeros(x), a)
+scale!(a::Real, x::AbstractSparseVector) = (scale!(nonzeros(x), a); x)
+scale!(a::Complex, x::AbstractSparseVector) = (scale!(nonzeros(x), a); x)
 
 
 .*(x::AbstractSparseVector, a::Number) = SparseVector(length(x), copy(nonzeroinds(x)), nonzeros(x) * a)
@@ -1388,7 +1415,7 @@ function _spdot(f::Function,
 end
 
 function dot{Tx<:Number,Ty<:Number}(x::AbstractSparseVector{Tx}, y::AbstractSparseVector{Ty})
-    is(x, y) && return sumabs2(x)
+    x === y && return sumabs2(x)
     n = length(x)
     length(y) == n || throw(DimensionMismatch())
 

@@ -58,7 +58,7 @@ Getting Around
 
    The memory consumption estimate is an approximate lower bound on the size of the internal structure of the object.
 
-.. function:: Base.summarysize(obj; exclude=Union{Module,Function,DataType,TypeName}) -> Int
+.. function:: Base.summarysize(obj; exclude=Union{Module,DataType,TypeName}) -> Int
 
    .. Docstring generated from Julia source
 
@@ -144,11 +144,11 @@ Getting Around
 
    ``__precompile__()`` should *not* be used in a module unless all of its dependencies are also using ``__precompile__()``\ . Failure to do so can result in a runtime error when loading the module.
 
-.. function:: include(path::AbstractString)
+.. function:: include(path::AbstractString...)
 
    .. Docstring generated from Julia source
 
-   Evaluate the contents of a source file in the current context. During including, a task-local include path is set to the directory containing the file. Nested calls to ``include`` will search relative to that path. All paths refer to files on node 1 when running in parallel, and files will be fetched from node 1. This function is typically used to load source interactively, or to combine files in packages that are broken into multiple source files.
+   Evaluate the contents of the input source file(s) in the current context. Returns the result of the last evaluated argument (of the last input file). During including, a task-local include path is set to the directory containing the file. Nested calls to ``include`` will search relative to that path. All paths refer to files on node 1 when running in parallel, and files will be fetched from node 1. This function is typically used to load source interactively, or to combine files in packages that are broken into multiple source files.
 
 .. function:: include_string(code::AbstractString, filename::AbstractString="string")
 
@@ -237,8 +237,7 @@ Getting Around
 All Objects
 -----------
 
-.. function:: is(x, y) -> Bool
-              ===(x,y) -> Bool
+.. function:: ===(x,y) -> Bool
               ≡(x,y) -> Bool
 
    .. Docstring generated from Julia source
@@ -263,11 +262,23 @@ All Objects
 
    Scalar types generally do not need to implement ``isequal`` separate from ``==``\ , unless they represent floating-point numbers amenable to a more efficient implementation than that provided as a generic fallback (based on ``isnan``\ , ``signbit``\ , and ``==``\ ).
 
+.. function:: isequal(x::Nullable, y::Nullable)
+
+   .. Docstring generated from Julia source
+
+   If neither ``x`` nor ``y`` is null, compare them according to their values (i.e. ``isequal(get(x), get(y))``\ ). Else, return ``true`` if both arguments are null, and ``false`` if one is null but not the other: nulls are considered equal.
+
 .. function:: isless(x, y)
 
    .. Docstring generated from Julia source
 
    Test whether ``x`` is less than ``y``\ , according to a canonical total order. Values that are normally unordered, such as ``NaN``\ , are ordered in an arbitrary but consistent fashion. This is the default comparison used by ``sort``\ . Non-numeric types with a canonical total order should implement this function. Numeric types only need to implement it if they have special values such as ``NaN``\ .
+
+.. function:: isless(x::Nullable, y::Nullable)
+
+   .. Docstring generated from Julia source
+
+   If neither ``x`` nor ``y`` is null, compare them according to their values (i.e. ``isless(get(x), get(y))``\ ). Else, return ``true`` if only ``y`` is null, and ``false`` otherwise: nulls are always considered greater than non-nulls, but not greater than another null.
 
 .. function:: ifelse(condition::Bool, x, y)
 
@@ -350,13 +361,10 @@ All Objects
 .. function:: isdefined([m::Module,] s::Symbol)
               isdefined(object, s::Symbol)
               isdefined(object, index::Int)
-              isdefined(a::Array, index::Int)
 
    .. Docstring generated from Julia source
 
-   Tests whether an assignable location is defined. The arguments can be a module and a symbol, a composite object and field name (as a symbol) or index, or an ``Array`` and index. With a single symbol argument, tests whether a global variable with that name is defined in ``current_module()``\ .
-
-   Note: For ``AbstractArray``\ s other than ``Array``\ , ``isdefined`` tests whether the given field index is defined, not the given array index. To test whether an array index is defined, use :func:`isassigned`\ .
+   Tests whether an assignable location is defined. The arguments can be a module and a symbol or a composite object and field name (as a symbol) or index. With a single symbol argument, tests whether a global variable with that name is defined in ``current_module()``\ .
 
 .. function:: convert(T, x)
 
@@ -477,6 +485,14 @@ Types
 
    Return ``true`` if and only if all values of ``type1`` are also of ``type2``\ . Can also be written using the ``<:`` infix operator as ``type1 <: type2``\ .
 
+   .. doctest::
+
+       julia> issubtype(Int8, Int32)
+       false
+
+       julia> Int8 <: Integer
+       true
+
 .. function:: <:(T1, T2)
 
    .. Docstring generated from Julia source
@@ -533,6 +549,23 @@ Types
    .. Docstring generated from Julia source
 
    Size, in bytes, of the canonical binary representation of the given DataType ``T``\ , if any.
+
+   .. doctest::
+
+       julia> sizeof(Float32)
+       4
+
+       julia> sizeof(Complex128)
+       16
+
+   If ``T`` is not a bitstype, an error is thrown.
+
+   .. doctest::
+
+       julia> sizeof(Base.LinAlg.LU)
+       ERROR: argument is an abstract type; size is indeterminate
+        in sizeof(::Type{T}) at ./essentials.jl:89
+        ...
 
 .. function:: eps(T)
 
@@ -782,11 +815,31 @@ Syntax
 Nullables
 ---------
 
-.. function:: Nullable(x)
+.. function:: Nullable(x, hasvalue::Bool=true)
 
    .. Docstring generated from Julia source
 
-   Wrap value ``x`` in an object of type ``Nullable``\ , which indicates whether a value is present. ``Nullable(x)`` yields a non-empty wrapper, and ``Nullable{T}()`` yields an empty instance of a wrapper that might contain a value of type ``T``\ .
+   Wrap value ``x`` in an object of type ``Nullable``\ , which indicates whether a value is present. ``Nullable(x)`` yields a non-empty wrapper and ``Nullable{T}()`` yields an empty instance of a wrapper that might contain a value of type ``T``\ .
+
+   ``Nullable(x, false)`` yields ``Nullable{typeof(x)}()`` with ``x`` stored in the result's ``value`` field.
+
+   **Examples**
+
+   .. doctest::
+
+       julia> Nullable(1)
+       Nullable{Int64}(1)
+
+       julia> Nullable{Int64}()
+       Nullable{Int64}()
+
+       julia> Nullable(1, false)
+       Nullable{Int64}()
+
+       julia> dump(Nullable(1, false))
+       Nullable{Int64}
+         hasvalue: Bool false
+         value: Int64 1
 
 .. function:: get(x::Nullable[, y])
 
@@ -798,7 +851,58 @@ Nullables
 
    .. Docstring generated from Julia source
 
-   Is the ``Nullable`` object ``x`` null, i.e. missing a value?
+   Return whether or not ``x`` is null for :obj:`Nullable` ``x``\ ; return ``false`` for all other ``x``\ .
+
+   **Examples**
+
+   .. doctest::
+
+       julia> x = Nullable(1, false)
+       Nullable{Int64}()
+
+       julia> isnull(x)
+       true
+
+       julia> x = Nullable(1, true)
+       Nullable{Int64}(1)
+
+       julia> isnull(x)
+       false
+
+       julia> x = 1
+       1
+
+       julia> isnull(x)
+       false
+
+.. function:: unsafe_get(x)
+
+   .. Docstring generated from Julia source
+
+   Return the value of ``x`` for :obj:`Nullable` ``x``\ ; return ``x`` for all other ``x``\ .
+
+   This method does not check whether or not ``x`` is null before attempting to access the value of ``x`` for ``x::Nullable`` (hence "unsafe").
+
+   .. doctest::
+
+       julia> x = Nullable(1)
+       Nullable{Int64}(1)
+
+       julia> unsafe_get(x)
+       1
+
+       julia> x = Nullable{String}()
+       Nullable{String}()
+
+       julia> unsafe_get(x)
+       ERROR: UndefRefError: access to undefined reference
+        in unsafe_get(::Nullable{String}) at ./REPL[4]:1
+
+       julia> x = 1
+       1
+
+       julia> unsafe_get(x)
+       1
 
 System
 ------
@@ -1373,7 +1477,9 @@ Reflection
 
    .. Docstring generated from Julia source
 
-   Get an array of the names exported by a ``Module``\ , with optionally more ``Module`` globals according to the additional parameters.
+   Get an array of the names exported by a ``Module``\ , excluding deprecated names. If ``all`` is true, then the list also includes non-exported names defined in the module, deprecated names, and compiler-generated names. If ``imported`` is true, then names explicitly imported from other modules are also included.
+
+   As a special case, all names defined in ``Main`` are considered "exported", since it is not idiomatic to explicitly export names from ``Main``\ .
 
 .. function:: nfields(x::DataType) -> Int
 
@@ -1483,6 +1589,36 @@ Internals
 
    Takes the expression ``x`` and returns an equivalent expression with all macros removed (expanded).
 
+.. function:: @macroexpand
+
+   .. Docstring generated from Julia source
+
+   Return equivalent expression with all macros removed (expanded).
+
+   There is a subtle difference between ``@macroexpand`` and ``macroexpand`` in that expansion takes place in different contexts. This is best seen in the following example:
+
+   .. doctest::
+
+       julia> module M
+                  macro m()
+                      1
+                  end
+                  function f()
+                     (@macroexpand(@m), macroexpand(:(@m)))
+                  end
+              end
+       M
+
+       julia> macro m()
+                 2
+              end
+       @m (macro with 1 method)
+
+       julia> M.f()
+       (1,2)
+
+   With ``@macroexpand`` the expression expands where ``@macroexpand`` appears in the code (module ``M`` in the example). With ``macroexpand`` the expression expands in the current module where the code was finally called (REPL in the example). Note that when calling ``macroexpand`` or ``@macroexpand`` directly from the REPL, both of these contexts coincide, hence there is no difference.
+
 .. function:: expand(x)
 
    .. Docstring generated from Julia source
@@ -1539,11 +1675,11 @@ Internals
 
    Evaluates the arguments to the function or macro call, determines their types, and calls :func:`code_llvm` on the resulting expression.
 
-.. function:: code_native([io], f, types)
+.. function:: code_native([io], f, types, [syntax])
 
    .. Docstring generated from Julia source
 
-   Prints the native assembly instructions generated for running the method matching the given generic function and type signature to ``io`` which defaults to ``STDOUT``\ .
+   Prints the native assembly instructions generated for running the method matching the given generic function and type signature to ``io`` which defaults to ``STDOUT``\ . Switch assembly syntax using ``syntax`` symbol parameter set to ``:att`` for AT&T syntax or ``:intel`` for Intel syntax. Output is AT&T syntax by default.
 
 .. function:: @code_native
 
