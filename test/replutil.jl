@@ -257,7 +257,7 @@ immutable TypeWithIntParam{T <: Integer} end
 let undefvar
     err_str = @except_strbt sqrt(-1) DomainError
     @test contains(err_str, "Try sqrt(complex(x)).")
-    err_str = @except_strbt 1^(-1) DomainError
+    err_str = @except_strbt 2^(-1) DomainError
     @test contains(err_str, "Cannot raise an integer x to a negative power -n")
     err_str = @except_strbt (-1)^0.25 DomainError
     @test contains(err_str, "Exponentiation yielding a complex result requires a complex argument")
@@ -446,4 +446,23 @@ let d = Dict(1 => 2, 3 => 45)
     for el in d
         @test contains(replace(result, " ", ""), string(el))
     end
+end
+
+
+# @macroexpand tests
+macro seven_dollar(ex)
+    # simonbyrne example 18240
+    isa(ex,Expr) && ex.head == :$ ? 7 : ex
+end
+
+let
+    @test (@macroexpand @macroexpand x) == macroexpand(:(@macroexpand x))
+    @test (@macroexpand  :(1+$y) ) == macroexpand(:( :(1+ $y)))
+    @test (@macroexpand @fastmath 1+2    ) == :(Base.FastMath.add_fast(1,2))
+    @test (@macroexpand @fastmath +      ) == :(Base.FastMath.add_fast)
+    @test (@macroexpand @fastmath min(1) ) == :(Base.FastMath.min_fast(1))
+    @test (@macroexpand @doc "" f() = @x) == Expr(:error, UndefVarError(Symbol("@x")))
+    @test (@macroexpand @seven_dollar $bar) == 7
+    x = 2
+    @test (@macroexpand @seven_dollar 1+$x) == :(1 + $(Expr(:$, :x)))
 end

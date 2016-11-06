@@ -1,5 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+const ≣ = isequal # convenient for comparing NaNs
+
 # basic booleans
 @test true
 @test !false
@@ -61,28 +63,32 @@
 @test minmax(5, 3) == (3, 5)
 @test minmax(3., 5.) == (3., 5.)
 @test minmax(5., 3.) == (3., 5.)
-@test minmax(3., NaN) == (3., 3.)
-@test minmax(NaN, 3.) == (3., 3.)
-@test isequal(minmax(NaN, NaN), (NaN, NaN))
+@test minmax(3., NaN) ≣ (NaN, NaN)
+@test minmax(NaN, 3) ≣ (NaN, NaN)
+@test minmax(Inf, NaN) ≣ (NaN, NaN)
+@test minmax(NaN, Inf) ≣ (NaN, NaN)
+@test minmax(-Inf, NaN) ≣ (NaN, NaN)
+@test minmax(NaN, -Inf) ≣ (NaN, NaN)
+@test minmax(NaN, NaN) ≣ (NaN, NaN)
 @test min(-0.0,0.0) === min(0.0,-0.0)
 @test max(-0.0,0.0) === max(0.0,-0.0)
 @test minmax(-0.0,0.0) === minmax(0.0,-0.0)
 @test max(-3.2, 5.1) == max(5.1, -3.2) == 5.1
 @test min(-3.2, 5.1) == min(5.1, -3.2) == -3.2
 @test max(-3.2, Inf) == max(Inf, -3.2) == Inf
-@test max(-3.2, NaN) == max(NaN, -3.2) == -3.2
+@test max(-3.2, NaN) ≣ max(NaN, -3.2) ≣ NaN
 @test min(5.1, Inf) == min(Inf, 5.1) == 5.1
 @test min(5.1, -Inf) == min(-Inf, 5.1) == -Inf
-@test min(5.1, NaN) == min(NaN, 5.1) == 5.1
-@test min(5.1, -NaN) == min(-NaN, 5.1) == 5.1
+@test min(5.1, NaN) ≣ min(NaN, 5.1) ≣ NaN
+@test min(5.1, -NaN) ≣ min(-NaN, 5.1) ≣ NaN
 @test minmax(-3.2, 5.1) == (min(-3.2, 5.1), max(-3.2, 5.1))
 @test minmax(-3.2, Inf) == (min(-3.2, Inf), max(-3.2, Inf))
-@test minmax(-3.2, NaN) == (min(-3.2, NaN), max(-3.2, NaN))
-@test (max(Inf,NaN), max(-Inf,NaN), max(Inf,-NaN), max(-Inf,-NaN)) == (Inf, -Inf, Inf, -Inf)
-@test (max(NaN,Inf), max(NaN,-Inf), max(-NaN,Inf), max(-NaN,-Inf)) == (Inf, -Inf, Inf, -Inf)
-@test (min(Inf,NaN), min(-Inf,NaN), min(Inf,-NaN), min(-Inf,-NaN)) == (Inf, -Inf, Inf, -Inf)
-@test (min(NaN,Inf), min(NaN,-Inf), min(-NaN,Inf), min(-NaN,-Inf)) == (Inf, -Inf, Inf, -Inf)
-@test minmax(-Inf,NaN) == (min(-Inf,NaN), max(-Inf,NaN))
+@test minmax(-3.2, NaN) ≣ (min(-3.2, NaN), max(-3.2, NaN))
+@test (max(Inf,NaN), max(-Inf,NaN), max(Inf,-NaN), max(-Inf,-NaN)) ≣ (NaN,NaN,NaN,NaN)
+@test (max(NaN,Inf), max(NaN,-Inf), max(-NaN,Inf), max(-NaN,-Inf)) ≣ (NaN,NaN,NaN,NaN)
+@test (min(Inf,NaN), min(-Inf,NaN), min(Inf,-NaN), min(-Inf,-NaN)) ≣ (NaN,NaN,NaN,NaN)
+@test (min(NaN,Inf), min(NaN,-Inf), min(-NaN,Inf), min(-NaN,-Inf)) ≣ (NaN,NaN,NaN,NaN)
+@test minmax(-Inf,NaN) ≣ (min(-Inf,NaN), max(-Inf,NaN))
 
 # fma
 let x = Int64(7)^7
@@ -1012,6 +1018,10 @@ f9085() = typemax(UInt64) != 2.0^64
 @test (1//typemax(Int)) / (1//typemax(Int)) == 1
 @test_throws OverflowError (1//2)^63
 
+@test @inferred(rationalize(Int, 3.0, 0.0)) === 3//1
+@test @inferred(rationalize(Int, 3.0, 0)) === 3//1
+@test_throws ArgumentError rationalize(Int, big(3.0), -1.)
+
 for a = -5:5, b = -5:5
     if a == b == 0; continue; end
     if ispow2(b)
@@ -1116,7 +1126,7 @@ end
 @test 1+1.5 == 2.5
 @test 1.5+1 == 2.5
 @test 1+1.5+2 == 4.5
-@test is(typeof(convert(Complex{Int16},1)),Complex{Int16})
+@test isa(convert(Complex{Int16},1), Complex{Int16})
 @test Complex(1,2)+1 == Complex(2,2)
 @test Complex(1,2)+1.5 == Complex(2.5,2.0)
 @test 1/Complex(2,2) == Complex(.25,-.25)
@@ -1707,12 +1717,12 @@ let ≈(x,y) = x==y && typeof(x)==typeof(y)
         for n in [0,3,255,256]
             r = (1:n)-div(n,2)
             y = t[x/4 for x in r]
-            @test trunc(y) ≈ t[div(i,4) for i in r]
-            @test floor(y) ≈ t[i>>2 for i in r]
-            @test ceil(y)  ≈ t[(i+3)>>2 for i in r]
-            @test round(y) ≈ t[(i+1+isodd(i>>2))>>2 for i in r]
-            @test round(y,RoundNearestTiesAway) ≈ t[(i+1+(i>=0))>>2 for i in r]
-            @test round(y,RoundNearestTiesUp) ≈ t[(i+2)>>2 for i in r]
+            @test trunc.(y) ≈ t[div(i,4) for i in r]
+            @test floor.(y) ≈ t[i>>2 for i in r]
+            @test ceil.(y)  ≈ t[(i+3)>>2 for i in r]
+            @test round.(y) ≈ t[(i+1+isodd(i>>2))>>2 for i in r]
+            @test broadcast(x -> round(x, RoundNearestTiesAway), y) ≈ t[(i+1+(i>=0))>>2 for i in r]
+            @test broadcast(x -> round(x, RoundNearestTiesUp), y) ≈ t[(i+2)>>2 for i in r]
         end
     end
 end
@@ -2366,6 +2376,7 @@ end
 @test widen(1.5f0) === 1.5
 @test widen(Int32(42)) === Int64(42)
 @test widen(Int8) === Int32
+@test widen(Int64) === Int128
 @test widen(Float32) === Float64
 @test widen(Float16) === Float32
 ## Note: this should change to e.g. Float128 at some point
@@ -2446,6 +2457,13 @@ end
 @test_throws InexactError convert(Int8, typemax(UInt64))
 @test_throws InexactError convert(Int16, typemax(UInt64))
 @test_throws InexactError convert(Int, typemax(UInt64))
+
+# issue #14549
+for T in (Int8, Int16, UInt8, UInt16)
+    for F in (Float32,Float64)
+        @test_throws InexactError convert(T, F(200000.0))
+    end
+end
 
 let x = big(-0.0)
     @test signbit(x) && !signbit(abs(x))
@@ -2838,3 +2856,5 @@ let types = (Base.BitInteger_types..., BigInt, Bool)
         end
     end
 end
+
+@test !isempty(complex(1,2))

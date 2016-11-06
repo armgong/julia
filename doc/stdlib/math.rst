@@ -64,12 +64,38 @@ Mathematical Operators
 
    Element-wise addition operator.
 
+   .. doctest::
+
+       julia> A = [1 2; 3 4];
+
+       julia> B = [5 6; 7 8];
+
+       julia> C = [A, B]
+       2-element Array{Array{Int64,2},1}:
+        [1 2; 3 4]
+        [5 6; 7 8]
+
+       julia> C .+ [[1; 2] [3; 4]]
+       2×2 Array{Array{Int64,2},2}:
+        [2 3; 4 5]   [4 5; 6 7]
+        [7 8; 9 10]  [9 10; 11 12]
+
+   See also :func:`broadcast`\ .
+
 .. _.-:
 .. function:: .-(x, y)
 
    .. Docstring generated from Julia source
 
    Element-wise subtraction operator.
+
+   .. doctest::
+
+       julia> [4; 5; 6] .- [1; 2; 4]
+       3-element Array{Int64,1}:
+        3
+        3
+        2
 
 .. _.*:
 .. function:: .*(x, y)
@@ -78,12 +104,24 @@ Mathematical Operators
 
    Element-wise multiplication operator.
 
+   .. doctest::
+
+       julia> [1 2 3] .* [1 2 3]
+       1×3 Array{Int64,2}:
+        1  4  9
+
 .. _./:
 .. function:: ./(x, y)
 
    .. Docstring generated from Julia source
 
    Element-wise right division operator.
+
+   .. doctest::
+
+       julia> [1 2 3] ./ [1 2 3]
+       1×3 Array{Float64,2}:
+        1.0  1.0  1.0
 
 .. _.\\:
 .. function:: .\\(x, y)
@@ -92,6 +130,45 @@ Mathematical Operators
 
    Element-wise left division operator.
 
+   .. doctest::
+
+       julia> A = [1 2; 3 4]
+       2×2 Array{Int64,2}:
+        1  2
+        3  4
+
+       julia> A .\ [1 2]
+       2×2 Array{Float64,2}:
+        1.0       1.0
+        0.333333  0.5
+
+   .. doctest::
+
+       julia> A = [1 0; 0 -1];
+
+       julia> B = [0 1; 1 0];
+
+       julia> C = [A, B]
+       2-element Array{Array{Int64,2},1}:
+        [1 0; 0 -1]
+        [0 1; 1 0]
+
+       julia> x = [1; 0];
+
+       julia> y = [0; 1];
+
+       julia> D = [x, y]
+       2-element Array{Array{Int64,1},1}:
+        [1,0]
+        [0,1]
+
+       julia> C .\ D
+       2-element Array{Array{Float64,1},1}:
+        [1.0,-0.0]
+        [1.0,0.0]
+
+   See also :func:`broadcast`\ .
+
 .. _.^:
 .. function:: .^(x, y)
 
@@ -99,17 +176,23 @@ Mathematical Operators
 
    Element-wise exponentiation operator.
 
+   .. doctest::
+
+       julia> [1 2 3] .^ [1 2 3]
+       1×3 Array{Int64,2}:
+        1  4  27
+
 .. function:: fma(x, y, z)
 
    .. Docstring generated from Julia source
 
-   Computes ``x*y+z`` without rounding the intermediate result ``x*y``\ . On some systems this is significantly more expensive than ``x*y+z``\ . ``fma`` is used to improve accuracy in certain algorithms. See ``muladd``\ .
+   Computes ``x*y+z`` without rounding the intermediate result ``x*y``\ . On some systems this is significantly more expensive than ``x*y+z``\ . ``fma`` is used to improve accuracy in certain algorithms. See :func:`muladd`\ .
 
 .. function:: muladd(x, y, z)
 
    .. Docstring generated from Julia source
 
-   Combined multiply-add, computes ``x*y+z`` in an efficient manner. This may on some systems be equivalent to ``x*y+z``\ , or to ``fma(x,y,z)``\ . ``muladd`` is used to improve performance. See ``fma``\ .
+   Combined multiply-add, computes ``x*y+z`` in an efficient manner. This may on some systems be equivalent to ``x*y+z``\ , or to ``fma(x,y,z)``\ . ``muladd`` is used to improve performance. See :func:`fma`\ .
 
 .. function:: div(x, y)
               ÷(x, y)
@@ -124,11 +207,21 @@ Mathematical Operators
 
    Largest integer less than or equal to ``x/y``\ .
 
+   .. doctest::
+
+       julia> fld(7.3,5.5)
+       1.0
+
 .. function:: cld(x, y)
 
    .. Docstring generated from Julia source
 
    Smallest integer larger than or equal to ``x/y``\ .
+
+   .. doctest::
+
+       julia> cld(5.5,2.2)
+       3.0
 
 .. function:: mod(x, y)
 
@@ -148,6 +241,11 @@ Mathematical Operators
 
    This function computes a floating point representation of the modulus after division by numerically exact ``2π``\ , and is therefore not exactly the same as ``mod(x,2π)``\ , which would compute the modulus of ``x`` relative to division by the floating-point number ``2π``\ .
 
+   .. doctest::
+
+       julia> mod2pi(9*pi/4)
+       0.7853981633974481
+
 .. function:: rem(x, y)
               %(x, y)
 
@@ -164,6 +262,14 @@ Mathematical Operators
    .. Docstring generated from Julia source
 
    The quotient and remainder from Euclidean division. Equivalent to ``(div(x,y), rem(x,y))`` or ``(x÷y, x%y)``\ .
+
+   .. doctest::
+
+       julia> divrem(3,7)
+       (0,3)
+
+       julia> divrem(7,3)
+       (2,1)
 
 .. function:: fldmod(x, y)
 
@@ -349,21 +455,13 @@ Mathematical Operators
 
    Not-equals comparison operator. Always gives the opposite answer as ``==``\ . New types should generally not implement this, and rely on the fallback definition ``!=(x,y) = !(x==y)`` instead.
 
-.. _===:
-.. function:: ===(x, y)
-              ≡(x,y)
-
-   .. Docstring generated from Julia source
-
-   See the :func:`is` operator.
-
 .. _!==:
 .. function:: !==(x, y)
               ≢(x,y)
 
    .. Docstring generated from Julia source
 
-   Equivalent to ``!is(x, y)``\ .
+   Equivalent to ``!(x === y)``\ .
 
 .. _<:
 .. function:: <(x, y)
@@ -402,6 +500,12 @@ Mathematical Operators
 
    Element-wise equality comparison operator.
 
+   .. doctest::
+
+       julia> [1 2 3] .== [1 2 4]
+       1×3 BitArray{2}:
+        true  true  false
+
 .. _.!=:
 .. function:: .!=(x, y)
               .≠(x,y)
@@ -416,6 +520,14 @@ Mathematical Operators
    .. Docstring generated from Julia source
 
    Element-wise less-than comparison operator.
+
+   .. doctest::
+
+       julia> [1; 2; 3] .< [2; 1; 4]
+       3-element BitArray{1}:
+         true
+        false
+         true
 
 .. _.<=:
 .. function:: .<=(x, y)
@@ -453,6 +565,17 @@ Mathematical Operators
 
    Bitwise not.
 
+   .. doctest::
+
+       julia> ~4
+       -5
+
+       julia> ~10
+       -11
+
+       julia> ~true
+       false
+
 .. _&:
 .. function:: &(x, y)
 
@@ -460,12 +583,28 @@ Mathematical Operators
 
    Bitwise and.
 
+   .. doctest::
+
+       julia> 4 & 10
+       0
+
+       julia> 4 & 12
+       4
+
 .. _|:
 .. function:: |(x, y)
 
    .. Docstring generated from Julia source
 
    Bitwise or.
+
+   .. doctest::
+
+       julia> 4 | 10
+       14
+
+       julia> 4 | 1
+       5
 
 .. _$:
 .. function:: $(x, y)
@@ -480,6 +619,18 @@ Mathematical Operators
    .. Docstring generated from Julia source
 
    Boolean not.
+
+   .. doctest::
+
+       julia> !true
+       false
+
+       julia> !false
+       true
+
+       julia> ![true false true]
+       1×3 Array{Bool,2}:
+        false  true  false
 
 .. _&&:
 .. function:: x && y
@@ -762,11 +913,21 @@ Mathematical Functions
 
    Convert ``x`` from degrees to radians.
 
+   .. doctest::
+
+       julia> deg2rad(90)
+       1.5707963267948966
+
 .. function:: rad2deg(x)
 
    .. Docstring generated from Julia source
 
    Convert ``x`` from radians to degrees.
+
+   .. doctest::
+
+       julia> rad2deg(pi)
+       180.0
 
 .. function:: hypot(x, y)
 
@@ -794,17 +955,53 @@ Mathematical Functions
 
    Compute the base ``b`` logarithm of ``x``\ . Throws ``DomainError`` for negative ``Real`` arguments.
 
+   .. doctest::
+
+       julia> log(4,8)
+       1.5
+
+       julia> log(4,2)
+       0.5
+
+   .. note::
+      If ``b`` is a power of 2 or 10, ``log2`` or ``log10`` should be used, as these will typically be faster and more accurate. For example,
+
+      .. doctest::
+
+          julia> log(100,1000000)
+          2.9999999999999996
+
+          julia> log10(1000000)/2
+          3.0
+
+
 .. function:: log2(x)
 
    .. Docstring generated from Julia source
 
    Compute the logarithm of ``x`` to base 2. Throws ``DomainError`` for negative ``Real`` arguments.
 
+   .. doctest::
+
+       julia> log2(4)
+       2.0
+
+       julia> log2(10)
+       3.321928094887362
+
 .. function:: log10(x)
 
    .. Docstring generated from Julia source
 
-   Compute the logarithm of ``x`` to base 10. Throws ``DomainError`` for negative ``Real`` arguments.
+   Compute the logarithm of ``x`` to base 10. Throws :obj:`DomainError` for negative ``Real`` arguments.
+
+   .. doctest::
+
+       julia> log10(100)
+       2.0
+
+       julia> log10(2)
+       0.3010299956639812
 
 .. function:: log1p(x)
 
@@ -818,7 +1015,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Return ``(x,exp)`` such that ``x`` has a magnitude in the interval :math:`[1/2, 1)` or 0, and val = :math:`x \times 2^{exp}`\ .
+   Return ``(x,exp)`` such that ``x`` has a magnitude in the interval :math:`[1/2, 1)` or 0, and ``val`` is equal to :math:`x \times 2^{exp}`\ .
 
 .. function:: exp(x)
 
@@ -832,11 +1029,24 @@ Mathematical Functions
 
    Compute :math:`2^x`\ .
 
+   .. doctest::
+
+       julia> exp2(5)
+       32.0
+
 .. function:: exp10(x)
 
    .. Docstring generated from Julia source
 
    Compute :math:`10^x`\ .
+
+   .. doctest::
+
+       julia> exp10(2)
+       100.0
+
+       julia> exp10(0.2)
+       1.5848931924611136
 
 .. function:: ldexp(x, n)
 
@@ -844,11 +1054,21 @@ Mathematical Functions
 
    Compute :math:`x \times 2^n`\ .
 
+   .. doctest::
+
+       julia> ldexp(5., 2)
+       20.0
+
 .. function:: modf(x)
 
    .. Docstring generated from Julia source
 
    Return a tuple (fpart,ipart) of the fractional and integral parts of a number. Both parts have the same sign as the argument.
+
+   .. doctest::
+
+       julia> modf(3.5)
+       (0.5,3.0)
 
 .. function:: expm1(x)
 
@@ -1003,19 +1223,19 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Rounds (in the sense of ``round``\ ) ``x`` so that there are ``digits`` significant digits, under a base ``base`` representation, default 10. E.g., ``signif(123.456, 2)`` is ``120.0``\ , and ``signif(357.913, 4, 2)`` is ``352.0``\ .
+   Rounds (in the sense of :func:`round`\ ) ``x`` so that there are ``digits`` significant digits, under a base ``base`` representation, default 10. E.g., ``signif(123.456, 2)`` is ``120.0``\ , and ``signif(357.913, 4, 2)`` is ``352.0``\ .
 
 .. function:: min(x, y, ...)
 
    .. Docstring generated from Julia source
 
-   Return the minimum of the arguments. Operates elementwise over arrays.
+   Return the minimum of the arguments. See also the :func:`minimum` function to take the minimum element from a collection.
 
 .. function:: max(x, y, ...)
 
    .. Docstring generated from Julia source
 
-   Return the maximum of the arguments. Operates elementwise over arrays.
+   Return the maximum of the arguments. See also the :func:`maximum` function to take the maximum element from a collection.
 
 .. function:: minmax(x, y)
 
@@ -1136,17 +1356,43 @@ Mathematical Functions
 
    The overflow protection may impose a perceptible performance penalty.
 
+.. function:: Base.add_with_overflow(x, y) -> (r, f)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``r = x+y``\ , with the flag ``f`` indicating whether overflow has occurred.
+
+.. function:: Base.sub_with_overflow(x, y) -> (r, f)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``r = x-y``\ , with the flag ``f`` indicating whether overflow has occurred.
+
+.. function:: Base.mul_with_overflow(x, y) -> (r, f)
+
+   .. Docstring generated from Julia source
+
+   Calculates ``r = x*y``\ , with the flag ``f`` indicating whether overflow has occurred.
+
 .. function:: abs2(x)
 
    .. Docstring generated from Julia source
 
    Squared absolute value of ``x``\ .
 
-.. function:: copysign(x, y)
+.. function:: copysign(x, y) -> z
 
    .. Docstring generated from Julia source
 
-   Return ``x`` such that it has the same sign as ``y``
+   Return ``z`` which has the magnitude of ``x`` and the same sign as ``y``\ .
+
+   .. doctest::
+
+       julia> copysign(1, -2)
+       -1
+
+       julia> copysign(-1, 2)
+       1
 
 .. function:: sign(x)
 
@@ -1160,6 +1406,20 @@ Mathematical Functions
 
    Returns ``true`` if the value of the sign of ``x`` is negative, otherwise ``false``\ .
 
+   .. doctest::
+
+       julia> signbit(-4)
+       true
+
+       julia> signbit(5)
+       false
+
+       julia> signbit(5.5)
+       false
+
+       julia> signbit(-4.1)
+       true
+
 .. function:: flipsign(x, y)
 
    .. Docstring generated from Julia source
@@ -1172,17 +1432,29 @@ Mathematical Functions
 
    Return :math:`\sqrt{x}`\ . Throws ``DomainError`` for negative ``Real`` arguments. Use complex negative arguments instead.  The prefix operator ``√`` is equivalent to ``sqrt``\ .
 
-.. function:: isqrt(n)
+.. function:: isqrt(n::Integer)
 
    .. Docstring generated from Julia source
 
    Integer square root: the largest integer ``m`` such that ``m*m <= n``\ .
 
-.. function:: cbrt(x)
+   .. doctest::
+
+       julia> isqrt(5)
+       2
+
+.. function:: cbrt(x::Real)
 
    .. Docstring generated from Julia source
 
-   Return :math:`x^{1/3}`\ .  The prefix operator ``∛`` is equivalent to ``cbrt``\ .
+   Return the cube root of ``x``\ , i.e. :math:`x^{1/3}`\ . Negative values are accepted (returning the negative real root when :math:`x < 0`\ ).
+
+   The prefix operator ``∛`` is equivalent to ``cbrt``\ .
+
+   .. doctest::
+
+       julia> cbrt(big(27))
+       3.000000000000000000000000000000000000000000000000000000000000000000000000000000
 
 .. function:: erf(x)
 
@@ -1280,11 +1552,27 @@ Mathematical Functions
 
    Greatest common (positive) divisor (or zero if ``x`` and ``y`` are both zero).
 
+   .. doctest::
+
+       julia> gcd(6,9)
+       3
+
+       julia> gcd(6,-9)
+       3
+
 .. function:: lcm(x,y)
 
    .. Docstring generated from Julia source
 
    Least common (non-negative) multiple.
+
+   .. doctest::
+
+       julia> lcm(2,3)
+       6
+
+       julia> lcm(-2,3)
+       6
 
 .. function:: gcdx(x,y)
 
@@ -1306,23 +1594,44 @@ Mathematical Functions
       Bézout coefficients are *not* uniquely defined. ``gcdx`` returns the minimal Bézout coefficients that are computed by the extended Euclidean algorithm. (Ref: D. Knuth, TAoCP, 2/e, p. 325, Algorithm X.) For signed integers, these coefficients ``u`` and ``v`` are minimal in the sense that :math:`|u| < |y/d|` and :math:`|v| < |x/d|`\ . Furthermore, the signs of ``u`` and ``v`` are chosen so that ``d`` is positive. For unsigned integers, the coefficients ``u`` and ``v`` might be near their ``typemax``\ , and the identity then holds only via the unsigned integers' modulo arithmetic.
 
 
-.. function:: ispow2(n) -> Bool
+.. function:: ispow2(n::Integer) -> Bool
 
    .. Docstring generated from Julia source
 
    Test whether ``n`` is a power of two.
 
-.. function:: nextpow2(n)
+   .. doctest::
+
+       julia> ispow2(4)
+       true
+
+       julia> ispow2(5)
+       false
+
+.. function:: nextpow2(n::Integer)
 
    .. Docstring generated from Julia source
 
    The smallest power of two not less than ``n``\ . Returns 0 for ``n==0``\ , and returns ``-nextpow2(-n)`` for negative arguments.
 
-.. function:: prevpow2(n)
+   .. doctest::
+
+       julia> nextpow2(16)
+       16
+
+       julia> nextpow2(17)
+       32
+
+.. function:: prevpow2(n::Integer)
 
    .. Docstring generated from Julia source
 
    The largest power of two not greater than ``n``\ . Returns 0 for ``n==0``\ , and returns ``-prevpow2(-n)`` for negative arguments.
+
+   .. doctest::
+
+       julia> prevpow2(5)
+       4
 
 .. function:: nextpow(a, x)
 
@@ -1348,7 +1657,18 @@ Mathematical Functions
 
    Take the inverse of ``x`` modulo ``m``\ : ``y`` such that :math:`x y = 1 \pmod m`\ , with :math:`div(x,y) = 0`\ . This is undefined for :math:`m = 0`\ , or if :math:`gcd(x,m) \neq 1`\ .
 
-.. function:: powermod(x, p, m)
+   .. doctest::
+
+       julia> invmod(2,5)
+       3
+
+       julia> invmod(2,3)
+       2
+
+       julia> invmod(5,6)
+       5
+
+.. function:: powermod(x::Integer, p::Integer, m)
 
    .. Docstring generated from Julia source
 
@@ -1364,7 +1684,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Compute the logarithm of the absolute value of :func:`gamma` for :obj:`Real` ``x``\ , while for :obj:`Complex` ``x`` it computes the logarithm of ``gamma(x)``\ .
+   Compute the logarithm of the absolute value of :func:`gamma` for :obj:`Real` ``x``\ , while for :obj:`Complex` ``x`` it computes the principal branch cut of the logarithm of ``gamma(x)`` (defined for negative ``real(x)`` by analytic continuation from positive ``real(x)``\ ).
 
 .. function:: lfact(x)
 
@@ -1382,7 +1702,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Compute the inverse digamma function of ``x``\ .
+   Compute the inverse :func:`digamma` function of ``x``\ .
 
 .. function:: trigamma(x)
 
@@ -1558,7 +1878,7 @@ Mathematical Functions
 
    .. Docstring generated from Julia source
 
-   Natural logarithm of the absolute value of the beta function :math:`\log(|\operatorname{B}(x,y)|)`\ .
+   Natural logarithm of the absolute value of the :func:`beta` function :math:`\log(|\operatorname{B}(x,y)|)`\ .
 
 .. function:: eta(x)
 
@@ -1578,11 +1898,11 @@ Mathematical Functions
 
    Generalized zeta function :math:`\zeta(s, z)`\ , defined by the sum :math:`\sum_{k=0}^\infty ((k+z)^2)^{-s/2}`\ , where any term with :math:`k+z=0` is excluded.  For :math:`\Re z > 0`\ , this definition is equivalent to the Hurwitz zeta function :math:`\sum_{k=0}^\infty (k+z)^{-s}`\ .   For :math:`z=1`\ , it yields the Riemann zeta function :math:`\zeta(s)`\ .
 
-.. function:: ndigits(n, b = 10)
+.. function:: ndigits(n::Integer, b::Integer=10)
 
    .. Docstring generated from Julia source
 
-   Compute the number of digits in number ``n`` written in base ``b``\ .
+   Compute the number of digits in integer ``n`` written in base ``b``\ .
 
 .. function:: widemul(x, y)
 
@@ -1590,11 +1910,27 @@ Mathematical Functions
 
    Multiply ``x`` and ``y``\ , giving the result as a larger type.
 
+   .. doctest::
+
+       julia> widemul(Float32(3.), 4.)
+       1.200000000000000000000000000000000000000000000000000000000000000000000000000000e+01
+
 .. function:: @evalpoly(z, c...)
 
    .. Docstring generated from Julia source
 
    Evaluate the polynomial :math:`\sum_k c[k] z^{k-1}` for the coefficients ``c[1]``\ , ``c[2]``\ , ...; that is, the coefficients are given in ascending order by power of ``z``\ .  This macro expands to efficient inline code that uses either Horner's method or, for complex ``z``\ , a more efficient Goertzel-like algorithm.
+
+   .. doctest::
+
+       julia> @evalpoly(3, 1, 0, 1)
+       10
+
+       julia> @evalpoly(2, 1, 0, 1)
+       5
+
+       julia> @evalpoly(2, 1, 1, 1)
+       7
 
 Statistics
 ----------
@@ -1641,11 +1977,15 @@ Statistics
       Julia does not ignore ``NaN`` values in the computation. For applications requiring the handling of missing data, the ``DataArrays.jl`` package is recommended.
 
 
-.. function:: var(v[, region])
+.. function:: var(v[, region]; corrected::Bool=true, mean=nothing)
 
    .. Docstring generated from Julia source
 
-   Compute the sample variance of a vector or array ``v``\ , optionally along dimensions in ``region``\ . The algorithm will return an estimator of the generative distribution's variance under the assumption that each entry of ``v`` is an IID drawn from that generative distribution. This computation is equivalent to calculating ``sumabs2(v - mean(v)) / (length(v) - 1)``\ . Note: Julia does not ignore ``NaN`` values in the computation. For applications requiring the handling of missing data, the ``DataArray`` package is recommended.
+   Compute the sample variance of a vector or array ``v``\ , optionally along dimensions in ``region``\ . The algorithm will return an estimator of the generative distribution's variance under the assumption that each entry of ``v`` is an IID drawn from that generative distribution. This computation is equivalent to calculating ``sumabs2(v - mean(v)) / (length(v) - 1)``\ . If ``corrected`` is ``true``\ , then the sum is scaled with ``n-1``\ , whereas the sum is scaled with ``n`` if ``corrected`` is ``false`` where ``n = length(x)``\ . The mean ``mean`` over the region may be provided.
+
+   .. note::
+      Julia does not ignore ``NaN`` values in the computation. For applications requiring the handling of missing data, the ``DataArrays.jl`` package is recommended.
+
 
 .. function:: varm(v, m[, region]; corrected::Bool=true)
 
@@ -1712,7 +2052,7 @@ Statistics
 
    .. Docstring generated from Julia source
 
-   Like ``median``\ , but may overwrite the input vector.
+   Like :func:`median`\ , but may overwrite the input vector.
 
 .. function:: midpoints(e)
 
@@ -2033,7 +2373,7 @@ implemented by calling functions from `FFTW
 
    Same as :func:`filt` but writes the result into the ``out`` argument, which may alias the input ``x`` to modify it in-place.
 
-.. function:: deconv(b,a)
+.. function:: deconv(b,a) -> c
 
    .. Docstring generated from Julia source
 

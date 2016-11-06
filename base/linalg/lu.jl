@@ -19,6 +19,15 @@ function lufact!{T<:BlasFloat}(A::StridedMatrix{T}, pivot::Union{Type{Val{false}
     lpt = LAPACK.getrf!(A)
     return LU{T,typeof(A)}(lpt[1], lpt[2], lpt[3])
 end
+
+"""
+    lufact!(A, pivot=Val{true}) -> LU
+
+`lufact!` is the same as [`lufact`](:func:`lufact`), but saves space by overwriting the
+input `A`, instead of creating a copy. An [`InexactError`](:obj:`InexactError`)
+exception is thrown if the factorisation produces a number not representable by the
+element type of `A`, e.g. for integer types.
+"""
 lufact!(A::StridedMatrix, pivot::Union{Type{Val{false}}, Type{Val{true}}} = Val{true}) = generic_lufact!(A, pivot)
 function generic_lufact!{T,Pivot}(A::StridedMatrix{T}, ::Type{Val{Pivot}} = Val{true})
     m, n = size(A)
@@ -132,6 +141,16 @@ lufact(x::Number) = LU(fill(x, 1, 1), BlasInt[1], x == 0 ? one(BlasInt) : zero(B
 lufact(F::LU) = F
 
 lu(x::Number) = (one(x), x, 1)
+
+"""
+    lu(A, pivot=Val{true}) -> L, U, p
+
+Compute the LU factorization of `A`, such that `A[p,:] = L*U`.
+By default, pivoting is used. This can be overridden by passing
+`Val{false}` for the second argument.
+
+See also [`lufact`](:func:`lufact`).
+"""
 function lu(A::AbstractMatrix, pivot::Union{Type{Val{false}}, Type{Val{true}}} = Val{true})
     F = lufact(A, pivot)
     F[:L], F[:U], F[:p]
@@ -192,9 +211,9 @@ At_ldiv_Bt(A::LU, B::StridedVecOrMat) = At_ldiv_B(A, transpose(B))
 Ac_ldiv_Bc{T<:BlasComplex,S<:StridedMatrix}(A::LU{T,S}, B::StridedVecOrMat{T}) = @assertnonsingular LAPACK.getrs!('C', A.factors, A.ipiv, ctranspose(B)) A.info
 Ac_ldiv_Bc(A::LU, B::StridedVecOrMat) = Ac_ldiv_B(A, ctranspose(B))
 
-function det{T,S}(A::LU{T,S})
+function det{T}(A::LU{T})
     n = checksquare(A)
-    A.info > 0 && return zero(typeof(A.factors[1]))
+    A.info > 0 && return zero(T)
     P = one(T)
     c = 0
     @inbounds for i = 1:n
@@ -207,8 +226,9 @@ function det{T,S}(A::LU{T,S})
     return P * s
 end
 
-function logabsdet{T,S}(A::LU{T,S})  # return log(abs(det)) and sign(det)
+function logabsdet{T}(A::LU{T})  # return log(abs(det)) and sign(det)
     n = checksquare(A)
+    A.info > 0 && return log(zero(real(T))), log(one(T))
     c = 0
     P = one(T)
     abs_det = zero(real(T))
@@ -222,11 +242,6 @@ function logabsdet{T,S}(A::LU{T,S})  # return log(abs(det)) and sign(det)
     end
     s = ifelse(isodd(c), -one(real(T)), one(real(T))) * P
     abs_det, s
-end
-
-function logdet(A::LU)
-    d, s = logabsdet(A)
-    return d + log(s)
 end
 
 inv!{T<:BlasFloat,S<:StridedMatrix}(A::LU{T,S}) = @assertnonsingular LAPACK.getri!(A.factors, A.ipiv) A.info
@@ -308,7 +323,7 @@ factorize(A::Tridiagonal) = lufact(A)
 function getindex{T}(F::Base.LinAlg.LU{T,Tridiagonal{T}}, d::Symbol)
     m, n = size(F)
     if d == :L
-        L = full(Bidiagonal(ones(T, n), F.factors.dl, false))
+        L = Array(Bidiagonal(ones(T, n), F.factors.dl, false))
         for i = 2:n
             tmp = L[F.ipiv[i], 1:i - 1]
             L[F.ipiv[i], 1:i - 1] = L[i, 1:i - 1]
@@ -316,7 +331,7 @@ function getindex{T}(F::Base.LinAlg.LU{T,Tridiagonal{T}}, d::Symbol)
         end
         return L
     elseif d == :U
-        U = full(Bidiagonal(F.factors.d, F.factors.du, true))
+        U = Array(Bidiagonal(F.factors.d, F.factors.du, true))
         for i = 1:n - 2
             U[i,i + 2] = F.factors.du2[i]
         end
@@ -333,7 +348,7 @@ end
 function A_ldiv_B!{T}(A::LU{T,Tridiagonal{T}}, B::AbstractVecOrMat)
     n = size(A,1)
     if n != size(B,1)
-        throw(DimensionMismatch("Matrix has dimensions ($n,$n) but right hand side has $(size(B,1)) rows"))
+        throw(DimensionMismatch("matrix has dimensions ($n,$n) but right hand side has $(size(B,1)) rows"))
     end
     nrhs = size(B,2)
     dl = A.factors.dl
@@ -364,7 +379,7 @@ end
 function At_ldiv_B!{T}(A::LU{T,Tridiagonal{T}}, B::AbstractVecOrMat)
     n = size(A,1)
     if n != size(B,1)
-        throw(DimensionMismatch("Matrix has dimensions ($n,$n) but right hand side has $(size(B,1)) rows"))
+        throw(DimensionMismatch("matrix has dimensions ($n,$n) but right hand side has $(size(B,1)) rows"))
     end
     nrhs = size(B,2)
     dl = A.factors.dl
@@ -399,7 +414,7 @@ end
 function Ac_ldiv_B!{T}(A::LU{T,Tridiagonal{T}}, B::AbstractVecOrMat)
     n = size(A,1)
     if n != size(B,1)
-        throw(DimensionMismatch("Matrix has dimensions ($n,$n) but right hand side has $(size(B,1)) rows"))
+        throw(DimensionMismatch("matrix has dimensions ($n,$n) but right hand side has $(size(B,1)) rows"))
     end
     nrhs = size(B,2)
     dl = A.factors.dl
@@ -437,7 +452,7 @@ convert(::Type{AbstractMatrix}, F::LU) = (F[:L] * F[:U])[invperm(F[:p]),:]
 convert(::Type{AbstractArray}, F::LU) = convert(AbstractMatrix, F)
 convert(::Type{Matrix}, F::LU) = convert(Array, convert(AbstractArray, F))
 convert(::Type{Array}, F::LU) = convert(Matrix, F)
-full(F::LU) = convert(Array, F)
+full(F::LU) = convert(AbstractArray, F)
 
 function convert{T}(::Type{Tridiagonal}, F::Base.LinAlg.LU{T,Tridiagonal{T}})
     n = size(F, 1)
@@ -477,4 +492,4 @@ convert{T}(::Type{AbstractMatrix}, F::Base.LinAlg.LU{T,Tridiagonal{T}}) = conver
 convert{T}(::Type{AbstractArray}, F::Base.LinAlg.LU{T,Tridiagonal{T}}) = convert(AbstractMatrix, F)
 convert{T}(::Type{Matrix}, F::Base.LinAlg.LU{T,Tridiagonal{T}}) = convert(Array, convert(AbstractArray, F))
 convert{T}(::Type{Array}, F::Base.LinAlg.LU{T,Tridiagonal{T}}) = convert(Matrix, F)
-full{T}(F::Base.LinAlg.LU{T,Tridiagonal{T}}) = convert(Array, F)
+full{T}(F::Base.LinAlg.LU{T,Tridiagonal{T}}) = convert(AbstractArray, F)

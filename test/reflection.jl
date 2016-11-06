@@ -9,6 +9,7 @@ using Base.Test
 
 function test_ast_reflection(freflect, f, types)
     @test !isempty(freflect(f, types))
+    nothing
 end
 
 function test_bin_reflection(freflect, f, types)
@@ -16,11 +17,13 @@ function test_bin_reflection(freflect, f, types)
     freflect(iob, f, types)
     str = takebuf_string(iob)
     @test !isempty(str)
+    nothing
 end
 
 function test_code_reflection(freflect, f, types, tester)
     tester(freflect, f, types)
     tester(freflect, f, (types.parameters...))
+    nothing
 end
 
 function test_code_reflections(tester, freflect)
@@ -45,6 +48,7 @@ mktemp() do f, io
     redirect_stdout(io)
     @test try @code_native map(abs, rand(3)); true; catch false; end
     redirect_stdout(OLDSTDOUT)
+    nothing
 end
 
 end # module ReflectionTest
@@ -57,7 +61,7 @@ function warntype_hastag(f, types, tag)
     iob = IOBuffer()
     code_warntype(iob, f, types)
     str = takebuf_string(iob)
-    !isempty(search(str, tag))
+    return !isempty(search(str, tag))
 end
 
 pos_stable(x) = x > 0 ? x : zero(x)
@@ -163,6 +167,7 @@ not_const = 1
 
 module TestMod7648
 using Base.Test
+import Base.convert
 export a9475, foo9475, c7648, foo7648, foo7648_nomethods, Foo7648
 
 const c7648 = 8
@@ -206,6 +211,9 @@ let
     @test Set(names(TestMod7648, true)) == Set([:TestMod7648, :TestModSub9475, :a9475, :foo9475, :c7648, :d7648, :f7648,
                                                 :foo7648, Symbol("#foo7648"), :foo7648_nomethods, Symbol("#foo7648_nomethods"),
                                                 :Foo7648, :eval, Symbol("#eval")])
+    @test Set(names(TestMod7648, true, true)) == Set([:TestMod7648, :TestModSub9475, :a9475, :foo9475, :c7648, :d7648, :f7648,
+                                                      :foo7648, Symbol("#foo7648"), :foo7648_nomethods, Symbol("#foo7648_nomethods"),
+                                                      :Foo7648, :eval, Symbol("#eval"), :convert])
     @test isconst(TestMod7648, :c7648)
     @test !isconst(TestMod7648, :d7648)
 end
@@ -228,11 +236,11 @@ let
     @test TestMod7648.TestModSub9475 == @which a9475
 end
 
-@test_throws ArgumentError which(is, Tuple{Int, Int})
-@test_throws ArgumentError code_typed(is, Tuple{Int, Int})
-@test_throws ArgumentError code_llvm(is, Tuple{Int, Int})
-@test_throws ArgumentError code_native(is, Tuple{Int, Int})
-@test_throws ArgumentError Base.return_types(is, Tuple{Int, Int})
+@test_throws ArgumentError which(===, Tuple{Int, Int})
+@test_throws ArgumentError code_typed(===, Tuple{Int, Int})
+@test_throws ArgumentError code_llvm(===, Tuple{Int, Int})
+@test_throws ArgumentError code_native(===, Tuple{Int, Int})
+@test_throws ArgumentError Base.return_types(===, Tuple{Int, Int})
 
 module TestingExported
 using Base.Test
@@ -372,10 +380,10 @@ end
 used_dup_var_tested15714 = false
 used_unique_var_tested15714 = false
 function test_typed_ast_printing(f::ANY, types::ANY, must_used_vars)
-    li = code_typed(f, types)[1]
+    src, rettype = code_typed(f, types)[1]
     dupnames = Set()
     slotnames = Set()
-    for name in li.slotnames
+    for name in src.slotnames
         if name in slotnames
             push!(dupnames, name)
         else
@@ -387,17 +395,15 @@ function test_typed_ast_printing(f::ANY, types::ANY, must_used_vars)
         @test name in slotnames
     end
     for str in (sprint(code_warntype, f, types),
-                stringmime("text/plain", li))
-        # Test to make sure the clearing of file path below works
-        @test string(li.def.file) == @__FILE__
+                stringmime("text/plain", src))
         for var in must_used_vars
             @test contains(str, string(var))
         end
         @test !contains(str, "Any")
         @test !contains(str, "ANY")
         # Check that we are not printing the bare slot numbers
-        for i in 1:length(li.slotnames)
-            name = li.slotnames[i]
+        for i in 1:length(src.slotnames)
+            name = src.slotnames[i]
             if name in dupnames
                 @test contains(str, "_$i")
                 if name in must_used_vars
@@ -411,12 +417,12 @@ function test_typed_ast_printing(f::ANY, types::ANY, must_used_vars)
             end
         end
     end
-    # Make sure printing an AST outside LambdaInfo still works.
-    str = sprint(show, Base.uncompressed_ast(li))
+    # Make sure printing an AST outside CodeInfo still works.
+    str = sprint(show, src.code)
     # Check that we are printing the slot numbers when we don't have the context
     # Use the variable names that we know should be present in the optimized AST
-    for i in 2:length(li.slotnames)
-        name = li.slotnames[i]
+    for i in 2:length(src.slotnames)
+        name = src.slotnames[i]
         if name in must_used_vars
             @test contains(str, "_$i")
         end
@@ -429,20 +435,21 @@ test_typed_ast_printing(g15714, Tuple{Vector{Float32}},
 @test used_dup_var_tested15714
 @test used_unique_var_tested15714
 
-let li = typeof(getfield).name.mt.cache.func::LambdaInfo,
+let li = typeof(getfield).name.mt.cache.func::Core.MethodInstance,
     lrepr = string(li),
     mrepr = string(li.def),
-    lmime = stringmime("text/plain", li)
+    lmime = stringmime("text/plain", li),
+    mmime = stringmime("text/plain", li.def)
 
-    @test lrepr == "LambdaInfo template for getfield(...)"
-    @test mrepr == "getfield(...)"
+    @test lrepr == lmime == "MethodInstance for getfield(...)"
+    @test mrepr == mmime == "getfield(...)"
 end
 
 
 # Linfo Tracing test
 tracefoo(x, y) = x+y
 didtrace = false
-tracer(x::Ptr{Void}) = (@test isa(unsafe_pointer_to_objref(x), LambdaInfo); global didtrace = true; nothing)
+tracer(x::Ptr{Void}) = (@test isa(unsafe_pointer_to_objref(x), Core.MethodInstance); global didtrace = true; nothing)
 ccall(:jl_register_method_tracer, Void, (Ptr{Void},), cfunction(tracer, Void, (Ptr{Void},)))
 meth = which(tracefoo,Tuple{Any,Any})
 ccall(:jl_trace_method, Void, (Any,), meth)
@@ -538,8 +545,10 @@ end
 let
     a = @code_typed 1 + 1
     b = @code_lowered 1 + 1
-    @test isa(a, LambdaInfo)
-    @test isa(b, LambdaInfo)
+    @test isa(a, Pair{CodeInfo, DataType})
+    @test isa(b, CodeInfo)
+    @test isa(a[1].code, Array{Any,1})
+    @test isa(b.code, Array{Any,1})
 
     function thing(a::Array, b::Real)
         println("thing")
@@ -553,3 +562,40 @@ let
     @test length(a) == 0
     @test length(b) == 0
 end
+
+type A18434
+end
+(::Type{A18434})(x; y=1) = 1
+
+global counter18434 = 0
+function get_A18434()
+    global counter18434
+    counter18434 += 1
+    return A18434
+end
+@which get_A18434()(1; y=2)
+@test counter18434 == 1
+@which get_A18434()(1, y=2)
+@test counter18434 == 2
+
+# PR #18888: code_typed shouldn't cache if not optimizing
+let
+    f18888() = return nothing
+    m = first(methods(f18888, Tuple{}))
+    @test m.specializations == nothing
+    ft = typeof(f18888)
+
+    code_typed(f18888, Tuple{}; optimize=false)
+    @test m.specializations != nothing  # uncached, but creates the specializations entry
+    code = Core.Inference.code_for_method(m, Tuple{ft}, Core.svec(), true)
+    @test !isdefined(code, :inferred)
+
+    code_typed(f18888, Tuple{}; optimize=true)
+    code = Core.Inference.code_for_method(m, Tuple{ft}, Core.svec(), true)
+    @test isdefined(code, :inferred)
+end
+
+# Issue #18883, code_llvm/code_native for generated functions
+@generated f18883() = nothing
+@test !isempty(sprint(io->code_llvm(io, f18883, Tuple{})))
+@test !isempty(sprint(io->code_native(io, f18883, Tuple{})))

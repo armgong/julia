@@ -260,7 +260,7 @@ let AA = [1+2im 3+4im; 5+6im 7+8im], BB = [2+7im 4+1im; 3+8im 6+5im]
     for Atype = ["Array", "SubArray"],  Btype = ["Array", "SubArray"]
         A = Atype == "Array" ? AA : view(AA, 1:2, 1:2)
         B = Btype == "Array" ? BB : view(BB, 1:2, 1:2)
-        @test vecdot(A,B) == dot(vec(A),vec(B)) == vecdot_(A,B) == vecdot(float(A),float(B))
+        @test vecdot(A,B) == dot(vec(A),vec(B)) == vecdot_(A,B) == vecdot(float.(A),float.(B))
         @test vecdot(Int[], Int[]) == 0 == vecdot_(Int[], Int[])
         @test_throws MethodError vecdot(Any[], Any[])
         @test_throws MethodError vecdot_(Any[], Any[])
@@ -336,7 +336,7 @@ A = [RootInt(3) RootInt(5)]
 
 function test_mul(C, A, B)
     A_mul_B!(C, A, B)
-    @test full(A) * full(B) ≈ C
+    @test Array(A) * Array(B) ≈ C
     @test A*B ≈ C
 end
 
@@ -388,4 +388,31 @@ let
         @test_throws DimensionMismatch A_mul_B!(full43, tri33, full43)
         @test_throws DimensionMismatch A_mul_B!(full43, full43, tri44)
     end
+end
+
+# #18218
+module TestPR18218
+    using Base.Test
+    import Base.*, Base.+, Base.zero
+    immutable TypeA
+        x::Int
+    end
+    Base.convert(::Type{TypeA}, x::Int) = TypeA(x)
+    immutable TypeB
+        x::Int
+    end
+    immutable TypeC
+        x::Int
+    end
+    Base.convert(::Type{TypeC}, x::Int) = TypeC(x)
+    zero(c::TypeC) = TypeC(0)
+    zero(::Type{TypeC}) = TypeC(0)
+    (*)(x::Int, a::TypeA) = TypeB(x*a.x)
+    (*)(a::TypeA, x::Int) = TypeB(a.x*x)
+    (+)(a::Union{TypeB,TypeC}, b::Union{TypeB,TypeC}) = TypeC(a.x+b.x)
+    A = TypeA[1 2; 3 4]
+    b = [1, 2]
+    d = A * b
+    @test typeof(d) == Vector{TypeC}
+    @test d == TypeC[5, 11]
 end

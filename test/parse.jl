@@ -26,7 +26,7 @@ let
         ex1 = parse(ex1); ex2 = parse(ex2)
         @test ex1.head === :call && (ex1.head === ex2.head)
         @test ex1.args[2] === 5 && ex2.args[2] === 5
-        @test is(eval(Main, ex1.args[1]), eval(Main, ex2.args[1]))
+        @test eval(Main, ex1.args[1]) === eval(Main, ex2.args[1])
         @test ex1.args[3] === :x && (ex1.args[3] === ex2.args[3])
     end
 end
@@ -173,17 +173,17 @@ macro f(args...) end; @f ""
 @test_throws ParseError parse("(1 2)") # issue #15248
 
 # integer parsing
-@test is(parse(Int32,"0",36),Int32(0))
-@test is(parse(Int32,"1",36),Int32(1))
-@test is(parse(Int32,"9",36),Int32(9))
-@test is(parse(Int32,"A",36),Int32(10))
-@test is(parse(Int32,"a",36),Int32(10))
-@test is(parse(Int32,"B",36),Int32(11))
-@test is(parse(Int32,"b",36),Int32(11))
-@test is(parse(Int32,"F",36),Int32(15))
-@test is(parse(Int32,"f",36),Int32(15))
-@test is(parse(Int32,"Z",36),Int32(35))
-@test is(parse(Int32,"z",36),Int32(35))
+@test parse(Int32,"0",36) === Int32(0)
+@test parse(Int32,"1",36) === Int32(1)
+@test parse(Int32,"9",36) === Int32(9)
+@test parse(Int32,"A",36) === Int32(10)
+@test parse(Int32,"a",36) === Int32(10)
+@test parse(Int32,"B",36) === Int32(11)
+@test parse(Int32,"b",36) === Int32(11)
+@test parse(Int32,"F",36) === Int32(15)
+@test parse(Int32,"f",36) === Int32(15)
+@test parse(Int32,"Z",36) === Int32(35)
+@test parse(Int32,"z",36) === Int32(35)
 
 @test parse(Int,"0") == 0
 @test parse(Int,"-0") == 0
@@ -663,6 +663,10 @@ end
 # issue #17701
 @test expand(:(i==3 && i+=1)) == Expr(:error, "invalid assignment location \"==(i,3)&&i\"")
 
+# issue #18667
+@test expand(:(true = 1)) == Expr(:error, "invalid assignment location \"true\"")
+@test expand(:(false = 1)) == Expr(:error, "invalid assignment location \"false\"")
+
 # PR #15592
 let str = "[1] [2]"
     @test_throws ParseError parse(str)
@@ -674,10 +678,11 @@ end
 # Issue #16578 (Lowering) mismatch between push_loc and pop_loc
 module TestMeta_16578
 using Base.Test
-function get_expr_list(ex)
-    if isa(ex, LambdaInfo)
-        return Base.uncompressed_ast(ex)
-    elseif ex.head == :thunk
+function get_expr_list(ex::CodeInfo)
+    return ex.code::Array{Any,1}
+end
+function get_expr_list(ex::Expr)
+    if ex.head == :thunk
         return get_expr_list(ex.args[1])
     else
         return ex.args
@@ -767,13 +772,62 @@ end
     end
 end
 
-f1_exprs = get_expr_list(@code_typed f1(1))
-@test count_meta_loc(f1_exprs) == 0
-@test Meta.isexpr(f1_exprs[end], :return)
+f1_exprs = get_expr_list(@code_typed(f1(1))[1])
+f2_exprs = get_expr_list(@code_typed(f2(1))[1])
 
-f2_exprs = get_expr_list(@code_typed f2(1))
-@test count_meta_loc(f2_exprs) == 1
+@test Meta.isexpr(f1_exprs[end], :return)
 @test is_pop_loc(f2_exprs[end - 1])
 @test Meta.isexpr(f2_exprs[end], :return)
 
+if Base.JLOptions().code_coverage != 0 && Base.JLOptions().can_inline != 0
+    @test count_meta_loc(f1_exprs) == 1
+    @test count_meta_loc(f2_exprs) == 2
+else
+    @test count_meta_loc(f1_exprs) == 0
+    @test count_meta_loc(f2_exprs) == 1
+end
+
+# Check that string and command literals are parsed to the appropriate macros
+@test :(x"s") == :(@x_str "s")
+@test :(x"s"flag) == :(@x_str "s" "flag")
+@test :(x"s\"`\x\$\\") == :(@x_str "s\"`\\x\\\$\\\\")
+@test :(x`s`) == :(@x_cmd "s")
+@test :(x`s`flag) == :(@x_cmd "s" "flag")
+@test :(x`s\`"\x\$\\`) == :(@x_cmd "s`\"\\x\\\$\\\\")
+
+# Check multiline command literals
+@test :```
+multiline
+command
+``` == :(@cmd "multiline\ncommand\n")
+
+macro julia_cmd(s)
+    Meta.quot(parse(s))
+end
+@test julia```
+if test + test == test
+    println(test)
+end
+```.head == :if
+
+end
+
+# issue 18756
+module Mod18756
+type Type
+end
+end
+@test method_exists(Mod18756.Type, ())
+
+# issue 18002
+@test parse("typealias a (Int)") == Expr(:typealias, :a, :Int)
+@test parse("typealias b (Int,)") == Expr(:typealias, :b, Expr(:tuple, :Int))
+@test parse("typealias Foo{T} Bar{T}") == Expr(:typealias, Expr(:curly, :Foo, :T), Expr(:curly, :Bar, :T))
+
+# don't insert push_loc for filename `none` at the top level
+let ex = expand(parse("""
+begin
+    x = 1
+end"""))
+    @test !any(x->(x == Expr(:meta, :push_loc, :none)), ex.args)
 end

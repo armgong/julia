@@ -1,5 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+using Core: CodeInfo
+
 typealias Callable Union{Function,DataType}
 
 const Bottom = Union{}
@@ -23,6 +25,7 @@ macro _propagate_inbounds_meta()
     Expr(:meta, :inline, :propagate_inbounds)
 end
 
+convert(::Type{Any}, x::ANY) = x
 convert{T}(::Type{T}, x::T) = x
 
 convert(::Type{Tuple{}}, ::Tuple{}) = ()
@@ -33,7 +36,7 @@ cnvt_all(T, x, rest...) = tuple(convert(T,x), cnvt_all(T, rest...)...)
 
 macro generated(f)
     isa(f, Expr) || error("invalid syntax; @generated must be used with a function definition")
-    if is(f.head, :function) || (isdefined(:length) && is(f.head, :(=)) && length(f.args) == 2 && f.args[1].head == :call)
+    if f.head === :function || (isdefined(:length) && f.head === :(=) && length(f.args) == 2 && f.args[1].head == :call)
         f.head = :stagedfunction
         return Expr(:escape, f)
     else
@@ -60,7 +63,13 @@ function tuple_type_tail(T::DataType)
     return Tuple{argtail(T.parameters...)...}
 end
 
-isvarargtype(t::ANY) = isa(t, DataType) && is((t::DataType).name, Vararg.name)
+tuple_type_cons{S}(::Type{S}, ::Type{Union{}}) = Union{}
+function tuple_type_cons{S,T<:Tuple}(::Type{S}, ::Type{T})
+    @_pure_meta
+    Tuple{S, T.parameters...}
+end
+
+isvarargtype(t::ANY) = isa(t, DataType) && (t::DataType).name === Vararg.name
 isvatuple(t::DataType) = (n = length(t.parameters); n > 0 && isvarargtype(t.parameters[n]))
 unwrapva(t::ANY) = isvarargtype(t) ? t.parameters[1] : t
 
@@ -84,6 +93,8 @@ unsafe_convert{T}(::Type{T}, x::T) = x # unsafe_convert (like convert) defaults 
 unsafe_convert{P<:Ptr}(::Type{P}, x::Ptr) = convert(P, x)
 
 reinterpret{T}(::Type{T}, x) = box(T, x)
+reinterpret(::Type{Unsigned}, x::Float16) = reinterpret(UInt16,x)
+reinterpret(::Type{Signed}, x::Float16) = reinterpret(Int16,x)
 
 sizeof(x) = Core.sizeof(x)
 
@@ -131,6 +142,13 @@ function precompile(argt::Type)
     ccall(:jl_compile_hint, Cint, (Any,), argt) != 0
 end
 
+"""
+    esc(e::ANY)
+
+Only valid in the context of an `Expr` returned from a macro. Prevents the macro hygiene
+pass from turning embedded variables into gensym variables. See the [macro](:ref:`man-macros`)
+section of the Metaprogramming chapter of the manual for more details and examples.
+"""
 esc(e::ANY) = Expr(:escape, e)
 
 macro boundscheck(blk)
@@ -209,3 +227,15 @@ const (:) = Colon()
 # For passing constants through type inference
 immutable Val{T}
 end
+
+# used by interpolating quote and some other things in the front end
+function vector_any(xs::ANY...)
+    n = length(xs)
+    a = Array{Any}(n)
+    @inbounds for i = 1:n
+        Core.arrayset(a,xs[i],i)
+    end
+    a
+end
+
+isempty(itr) = done(itr, start(itr))

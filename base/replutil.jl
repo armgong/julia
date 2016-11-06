@@ -99,7 +99,11 @@ end
 function show(io::IO, ::MIME"text/plain", f::Function)
     ft = typeof(f)
     mt = ft.name.mt
-    if isa(f, Core.Builtin)
+    if isa(f, Core.IntrinsicFunction)
+        show(io, f)
+        id = Core.Intrinsics.box(Int32, f)
+        print(io, " (intrinsic function #$id)")
+    elseif isa(f, Core.Builtin)
         print(io, mt.name, " (built-in function)")
     else
         name = mt.name
@@ -110,23 +114,6 @@ function show(io::IO, ::MIME"text/plain", f::Function)
         ns = isself ? string(name) : string("(::", name, ")")
         what = startswith(ns, '@') ? "macro" : "generic function"
         print(io, ns, " (", what, " with $n $m)")
-    end
-end
-
-function show(io::IO, ::MIME"text/plain", l::LambdaInfo)
-    show(io, l)
-    # Fix slot names and types in function body
-    ast = uncompressed_ast(l)
-    if ast !== nothing
-        println(io)
-        lambda_io = IOContext(io, :LAMBDAINFO => l)
-        if isdefined(l, :slotnames)
-            lambda_io = IOContext(lambda_io, :LAMBDA_SLOTNAMES => lambdainfo_slotnames(l))
-        end
-        body = Expr(:body)
-        body.args = ast
-        body.typ = l.rettype
-        show(lambda_io, body)
     end
 end
 

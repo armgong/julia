@@ -79,6 +79,13 @@ A = rand(5,4,3)
 @test checkbounds(Bool, A, trues(5), trues(12)) == true
 @test checkbounds(Bool, A, trues(5), trues(13)) == false
 @test checkbounds(Bool, A, trues(6), trues(12)) == false
+@test checkbounds(Bool, A, trues(5, 4, 3)) == true
+@test checkbounds(Bool, A, trues(5, 4, 2)) == false
+@test checkbounds(Bool, A, trues(5, 12)) == false
+@test checkbounds(Bool, A, trues(1, 5), trues(1, 4, 1), trues(1, 1, 3)) == true
+@test checkbounds(Bool, A, trues(1, 5), trues(1, 4, 1), trues(1, 1, 2)) == false
+@test checkbounds(Bool, A, trues(1, 5), trues(1, 5, 1), trues(1, 1, 3)) == false
+@test checkbounds(Bool, A, trues(1, 5), :, 2) == true
 
 # array of CartesianIndex
 @test checkbounds(Bool, A, [CartesianIndex((1, 1, 1))]) == true
@@ -553,6 +560,9 @@ function test_cat(::Type{TestAbstractArray})
     # check for # of columns mismatch b/w rows
     @test_throws ArgumentError hvcat((3, 2), 1, 2, 3, 4, 5, 6)
     @test_throws ArgumentError Base.typed_hvcat(Int, (3, 2), 1, 2, 3, 4, 5, 6)
+
+    # 18395
+    @test isa(Any["a" 5; 2//3 1.0][2,1], Rational{Int})
 end
 
 function test_ind2sub(::Type{TestAbstractArray})
@@ -755,3 +765,13 @@ let A17811 = Integer[]
     @test I == Any[1]
     @test isa(map(abs, A17811), Array{Any,1})
 end
+
+#copymutable for itrs
+@test Base.copymutable((1,2,3)) == [1,2,3]
+
+#sub2ind for empty tuple
+@test sub2ind(()) == 1
+
+#to_shape
+@test Base.to_shape(()) === ()
+@test Base.to_shape(1) === 1

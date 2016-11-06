@@ -16,20 +16,42 @@ function redirected_stderr(expected)
     return t
 end
 
+Foo_module = :Foo4b3a94a1a081a8cb
+FooBase_module = :FooBase4b3a94a1a081a8cb
+@eval module ConflictingBindings
+    export $Foo_module, $FooBase_module
+    $Foo_module = 232
+    $FooBase_module = 9134
+end
+using ConflictingBindings
+
+# this environment variable would affect some error messages being tested below
+# so we disable it for the tests below
+withenv( "JULIA_DEBUG_LOADING" => nothing ) do
+
 olderr = STDERR
 dir = mktempdir()
 dir2 = mktempdir()
 insert!(LOAD_PATH, 1, dir)
 insert!(Base.LOAD_CACHE_PATH, 1, dir)
-Foo_module = :Foo4b3a94a1a081a8cb
 try
     Foo_file = joinpath(dir, "$Foo_module.jl")
+    FooBase_file = joinpath(dir, "$FooBase_module.jl")
 
+    write(FooBase_file,
+          """
+          __precompile__(true)
+
+          module $FooBase_module
+          end
+          """)
     write(Foo_file,
           """
           __precompile__(true)
 
           module $Foo_module
+              using $FooBase_module
+
               # test that docs get reconnected
               @doc "foo function" foo(x) = x + 1
               include_dependency("foo.jl")
@@ -83,8 +105,25 @@ try
               (::Type{Vector{NominalValue{T, T}}}){T}() = 4
               (::Type{Vector{NominalValue{Int, Int}}})() = 5
 
-              #const some_method = @which Base.include("string") // FIXME: support for serializing a direct reference to an external Method not implemented
-              const some_linfo = @code_typed Base.include("string")
+              # more tests for method signature involving a complicated type
+              # issue 18343
+              immutable Pool18343{R, V}
+                  valindex::Vector{V}
+              end
+              immutable Value18343{T, R}
+                  pool::Pool18343{R, Value18343{T, R}}
+              end
+              Base.convert{S}(::Type{Nullable{S}}, ::Value18343{Nullable}) = 2
+              Base.convert(::Type{Nullable{Value18343}}, ::Value18343{Nullable}) = 2
+              Base.convert{T}(::Type{Ref}, ::Value18343{T}) = 3
+
+
+              let some_method = @which Base.include("string")
+                    # global const some_method // FIXME: support for serializing a direct reference to an external Method not implemented
+                  global const some_linfo =
+                      ccall(:jl_specializations_get_linfo, Ref{MethodInstance}, (Any, Any, Any),
+                          some_method, Tuple{typeof(Base.include), String}, Core.svec())
+              end
           end
           """)
     @test_throws ErrorException Core.kwfunc(Base.nothing) # make sure `nothing` didn't have a kwfunc (which would invalidate the attempted test)
@@ -106,7 +145,7 @@ try
     end
     wait(t)
 
-    let Foo = eval(Main, Foo_module)
+    let Foo = getfield(Main, Foo_module)
         @test Foo.foo(17) == 18
         @test Foo.Bar.bar(17) == 19
 
@@ -119,8 +158,8 @@ try
         @test map(x -> x[1],  sort(deps)) == [Foo_file, joinpath(dir, "bar.jl"), joinpath(dir, "foo.jl")]
 
         modules, deps1 = Base.cache_dependencies(cachefile)
-        @test sort(modules) == map(s -> (s, Base.module_uuid(eval(s))),
-                                   [:Base, :Core, :Main])
+        @test sort(modules) == Any[(s, Base.module_uuid(getfield(Foo, s))) for s in
+                                   [:Base, :Core, FooBase_module, :Main]]
         @test deps == deps1
 
         @test current_task()(0x01, 0x4000, 0x30031234) == 2
@@ -146,8 +185,20 @@ try
                 Val{3},
                 Val{nothing}},
             0:25)
+        some_method = @which Base.include("string")
+        some_linfo =
+                ccall(:jl_specializations_get_linfo, Ref{MethodInstance}, (Any, Any, Any),
+                    some_method, Tuple{typeof(Base.include), String}, Core.svec())
+        @test Foo.some_linfo::Core.MethodInstance === some_linfo
 
-        @test Foo.some_linfo === @code_typed Base.include("string")
+        PV = Foo.Value18343{Nullable}.types[1]
+        VR = PV.types[1].parameters[1]
+        @test PV.types[1] === Array{VR,1}
+        @test pointer_from_objref(PV.types[1]) ===
+              pointer_from_objref(PV.types[1].parameters[1].types[1].types[1]) ===
+              pointer_from_objref(Array{VR,1})
+        @test PV === PV.types[1].parameters[1].types[1]
+        @test pointer_from_objref(PV) !== pointer_from_objref(PV.types[1].parameters[1].types[1])
     end
 
     Baz_file = joinpath(dir, "Baz.jl")
@@ -158,7 +209,7 @@ try
           end
           """)
 
-    t = redirected_stderr("ERROR: LoadError: __precompile__(false) is not allowed in files that are being precompiled\n in __precompile__")
+    t = redirected_stderr("ERROR: LoadError: Declaring __precompile__(false) is not allowed in files that are being precompiled.\n in __precompile__")
     try
         Base.compilecache("Baz") # from __precompile__(false)
         error("__precompile__ disabled test failed")
@@ -194,6 +245,11 @@ try
     @test !isdefined(Main, :FooBar)
     @test !isdefined(Main, :FooBar1)
 
+    relFooBar_file = joinpath(dir, "subfolder", "..", "FooBar.jl")
+    @test Base.stale_cachefile(relFooBar_file, joinpath(dir, "FooBar.ji")) == !is_windows() # `..` is not a symlink on Windows
+    mkdir(joinpath(dir, "subfolder"))
+    @test !Base.stale_cachefile(relFooBar_file, joinpath(dir, "FooBar.ji"))
+
     @eval using FooBar
     fb_uuid = Base.module_uuid(Main.FooBar)
     sleep(2); touch(FooBar_file)
@@ -225,11 +281,7 @@ try
     @test !Base.stale_cachefile(FooBar1_file, joinpath(dir2, "FooBar1.ji"))
     @test !Base.stale_cachefile(FooBar_file, joinpath(dir2, "FooBar.ji"))
 
-    t = redirected_stderr("""
-                          WARNING: Deserialization checks failed while attempting to load cache from $(joinpath(dir2, "FooBar1.ji")).
-                          WARNING: Module FooBar uuid did not match cache file.
-                          WARNING: replacing module FooBar1.
-                          """)
+    t = redirected_stderr("WARNING: replacing module FooBar1.")
     try
         reload("FooBar1")
     finally
@@ -331,3 +383,5 @@ let module_name = string("a",randstring())
     deleteat!(LOAD_PATH,1)
     rm(file_name)
 end
+
+end # !withenv

@@ -30,13 +30,10 @@ alias :obj:`StackTrace` can be used in place of ``Vector{StackFrame}``. (Example
     example (generic function with 1 method)
 
     julia> example()
-    6-element Array{StackFrame,1}:
+    11-element Array{StackFrame,1}:
       in example() at none:1
-      in eval(::Module, ::Any) at boot.jl:234
-      in eval_user_input(::Any, ::Bool) at client.jl:117
-      in eval(::Module, ::Any) at boot.jl:234
-      in eval_user_input(::Any, ::Bool) at client.jl:117
-      in _start() at client.jl:355
+      in eval(::Module, ::Any) at boot.jl:236
+      ...
 
     julia> @noinline child() = stacktrace()
     child (generic function with 1 method)
@@ -48,7 +45,7 @@ alias :obj:`StackTrace` can be used in place of ``Vector{StackFrame}``. (Example
     grandparent (generic function with 1 method)
 
     julia> grandparent()
-    8-element Array{StackFrame,1}:
+    13-element Array{StackFrame,1}:
       in child() at none:1
       in parent() at none:1
       in grandparent() at none:1
@@ -77,7 +74,7 @@ Each :obj:`StackFrame` contains the function name, file name, line number, lambd
 .. doctest::
 
     julia> top_frame = stacktrace()[1]
-     in eval(::Module, ::Any) at boot.jl:234
+     in eval(::Module, ::Any) at boot.jl:236
 
     julia> top_frame.func
     :eval
@@ -86,10 +83,10 @@ Each :obj:`StackFrame` contains the function name, file name, line number, lambd
     Symbol("./boot.jl")
 
     julia> top_frame.line
-    234
+    236
 
     julia> top_frame.linfo
-    Nullable{LambdaInfo}(LambdaInfo for eval(::Module, ::Any))
+    Nullable{MethodInstance}(MethodInstance for eval(::Module, ::Any))
 
     julia> top_frame.inlined
     false
@@ -124,9 +121,9 @@ helpful in many places, the most obvious application is in error handling and de
     example (generic function with 1 method)
 
     julia> example()
-    6-element Array{StackFrame,1}:
+    11-element Array{StackFrame,1}:
       in example() at none:4
-      in eval(::Module, ::Any) at boot.jl:234
+      in eval(::Module, ::Any) at boot.jl:236
       ...
 
 You may notice that in the example above the first stack frame points points at line 4,
@@ -153,7 +150,7 @@ returns stack information for the context of the most recent exception:
     example (generic function with 1 method)
 
     julia> example()
-    7-element Array{StackFrame,1}:
+    12-element Array{StackFrame,1}:
       in bad_function() at none:1
       in example() at none:2
       ...
@@ -180,7 +177,7 @@ Notice that the stack trace now indicates the appropriate line number and the mi
 
     julia> grandparent()
     ERROR: Whoops!
-    8-element Array{StackFrame,1}:
+    13-element Array{StackFrame,1}:
       in child() at none:1
       in parent() at none:1
       in grandparent() at none:3

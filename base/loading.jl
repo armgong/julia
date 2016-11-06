@@ -210,7 +210,6 @@ function _require_search_from_serialized(node::Int, mod::Symbol, sourcepath::Str
         paths = @fetchfrom node find_all_in_cache_path(mod)
     end
 
-    local restored = nothing, failedpath = ""
     for path_to_try in paths::Vector{String}
         if stale_cachefile(sourcepath, path_to_try)
             continue
@@ -220,7 +219,7 @@ function _require_search_from_serialized(node::Int, mod::Symbol, sourcepath::Str
             if isa(restored, ErrorException) && endswith(restored.msg, " uuid did not match cache file.")
                 # can't use this cache due to a module uuid mismatch,
                 # defer reporting error until after trying all of the possible matches
-                failedpath = path_to_try
+                DEBUG_LOADING[] && info("JL_DEBUG_LOADING: Failed to load $path_to_try because $(restored.msg)")
                 continue
             end
             warn("Deserialization checks failed while attempting to load cache from $path_to_try.")
@@ -229,12 +228,13 @@ function _require_search_from_serialized(node::Int, mod::Symbol, sourcepath::Str
             return restored
         end
     end
-    if isa(restored, Exception)
-        warn("Deserialization checks failed while attempting to load cache from $failedpath.")
-        warn(restored, prefix="WARNING: ")
-    end
     return !isempty(paths)
 end
+
+# this value is set by `require` based on whether JULIA_DEBUG_LOADING
+# is presently defined as an environment variable
+# and makes the logic in this file noisier about what it is doing and why
+const DEBUG_LOADING = Ref(false)
 
 # to synchronize multiple tasks trying to import/using something
 const package_locks = Dict{Symbol,Condition}()
@@ -252,6 +252,17 @@ function _include_dependency(_path::AbstractString)
     end
     return path, prev
 end
+
+"""
+    include_dependency(path::AbstractString)
+
+In a module, declare that the file specified by `path` (relative or absolute) is a
+dependency for precompilation; that is, the module will need to be recompiled if this file
+changes.
+
+This is only needed if your module depends on a file that is not used via `include`. It has
+no effect outside of compilation.
+"""
 function include_dependency(path::AbstractString)
     _include_dependency(path)
     return nothing
@@ -264,9 +275,9 @@ immutable PrecompilableError <: Exception
 end
 function show(io::IO, ex::PrecompilableError)
     if ex.isprecompilable
-        print(io, "__precompile__(true) is only allowed in module files being imported")
+        print(io, "Declaring __precompile__(true) is only allowed in module files being imported.")
     else
-        print(io, "__precompile__(false) is not allowed in files that are being precompiled")
+        print(io, "Declaring __precompile__(false) is not allowed in files that are being precompiled.")
     end
 end
 precompilableerror(ex::PrecompilableError, c) = ex.isprecompilable == c
@@ -339,11 +350,32 @@ end
 
 # require always works in Main scope and loads files from node 1
 toplevel_load = true
+
+"""
+    require(module::Symbol)
+
+This function is part of the implementation of `using` / `import`, if a module is not
+already defined in `Main`. It can also be called directly to force reloading a module,
+regardless of whether it has been loaded before (for example, when interactively developing
+libraries).
+
+Loads a source file, in the context of the `Main` module, on every active node, searching
+standard locations for files. `require` is considered a top-level operation, so it sets the
+current `include` path but does not use it to search for files (see help for `include`).
+This function is typically used to load library code, and is implicitly called by `using` to
+load packages.
+
+When searching for files, `require` first looks for package code under `Pkg.dir()`,
+then tries paths in the global array `LOAD_PATH`. `require` is case-sensitive on
+all platforms, including those with case-insensitive filesystems like macOS and
+Windows.
+"""
 function require(mod::Symbol)
     # dependency-tracking is only used for one top-level include(path),
     # and is not applied recursively to imported modules:
     old_track_dependencies = _track_dependencies[]
     _track_dependencies[] = false
+    DEBUG_LOADING[] = haskey(ENV, "JULIA_DEBUG_LOADING")
 
     global toplevel_load
     loading = get(package_locks, mod, false)
@@ -361,7 +393,7 @@ function require(mod::Symbol)
         name = string(mod)
         path = find_in_node_path(name, nothing, 1)
         if path === nothing
-            throw(ArgumentError("module $name not found in current path.\nRun `Pkg.add(\"$name\")` to install the $name package."))
+            throw(ArgumentError("Module $name not found in current path.\nRun `Pkg.add(\"$name\")` to install the $name package."))
         end
 
         # attempt to load the module file via the precompile cache locations
@@ -379,6 +411,10 @@ function require(mod::Symbol)
             if mod === concrete_mod
                 warn("""Module $mod with uuid $concrete_uuid is missing from the cache.
                      This may mean module $mod does not support precompilation but is imported by a module that does.""")
+                if JLOptions().incremental != 0
+                    # during incremental precompilation, this should be fail-fast
+                    throw(PrecompilableError(false))
+                end
             end
         end
 
@@ -388,8 +424,9 @@ function require(mod::Symbol)
             cachefile = compilecache(mod)
             m = _require_from_serialized(1, mod, cachefile, last)
             if isa(m, Exception)
-                warn("Compilecache failed to create a usable precompiled cache file for module $name. Got:")
+                warn("The call to compilecache failed to create a usable precompiled cache file for module $name. Got:")
                 warn(m, prefix="WARNING: ")
+                # fall-through, TODO: disable __precompile__(true) error so that the normal include will succeed
             else
                 return # success
             end
@@ -417,7 +454,8 @@ function require(mod::Symbol)
             m = _require_from_serialized(1, mod, cachefile, last)
             if isa(m, Exception)
                 warn(m, prefix="WARNING: ")
-                error("module $mod declares __precompile__(true) but require failed to create a usable precompiled cache file.")
+                # TODO: disable __precompile__(true) error and do normal include instead of error
+                error("Module $mod declares __precompile__(true) but require failed to create a usable precompiled cache file.")
             end
         end
     finally
@@ -431,6 +469,12 @@ end
 
 # remote/parallel load
 
+"""
+    include_string(code::AbstractString, filename::AbstractString="string")
+
+Like `include`, except reads code from the given string rather than from a file. Since there
+is no file path involved, no path processing or fetching from node 1 is done.
+"""
 include_string(txt::String, fname::String) =
     ccall(:jl_load_file_string, Any, (Ptr{UInt8},Csize_t,Cstring),
           txt, sizeof(txt), fname)
@@ -442,10 +486,10 @@ function source_path(default::Union{AbstractString,Void}="")
     t = current_task()
     while true
         s = t.storage
-        if !is(s, nothing) && haskey(s, :SOURCE_PATH)
+        if s !== nothing && haskey(s, :SOURCE_PATH)
             return s[:SOURCE_PATH]
         end
-        if is(t, t.parent)
+        if t === t.parent
             return default
         end
         t = t.parent
@@ -457,17 +501,24 @@ function source_dir()
     p === nothing ? p : dirname(p)
 end
 
+"""
+    @__FILE__ -> AbstractString
+
+`@__FILE__` expands to a string with the absolute file path of the file containing the
+macro. Returns `nothing` if run from a REPL or an empty string if evaluated by
+`julia -e <expr>`. Alternatively see [`PROGRAM_FILE`](:data:`PROGRAM_FILE`).
+"""
 macro __FILE__() source_path() end
 
 """
-    include(path::AbstractString)
+    @__DIR__ -> AbstractString
 
-Evaluate the contents of a source file in the current context. During including, a
-task-local include path is set to the directory containing the file. Nested calls to
-`include` will search relative to that path. All paths refer to files on node 1 when running
-in parallel, and files will be fetched from node 1. This function is typically used to load
-source interactively, or to combine files in packages that are broken into multiple source files.
+`@__DIR__` expands to a string with the directory part of the absolute path of the file
+containing the macro. Returns `nothing` if run from a REPL or an empty string if
+evaluated by `julia -e <expr>`.
 """
+macro __DIR__() source_dir() end
+
 include_from_node1(path::AbstractString) = include_from_node1(String(path))
 function include_from_node1(_path::String)
     path, prev = _include_dependency(_path)
@@ -493,6 +544,30 @@ function include_from_node1(_path::String)
     result
 end
 
+"""
+    include(path::AbstractString...)
+
+Evaluate the contents of the input source file(s) in the current context. Returns the result
+of the last evaluated argument (of the last input file). During including, a
+task-local include path is set to the directory containing the file. Nested calls to
+`include` will search relative to that path. All paths refer to files on node 1 when running
+in parallel, and files will be fetched from node 1. This function is typically used to load
+source interactively, or to combine files in packages that are broken into multiple source files.
+"""
+function include(_path::AbstractString...)
+    local result
+    for path in _path
+        result = include(path)
+    end
+    result
+end
+
+"""
+    evalfile(path::AbstractString, args::Vector{String}=String[])
+
+Load the file using [`include`](:func:`include`), evaluate all expressions,
+and return the value of the last one.
+"""
 function evalfile(path::AbstractString, args::Vector{String}=String[])
     return eval(Module(:__anon__),
                 Expr(:toplevel,
@@ -549,6 +624,17 @@ function create_expr_cache(input::String, output::String, concrete_deps::Vector{
 end
 
 compilecache(mod::Symbol) = compilecache(string(mod))
+
+"""
+    Base.compilecache(module::String)
+
+Creates a [precompiled cache file](:ref:`man-modules-initialization-precompilation`) for
+a module and all of its dependencies.
+This can be used to reduce package load times. Cache files are stored in
+`LOAD_CACHE_PATH[1]`, which defaults to `~/.julia/lib/VERSION`. See
+[Module initialization and precompilation](:ref:`Module initialization and precompilation <man-modules-initialization-precompilation>`)
+for important notes.
+"""
 function compilecache(name::String)
     myid() == 1 || error("can only precompile from node 1")
     # decide where to get the source file from
@@ -575,7 +661,7 @@ function compilecache(name::String)
         end
     end
     # run the expression and cache the result
-    if isinteractive()
+    if isinteractive() || DEBUG_LOADING[]
         if isfile(cachefile)
             info("Recompiling stale cache file $cachefile for module $name.")
         else
@@ -583,7 +669,7 @@ function compilecache(name::String)
         end
     end
     if !success(create_expr_cache(path, cachefile, concrete_deps))
-        error("Failed to precompile $name to $cachefile")
+        error("Failed to precompile $name to $cachefile.")
     end
     return cachefile
 end
@@ -608,9 +694,7 @@ function parse_cache_header(f::IO)
         n = ntoh(read(f, Int32))
         n == 0 && break
         totbytes -= 4 + n + 8
-        if n < 0 # probably means this wasn't a valid file to be read by Base.parse_cache_header
-            error("EOF while reading cache header")
-        end
+        @assert n >= 0 "EOF while reading cache header" # probably means this wasn't a valid file to be read by Base.parse_cache_header
         push!(files, (String(read(f, n)), ntoh(read(f, Float64))))
     end
     @assert totbytes == 4 "header of cache file appears to be corrupt"
@@ -620,7 +704,7 @@ end
 function parse_cache_header(cachefile::String)
     io = open(cachefile, "r")
     try
-        !isvalid_cache_header(io) && throw(ArgumentError("invalid cache file $cachefile"))
+        !isvalid_cache_header(io) && throw(ArgumentError("Invalid header in cache file $cachefile."))
         return parse_cache_header(io)
     finally
         close(io)
@@ -643,7 +727,7 @@ end
 function cache_dependencies(cachefile::String)
     io = open(cachefile, "r")
     try
-        !isvalid_cache_header(io) && throw(ArgumentError("invalid cache file $cachefile"))
+        !isvalid_cache_header(io) && throw(ArgumentError("Invalid header in cache file $cachefile."))
         return cache_dependencies(io)
     finally
         close(io)
@@ -654,28 +738,35 @@ function stale_cachefile(modpath::String, cachefile::String)
     io = open(cachefile, "r")
     try
         if !isvalid_cache_header(io)
+            DEBUG_LOADING[] && info("JL_DEBUG_LOADING: Rejecting cache file $cachefile due to it containing an invalid cache header.")
             return true # invalid cache file
         end
         modules, files = parse_cache_header(io)
 
         # check if this file is going to provide one of our concrete dependencies
-        provides_concrete = false
-        for (mod, uuid) in _concrete_dependencies
-            if get(modules, mod, UInt64(0)) === uuid
-                provides_concrete = true
-            else
-                return false # cachefile doesn't provide the required version of the dependency
+        # or if it provides a version that conflicts with our concrete dependencies
+        # or neither
+        for (mod, uuid_req) in _concrete_dependencies
+            uuid = get(modules, mod, UInt64(0))
+            if uuid !== UInt64(0)
+                if uuid === uuid_req
+                    return false # this is the file we want
+                end
+                DEBUG_LOADING[] && info("JL_DEBUG_LOADING: Rejecting cache file $cachefile because it provides the wrong uuid (got $uuid) for $mod (want $uuid_req).")
+                return true # cachefile doesn't provide the required version of the dependency
             end
         end
-        provides_concrete && return false # this is the file we want
 
         # now check if this file is fresh relative to its source files
-        if files[1][1] != modpath
+        if !samefile(files[1][1], modpath)
+            DEBUG_LOADING[] && info("JL_DEBUG_LOADING: Rejecting cache file $cachefile because it is for file $(files[1][1])) not file $modpath.")
             return true # cache file was compiled from a different path
         end
-        for (f, ftime) in files
+        for (f, ftime_req) in files
             # Issue #13606: compensate for Docker images rounding mtimes
-            if mtime(f) ∉ (ftime, floor(ftime))
+            ftime = mtime(f)
+            if ftime != ftime_req && ftime != floor(ftime_req)
+                DEBUG_LOADING[] && info("JL_DEBUG_LOADING: Rejecting stale cache file $cachefile (mtime $ftime_req) because file $f (mtime $ftime) has changed.")
                 return true
             end
         end

@@ -43,11 +43,49 @@ _genperm(out, I) = out
 @inline _genperm(out, I, p, perm...) = _genperm((out..., I[p]), I, perm...)
 @inline genperm(I, perm::AbstractVector{Int}) = genperm(I, (perm...,))
 
+"""
+    permutedims(A, perm)
+
+Permute the dimensions of array `A`. `perm` is a vector specifying a permutation of length
+`ndims(A)`. This is a generalization of transpose for multi-dimensional arrays. Transpose is
+equivalent to `permutedims(A, [2,1])`.
+
+```jldoctest
+julia> A = reshape(collect(1:8), (2,2,2))
+2×2×2 Array{Int64,3}:
+[:, :, 1] =
+ 1  3
+ 2  4
+<BLANKLINE>
+[:, :, 2] =
+ 5  7
+ 6  8
+
+julia> permutedims(A, [3, 2, 1])
+2×2×2 Array{Int64,3}:
+[:, :, 1] =
+ 1  3
+ 5  7
+<BLANKLINE>
+[:, :, 2] =
+ 2  4
+ 6  8
+```
+"""
 function Base.permutedims{T,N}(A::AbstractArray{T,N}, perm)
     dest = similar(A, genperm(indices(A), perm))
     permutedims!(dest, A, perm)
 end
 
+"""
+    permutedims!(dest, src, perm)
+
+Permute the dimensions of array `src` and store the result in the array `dest`. `perm` is a
+vector specifying a permutation of length `ndims(src)`. The preallocated array `dest` should
+have `size(dest) == size(src)[perm]` and is completely overwritten. No in-place permutation
+is supported and unexpected results will happen if `src` and `dest` have overlapping memory
+regions.
+"""
 function Base.permutedims!(dest, src::AbstractArray, perm)
     Base.checkdims_perm(dest, src, perm)
     P = PermutedDimsArray(dest, invperm(perm))

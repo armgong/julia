@@ -889,7 +889,11 @@ function bind(server::PipeServer, name::AbstractString)
     return true
 end
 
+"""
+    listen(path::AbstractString) -> PipeServer
 
+Create and listen on a named pipe / UNIX domain socket.
+"""
 function listen(path::AbstractString)
     sock = PipeServer()
     bind(sock, path) || throw(ArgumentError("could not listen on path $path"))
@@ -913,6 +917,12 @@ end
 
 # Libuv will internally reset read/writability, which is uses to
 # mark that this is an invalid pipe.
+
+"""
+    connect(path::AbstractString) -> PipeEndpoint
+
+Connect to the named pipe / UNIX domain socket at `path`.
+"""
 connect(path::AbstractString) = connect(init_pipe!(PipeEndpoint(); readable=false, writable=false, julia_only=true),path)
 
 _fd(x::IOStream) = RawFD(fd(x))
@@ -956,35 +966,40 @@ for (x, writable, unix_fd, c_symbol) in
 end
 
 """
-    redirect_stdout()
+    redirect_stdout([stream]) -> (rd, wr)
 
-Create a pipe to which all C and Julia level `STDOUT` output will be redirected. Returns a
-tuple `(rd,wr)` representing the pipe ends. Data written to `STDOUT` may now be read from
-the rd end of the pipe. The wr end is given for convenience in case the old `STDOUT` object
-was cached by the user and needs to be replaced elsewhere.
+Create a pipe to which all C and Julia level [`STDOUT`](:obj:`STDOUT`) output
+will be redirected.
+Returns a tuple `(rd, wr)` representing the pipe ends.
+Data written to [`STDOUT`](:obj:`STDOUT`) may now be read from the `rd` end of
+the pipe. The `wr` end is given for convenience in case the old
+[`STDOUT`](:obj:`STDOUT`) object was cached by the user and needs to be replaced
+elsewhere.
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
 """
 redirect_stdout
 
 """
-    redirect_stdout(stream)
+    redirect_stderr([stream]) -> (rd, wr)
 
-Replace `STDOUT` by stream for all C and Julia level output to `STDOUT`. Note that `stream`
-must be a TTY, a `Pipe` or a `TCPSocket`.
-"""
-redirect_stdout(stream)
+Like [`redirect_stdout`](:func:`redirect_stdout`), but for [`STDERR`](:obj:`STDERR`).
 
-"""
-    redirect_stderr([stream])
-
-Like `redirect_stdout`, but for `STDERR`.
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
 """
 redirect_stderr
 
 """
-    redirect_stdin([stream])
+    redirect_stdin([stream]) -> (rd, wr)
 
-Like redirect_stdout, but for STDIN. Note that the order of the return tuple is still
-(rd,wr), i.e. data to be read from STDIN, may be written to wr.
+Like [`redirect_stdout`](:func:`redirect_stdout`), but for [`STDIN`](:obj:`STDIN`).
+Note that the order of the return tuple is still `(rd, wr)`,
+i.e. data to be read from [`STDIN`](:obj:`STDIN`) may be written to `wr`.
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
 """
 redirect_stdin
 
@@ -1005,21 +1020,33 @@ end
 """
     redirect_stdout(f::Function, stream)
 
-Run the function `f` while redirecting `STDOUT` to `stream`. Upon completion, `STDOUT` is restored to its prior setting.
+Run the function `f` while redirecting [`STDOUT`](:obj:`STDOUT`) to `stream`.
+Upon completion, [`STDOUT`](:obj:`STDOUT`) is restored to its prior setting.
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
 """
 redirect_stdout(f::Function, stream)
 
 """
     redirect_stderr(f::Function, stream)
 
-Run the function `f` while redirecting `STDERR` to `stream`. Upon completion, `STDERR` is restored to its prior setting.
+Run the function `f` while redirecting [`STDERR`](:obj:`STDERR`) to `stream`.
+Upon completion, [`STDERR`](:obj:`STDERR`) is restored to its prior setting.
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
 """
 redirect_stderr(f::Function, stream)
 
 """
     redirect_stdin(f::Function, stream)
 
-Run the function `f` while redirecting `STDIN` to `stream`. Upon completion, `STDIN` is restored to its prior setting.
+Run the function `f` while redirecting [`STDIN`](:obj:`STDIN`) to `stream`.
+Upon completion, [`STDIN`](:obj:`STDIN`) is restored to its prior setting.
+
+!!! note
+    `stream` must be a `TTY`, a [`Pipe`](:obj:`Pipe`), or a [`TCPSocket`](:obj:`TCPSocket`).
 """
 redirect_stdin(f::Function, stream)
 
@@ -1043,8 +1070,8 @@ end
 isopen(s::BufferStream) = s.is_open
 function close(s::BufferStream)
     s.is_open = false
-    notify(s.r_c; all=true)
-    notify(s.close_c; all=true)
+    notify(s.r_c)
+    notify(s.close_c)
     nothing
 end
 uvfinalize(s::BufferStream) = nothing
@@ -1076,7 +1103,7 @@ start_reading(s::BufferStream) = nothing
 write(s::BufferStream, b::UInt8) = write(s, Ref{UInt8}(b))
 function unsafe_write(s::BufferStream, p::Ptr{UInt8}, nb::UInt)
     rv = unsafe_write(s.buffer, p, nb)
-    !(s.buffer_writes) && notify(s.r_c; all=true)
+    !(s.buffer_writes) && notify(s.r_c)
     return rv
 end
 
@@ -1087,4 +1114,4 @@ end
 
 # If buffer_writes is called, it will delay notifying waiters till a flush is called.
 buffer_writes(s::BufferStream, bufsize=0) = (s.buffer_writes=true; s)
-flush(s::BufferStream) = (notify(s.r_c; all=true); nothing)
+flush(s::BufferStream) = (notify(s.r_c); nothing)

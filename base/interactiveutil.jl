@@ -23,6 +23,12 @@ function editor()
     return args
 end
 
+"""
+    edit(path::AbstractString, line::Integer=0)
+
+Edit a file or directory optionally providing a line number to edit the file at.
+Returns to the `julia` prompt when you quit the editor.
+"""
 function edit(path::AbstractString, line::Integer=0)
     command = editor()
     name = basename(first(command))
@@ -64,6 +70,12 @@ function edit(path::AbstractString, line::Integer=0)
     nothing
 end
 
+"""
+    edit(function, [types])
+
+Edit the definition of a function, optionally specifying a tuple of types to
+indicate which method to edit.
+"""
 edit(f)          = edit(functionloc(f)...)
 edit(f, t::ANY)  = edit(functionloc(f,t)...)
 edit(file, line::Integer) = error("could not find source file for function")
@@ -83,7 +95,20 @@ else
     end
 end
 
+"""
+    less(file::AbstractString, [line::Integer])
+
+Show a file using the default pager, optionally providing a starting line number. Returns to
+the `julia` prompt when you quit the pager.
+"""
 less(file::AbstractString) = less(file, 1)
+
+"""
+    less(function, [types])
+
+Show the definition of a function using the default pager, optionally specifying a tuple of
+types to indicate which method to see.
+"""
 less(f)          = less(functionloc(f)...)
 less(f, t::ANY)  = less(functionloc(f,t)...)
 less(file, line::Integer) = error("could not find source file for function")
@@ -146,7 +171,6 @@ elseif is_windows()
         ccall((:CloseClipboard, "user32"), stdcall, Void, ())
     end
     clipboard(x) = clipboard(sprint(io->print(io,x))::String)
-
     function clipboard()
         systemerror(:OpenClipboard, 0==ccall((:OpenClipboard, "user32"), stdcall, Cint, (Ptr{Void},), C_NULL))
         pdata = ccall((:GetClipboardData, "user32"), stdcall, Ptr{UInt16}, (UInt32,), 13)
@@ -166,6 +190,22 @@ elseif is_windows()
 else
     clipboard(x="") = error("`clipboard` function not implemented for $(Sys.KERNEL)")
 end
+
+
+"""
+    clipboard(x)
+
+Send a printed form of `x` to the operating system clipboard ("copy").
+"""
+clipboard(x)
+
+"""
+    clipboard() -> AbstractString
+
+Return a string with the contents of the operating system clipboard ("paste").
+"""
+clipboard()
+
 
 # system information
 
@@ -195,6 +235,13 @@ function _show_cpuinfo(io::IO, info::Sys.CPUinfo, header::Bool=true, prefix::Abs
     end
 end
 
+
+"""
+    versioninfo(io::IO=STDOUT, verbose::Bool=false)
+
+Print information about the version of Julia in use. If the `verbose` argument is `true`,
+detailed system information is shown as well.
+"""
 function versioninfo(io::IO=STDOUT, verbose::Bool=false)
     println(io,             "Julia Version $VERSION")
     if !isempty(GIT_VERSION_INFO.commit_short)
@@ -204,7 +251,8 @@ function versioninfo(io::IO=STDOUT, verbose::Bool=false)
         println(io, "DEBUG build")
     end
     println(io,             "Platform Info:")
-    println(io,             "  System: ", Sys.KERNEL, " (", Sys.MACHINE, ")")
+    println(io,             "  OS: ", is_windows() ? "Windows" : is_apple() ?
+        "macOS" : Sys.KERNEL, " (", Sys.MACHINE, ")")
 
     cpu = Sys.cpu_info()
     println(io,         "  CPU: ", cpu[1].model)
@@ -243,7 +291,7 @@ function versioninfo(io::IO=STDOUT, verbose::Bool=false)
     if verbose
         println(io,         "Environment:")
         for (k,v) in ENV
-            if !is(match(r"JULIA|PATH|FLAG|^TERM$|HOME", String(k)), nothing)
+            if match(r"JULIA|PATH|FLAG|^TERM$|HOME", String(k)) !== nothing
                 println(io, "  $(k) = $(v)")
             end
         end
@@ -258,7 +306,7 @@ versioninfo(verbose::Bool) = versioninfo(STDOUT,verbose)
 
 
 """
-    code_warntype([io], f, types)
+    code_warntype([io::IO], f, types)
 
 Prints lowered and type-inferred ASTs for the methods matching the given generic function
 and type signature to `io` which defaults to `STDOUT`. The ASTs are annotated in such a way
@@ -269,22 +317,23 @@ See [Manual](:ref:`man-code-warntype`) for more information.
 """
 function code_warntype(io::IO, f, t::ANY)
     emph_io = IOContext(io, :TYPEEMPHASIZE => true)
-    for li in code_typed(f, t)
+    for (src, rettype) in code_typed(f, t)
         println(emph_io, "Variables:")
-        slotnames = lambdainfo_slotnames(li)
+        slotnames = sourceinfo_slotnames(src)
         for i = 1:length(slotnames)
             print(emph_io, "  ", slotnames[i])
-            if isa(li.slottypes,Array)
-                show_expr_type(emph_io, li.slottypes[i], true)
+            if isa(src.slottypes, Array)
+                show_expr_type(emph_io, src.slottypes[i], true)
             end
             print(emph_io, '\n')
         end
         print(emph_io, "\nBody:\n  ")
-        body = Expr(:body); body.args = uncompressed_ast(li)
-        body.typ = li.rettype
+        body = Expr(:body)
+        body.args = src.code
+        body.typ = rettype
         # Fix slot names and types in function body
-        show_unquoted(IOContext(IOContext(emph_io, :LAMBDAINFO => li),
-                                          :LAMBDA_SLOTNAMES => slotnames),
+        show_unquoted(IOContext(IOContext(emph_io, :SOURCEINFO => src),
+                                          :SOURCE_SLOTNAMES => slotnames),
                       body, 2)
         print(emph_io, '\n')
     end
@@ -300,9 +349,12 @@ function gen_call_with_extracted_types(fcn, ex0)
         if any(a->(Meta.isexpr(a, :kw) || Meta.isexpr(a, :parameters)), ex0.args)
             # remove keyword args, but call the kwfunc
             args = filter(a->!(Meta.isexpr(a, :kw) || Meta.isexpr(a, :parameters)), ex0.args)
-            return :($(fcn)(Core.kwfunc($(esc(args[1]))),
-                            Tuple{Vector{Any}, typeof($(esc(args[1]))),
-                                  $(typesof)($(map(esc, args[2:end])...)).parameters...}))
+            return quote
+                local arg1 = $(esc(args[1]))
+                $(fcn)(Core.kwfunc(arg1),
+                       Tuple{Vector{Any}, Core.Typeof(arg1),
+                             $(typesof)($(map(esc, args[2:end])...)).parameters...})
+            end
         elseif ex0.head == :call
             return Expr(:call, fcn, esc(ex0.args[1]),
                         Expr(:call, typesof, map(esc, ex0.args[2:end])...))
@@ -446,12 +498,12 @@ function type_close_enough(x::ANY, t::ANY)
     x == t && return true
     return (isa(x,DataType) && isa(t,DataType) && x.name === t.name &&
             !isleaftype(t) && x <: t) ||
-           (isa(x,Union) && isa(t,DataType) && any(u -> is(u,t), x.types))
+           (isa(x,Union) && isa(t,DataType) && any(u -> u===t, x.types))
 end
 
 # `methodswith` -- shows a list of methods using the type given
 """
-    methodswith(typ[, module or function][, showparents])
+    methodswith(typ[, module or function][, showparents::Bool=false])
 
 Return an array of methods with an argument of type `typ`.
 
@@ -542,8 +594,28 @@ function download(url::AbstractString)
     download(url, filename)
 end
 
+"""
+    download(url::AbstractString, [localfile::AbstractString])
+
+Download a file from the given url, optionally renaming it to the given local file name.
+Note that this function relies on the availability of external tools such as `curl`, `wget`
+or `fetch` to download the file and is provided for convenience. For production use or
+situations in which more options are needed, please use a package that provides the desired
+functionality instead.
+"""
+download(url, filename)
+
 # workspace management
 
+"""
+    workspace()
+
+Replace the top-level module (`Main`) with a new one, providing a clean workspace. The
+previous `Main` module is made available as `LastMain`. A previously-loaded package can be
+accessed using a statement such as `using LastMain.Package`.
+
+This function should only be used interactively.
+"""
 function workspace()
     last = Core.Main
     b = last.Base
@@ -560,6 +632,12 @@ end
 
 # testing
 
+"""
+    runtests([tests=["all"] [, numcores=ceil(Int, Sys.CPU_CORES / 2) ]])
+
+Run the Julia unit tests listed in `tests`, which can be either a string or an array of
+strings, using `numcores` processors. (not exported)
+"""
 function runtests(tests = ["all"], numcores = ceil(Int, Sys.CPU_CORES / 2))
     if isa(tests,AbstractString)
         tests = split(tests)
@@ -581,7 +659,7 @@ end
 
 
 """
-    whos([io,] [Module,] [pattern::Regex])
+    whos(io::IO=STDOUT, m::Module=current_module(), pattern::Regex=r"")
 
 Print information about exported global variables in a module, optionally restricted to those matching `pattern`.
 
@@ -633,12 +711,12 @@ whos(pat::Regex) = whos(STDOUT, current_module(), pat)
 #################################################################################
 
 """
-    Base.summarysize(obj; exclude=Union{Module,Function,DataType,TypeName}) -> Int
+    Base.summarysize(obj; exclude=Union{Module,DataType,TypeName}) -> Int
 
 Compute the amount of memory used by all unique objects reachable from the argument.
 Keyword argument `exclude` specifies a type of objects to exclude from the traversal.
 """
-summarysize(obj; exclude = Union{Module,Function,DataType,TypeName}) =
+summarysize(obj; exclude = Union{Module,DataType,TypeName}) =
     summarysize(obj, ObjectIdDict(), exclude)
 
 summarysize(obj::Symbol, seen, excl) = 0

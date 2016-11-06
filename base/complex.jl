@@ -33,10 +33,27 @@ promote_rule{T<:Real,S<:Real}(::Type{Complex{T}}, ::Type{Complex{S}}) =
 
 widen{T}(::Type{Complex{T}}) = Complex{widen(T)}
 
+"""
+    real(z)
+
+Return the real part of the complex number `z`.
+"""
 real(z::Complex) = z.re
+
+"""
+    imag(z)
+
+Return the imaginary part of the complex number `z`.
+"""
 imag(z::Complex) = z.im
 real(x::Real) = x
 imag(x::Real) = zero(x)
+
+"""
+    reim(z)
+
+Return both the real and imaginary parts of the complex number `z`.
+"""
 reim(z) = (real(z), imag(z))
 
 real{T<:Real}(::Type{T}) = T
@@ -115,6 +132,11 @@ end
 
 ## generic functions of complex numbers ##
 
+"""
+    conj(z)
+
+Compute the complex conjugate of a complex number `z`.
+"""
 conj(z::Complex) = Complex(real(z),-imag(z))
 abs(z::Complex)  = hypot(real(z), imag(z))
 abs2(z::Complex) = real(z)*real(z) + imag(z)*imag(z)
@@ -334,12 +356,22 @@ sqrt(z::Complex) = sqrt(float(z))
 
 # compute exp(im*theta)
 cis(theta::Real) = Complex(cos(theta),sin(theta))
+
+"""
+    cis(z)
+
+Return ``\\exp(iz)``.
+"""
 function cis(z::Complex)
     v = exp(-imag(z))
     Complex(v*cos(real(z)), v*sin(real(z)))
 end
-@vectorize_1arg Number cis
 
+"""
+    angle(z)
+
+Compute the phase angle in radians of a complex number `z`.
+"""
 angle(z::Complex) = atan2(imag(z), real(z))
 
 function log{T<:AbstractFloat}(z::Complex{T})
@@ -774,8 +806,6 @@ function round{T<:AbstractFloat, MR, MI}(z::Complex{T}, ::RoundingMode{MR}, ::Ro
 end
 round(z::Complex) = Complex(round(real(z)), round(imag(z)))
 
-@vectorize_1arg Complex round
-
 function round(z::Complex, digits::Integer, base::Integer=10)
     Complex(round(real(z), digits, base),
             round(imag(z), digits, base))
@@ -783,7 +813,6 @@ end
 
 float{T<:AbstractFloat}(z::Complex{T}) = z
 float(z::Complex) = Complex(float(real(z)), float(imag(z)))
-@vectorize_1arg Complex float
 
 big{T<:AbstractFloat}(z::Complex{T}) = Complex{BigFloat}(z)
 big{T<:Integer}(z::Complex{T}) = Complex{BigInt}(z)
@@ -810,24 +839,45 @@ promote_array_type{S<:Union{Complex, Real}, T<:AbstractFloat}(F, ::Type{S}, ::Ty
 function complex{S<:Real,T<:Real}(A::AbstractArray{S}, B::AbstractArray{T})
     if size(A) != size(B); throw(DimensionMismatch()); end
     F = similar(A, typeof(complex(zero(S),zero(T))))
-    for (iF, iA, iB) in zip(eachindex(F), eachindex(A), eachindex(B))
-        @inbounds F[iF] = complex(A[iA], B[iB])
+    RF, RA, RB = eachindex(F), eachindex(A), eachindex(B)
+    if RF == RA == RB
+        for i in RA
+            @inbounds F[i] = complex(A[i], B[i])
+        end
+    else
+        for (iF, iA, iB) in zip(RF, RA, RB)
+            @inbounds F[iF] = complex(A[iA], B[iB])
+        end
     end
     return F
 end
 
 function complex{T<:Real}(A::Real, B::AbstractArray{T})
     F = similar(B, typeof(complex(A,zero(T))))
-    for (iF, iB) in zip(eachindex(F), eachindex(B))
-        @inbounds F[iF] = complex(A, B[iB])
+    RF, RB = eachindex(F), eachindex(B)
+    if RF == RB
+        for i in RB
+            @inbounds F[i] = complex(A, B[i])
+        end
+    else
+        for (iF, iB) in zip(RF, RB)
+            @inbounds F[iF] = complex(A, B[iB])
+        end
     end
     return F
 end
 
 function complex{T<:Real}(A::AbstractArray{T}, B::Real)
     F = similar(A, typeof(complex(zero(T),B)))
-    for (iF, iA) in zip(eachindex(F), eachindex(A))
-        @inbounds F[iF] = complex(A[iA], B)
+    RF, RA = eachindex(F), eachindex(A)
+    if RF == RA
+        for i in RA
+            @inbounds F[i] = complex(A[i], B)
+        end
+    else
+        for (iF, iA) in zip(RF, RA)
+            @inbounds F[iF] = complex(A[iA], B)
+        end
     end
     return F
 end

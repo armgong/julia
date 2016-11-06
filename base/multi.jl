@@ -90,6 +90,7 @@ immutable JoinPGRPMsg <: AbstractMsg
     other_workers::Array
     topology::Symbol
     worker_pool
+    enable_threaded_blas::Bool
 end
 immutable JoinCompleteMsg <: AbstractMsg
     cpu_cores::Int
@@ -186,6 +187,9 @@ type WorkerConfig
     ident::Nullable{Any}      # Worker as identified by the Cluster Manager.
     # List of other worker idents this worker must connect with. Used with topology T_CUSTOM.
     connect_idents::Nullable{Array}
+
+    # Run multithreaded blas on worker
+    enable_threaded_blas::Nullable{Bool}
 
     function WorkerConfig()
         wc = new()
@@ -585,7 +589,7 @@ which optimizes the data written out depending on the receiving process id.
 function worker_id_from_socket(s)
     w = get(map_sock_wrkr, s, nothing)
     if isa(w,Worker)
-        if is(s, w.r_stream) || is(s, w.w_stream)
+        if s === w.r_stream || s === w.w_stream
             return w.id
         end
     end
@@ -1119,6 +1123,26 @@ function remote_do(f, w::Worker, args...; kwargs...)
     nothing
 end
 
+
+"""
+    remote_do(f, id::Integer, args...; kwargs...) -> nothing
+
+Executes `f` on worker `id` asynchronously. Unlike `remotecall`, it does not store the
+result of computation, nor is there a way to wait for its completion.
+
+A successful invocation indicates that the request has been accepted for execution on
+the remote node.
+
+While consecutive remotecalls to the same worker are serialized in the order they are
+invoked, the order of executions on the remote worker is undetermined. For example,
+`remote_do(f1, 2); remotecall(f2, 2); remote_do(f3, 2)` will serialize the call
+to `f1`, followed by `f2` and `f3` in that order. However, it is not guaranteed that `f1`
+is executed before `f3` on worker 2.
+
+Any exceptions thrown by `f` are printed to `STDERR` on the remote worker.
+
+Keyword arguments, if any, are passed through to `f`.
+"""
 remote_do(f, id::Integer, args...; kwargs...) = remote_do(f, worker_from_id(id), args...; kwargs...)
 
 # have the owner of rr call f on it
@@ -1171,7 +1195,6 @@ Waits and fetches a value from `x` depending on the type of `x`. Does not remove
   is an exception, throws a `RemoteException` which captures the remote exception and backtrace.
 * `RemoteChannel`: Wait for and get the value of a remote reference. Exceptions raised are
   same as for a `Future` .
-* `Channel` : Wait for and get the first available item from the channel.
 """
 fetch(x::ANY) = x
 
@@ -1237,7 +1260,7 @@ close(rr::RemoteChannel) = call_on_owner(close_ref, rr)
 
 function deliver_result(sock::IO, msg, oid, value)
     #print("$(myid()) sending result $oid\n")
-    if is(msg, :call_fetch) || isa(value, RemoteException)
+    if msg === :call_fetch || isa(value, RemoteException)
         val = value
     else
         val = :OK
@@ -1456,6 +1479,10 @@ function handle_msg(msg::JoinPGRPMsg, header, r_stream, w_stream, version)
     register_worker(LPROC)
     topology(msg.topology)
 
+    if !msg.enable_threaded_blas
+        disable_threaded_libs()
+    end
+
     wait_tasks = Task[]
     for (connect_at, rpid) in msg.other_workers
         wconfig = WorkerConfig()
@@ -1615,7 +1642,6 @@ function init_worker(cookie::AbstractString, manager::ClusterManager=DefaultClus
     # transports will need to call this function with their own manager.
     global cluster_manager
     cluster_manager = manager
-    disable_threaded_libs()
 
     # Since our pid has yet to be set, ensure no RemoteChannel / Future  have been created or addprocs() called.
     assert(nprocs() <= 1)
@@ -1664,11 +1690,6 @@ end
 function addprocs_locked(manager::ClusterManager; kwargs...)
     params = merge(default_addprocs_params(), AnyDict(kwargs))
     topology(Symbol(params[:topology]))
-
-    # some libs by default start as many threads as cores which leads to
-    # inefficient use of cores in a multi-process model.
-    # Should be a keyword arg?
-    disable_threaded_libs()
 
     # References to launched workers, filled when each worker is fully initialized and
     # has connected to all nodes.
@@ -1726,7 +1747,8 @@ default_addprocs_params() = AnyDict(
     :topology => :all_to_all,
     :dir      => pwd(),
     :exename  => joinpath(JULIA_HOME,julia_exename()),
-    :exeflags => ``)
+    :exeflags => ``,
+    :enable_threaded_blas => false)
 
 
 function setup_launched_worker(manager, wconfig, launched_q)
@@ -1759,7 +1781,7 @@ function launch_n_additional_processes(manager, frompid, fromconfig, cnt, launch
             (bind_addr, port) = address
 
             wconfig = WorkerConfig()
-            for x in [:host, :tunnel, :sshflags, :exeflags, :exename]
+            for x in [:host, :tunnel, :sshflags, :exeflags, :exename, :enable_threaded_blas]
                 setfield!(wconfig, x, getfield(fromconfig, x))
             end
             wconfig.bind_addr = bind_addr
@@ -1841,7 +1863,8 @@ function create_worker(manager, wconfig)
 
     all_locs = map(x -> isa(x, Worker) ? (get(x.config.connect_at, ()), x.id) : ((), x.id, true), join_list)
     send_connection_hdr(w, true)
-    send_msg_now(w, MsgHeader(RRID(0,0), ntfy_oid), JoinPGRPMsg(w.id, all_locs, PGRP.topology, default_worker_pool()))
+    join_message = JoinPGRPMsg(w.id, all_locs, PGRP.topology, default_worker_pool(), get(wconfig.enable_threaded_blas, false))
+    send_msg_now(w, MsgHeader(RRID(0,0), ntfy_oid), join_message)
 
     @schedule manage(w.manager, w.id, w.config, :register)
     wait(rr_ntfy_join)
@@ -1934,14 +1957,15 @@ macro fetchfrom(p, expr)
 end
 
 """
-    @everywhere
+    @everywhere expr
 
-Execute an expression on all processes. Errors on any of the processes are collected into a
+Execute an expression under Main everywhere. Equivalent to calling
+`eval(Main, expr)` on all processes. Errors on any of the processes are collected into a
 `CompositeException` and thrown. For example :
 
     @everywhere bar=1
 
-will define `bar` under module `Main` on all processes.
+will define `Main.bar` on all processes.
 
 Unlike `@spawn` and `@spawnat`, `@everywhere` does not capture any local variables. Prefixing
 `@everywhere` with `@eval` allows us to broadcast local variables using interpolation :
@@ -1949,25 +1973,35 @@ Unlike `@spawn` and `@spawnat`, `@everywhere` does not capture any local variabl
     foo = 1
     @eval @everywhere bar=\$foo
 
+The expression is evaluated under `Main` irrespective of where `@everywhere` is called from.
+For example :
 
+    module FooBar
+        foo() = @everywhere bar()=myid()
+    end
+    FooBar.foo()
+
+will result in `Main.bar` being defined on all processes and not `FooBar.bar`.
 """
 macro everywhere(ex)
     quote
         sync_begin()
-        thunk = ()->(eval(Main,$(Expr(:quote,ex))); nothing)
         for pid in workers()
-            async_run_thunk(()->remotecall_fetch(thunk, pid))
+            async_run_thunk(()->remotecall_fetch(eval_ew_expr, pid, $(Expr(:quote,ex))))
             yield() # ensure that the remotecall_fetch has been started
         end
 
-        # execute locally last.
+        # execute locally last as we do not want local execution to block serialization
+        # of the request to remote nodes.
         if nprocs() > 1
-            async_run_thunk(thunk)
+            async_run_thunk(()->eval_ew_expr($(Expr(:quote,ex))))
         end
 
         sync_end()
     end
 end
+
+eval_ew_expr(ex) = (eval(Main, ex); nothing)
 
 # Statically split range [1,N] into equal sized chunks for np processors
 function splitrange(N::Int, np::Int)
@@ -2062,7 +2096,7 @@ macro parallel(args...)
     else
         throw(ArgumentError("wrong number of arguments to @parallel"))
     end
-    if !isa(loop,Expr) || !is(loop.head,:for)
+    if !isa(loop,Expr) || loop.head !== :for
         error("malformed @parallel loop")
     end
     var = loop.args[1].args[1]

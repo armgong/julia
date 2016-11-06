@@ -163,7 +163,7 @@ function _eigs(A, B;
     sym = issymmetric(A) && issymmetric(B) && !iscmplx
     nevmax=sym ? n-1 : n-2
     if nevmax <= 0
-        throw(ArgumentError("Input matrix A is too small. Use eigfact instead."))
+        throw(ArgumentError("input matrix A is too small. Use eigfact instead."))
     end
     if nev > nevmax
         warn("Adjusting nev from $nev to $nevmax")
@@ -382,7 +382,7 @@ function _svds(X; nsv::Int = 6, ritzvec::Bool = true, tol::Float64 = 0.0, maxite
     end
     ex    = eigs(SVDOperator(X), I; ritzvec = ritzvec, nev = ncv, tol = tol, maxiter = maxiter, v0=padv0)
     ind   = [1:2:ncv;]
-    sval  = abs(ex[1][ind])
+    sval  = abs.(ex[1][ind])
 
     if ritzvec
         # calculating singular vectors

@@ -39,9 +39,11 @@ perhaps somewhat counterintuitively, often significantly simplify them.
 Describing Julia in the lingo of `type
 systems <https://en.wikipedia.org/wiki/Type_system>`_, it is: dynamic,
 nominative and parametric. Generic types can be parameterized,
-and the hierarchical relationships
-between types are explicitly declared, rather than implied by compatible
-structure. One particularly distinctive feature of Julia's type system
+and the hierarchical relationships between types are `explicitly
+declared <https://en.wikipedia.org/wiki/Nominal_type_system>`_,
+rather than `implied by compatible structure
+<https://en.wikipedia.org/wiki/Structural_type_system>`_.
+One particularly distinctive feature of Julia's type system
 is that concrete types may not subtype each other: all concrete types
 are final and may only have abstract types as their supertypes. While
 this might at first seem unduly restrictive, it has many beneficial
@@ -324,7 +326,7 @@ cannot be declared to be any smaller than eight bits.
 The types :obj:`Bool`, :class:`Int8` and :class:`UInt8` all have identical
 representations: they are eight-bit chunks of memory. Since Julia's type
 system is nominative, however, they are not interchangeable despite
-having identical structure. Another fundamental difference between them
+having identical structure. A fundamental difference between them
 is that they have different supertypes: :obj:`Bool`'s direct supertype is
 :class:`Integer`, :class:`Int8`'s is :obj:`Signed`, and :class:`UInt8`'s is :obj:`Unsigned`.
 All other differences between :obj:`Bool`, :class:`Int8`, and :class:`UInt8` are
@@ -451,10 +453,10 @@ instance of such types::
     type NoFields
     end
 
-    julia> is(NoFields(), NoFields())
+    julia> NoFields() === NoFields()
     true
 
-The ``is`` function confirms that the "two" constructed instances of
+The ``===`` function confirms that the "two" constructed instances of
 ``NoFields`` are actually one and the same. Singleton types are
 described in further detail `below <#man-singleton-types>`_.
 
@@ -763,14 +765,14 @@ each field:
     ERROR: MethodError: Cannot `convert` an object of type Float64 to an object of type Point{Float64}
     This may have arisen from a call to the constructor Point{Float64}(...),
     since type constructors fall back to convert methods.
-     in Point{Float64}(::Float64) at ./sysimg.jl:53
+     in Point{Float64}(::Float64) at ./sysimg.jl:66
      ...
 
     julia> Point{Float64}(1.0,2.0,3.0)
     ERROR: MethodError: no method matching Point{Float64}(::Float64, ::Float64, ::Float64)
     Closest candidates are:
       Point{Float64}{T}(::Any, ::Any) at none:3
-      Point{Float64}{T}(::Any) at sysimg.jl:53
+      Point{Float64}{T}(::Any) at sysimg.jl:66
      ...
 
 Only one default constructor is generated for parametric types, since
@@ -1255,6 +1257,103 @@ If you apply :func:`supertype` to other type objects (or non-type objects), a
     julia> supertype(Union{Float64,Int64})
     ERROR: `supertype` has no method matching supertype(::Type{Union{Float64,Int64}})
 
+Custom pretty-printing
+----------------------
+
+Often, one wants to customize how instances of a type are displayed.  This
+is accomplished by overloading the :func:`show` function.  For example,
+suppose we define a type to represent complex numbers in polar form:
+
+.. testcode::
+
+    type Polar{T<:Real} <: Number
+        r::T
+        Θ::T
+    end
+    Polar(r::Real,Θ::Real) = Polar(promote(r,Θ)...)
+
+.. testoutput::
+   :hide:
+
+   Polar{T<:Real}
+
+Here, we've added a custom constructor function so that it can take arguments of
+different ``Real`` types and promote them to a commmon type (see
+:ref:`man-constructors` and :ref:`man-conversion-and-promotion`). (Of course, we
+would have to define lots of other methods, too, to make it act like a
+``Number``, e.g. ``+``, ``*``, ``one``, ``zero``, promotion rules and so on.) By
+default, instances of this type display rather simply, with information about
+the type name and the field values, as e.g. ``Polar{Float64}(3.0,4.0)``.
+
+If we want it to display instead as ``3.0 * exp(4.0im)``, we would
+define the following method to print the object to a given output
+object ``io`` (representing a file, terminal, buffer, etcetera; see
+:ref:`man-networking-and-streams`):
+
+.. testcode::
+
+    Base.show(io::IO, z::Polar) = print(io, z.r, " * exp(", z.Θ, "im)")
+
+More fine-grained control over display of ``Polar`` objects is possible.
+In particular, sometimes one wants both a verbose multi-line printing
+format, used for displaying a single object in the REPL and other interactive
+environments, and also a more compact single-line format used for :func:`print`
+or for displaying the object as part of another object (e.g. in an array).
+Although by default the ``show(io, z)`` function is called in both cases,
+you can define a *different* multi-line format for displaying an object
+by overloading a three-argument form of ``show`` that takes the ``text/plain``
+MIME type as its second argument (see :ref:`man-multimedia-io`), for example:
+
+.. testcode::
+
+    Base.show{T}(io::IO, ::MIME"text/plain", z::Polar{T}) =
+        print(io, "Polar{$T} complex number:\n   ", z)
+
+(Note that ``print(..., z)`` here will call the 2-argument ``show(io, z)`` method.)
+This results in:
+
+.. doctest::
+
+    julia> Polar(3, 4.0)
+    Polar{Float64} complex number:
+       3.0 * exp(4.0im)
+
+    julia> [Polar(3, 4.0), Polar(4.0,5.3)]
+    2-element Array{Polar{Float64},1}:
+     3.0 * exp(4.0im)
+     4.0 * exp(5.3im)
+
+where the single-line ``show(io, z)`` form is still used for an array of ``Polar``
+values.   Technically, the REPL calls ``display(z)`` to display the result of
+executing a line, which defaults to ``show(STDOUT, MIME("text/plain"), z)``, which
+in turn defaults to ``show(STDOUT, z)``, but you should *not* define new :func:`display`
+methods unless you are defining a new multimedia display handler
+(see :ref:`man-multimedia-io`).
+
+Moreover, you can also define ``show`` methods for other MIME types in order
+to enable richer display (HTML, images, etcetera) of objects in environments
+that support this (e.g. IJulia).   For example, we can define formatted
+HTML display of ``Polar`` objects, with superscripts and italics, via:
+
+.. testcode::
+
+    Base.show{T}(io::IO, ::MIME"text/html", z::Polar{T}) =
+        println(io, "<code>Polar{$T}</code> complex number: ",
+                z.r, " <i>e</i><sup>", z.Θ, " <i>i</i></sup>")
+
+A ``Polar`` object will then display automatically using HTML in an environment
+that supports HTML display, but you can call ``show`` manually to get HTML
+output if you want:
+
+.. doctest::
+
+   julia> show(STDOUT, "text/html", Polar(3.0,4.0))
+   <code>Polar{Float64}</code> complex number: 3.0 <i>e</i><sup>4.0 <i>i</i></sup>
+
+.. raw:: html
+
+   <p>An HTML renderer would display this as: <code>Polar{Float64}</code> complex number: 3.0 <i>e</i><sup>4.0 <i>i</i></sup></p>
+
 .. _man-val-trick:
 
 "Value types"
@@ -1388,7 +1487,7 @@ You can safely access the value of a :obj:`Nullable` object using :func:`get`:
 
     julia> get(Nullable{Float64}())
     ERROR: NullException()
-     in get(::Nullable{Float64}) at ./nullable.jl:62
+     in get(::Nullable{Float64}) at ./nullable.jl:90
      ...
 
     julia> get(Nullable(1.0))
@@ -1411,9 +1510,8 @@ default value as a second argument to :func:`get`:
     julia> get(Nullable(1.0), 0.0)
     1.0
 
-Note that this default value will automatically be converted to the type of
-the :obj:`Nullable` object that you attempt to access using the :func:`get` function.
-For example, in the code shown above the value ``0`` would be automatically
-converted to a :class:`Float64` value before being returned. The presence of default
-replacement values makes it easy to use the :func:`get` function to write
-type-stable code that interacts with sources of potentially missing values.
+.. tip::
+
+    Make sure the type of the default value passed to :func:`get` and that of the
+    :obj:`Nullable` object match to avoid type instability, which could hurt
+    performance. Use :func:`convert` manually if needed.

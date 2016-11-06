@@ -30,6 +30,17 @@ size(S::SparseMatrixCSC) = (S.m, S.n)
     nnz(A)
 
 Returns the number of stored (filled) elements in a sparse array.
+
+```jldoctest
+julia> A = speye(3)
+3×3 sparse matrix with 3 Float64 nonzero entries:
+        [1, 1]  =  1.0
+        [2, 2]  =  1.0
+        [3, 3]  =  1.0
+
+julia> nnz(A)
+3
+```
 """
 nnz(S::SparseMatrixCSC) = Int(S.colptr[end]-1)
 countnz(S::SparseMatrixCSC) = countnz(S.nzval)
@@ -42,6 +53,20 @@ includes zeros that are explicitly stored in the sparse array. The returned
 vector points directly to the internal nonzero storage of `A`, and any
 modifications to the returned vector will mutate `A` as well. See
 [`rowvals`](:func:`rowvals`) and [`nzrange`](:func:`nzrange`).
+
+```jldoctest
+julia> A = speye(3)
+3×3 sparse matrix with 3 Float64 nonzero entries:
+        [1, 1]  =  1.0
+        [2, 2]  =  1.0
+        [3, 3]  =  1.0
+
+julia> nonzeros(A)
+3-element Array{Float64,1}:
+ 1.0
+ 1.0
+ 1.0
+```
 """
 nonzeros(S::SparseMatrixCSC) = S.nzval
 
@@ -52,11 +77,25 @@ Return a vector of the row indices of `A`. Any modifications to the returned
 vector will mutate `A` as well. Providing access to how the row indices are
 stored internally can be useful in conjunction with iterating over structural
 nonzero values. See also [`nonzeros`](:func:`nonzeros`) and [`nzrange`](:func:`nzrange`).
+
+```jldoctest
+julia> A = speye(3)
+3×3 sparse matrix with 3 Float64 nonzero entries:
+        [1, 1]  =  1.0
+        [2, 2]  =  1.0
+        [3, 3]  =  1.0
+
+julia> rowvals(A)
+3-element Array{Int64,1}:
+ 1
+ 2
+ 3
+```
 """
 rowvals(S::SparseMatrixCSC) = S.rowval
 
 """
-    nzrange(A::SparseMatrixCSC, col)
+    nzrange(A::SparseMatrixCSC, col::Integer)
 
 Return the range of indices to the structural nonzero values of a sparse matrix
 column. In conjunction with [`nonzeros`](:func:`nonzeros`) and
@@ -265,6 +304,8 @@ function convert{Tv,Ti}(::Type{SparseMatrixCSC{Tv,Ti}}, S::SparseMatrixCSC)
 end
 # convert'ing from other matrix types to SparseMatrixCSC (also see sparse())
 convert(::Type{SparseMatrixCSC}, M::Matrix) = sparse(M)
+convert{Tv}(::Type{SparseMatrixCSC}, M::AbstractMatrix{Tv}) = convert(SparseMatrixCSC{Tv,Int}, M)
+convert{Tv}(::Type{SparseMatrixCSC{Tv}}, M::AbstractMatrix{Tv}) = convert(SparseMatrixCSC{Tv,Int}, M)
 function convert{Tv,Ti}(::Type{SparseMatrixCSC{Tv,Ti}}, M::AbstractMatrix)
     (I, J, V) = findnz(M)
     eltypeTiI = convert(Vector{Ti}, I)
@@ -292,10 +333,24 @@ full(S::SparseMatrixCSC) = convert(Array, S)
     full(S)
 
 Convert a sparse matrix or vector `S` into a dense matrix or vector.
+
+```jldoctest
+julia> A = speye(3)
+3×3 sparse matrix with 3 Float64 nonzero entries:
+        [1, 1]  =  1.0
+        [2, 2]  =  1.0
+        [3, 3]  =  1.0
+
+julia> full(A)
+3×3 Array{Float64,2}:
+ 1.0  0.0  0.0
+ 0.0  1.0  0.0
+ 0.0  0.0  1.0
+```
 """
 full
 
-float(S::SparseMatrixCSC) = SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), float(copy(S.nzval)))
+float(S::SparseMatrixCSC) = SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), float.(S.nzval))
 
 complex(S::SparseMatrixCSC) = SparseMatrixCSC(S.m, S.n, copy(S.colptr), copy(S.rowval), complex(copy(S.nzval)))
 
@@ -310,6 +365,20 @@ vec(S::SparseMatrixCSC) = S[:]
     sparse(A)
 
 Convert an AbstractMatrix `A` into a sparse matrix.
+
+```jldoctest
+julia> A = eye(3)
+3×3 Array{Float64,2}:
+ 1.0  0.0  0.0
+ 0.0  1.0  0.0
+ 0.0  0.0  1.0
+
+julia> sparse(A)
+3×3 sparse matrix with 3 Float64 nonzero entries:
+        [1, 1]  =  1.0
+        [2, 2]  =  1.0
+        [3, 3]  =  1.0
+```
 """
 sparse{Tv}(A::AbstractMatrix{Tv}) = convert(SparseMatrixCSC{Tv,Int}, A)
 
@@ -353,7 +422,7 @@ function sparse_IJ_sorted!{Ti<:Integer}(I::AbstractVector{Ti}, J::AbstractVector
         end
     end
 
-    colptr = cumsum(cols)
+    colptr = cumsum!(similar(cols), cols)
 
     # Allow up to 20% slack
     if ndups > 0.2*L
@@ -377,6 +446,20 @@ elements of `J` must satisfy `1 <= J[k] <= n`. Numerical zeros in (`I`, `J`, `V`
 retained as structural nonzeros; to drop numerical zeros, use [`dropzeros!`](:func:`dropzeros!`).
 
 For additional documentation and an expert driver, see `Base.SparseArrays.sparse!`.
+
+```jldoctest
+julia> Is = [1; 2; 3];
+
+julia> Js = [1; 2; 3];
+
+julia> Vs = [1; 2; 3];
+
+julia> sparse(Is, Js, Vs)
+3×3 sparse matrix with 3 Int64 nonzero entries:
+        [1, 1]  =  1
+        [2, 2]  =  2
+        [3, 3]  =  3
+```
 """
 function sparse{Tv,Ti<:Integer}(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv}, m::Integer, n::Integer, combine)
     coolen = length(I)
@@ -416,6 +499,9 @@ function sparse{Tv,Ti<:Integer}(I::AbstractVector{Ti}, J::AbstractVector{Ti}, V:
     end
 end
 
+sparse(I::AbstractVector, J::AbstractVector, V::AbstractVector, m::Integer, n::Integer, combine) =
+    sparse(AbstractVector{Int}(I), AbstractVector{Int}(J), V, m, n, combine)
+
 """
     sparse!{Tv,Ti<:Integer}(
         I::AbstractVector{Ti}, J::AbstractVector{Ti}, V::AbstractVector{Tv},
@@ -423,7 +509,8 @@ end
         csrrowptr::Vector{Ti}, csrcolval::Vector{Ti}, csrnzval::Vector{Tv},
         [csccolptr::Vector{Ti}], [cscrowval::Vector{Ti}, cscnzval::Vector{Tv}] )
 
-Parent of and expert driver for `sparse`; see `sparse` for basic usage. This method
+Parent of and expert driver for [`sparse`](:func:`sparse`);
+see [`sparse`](:func:`sparse`) for basic usage. This method
 allows the user to provide preallocated storage for `sparse`'s intermediate objects and
 result as described below. This capability enables more efficient successive construction
 of `SparseMatrixCSC`s from coordinate representations, and also enables extraction of an
@@ -1313,7 +1400,7 @@ such that `broadcast(::typeof(fc), A::SparseMatrixCSC) = fp(fc, A)`.
 macro _enumerate_childmethods(fp, fcs...)
     fcexps = Expr(:block)
     for fc in fcs
-        push!(fcexps.args, :( broadcast(::typeof($(esc(fc))), A::SparseMatrixCSC) = $(esc(fp))($(esc(fc)), A) ) )
+        push!(fcexps.args, :( $(esc(:broadcast))(::typeof($(esc(fc))), A::SparseMatrixCSC) = $(esc(fp))($(esc(fc)), A) ) )
     end
     return fcexps
 end
@@ -1425,8 +1512,8 @@ end
 function gen_broadcast_body_sparse(f::Function, is_first_sparse::Bool)
     F = Expr(:quote, f)
     quote
-        Base.Broadcast.check_broadcast_shape(indices(B), A_1)
-        Base.Broadcast.check_broadcast_shape(indices(B), A_2)
+        Base.Broadcast.check_broadcast_indices(indices(B), A_1)
+        Base.Broadcast.check_broadcast_indices(indices(B), A_2)
 
         colptrB = B.colptr; rowvalB = B.rowval; nzvalB = B.nzval
         colptr1 = A_1.colptr; rowval1 = A_1.rowval; nzval1 = A_1.nzval
@@ -1589,8 +1676,8 @@ function gen_broadcast_body_zpreserving(f::Function, is_first_sparse::Bool)
         op2 = :(val1)
     end
     quote
-        Base.Broadcast.check_broadcast_shape(indices(B), $A1)
-        Base.Broadcast.check_broadcast_shape(indices(B), $A2)
+        Base.Broadcast.check_broadcast_indices(indices(B), $A1)
+        Base.Broadcast.check_broadcast_indices(indices(B), $A2)
 
         nnzB = isempty(B) ? 0 :
                nnz($A1) * div(B.n, ($A1).n) * div(B.m, ($A1).m)
@@ -1659,16 +1746,16 @@ end
 
 
 broadcast{Tv1,Ti1,Tv2,Ti2}(f::Function, A_1::SparseMatrixCSC{Tv1,Ti1}, A_2::SparseMatrixCSC{Tv2,Ti2}) =
-                 broadcast!(f, spzeros(promote_type(Tv1, Tv2), promote_type(Ti1, Ti2), to_shape(broadcast_shape(A_1, A_2))), A_1, A_2)
+                 broadcast!(f, spzeros(promote_type(Tv1, Tv2), promote_type(Ti1, Ti2), to_shape(broadcast_indices(A_1, A_2))), A_1, A_2)
 
 @inline broadcast_zpreserving!(args...) = broadcast!(args...)
 @inline broadcast_zpreserving(args...) = broadcast(args...)
 broadcast_zpreserving{Tv1,Ti1,Tv2,Ti2}(f::Function, A_1::SparseMatrixCSC{Tv1,Ti1}, A_2::SparseMatrixCSC{Tv2,Ti2}) =
-                 broadcast_zpreserving!(f, spzeros(promote_type(Tv1, Tv2), promote_type(Ti1, Ti2), to_shape(broadcast_shape(A_1, A_2))), A_1, A_2)
+                 broadcast_zpreserving!(f, spzeros(promote_type(Tv1, Tv2), promote_type(Ti1, Ti2), to_shape(broadcast_indices(A_1, A_2))), A_1, A_2)
 broadcast_zpreserving{Tv,Ti}(f::Function, A_1::SparseMatrixCSC{Tv,Ti}, A_2::Union{Array,BitArray,Number}) =
-                 broadcast_zpreserving!(f, spzeros(promote_eltype(A_1, A_2), Ti, to_shape(broadcast_shape(A_1, A_2))), A_1, A_2)
+                 broadcast_zpreserving!(f, spzeros(promote_eltype(A_1, A_2), Ti, to_shape(broadcast_indices(A_1, A_2))), A_1, A_2)
 broadcast_zpreserving{Tv,Ti}(f::Function, A_1::Union{Array,BitArray,Number}, A_2::SparseMatrixCSC{Tv,Ti}) =
-                 broadcast_zpreserving!(f, spzeros(promote_eltype(A_1, A_2), Ti, to_shape(broadcast_shape(A_1, A_2))), A_1, A_2)
+                 broadcast_zpreserving!(f, spzeros(promote_eltype(A_1, A_2), Ti, to_shape(broadcast_indices(A_1, A_2))), A_1, A_2)
 
 
 ## Binary arithmetic and boolean operators
@@ -1682,57 +1769,57 @@ for op in (+, -, min, max, &, |, $)
                 throw(DimensionMismatch(""))
             end
             Tv = promote_op($op, Tv1, Tv2)
-            B =  spzeros(Tv, promote_type(Ti1, Ti2), to_shape(broadcast_shape(A_1, A_2)))
+            B =  spzeros(Tv, promote_type(Ti1, Ti2), to_shape(broadcast_indices(A_1, A_2)))
             $body
             B
         end
     end
 end # macro
 
-(.+)(A::SparseMatrixCSC, B::Number) = full(A) .+ B
-( +)(A::SparseMatrixCSC, B::Array ) = full(A)  + B
-(.+)(A::Number, B::SparseMatrixCSC) = A .+ full(B)
-( +)(A::Array , B::SparseMatrixCSC) = A  + full(B)
+(.+)(A::SparseMatrixCSC, B::Number) = Array(A) .+ B
+( +)(A::SparseMatrixCSC, B::Array ) = Array(A)  + B
+(.+)(A::Number, B::SparseMatrixCSC) = A .+ Array(B)
+( +)(A::Array , B::SparseMatrixCSC) = A  + Array(B)
 
-(.-)(A::SparseMatrixCSC, B::Number) = full(A) .- B
-( -)(A::SparseMatrixCSC, B::Array ) = full(A)  - B
-(.-)(A::Number, B::SparseMatrixCSC) = A .- full(B)
-( -)(A::Array , B::SparseMatrixCSC) = A  - full(B)
+(.-)(A::SparseMatrixCSC, B::Number) = Array(A) .- B
+( -)(A::SparseMatrixCSC, B::Array ) = Array(A)  - B
+(.-)(A::Number, B::SparseMatrixCSC) = A .- Array(B)
+( -)(A::Array , B::SparseMatrixCSC) = A  - Array(B)
 
 (.*)(A::AbstractArray, B::AbstractArray) = broadcast_zpreserving(*, A, B)
 (.*)(A::SparseMatrixCSC, B::Number) = SparseMatrixCSC(A.m, A.n, copy(A.colptr), copy(A.rowval), A.nzval .* B)
 (.*)(A::Number, B::SparseMatrixCSC) = SparseMatrixCSC(B.m, B.n, copy(B.colptr), copy(B.rowval), A .* B.nzval)
 
 (./)(A::SparseMatrixCSC, B::Number) = SparseMatrixCSC(A.m, A.n, copy(A.colptr), copy(A.rowval), A.nzval ./ B)
-(./)(A::Number, B::SparseMatrixCSC) = (./)(A, full(B))
-(./)(A::SparseMatrixCSC, B::Array) = (./)(full(A), B)
-(./)(A::Array, B::SparseMatrixCSC) = (./)(A, full(B))
-(./)(A::SparseMatrixCSC, B::SparseMatrixCSC) = (./)(full(A), full(B))
+(./)(A::Number, B::SparseMatrixCSC) = (./)(A, Array(B))
+(./)(A::SparseMatrixCSC, B::Array) = (./)(Array(A), B)
+(./)(A::Array, B::SparseMatrixCSC) = (./)(A, Array(B))
+(./)(A::SparseMatrixCSC, B::SparseMatrixCSC) = (./)(Array(A), Array(B))
 
-(.\)(A::SparseMatrixCSC, B::Number) = (.\)(full(A), B)
+(.\)(A::SparseMatrixCSC, B::Number) = (.\)(Array(A), B)
 (.\)(A::Number, B::SparseMatrixCSC) = SparseMatrixCSC(B.m, B.n, copy(B.colptr), copy(B.rowval), A .\ B.nzval )
-(.\)(A::SparseMatrixCSC, B::Array) = (.\)(full(A), B)
-(.\)(A::Array, B::SparseMatrixCSC) = (.\)(A, full(B))
-(.\)(A::SparseMatrixCSC, B::SparseMatrixCSC) = (.\)(full(A), full(B))
+(.\)(A::SparseMatrixCSC, B::Array) = (.\)(Array(A), B)
+(.\)(A::Array, B::SparseMatrixCSC) = (.\)(A, Array(B))
+(.\)(A::SparseMatrixCSC, B::SparseMatrixCSC) = (.\)(Array(A), Array(B))
 
 (.^)(A::SparseMatrixCSC, B::Number) =
     B==0 ? sparse(ones(typeof(one(eltype(A)).^B), A.m, A.n)) :
            SparseMatrixCSC(A.m, A.n, copy(A.colptr), copy(A.rowval), A.nzval .^ B)
 (.^)(::Irrational{:e}, B::SparseMatrixCSC) = exp.(B)
-(.^)(A::Number, B::SparseMatrixCSC) = (.^)(A, full(B))
-(.^)(A::SparseMatrixCSC, B::Array) = (.^)(full(A), B)
-(.^)(A::Array, B::SparseMatrixCSC) = (.^)(A, full(B))
+(.^)(A::Number, B::SparseMatrixCSC) = (.^)(A, Array(B))
+(.^)(A::SparseMatrixCSC, B::Array) = (.^)(Array(A), B)
+(.^)(A::Array, B::SparseMatrixCSC) = (.^)(A, Array(B))
 
 .+{Tv1,Ti1,Tv2,Ti2}(A_1::SparseMatrixCSC{Tv1,Ti1}, A_2::SparseMatrixCSC{Tv2,Ti2}) =
-    broadcast!(+, spzeros(promote_op(+, Tv1, Tv2), promote_type(Ti1, Ti2), to_shape(broadcast_shape(A_1, A_2))), A_1, A_2)
+    broadcast!(+, spzeros(promote_op(+, Tv1, Tv2), promote_type(Ti1, Ti2), to_shape(broadcast_indices(A_1, A_2))), A_1, A_2)
 
 function .-{Tva,Tia,Tvb,Tib}(A::SparseMatrixCSC{Tva,Tia}, B::SparseMatrixCSC{Tvb,Tib})
-    broadcast!(-, spzeros(promote_op(-, Tva, Tvb), promote_type(Tia, Tib), to_shape(broadcast_shape(A, B))), A, B)
+    broadcast!(-, spzeros(promote_op(-, Tva, Tvb), promote_type(Tia, Tib), to_shape(broadcast_indices(A, B))), A, B)
 end
 
 ## element-wise comparison operators returning SparseMatrixCSC ##
-.<{Tv1,Ti1,Tv2,Ti2}(A_1::SparseMatrixCSC{Tv1,Ti1}, A_2::SparseMatrixCSC{Tv2,Ti2}) = broadcast!(<, spzeros( Bool, promote_type(Ti1, Ti2), to_shape(broadcast_shape(A_1, A_2))), A_1, A_2)
-.!={Tv1,Ti1,Tv2,Ti2}(A_1::SparseMatrixCSC{Tv1,Ti1}, A_2::SparseMatrixCSC{Tv2,Ti2}) = broadcast!(!=, spzeros( Bool, promote_type(Ti1, Ti2), to_shape(broadcast_shape(A_1, A_2))), A_1, A_2)
+.<{Tv1,Ti1,Tv2,Ti2}(A_1::SparseMatrixCSC{Tv1,Ti1}, A_2::SparseMatrixCSC{Tv2,Ti2}) = broadcast!(<, spzeros( Bool, promote_type(Ti1, Ti2), to_shape(broadcast_indices(A_1, A_2))), A_1, A_2)
+.!={Tv1,Ti1,Tv2,Ti2}(A_1::SparseMatrixCSC{Tv1,Ti1}, A_2::SparseMatrixCSC{Tv2,Ti2}) = broadcast!(!=, spzeros( Bool, promote_type(Ti1, Ti2), to_shape(broadcast_indices(A_1, A_2))), A_1, A_2)
 
 ## full equality
 function ==(A1::SparseMatrixCSC, A2::SparseMatrixCSC)
@@ -1777,9 +1864,9 @@ end
 # and computing reductions along columns into SparseMatrixCSC is
 # non-trivial, so use Arrays for output
 Base.reducedim_initarray{R}(A::SparseMatrixCSC, region, v0, ::Type{R}) =
-    fill!(Array{R}(Base.reduced_dims(A,region)), v0)
+    fill!(similar(dims->Array{R}(dims), Base.reduced_dims(A,region)), v0)
 Base.reducedim_initarray0{R}(A::SparseMatrixCSC, region, v0, ::Type{R}) =
-    fill!(Array{R}(Base.reduced_dims0(A,region)), v0)
+    fill!(similar(dims->Array{R}(dims), Base.reduced_dims0(A,region)), v0)
 
 # General mapreduce
 function _mapreducezeros(f, op, T::Type, nzeros::Int, v0)
@@ -2829,11 +2916,11 @@ setindex!(A::SparseMatrixCSC, x::Matrix, I::AbstractVector{Bool}, J::AbstractVec
 setindex!{T<:Integer}(A::SparseMatrixCSC, x::Matrix, I::AbstractVector{T}, J::AbstractVector{Bool}) = setindex!(A, sparse(x), I, find(J))
 setindex!{T<:Integer}(A::SparseMatrixCSC, x::Matrix, I::AbstractVector{Bool}, J::AbstractVector{T}) = setindex!(A, sparse(x), find(I),J)
 
-setindex!(A::Matrix, x::SparseMatrixCSC, I::Integer, J::AbstractVector{Bool}) = setindex!(A, full(x), I, find(J))
-setindex!(A::Matrix, x::SparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = setindex!(A, full(x), find(I), J)
-setindex!(A::Matrix, x::SparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = setindex!(A, full(x), find(I), find(J))
-setindex!{T<:Integer}(A::Matrix, x::SparseMatrixCSC, I::AbstractVector{T}, J::AbstractVector{Bool}) = setindex!(A, full(x), I, find(J))
-setindex!{T<:Integer}(A::Matrix, x::SparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{T}) = setindex!(A, full(x), find(I), J)
+setindex!(A::Matrix, x::SparseMatrixCSC, I::Integer, J::AbstractVector{Bool}) = setindex!(A, Array(x), I, find(J))
+setindex!(A::Matrix, x::SparseMatrixCSC, I::AbstractVector{Bool}, J::Integer) = setindex!(A, Array(x), find(I), J)
+setindex!(A::Matrix, x::SparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{Bool}) = setindex!(A, Array(x), find(I), find(J))
+setindex!{T<:Integer}(A::Matrix, x::SparseMatrixCSC, I::AbstractVector{T}, J::AbstractVector{Bool}) = setindex!(A, Array(x), I, find(J))
+setindex!{T<:Integer}(A::Matrix, x::SparseMatrixCSC, I::AbstractVector{Bool}, J::AbstractVector{T}) = setindex!(A, Array(x), find(I), J)
 
 setindex!{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, x, I::AbstractVector{Bool}) = throw(BoundsError())
 function setindex!{Tv,Ti}(A::SparseMatrixCSC{Tv,Ti}, x, I::AbstractMatrix{Bool})

@@ -23,10 +23,12 @@ export
     Docs,
     Markdown,
     Threads,
+    Iterators,
 
 # Types
     AbstractChannel,
     AbstractMatrix,
+    AbstractSet,
     AbstractUnitRange,
     AbstractVector,
     AbstractVecOrMat,
@@ -60,7 +62,6 @@ export
     Enumerate,
     Factorization,
     FileMonitor,
-    Filter,
     FloatRange,
     Future,
     Hermitian,
@@ -123,7 +124,6 @@ export
     VersionNumber,
     WeakKeyDict,
     WorkerConfig,
-    Zip,
 
 # Ccall types
     Cchar,
@@ -531,7 +531,6 @@ export
     indmin,
     invperm,
     ipermute!,
-    ipermutedims,
     isassigned,
     isperm,
     issorted,
@@ -958,16 +957,11 @@ export
 
 # iteration
     done,
-    enumerate,
     next,
     start,
+
+    enumerate,  # re-exported from Iterators
     zip,
-    rest,
-    countfrom,
-    take,
-    drop,
-    cycle,
-    repeated,
 
 # object identity and equality
     copy,
@@ -1052,6 +1046,7 @@ export
     expand,
     gensym,
     macroexpand,
+    @macroexpand,
     parse,
 
 # help and reflection
@@ -1204,6 +1199,7 @@ export
     remotecall,
     remotecall_fetch,
     remotecall_wait,
+    remote_do,
     rmprocs,
     take!,
     timedwait,
@@ -1324,10 +1320,12 @@ export
 
 # nullable types
     isnull,
+    unsafe_get,
 
 # Macros
     # parser internal
     @__FILE__,
+    @__DIR__,
     @int128_str,
     @uint128_str,
     @big_str,
@@ -1396,8 +1394,6 @@ export
     @generated,
     @gensym,
     @eval,
-    @vectorize_1arg,
-    @vectorize_2arg,
     @deprecate,
 
     # performance annotations

@@ -55,44 +55,6 @@ JL_DLLEXPORT const char* __asan_default_options() {
 }
 #endif
 
-static const char system_image_path[256] = "\0" JL_SYSTEM_IMAGE_PATH;
-
-jl_options_t jl_options = { 0,    // quiet
-                            NULL, // julia_home
-                            NULL, // julia_bin
-                            NULL, // eval
-                            NULL, // print
-                            NULL, // postboot
-                            NULL, // load
-                            &system_image_path[1], // image_file
-                            NULL, // cpu_taget ("native", "core2", etc...)
-                            0,    // nprocs
-                            NULL, // machinefile
-                            0,    // isinteractive
-                            0,    // color
-                            JL_OPTIONS_HISTORYFILE_ON, // historyfile
-                            0,    // startupfile
-                            JL_OPTIONS_COMPILE_DEFAULT, // compile_enabled
-                            0,    // code_coverage
-                            0,    // malloc_log
-                            2,    // opt_level
-                            JL_OPTIONS_CHECK_BOUNDS_DEFAULT, // check_bounds
-                            1,    // depwarn
-                            1,    // can_inline
-                            JL_OPTIONS_POLLY_ON, // polly
-                            JL_OPTIONS_FAST_MATH_DEFAULT,
-                            0,    // worker
-                            JL_OPTIONS_HANDLE_SIGNALS_ON,
-                            JL_OPTIONS_USE_PRECOMPILED_YES,
-                            JL_OPTIONS_USE_COMPILECACHE_YES,
-                            NULL, // bindto
-                            NULL, // outputbc
-                            NULL, // outputo
-                            NULL, // outputji
-                            0, // incremental
-                            0 // image_file_specified
-};
-
 int jl_boot_file_loaded = 0;
 size_t jl_page_size;
 
@@ -661,6 +623,7 @@ void _julia_init(JL_IMAGE_SEARCH rel)
 
     jl_an_empty_vec_any = (jl_value_t*)jl_alloc_vec_any(0);
     jl_init_serializer();
+    jl_init_intrinsic_properties();
 
     if (!jl_options.image_file) {
         jl_core_module = jl_new_module(jl_symbol("Core"));
@@ -886,7 +849,7 @@ JL_DLLEXPORT void jl_get_system_hooks(void)
 
 void jl_get_builtins(void)
 {
-    jl_builtin_throw = core("throw");           jl_builtin_is = core("is");
+    jl_builtin_throw = core("throw");           jl_builtin_is = core("===");
     jl_builtin_typeof = core("typeof");         jl_builtin_sizeof = core("sizeof");
     jl_builtin_issubtype = core("issubtype");   jl_builtin_isa = core("isa");
     jl_builtin_typeassert = core("typeassert"); jl_builtin__apply = core("_apply");
