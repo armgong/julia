@@ -117,6 +117,8 @@ end
 @test gc_enable(true)
 
 # test methodswith
+# `methodswith` relies on exported symbols
+export func4union, Base
 immutable NoMethodHasThisType end
 @test isempty(methodswith(NoMethodHasThisType))
 @test !isempty(methodswith(Int))
@@ -203,24 +205,6 @@ catch ex
     ex
 end
     @test isa(ex, ErrorException) && ex.msg == "cannot assign variables in other modules"
-end
-
-@test !Base.is_unix(:Windows)
-@test !Base.is_linux(:Windows)
-@test Base.is_linux(:Linux)
-@test Base.is_windows(:Windows)
-@test Base.is_windows(:NT)
-@test !Base.is_windows(:Darwin)
-@test Base.is_apple(:Darwin)
-@test Base.is_apple(:Apple)
-@test !Base.is_apple(:Windows)
-@test Base.is_unix(:Darwin)
-@test Base.is_unix(:FreeBSD)
-@test_throws ArgumentError Base.is_unix(:BeOS)
-if !is_windows()
-    @test Sys.windows_version() === (0, 0)
-else
-    @test (Sys.windows_version()::Tuple{Int,Int})[1] > 0
 end
 
 # Issue 14173
@@ -466,7 +450,7 @@ let
         eval(Base, :(have_color = true))
         buf = IOBuffer()
         print_with_color(:red, buf, "foo")
-        @test startswith(takebuf_string(buf), Base.text_colors[:red])
+        @test startswith(String(take!(buf)), Base.text_colors[:red])
     finally
         eval(Base, :(have_color = $(old_have_color)))
     end
@@ -480,4 +464,21 @@ let
         get(buf, :hascontext, false) && (c_18711 += 1)
     end
     @test c_18711 == 1
+end
+
+let
+    old_have_color = Base.have_color
+    try
+        eval(Base, :(have_color = true))
+        buf = IOBuffer()
+        print_with_color(:red, buf, "foo")
+        # Check that we get back to normal text color in the end
+        @test String(take!(buf)) == "\e[31mfoo\e[39m"
+
+        # Check that boldness is turned off
+        print_with_color(:red, buf, "foo"; bold = true)
+        @test String(take!(buf)) == "\e[1m\e[31mfoo\e[39m\e[22m"
+    finally
+        eval(Base, :(have_color = $(old_have_color)))
+    end
 end

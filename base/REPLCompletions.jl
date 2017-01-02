@@ -281,11 +281,12 @@ function get_type_call(expr::Expr)
         found ? push!(args, typ) : push!(args, Any)
     end
     # use _methods_by_ftype as the function is supplied as a type
-    mt = Base._methods_by_ftype(Tuple{ft, args...}, -1)
+    world = typemax(UInt)
+    mt = Base._methods_by_ftype(Tuple{ft, args...}, -1, world)
     length(mt) == 1 || return (Any, false)
     m = first(mt)
     # Typeinference
-    params = Core.Inference.InferenceParams()
+    params = Core.Inference.InferenceParams(world)
     return_type = Core.Inference.typeinf_type(m[3], m[1], m[2], true, params)
     return_type === nothing && return (Any, false)
     return (return_type, true)
@@ -331,7 +332,7 @@ function complete_methods(ex_org::Expr)
         # Check if the method's type signature intersects the input types
         if typeintersect(Tuple{method.sig.parameters[1 : min(na, end)]...}, t_in) != Union{}
             show(io, method, kwtype=kwtype)
-            push!(out, takebuf_string(io))
+            push!(out, String(take!(io)))
         end
     end
     return out
@@ -414,6 +415,16 @@ function dict_identifier_key(str,tag)
     return (obj, partial_key, begin_of_key)
 end
 
+# This needs to be a separate non-inlined function, see #19441
+@noinline function find_dict_matches(identifier, partial_key)
+    matches = []
+    for key in keys(identifier)
+        rkey = repr(key)
+        startswith(rkey,partial_key) && push!(matches,rkey)
+    end
+    return matches
+end
+
 function completions(string, pos)
     # First parse everything up to the current position
     partial = string[1:pos]
@@ -425,11 +436,7 @@ function completions(string, pos)
     identifier, partial_key, loc = dict_identifier_key(partial,inc_tag)
     if identifier !== nothing
         if partial_key !== nothing
-            matches = []
-            for key in keys(identifier)
-                rkey = repr(key)
-                startswith(rkey,partial_key) && push!(matches,rkey)
-            end
+            matches = find_dict_matches(identifier, partial_key)
             length(matches)==1 && (length(string) <= pos || string[pos+1] != ']') && (matches[1]*="]")
             length(matches)>0 && return sort(matches), loc:pos, true
         else

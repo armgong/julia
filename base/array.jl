@@ -207,9 +207,15 @@ fill(v, dims::Integer...) = fill!(Array{typeof(v)}(dims...), v)
 
 for (fname, felt) in ((:zeros,:zero), (:ones,:one))
     @eval begin
-        ($fname)(T::Type, dims...)       = fill!(Array{T}(dims...), ($felt)(T))
-        ($fname)(dims...)                = fill!(Array{Float64}(dims...), ($felt)(Float64))
-        ($fname){T}(A::AbstractArray{T}) = fill!(similar(A), ($felt)(T))
+        # allow signature of similar
+        $fname(a::AbstractArray, T::Type, dims::Tuple) = fill!(similar(a, T, dims), $felt(T))
+        $fname(a::AbstractArray, T::Type, dims...) = fill!(similar(a,T,dims...), $felt(T))
+        $fname(a::AbstractArray, T::Type=eltype(a)) = fill!(similar(a,T), $felt(T))
+
+        $fname(T::Type, dims::Tuple) = fill!(Array{T}(Dims(dims)), $felt(T))
+        $fname(dims::Tuple) = ($fname)(Float64, dims)
+        $fname(T::Type, dims...) = $fname(T, dims)
+        $fname(dims...) = $fname(dims)
     end
 end
 
@@ -261,7 +267,7 @@ julia> eye(A)
  0  0  1
 ```
 
-Note the difference from [`ones`](:func:`ones`).
+Note the difference from [`ones`](@ref).
 """
 eye{T}(x::AbstractMatrix{T}) = eye(T, size(x, 1), size(x, 2))
 
@@ -472,7 +478,7 @@ end
 
 ## Indexing: setindex! ##
 setindex!{T}(A::Array{T}, x, i1::Real) = arrayset(A, convert(T,x)::T, to_index(i1))
-setindex!{T}(A::Array{T}, x, i1::Real, i2::Real, I::Real...) = arrayset(A, convert(T,x)::T, to_index(i1), to_index(i2), to_indexes(I...)...) # TODO: REMOVE FOR #14770
+setindex!{T}(A::Array{T}, x, i1::Real, i2::Real, I::Real...) = (@_inline_meta; arrayset(A, convert(T,x)::T, to_index(i1), to_index(i2), to_indexes(I...)...)) # TODO: REMOVE FOR #14770
 
 # These are redundant with the abstract fallbacks but needed for bootstrap
 function setindex!(A::Array, x, I::AbstractVector{Int})
@@ -640,14 +646,14 @@ end
 Insert one or more `items` at the beginning of `collection`.
 
 ```jldoctest
-  julia> unshift!([1, 2, 3, 4], 5, 6)
-  6-element Array{Int64,1}:
-   5
-   6
-   1
-   2
-   3
-   4
+julia> unshift!([1, 2, 3, 4], 5, 6)
+6-element Array{Int64,1}:
+ 5
+ 6
+ 1
+ 2
+ 3
+ 4
 ```
 """
 function unshift!{T}(a::Array{T,1}, item)
@@ -731,8 +737,8 @@ julia> deleteat!([6, 5, 4, 3, 2, 1], 1:2:5)
 
 julia> deleteat!([6, 5, 4, 3, 2, 1], (2, 2))
 ERROR: ArgumentError: indices must be unique and sorted
- in deleteat!(::Array{Int64,1}, ::Tuple{Int64,Int64}) at ./array.jl:727
- ...
+Stacktrace:
+ [1] deleteat!(::Array{Int64,1}, ::Tuple{Int64,Int64}) at ./array.jl:748
 ```
 """
 function deleteat!(a::Vector, inds)
@@ -774,7 +780,7 @@ Subsequent items are shifted left to fill the resulting gap.
 If specified, replacement values from an ordered
 collection will be spliced in place of the removed item.
 
-```jldoctest
+```jldoctest splice!
 julia> A = [6, 5, 4, 3, 2, 1]; splice!(A, 5)
 2
 
@@ -844,7 +850,7 @@ place of the removed items.
 To insert `replacement` before an index `n` without removing any items, use
 `splice!(collection, n:n-1, replacement)`.
 
-```jldoctest
+```jldoctest splice!
 julia> splice!(A, 4:3, 2)
 0-element Array{Int64,1}
 
@@ -981,6 +987,8 @@ function vcat{T}(arrays::Vector{T}...)
     end
     return arr
 end
+
+cat(n::Integer, x::Integer...) = reshape([x...], (ntuple(x->1, n-1)..., length(x)))
 
 
 ## find ##

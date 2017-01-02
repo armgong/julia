@@ -7,136 +7,33 @@
 
 Transform an array to its complex conjugate in-place.
 
-See also [`conj`](:func:`conj`).
+See also [`conj`](@ref).
 """
-function conj!{T<:Number}(A::AbstractArray{T})
-    for i in eachindex(A)
-        A[i] = conj(A[i])
-    end
-    return A
+conj!{T<:Number}(A::AbstractArray{T}) = broadcast!(conj, A, A)
+
+for f in (:-, :~, :conj, :sign, :real, :imag)
+    @eval ($f)(A::AbstractArray) = broadcast($f, A)
 end
 
-for f in (:-, :~, :conj, :sign)
-    @eval begin
-        function ($f)(A::AbstractArray)
-            F = similar(A)
-            RF, RA = eachindex(F), eachindex(A)
-            if RF == RA
-                for i in RA
-                    F[i] = ($f)(A[i])
-                end
-            else
-                for (iF, iA) in zip(RF, RA)
-                   F[iF] = ($f)(A[iA])
-                end
-            end
-            return F
-        end
-    end
-end
-
-(-)(A::AbstractArray{Bool}) = reshape([ -A[i] for i in eachindex(A) ], size(A))
-
-real(A::AbstractArray) = reshape([ real(x) for x in A ], size(A))
-imag(A::AbstractArray) = reshape([ imag(x) for x in A ], size(A))
-
-function !(A::AbstractArray{Bool})
-    F = similar(A)
-    RF, RA = eachindex(F), eachindex(A)
-    if RF == RA
-        for i in RA
-            F[i] = !A[i]
-        end
-    else
-        for (iF, iA) in zip(RF, RA)
-            F[iF] = !A[iA]
-        end
-    end
-    return F
-end
+!(A::AbstractArray{Bool}) = broadcast(!, A)
 
 ## Binary arithmetic operators ##
 
-promote_array_type(F, ::Type, ::Type, T::Type) = T
-promote_array_type{S<:Real, A<:AbstractFloat}(F, ::Type{S}, ::Type{A}, ::Type) = A
-promote_array_type{S<:Integer, A<:Integer}(F, ::Type{S}, ::Type{A}, ::Type) = A
-promote_array_type{S<:Integer, A<:Integer}(::typeof(./), ::Type{S}, ::Type{A}, T::Type) = T
-promote_array_type{S<:Integer, A<:Integer}(::typeof(.\), ::Type{S}, ::Type{A}, T::Type) = T
-promote_array_type{S<:Integer}(::typeof(./), ::Type{S}, ::Type{Bool}, T::Type) = T
-promote_array_type{S<:Integer}(::typeof(.\), ::Type{S}, ::Type{Bool}, T::Type) = T
-promote_array_type{S<:Integer}(F, ::Type{S}, ::Type{Bool}, T::Type) = T
-
-for f in (:+, :-, :div, :mod, :&, :|, :$)
-    @eval ($f)(A::AbstractArray, B::AbstractArray) =
-        _elementwise($f, promote_eltype_op($f, A, B), A, B)
-end
-function _elementwise(op, ::Type{Any}, A::AbstractArray, B::AbstractArray)
-    promote_shape(A, B) # check size compatibility
-    return broadcast(op, A, B)
-end
-function _elementwise{T}(op, ::Type{T}, A::AbstractArray, B::AbstractArray)
-    F = similar(A, T, promote_shape(A, B))
-    RF, RA, RB  = eachindex(F), eachindex(A), eachindex(B)
-    if RF == RA == RB
-        for i in RA
-            @inbounds F[i] = op(A[i], B[i])
-        end
-    else
-        for (iF, iA, iB) in zip(RF, RA, RB)
-            @inbounds F[iF] = op(A[iA], B[iB])
-        end
-    end
-    return F
-end
-
-for f in (:.+, :.-, :.*, :./, :.\, :.^, :.÷, :.%, :.<<, :.>>, :div, :mod, :rem, :&, :|, :$)
-    @eval begin
-        function ($f){T}(A::Number, B::AbstractArray{T})
-            R = promote_op($f, typeof(A), T)
-            S = promote_array_type($f, typeof(A), T, R)
-            S === Any && return [($f)(A, b) for b in B]
-            F = similar(B, S)
-            RF, RB = eachindex(F), eachindex(B)
-            if RF == RB
-                for i in RB
-                    @inbounds F[i] = ($f)(A, B[i])
-                end
-            else
-                for (iF, iB) in zip(RF, RB)
-                    @inbounds F[iF] = ($f)(A, B[iB])
-                end
-            end
-            return F
-        end
-        function ($f){T}(A::AbstractArray{T}, B::Number)
-            R = promote_op($f, T, typeof(B))
-            S = promote_array_type($f, typeof(B), T, R)
-            S === Any && return [($f)(a, B) for a in A]
-            F = similar(A, S)
-            RF, RA = eachindex(F), eachindex(A)
-            if RF == RA
-                for i in RA
-                    @inbounds F[i] = ($f)(A[i], B)
-                end
-            else
-                for (iF, iA) in zip(RF, RA)
-                    @inbounds F[iF] = ($f)(A[iA], B)
-                end
-            end
-            return F
-        end
+for f in (:+, :-)
+    @eval function ($f)(A::AbstractArray, B::AbstractArray)
+        promote_shape(A, B) # check size compatibility
+        broadcast($f, A, B)
     end
 end
 
-# familiar aliases for broadcasting operations of array ± scalar (#7226):
-(+)(A::AbstractArray{Bool},x::Bool) = A .+ x
-(+)(x::Bool,A::AbstractArray{Bool}) = x .+ A
-(-)(A::AbstractArray{Bool},x::Bool) = A .- x
-(-)(x::Bool,A::AbstractArray{Bool}) = x .- A
-(+)(A::AbstractArray,x::Number) = A .+ x
-(+)(x::Number,A::AbstractArray) = x .+ A
-(-)(A::AbstractArray,x::Number) = A .- x
-(-)(x::Number,A::AbstractArray) = x .- A
+for f in (:/, :\, :*, :+, :-)
+    if f != :/
+        @eval ($f){T}(A::Number, B::AbstractArray{T}) = broadcast($f, A, B)
+    end
+    if f != :\
+        @eval ($f){T}(A::AbstractArray{T}, B::Number) = broadcast($f, A, B)
+    end
+end
 
 ## data movement ##
 
@@ -473,6 +370,22 @@ end
     transpose(A)
 
 The transposition operator (`.'`).
+
+# Example
+
+```jldoctest
+julia> A = [1 2 3; 4 5 6; 7 8 9]
+3×3 Array{Int64,2}:
+ 1  2  3
+ 4  5  6
+ 7  8  9
+
+julia> transpose(A)
+3×3 Array{Int64,2}:
+ 1  4  7
+ 2  5  8
+ 3  6  9
+```
 """
 function transpose(A::AbstractMatrix)
     ind1, ind2 = indices(A)
@@ -488,49 +401,3 @@ ctranspose{T<:Real}(A::AbstractVecOrMat{T}) = transpose(A)
 
 transpose(x::AbstractVector) = [ transpose(v) for i=of_indices(x, OneTo(1)), v in x ]
 ctranspose{T}(x::AbstractVector{T}) = T[ ctranspose(v) for i=of_indices(x, OneTo(1)), v in x ]
-
-# see discussion in #18364 ... we try not to widen type of the resulting array
-# from cumsum or cumprod, but in some cases (+, Bool) we may not have a choice.
-rcum_promote_type{T<:Number}(op, ::Type{T}) = promote_op(op, T)
-rcum_promote_type{T}(op, ::Type{T}) = T
-
-# handle sums of Vector{Bool} and similar.   it would be nice to handle
-# any AbstractArray here, but it's not clear how that would be possible
-rcum_promote_type{T,N}(op, ::Type{Array{T,N}}) = Array{rcum_promote_type(op,T), N}
-
-for (f, f!, fp, op) = ((:cumsum, :cumsum!, :cumsum_pairwise!, :+),
-                       (:cumprod, :cumprod!, :cumprod_pairwise!, :*) )
-    # in-place cumsum of c = s+v[range(i1,n)], using pairwise summation
-    @eval function ($fp){T}(v::AbstractVector, c::AbstractVector{T}, s, i1, n)
-        local s_::T # for sum(v[range(i1,n)]), i.e. sum without s
-        if n < 128
-            @inbounds s_ = v[i1]
-            @inbounds c[i1] = ($op)(s, s_)
-            for i = i1+1:i1+n-1
-                @inbounds s_ = $(op)(s_, v[i])
-                @inbounds c[i] = $(op)(s, s_)
-            end
-        else
-            n2 = n >> 1
-            s_ = ($fp)(v, c, s, i1, n2)
-            s_ = $(op)(s_, ($fp)(v, c, ($op)(s, s_), i1+n2, n-n2))
-        end
-        return s_
-    end
-
-    @eval function ($f!)(result::AbstractVector, v::AbstractVector)
-        li = linearindices(v)
-        li != linearindices(result) && throw(DimensionMismatch("input and output array sizes and indices must match"))
-        n = length(li)
-        if n == 0; return result; end
-        i1 = first(li)
-        @inbounds result[i1] = v1 = v[i1]
-        n == 1 && return result
-        ($fp)(v, result, v1, i1+1, n-1)
-        return result
-    end
-
-    @eval function ($f){T}(v::AbstractVector{T})
-        return ($f!)(similar(v, rcum_promote_type($op, T)), v)
-    end
-end

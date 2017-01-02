@@ -129,7 +129,7 @@ end
 For a set of iterable objects, returns an iterable of tuples, where the `i`th tuple contains
 the `i`th component of each input iterable.
 
-Note that [`zip`](:func:`zip`) is its own inverse: `collect(zip(zip(a...)...)) == collect(a)`.
+Note that [`zip`](@ref) is its own inverse: `collect(zip(zip(a...)...)) == collect(a)`.
 
 ```jldoctest
 julia> a = 1:5
@@ -291,8 +291,8 @@ julia> collect(Iterators.take(a,3))
  5
 ```
 """
-take(xs, n::Int) = Take(xs, n)
-take(xs::Take, n::Int) = Take(xs.xs, min(n, xs.n))
+take(xs, n::Integer) = Take(xs, Int(n))
+take(xs::Take, n::Integer) = Take(xs.xs, min(Int(n), xs.n))
 
 eltype{I}(::Type{Take{I}}) = eltype(I)
 iteratoreltype{I}(::Type{Take{I}}) = iteratoreltype(I)
@@ -345,9 +345,9 @@ julia> collect(Iterators.drop(a,4))
  11
 ```
 """
-drop(xs, n::Int) = Drop(xs, n)
-drop(xs::Take, n::Int) = Take(drop(xs.xs, n), max(0, xs.n - n))
-drop(xs::Drop, n::Int) = Drop(xs.xs, n + xs.n)
+drop(xs, n::Integer) = Drop(xs, Int(n))
+drop(xs::Take, n::Integer) = Take(drop(xs.xs, Int(n)), max(0, xs.n - Int(n)))
+drop(xs::Drop, n::Integer) = Drop(xs.xs, Int(n) + xs.n)
 
 eltype{I}(::Type{Drop{I}}) = eltype(I)
 iteratoreltype{I}(::Type{Drop{I}}) = iteratoreltype(I)
@@ -430,7 +430,7 @@ julia> collect(a)
  [1 2]
 ```
 """
-repeated(x, n::Int) = take(repeated(x), n)
+repeated(x, n::Integer) = take(repeated(x), Int(n))
 
 eltype{O}(::Type{Repeated{O}}) = O
 
@@ -510,13 +510,9 @@ changes the fastest. Example:
 
 ```jldoctest
 julia> collect(Iterators.product(1:2,3:5))
-6-element Array{Tuple{Int64,Int64},1}:
- (1,3)
- (2,3)
- (1,4)
- (2,4)
- (1,5)
- (2,5)
+2×3 Array{Tuple{Int64,Int64},2}:
+ (1,3)  (1,4)  (1,5)
+ (2,3)  (2,4)  (2,5)
 ```
 """
 product(a, b) = Prod2(a, b)
@@ -650,7 +646,7 @@ julia> collect(Iterators.partition([1,2,3,4,5], 2))
  [5]
 ```
 """
-partition{T}(c::T, n::Int) = PartitionIterator{T}(c, n)
+partition{T}(c::T, n::Integer) = PartitionIterator{T}(c, Int(n))
 
 
 type PartitionIterator{T}

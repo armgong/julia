@@ -129,6 +129,15 @@ Ac_mul_B!(y::AbstractVector, A::AbstractVecOrMat, x::AbstractVector) = generic_m
 ```
 
 Matrix multiplication.
+
+# Example
+
+```jldoctest
+julia> [1 1; 0 1] * [1 0; 1 1]
+2×2 Array{Int64,2}:
+ 2  1
+ 1  1
+```
 """
 function (*){T,S}(A::AbstractMatrix{T}, B::AbstractMatrix{S})
     TS = promote_op(matprod, T, S)
@@ -152,6 +161,8 @@ end
 Calculates the matrix-matrix or matrix-vector product ``A⋅B`` and stores the result in `Y`,
 overwriting the existing value of `Y`. Note that `Y` must not be aliased with either `A` or
 `B`.
+
+# Example
 
 ```jldoctest
 julia> A=[1.0 2.0; 3.0 4.0]; B=[1.0 1.0; 1.0 1.0]; Y = similar(B); A_mul_B!(Y, A, B);
@@ -645,6 +656,9 @@ function matmul2x2{T,S}(tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
 end
 
 function matmul2x2!{T,S,R}(C::AbstractMatrix{R}, tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
+    if !(size(A) == size(B) == size(C) == (2,2))
+        throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B)), C has size $(size(C))"))
+    end
     @inbounds begin
     if tA == 'T'
         A11 = transpose(A[1,1]); A12 = transpose(A[2,1]); A21 = transpose(A[1,2]); A22 = transpose(A[2,2])
@@ -674,6 +688,9 @@ function matmul3x3{T,S}(tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
 end
 
 function matmul3x3!{T,S,R}(C::AbstractMatrix{R}, tA, tB, A::AbstractMatrix{T}, B::AbstractMatrix{S})
+    if !(size(A) == size(B) == size(C) == (3,3))
+        throw(DimensionMismatch("A has size $(size(A)), B has size $(size(B)), C has size $(size(C))"))
+    end
     @inbounds begin
     if tA == 'T'
         A11 = transpose(A[1,1]); A12 = transpose(A[2,1]); A13 = transpose(A[3,1])

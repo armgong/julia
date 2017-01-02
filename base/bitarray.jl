@@ -33,7 +33,7 @@ end
     BitArray{N}(dims::NTuple{N,Int})
 
 Construct an uninitialized `BitArray` with the given dimensions.
-Behaves identically to the [`Array`](:func:`Array`) constructor.
+Behaves identically to the [`Array`](@ref) constructor.
 """
 BitArray(dims::Integer...) = BitArray(map(Int,dims))
 BitArray{N}(dims::NTuple{N,Int}) = BitArray{N}(dims...)
@@ -1136,9 +1136,6 @@ function empty!(B::BitVector)
     return B
 end
 
-## Misc functions
-broadcast(::typeof(abs), B::BitArray) = copy(B)
-
 ## Unary operators ##
 
 function (-)(B::BitArray)
@@ -1187,7 +1184,7 @@ end
 """
     flipbits!(B::BitArray{N}) -> BitArray{N}
 
-Performs a bitwise not operation on `B`. See [`~`](:ref:`~ operator <~>`).
+Performs a bitwise not operation on `B`. See [`~`](@ref).
 
 ```jldoctest
 julia> A = trues(2,2)
@@ -1232,35 +1229,6 @@ for f in (:+, :-)
     end
 end
 
-for (f) in (:.+, :.-)
-    for (arg1, arg2, T, t) in ((:(B::BitArray), :(x::Bool)    , Int               , (:b, :x)),
-                               (:(B::BitArray), :(x::Number)  , :(Bool, typeof(x)), (:b, :x)),
-                               (:(x::Bool)    , :(B::BitArray), Int               , (:x, :b)),
-                               (:(x::Number)  , :(B::BitArray), :(typeof(x), Bool), (:x, :b)))
-        @eval function ($f)($arg1, $arg2)
-            $(if T === Int
-                quote
-                    r = Array{Int}(size(B))
-                end
-            else
-                quote
-                    T = promote_op($f, $(T.args[1]), $(T.args[2]))
-                    T === Any && return [($f)($(t[1]), $(t[2])) for b in B]
-                    r = Array{T}(size(B))
-                end
-            end)
-            bi = start(B)
-            ri = 1
-            while !done(B, bi)
-                b, bi = next(B, bi)
-                @inbounds r[ri] = ($f)($(t[1]), $(t[2]))
-                ri += 1
-            end
-            return r
-        end
-    end
-end
-
 for f in (:/, :\)
     @eval begin
         ($f)(A::BitArray, B::BitArray) = ($f)(Array(A), Array(B))
@@ -1269,78 +1237,16 @@ end
 (/)(B::BitArray, x::Number) = (/)(Array(B), x)
 (/)(x::Number, B::BitArray) = (/)(x, Array(B))
 
-function div(A::BitArray, B::BitArray)
-    shp = promote_shape(size(A), size(B))
-    all(B) || throw(DivideError())
-    return reshape(copy(A), shp)
-end
-div(A::BitArray, B::Array{Bool}) = div(A, BitArray(B))
-div(A::Array{Bool}, B::BitArray) = div(BitArray(A), B)
-function div(B::BitArray, x::Bool)
-    return x ? copy(B) : throw(DivideError())
-end
-function div(x::Bool, B::BitArray)
-    all(B) || throw(DivideError())
-    return x ? trues(size(B)) : falses(size(B))
-end
-function div(x::Number, B::BitArray)
-    all(B) || throw(DivideError())
-    y = div(x, true)
-    return fill(y, size(B))
-end
-
-function mod(A::BitArray, B::BitArray)
-    shp = promote_shape(size(A), size(B))
-    all(B) || throw(DivideError())
-    return falses(shp)
-end
-mod(A::BitArray, B::Array{Bool}) = mod(A, BitArray(B))
-mod(A::Array{Bool}, B::BitArray) = mod(BitArray(A), B)
-function mod(B::BitArray, x::Bool)
-    return x ? falses(size(B)) : throw(DivideError())
-end
-function mod(x::Bool, B::BitArray)
-    all(B) || throw(DivideError())
-    return falses(size(B))
-end
-function mod(x::Number, B::BitArray)
-    all(B) || throw(DivideError())
-    y = mod(x, true)
-    return fill(y, size(B))
-end
-
-for f in (:div, :mod)
+# broadcast specializations for &, |, and xor/⊻
+broadcast(::typeof(&), B::BitArray, x::Bool) = x ? copy(B) : falses(size(B))
+broadcast(::typeof(&), x::Bool, B::BitArray) = broadcast(&, B, x)
+broadcast(::typeof(|), B::BitArray, x::Bool) = x ? trues(size(B)) : copy(B)
+broadcast(::typeof(|), x::Bool, B::BitArray) = broadcast(|, B, x)
+broadcast(::typeof(xor), B::BitArray, x::Bool) = x ? ~B : copy(B)
+broadcast(::typeof(xor), x::Bool, B::BitArray) = broadcast(xor, B, x)
+for f in (:&, :|, :xor)
     @eval begin
-        function ($f)(B::BitArray, x::Number)
-            T = promote_op($f, Bool, typeof(x))
-            T === Any && return [($f)(b, x) for b in B]
-            F = Array{T}(size(B))
-            for i = 1:length(F)
-                F[i] = ($f)(B[i], x)
-            end
-            return F
-        end
-    end
-end
-
-function (&)(B::BitArray, x::Bool)
-    x ? copy(B) : falses(size(B))
-end
-(&)(x::Bool, B::BitArray) = B & x
-
-function (|)(B::BitArray, x::Bool)
-    x ? trues(size(B)) : copy(B)
-end
-(|)(x::Bool, B::BitArray) = B | x
-
-function ($)(B::BitArray, x::Bool)
-    x ? ~B : copy(B)
-end
-($)(x::Bool, B::BitArray) = B $ x
-
-for f in (:&, :|, :$)
-    @eval begin
-        function ($f)(A::BitArray, B::BitArray)
+        function broadcast(::typeof($f), A::BitArray, B::BitArray)
             F = BitArray(promote_shape(size(A),size(B))...)
             Fc = F.chunks
             Ac = A.chunks
@@ -1352,77 +1258,11 @@ for f in (:&, :|, :$)
             Fc[end] &= _msk_end(F)
             return F
         end
-        ($f)(A::DenseArray{Bool}, B::BitArray) = ($f)(BitArray(A), B)
-        ($f)(B::BitArray, A::DenseArray{Bool}) = ($f)(B, BitArray(A))
-        ($f)(x::Number, B::BitArray) = ($f)(x, Array(B))
-        ($f)(B::BitArray, x::Number) = ($f)(Array(B), x)
+        broadcast(::typeof($f), A::DenseArray{Bool}, B::BitArray) = broadcast($f, BitArray(A), B)
+        broadcast(::typeof($f), B::BitArray, A::DenseArray{Bool}) = broadcast($f, B, BitArray(A))
     end
 end
 
-function (.^)(B::BitArray, x::Bool)
-    x ? copy(B) : trues(size(B))
-end
-function (.^)(x::Bool, B::BitArray)
-    x ? trues(size(B)) : ~B
-end
-function (.^)(x::Number, B::BitArray)
-    z = x ^ false
-    u = x ^ true
-    reshape([ B[i] ? u : z for i = 1:length(B) ], size(B))
-end
-function (.^)(B::BitArray, x::Integer)
-    x == 0 && return trues(size(B))
-    x < 0 && throw(DomainError())
-    return copy(B)
-end
-function (.^){T<:Number}(B::BitArray, x::T)
-    x == 0 && return ones(typeof(true ^ x), size(B))
-    T <: Real && x > 0 && return convert(Array{T}, B)
-
-    z = nothing
-    u = nothing
-    zerr = nothing
-    uerr = nothing
-    try
-        z = false^x
-    catch err
-        zerr = err
-    end
-    try
-        u = true^x
-    catch err
-        uerr = err
-    end
-    if zerr === nothing && uerr === nothing
-        t = promote_type(typeof(z), typeof(u))
-    elseif zerr === nothing
-        t = typeof(z)
-    else
-        t = typeof(u)
-    end
-    F = Array{t}(size(B))
-    for i = 1:length(B)
-        if B[i]
-            if uerr === nothing
-                F[i] = u
-            else
-                throw(uerr)
-            end
-        else
-            if zerr === nothing
-                F[i] = z
-            else
-                throw(zerr)
-            end
-        end
-    end
-    return F
-end
-
-(.*)(x::Bool, B::BitArray) = x & B
-(.*)(B::BitArray, x::Bool) = B & x
-(.*)(x::Number, B::BitArray) = x .* Array(B)
-(.*)(B::BitArray, x::Number) = Array(B) .* x
 
 ## promotion to complex ##
 
@@ -1632,7 +1472,7 @@ rol!(B::BitVector, i::Integer) = rol!(B, B, i)
 
 Performs a left rotation operation, returning a new `BitVector`.
 `i` controls how far to rotate the bits.
-See also [`rol!`](:func:`rol!`).
+See also [`rol!`](@ref).
 
 ```jldoctest
 julia> A = BitArray([true, true, false, false, true])
@@ -1701,7 +1541,7 @@ ror!(B::BitVector, i::Integer) = ror!(B, B, i)
 
 Performs a right rotation operation on `B`, returning a new `BitVector`.
 `i` controls how far to rotate the bits.
-See also [`ror!`](:func:`ror!`).
+See also [`ror!`](@ref).
 
 ```jldoctest
 julia> A = BitArray([true, true, false, false, true])
@@ -1992,32 +1832,32 @@ maximum(B::BitArray) = isempty(B) ? throw(ArgumentError("argument must be non-em
 # arrays since there can be a 64x speedup by working at the level of Int64
 # instead of looping bit-by-bit.
 
-map(f::Function, A::BitArray) = map!(f, similar(A), A)
-map(f::Function, A::BitArray, B::BitArray) = map!(f, similar(A), A, B)
+map(::Union{typeof(~), typeof(!)}, A::BitArray) = bit_map!(~, similar(A), A)
+map(::typeof(zero), A::BitArray) = fill!(similar(A), false)
+map(::typeof(one), A::BitArray) = fill!(similar(A), true)
+map(::typeof(identity), A::BitArray) = copy(A)
 
-map!(f, A::BitArray) = map!(f, A, A)
-map!(f::typeof(!), dest::BitArray, A::BitArray) = map!(~, dest, A)
-map!(f::typeof(zero), dest::BitArray, A::BitArray) = fill!(dest, false)
-map!(f::typeof(one), dest::BitArray, A::BitArray) = fill!(dest, true)
+map!(::Union{typeof(~), typeof(!)}, dest::BitArray, A::BitArray) = bit_map!(~, dest, A)
+map!(::typeof(zero), dest::BitArray, A::BitArray) = fill!(dest, false)
+map!(::typeof(one), dest::BitArray, A::BitArray) = fill!(dest, true)
+map!(::typeof(identity), dest::BitArray, A::BitArray) = copy!(dest, A)
 
-immutable BitChunkFunctor{F<:Function}
-    f::F
+for (T, f) in ((:(Union{typeof(&), typeof(*), typeof(min)}), :(&)),
+               (:(Union{typeof(|), typeof(max)}),            :(|)),
+               (:(Union{typeof(xor), typeof(!=)}),           :xor),
+               (:(Union{typeof(>=), typeof(^)}),             :((p, q) -> p | ~q)),
+               (:(typeof(<=)),                               :((p, q) -> ~p | q)),
+               (:(typeof(==)),                               :((p, q) -> ~xor(p, q))),
+               (:(typeof(<)),                                :((p, q) -> ~p & q)),
+               (:(typeof(>)),                                :((p, q) -> p & ~q)))
+    @eval map(::$T, A::BitArray, B::BitArray) = bit_map!($f, similar(A), A, B)
+    @eval map!(::$T, dest::BitArray, A::BitArray, B::BitArray) = bit_map!($f, dest, A, B)
 end
-(f::BitChunkFunctor)(x, y) = f.f(x,y)
-
-map!(f::Union{typeof(*), typeof(min)}, dest::BitArray, A::BitArray, B::BitArray) = map!(&, dest, A, B)
-map!(f::typeof(max), dest::BitArray, A::BitArray, B::BitArray) = map!(|, dest, A, B)
-map!(f::typeof(!=), dest::BitArray, A::BitArray, B::BitArray) = map!($, dest, A, B)
-map!(f::Union{typeof(>=), typeof(^)}, dest::BitArray, A::BitArray, B::BitArray) = map!(BitChunkFunctor((p, q) -> p | ~q), dest, A, B)
-map!(f::typeof(<=), dest::BitArray, A::BitArray, B::BitArray) = map!(BitChunkFunctor((p, q) -> ~p | q), dest, A, B)
-map!(f::typeof(==), dest::BitArray, A::BitArray, B::BitArray) = map!(BitChunkFunctor((p, q) -> ~(p $ q)), dest, A, B)
-map!(f::typeof(<), dest::BitArray, A::BitArray, B::BitArray) = map!(BitChunkFunctor((p, q) -> ~p & q), dest, A, B)
-map!(f::typeof(>), dest::BitArray, A::BitArray, B::BitArray) = map!(BitChunkFunctor((p, q) -> p & ~q), dest, A, B)
 
 # If we were able to specialize the function to a known bitwise operation,
 # map across the chunks. Otherwise, fall-back to the AbstractArray method that
 # iterates bit-by-bit.
-function map!(f::Union{typeof(identity), typeof(~)}, dest::BitArray, A::BitArray)
+function bit_map!{F}(f::F, dest::BitArray, A::BitArray)
     size(A) == size(dest) || throw(DimensionMismatch("sizes of dest and A must match"))
     isempty(A) && return dest
     destc = dest.chunks
@@ -2028,7 +1868,7 @@ function map!(f::Union{typeof(identity), typeof(~)}, dest::BitArray, A::BitArray
     destc[end] = f(Ac[end]) & _msk_end(A)
     dest
 end
-function map!(f::Union{BitChunkFunctor, typeof(&), typeof(|), typeof($)}, dest::BitArray, A::BitArray, B::BitArray)
+function bit_map!{F}(f::F, dest::BitArray, A::BitArray, B::BitArray)
     size(A) == size(B) == size(dest) || throw(DimensionMismatch("sizes of dest, A, and B must all match"))
     isempty(A) && return dest
     destc = dest.chunks
@@ -2056,12 +1896,12 @@ transpose(B::BitVector) = reshape(copy(B), 1, length(B))
 # http://www.hackersdelight.org/hdcodetxt/transpose8.c.txt
 function transpose8x8(x::UInt64)
     y = x
-    t = (y $ (y >>> 7)) & 0x00aa00aa00aa00aa
-    y = y $ t $ (t << 7)
-    t = (y $ (y >>> 14)) & 0x0000cccc0000cccc
-    y = y $ t $ (t << 14)
-    t = (y $ (y >>> 28)) & 0x00000000f0f0f0f0
-    return y $ t $ (t << 28)
+    t = xor(y, y >>> 7) & 0x00aa00aa00aa00aa
+    y = xor(y, t, t << 7)
+    t = xor(y, y >>> 14) & 0x0000cccc0000cccc
+    y = xor(y, t, t << 14)
+    t = xor(y, y >>> 28) & 0x00000000f0f0f0f0
+    return xor(y, t, t << 28)
 end
 
 function form_8x8_chunk(Bc::Vector{UInt64}, i1::Int, i2::Int, m::Int, cgap::Int, cinc::Int, nc::Int, msk8::UInt64)
@@ -2213,72 +2053,12 @@ function vcat(A::BitMatrix...)
     return B
 end
 
-function cat(catdim::Integer, X::Integer...)
-    reshape([X...], (ones(Int,catdim-1)..., length(X)))
-end
-
 # general case, specialized for BitArrays and Integers
-function cat(catdim::Integer, X::Union{BitArray, Integer}...)
-    nargs = length(X)
-    # using integers results in conversion to Array{Int}
-    # (except in the all-Bool case)
-    has_integer = false
-    for a in X
-        if isa(a, Integer)
-            has_integer = true; break
-        end
-    end
-    dimsX = map((a->isa(a,BitArray) ? size(a) : (1,)), X)
-    ndimsX = map((a->isa(a,BitArray) ? ndims(a) : 1), X)
-    d_max = maximum(ndimsX)
-
-    if catdim > d_max + 1
-        for i = 1:nargs
-            dimsX[1] == dimsX[i] ||
-                throw(DimensionMismatch("all inputs must have same dimensions when concatenating along a higher dimension"))
-        end
-    elseif nargs >= 2
-        for d = 1:d_max
-            d == catdim && continue
-            len = d <= ndimsX[1] ? dimsX[1][d] : 1
-            for i = 2:nargs
-                len == (d <= ndimsX[i] ? dimsX[i][d] : 1) || throw(DimensionMismatch("mismatch in dimension $d"))
-            end
-        end
-    end
-
-    cat_ranges = ntuple(i->(catdim <= ndimsX[i] ? dimsX[i][catdim] : 1), nargs)
-
-    function compute_dims(d)
-        if d == catdim
-            catdim <= d_max && return sum(cat_ranges)
-            return nargs
-        else
-            d <= ndimsX[1] && return dimsX[1][d]
-            return 1
-        end
-    end
-
-    ndimsC = max(catdim, d_max)
-    dimsC = ntuple(compute_dims, ndimsC)::Tuple{Vararg{Int}}
-    typeC = promote_type(map(x->isa(x,BitArray) ? eltype(x) : typeof(x), X)...)
-    if !has_integer || typeC == Bool
-        C = BitArray(dimsC)
-    else
-        C = Array{typeC}(dimsC)
-    end
-
-    range = 1
-    for k = 1:nargs
-        nextrange = range + cat_ranges[k]
-        cat_one = ntuple(i->(i != catdim ? (1:dimsC[i]) : (range:nextrange-1)),
-                         ndimsC)
-        # note: when C and X are BitArrays, this calls
-        #       the special assign with ranges
-        C[cat_one...] = X[k]
-        range = nextrange
-    end
-    return C
+function cat(dims::Integer, X::Union{BitArray, Bool}...)
+    catdims = dims2cat(dims)
+    shape = cat_shape(catdims, (), map(cat_size, X)...)
+    A = falses(shape)
+    return _cat(A, shape, catdims, X...)
 end
 
 # hvcat -> use fallbacks in abstractarray.jl

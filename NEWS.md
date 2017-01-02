@@ -7,6 +7,27 @@ New language features
 Language changes
 ----------------
 
+  * Multi-line and single-line nonstandard command literals have been added. A
+    nonstandard command literal is like a nonstandard string literal, but the
+    syntax uses backquotes (``` ` ```) instead of double quotes, and the
+    resulting macro called is suffixed with `_cmd`. For instance, the syntax
+    ``` q`xyz` ``` is equivalent to `@q_cmd "xyz"`. ([#18644])
+
+  * Nonstandard string and command literals can now be qualified with their
+    module. For instance, `Base.r"x"` is now parsed as `Base.@r_str "x"`.
+    Previously, this syntax parsed as an implicit multiplication. ([#18690])
+
+  * For every binary operator `⨳`, `a .⨳ b` is now automatically equivalent to
+    the `broadcast` call `(⨳).(a, b)`.  Hence, one no longer defines methods
+    for `.*` etcetera.  This also means that "dot operations" automatically
+    fuse into a single loop, along with other dot calls `f.(x)`. ([#17623])
+
+  * Newly defined methods are no longer callable from the same dynamic runtime
+    scope they were defined in ([#17057]).
+
+  * `isa` is now parsed as an infix operator with the same precedence as `in`
+    ([#19677]).
+
 Breaking changes
 ----------------
 
@@ -23,6 +44,36 @@ This section lists changes that do not have deprecation warnings.
 
   * `broadcast` now handles tuples, and treats any argument that is not a tuple
     or an array as a "scalar" ([#16986]).
+
+  * `broadcast` now produces a `BitArray` instead of `Array{Bool}` for
+    functions yielding a boolean result.  If you want `Array{Bool}`, use
+    `broadcast!` or `.=` ([#17623]).
+
+  * Operations like `.+` and `.*` on `Range` objects are now generic
+    `broadcast` calls (see above) and produce an `Array`.  If you want
+    a `Range` result, use `+` and `*`, etcetera ([#17623]).
+
+  * `broadcast` now treats `Ref` (except for `Ptr`) arguments as 0-dimensional
+    arrays ([#18965]).
+
+  * `broadcast` now handles missing data (`Nullable`s) allowing operations to
+    be lifted over mixtures of `Nullable`s and scalars, as if the `Nullable`
+    were like an array with zero or one element. ([#16961], [#19787]).
+
+  * The runtime now enforces when new method definitions can take effect ([#17057]).
+    The flip-side of this is that new method definitions should now reliably actually
+    take effect, and be called when evaluating new code ([#265]).
+
+  * The array-scalar operations `div`, `mod`, `rem`, `&`, `|`, `xor`, `/`, `\`, `*`, `+`, and `-`
+    now follow broadcast promotion rules ([#19692]).
+
+  * `broadcast!(f, A)` now calls `f()` for each element of `A`, rather than doing `fill!(A, f())` ([#19722]).
+
+  * `rmprocs` now throws an exception if requested workers have not been completely
+    removed before `waitfor` seconds. With a `waitfor=0`, `rmprocs` returns immediately
+    without waiting for worker exits.
+
+  * `quadgk` has been moved from Base into a separate package. ([#19741])
 
 Library improvements
 --------------------
@@ -44,9 +95,15 @@ Library improvements
     For example, to get orange warning messages, simply set `ENV["JULIA_WARN_COLOR"] = 208`.
     Please note that not all terminals support 256 colors.
 
-  * The default color for info messages has been changed from blue to cyan ([#18442]).
-    This can be changed back to the original color by setting the environment variable `JULIA_INFO_COLOR` to `"blue"`.
-    One way of doing this is by adding `ENV["JULIA_INFO_COLOR"] = :blue` to the `.juliarc.jl` file.
+  * The function `print_with_color` no longer prints text in bold by default ([#18628]).
+    Instead, the function now take a keyword argument `bold::Bool` which determines whether to print in bold or not.
+    On some terminals, printing a color in non bold results in slightly darker colors being printed than when printing in bold.
+    Therefore, light versions of the colors are now supported.
+    For the available colors see the help entry on `print_with_color`.
+
+  * The default color for info messages has been changed from blue to cyan and for warning messages from red to yellow.
+    This can be changed back to the original colors by setting the environment variables `JULIA_INFO_COLOR` to `"blue"` and `JULIA_WARN_COLOR` to `"red"`.
+    One way of doing this is by adding for example `ENV["JULIA_INFO_COLOR"] = :blue` and `ENV["JULIA_WARN_COLOR"] = :red` to the `.juliarc.jl` file.
     For more information regarding customizing colors in the REPL, see this [manual section]( http://docs.julialang.org/en/latest/manual/interacting-with-julia/#customizing-colors).
 
   * Iteration utilities that wrap iterators and return other iterators (`enumerate`, `zip`, `rest`,
@@ -55,6 +112,24 @@ Library improvements
 
   * BitArrays can now be constructed from arbitrary iterables, in particular from generator expressions,
     e.g. `BitArray(isodd(x) for x = 1:100)` ([#19018]).
+
+  * `hcat`, `vcat`, and `hvcat` now work with `UniformScaling` objects, so
+    you can now do e.g. `[A I]` and it will concatenate an appropriately sized
+    identity matrix ([#19305]).
+
+  * New `accumulate` and `accumulate!` functions, which generalize `cumsum` and `cumprod`. Also known as a [scan](https://en.wikipedia.org/wiki/Prefix_sum) operation ([#18931]).
+
+  * New `titlecase` function, which capitalizes the first character of each word within a string ([#19469]).
+
+  * `any` and `all` now always short-circuit, and `mapreduce` never short-circuits ([#19543]).
+    That is, not every member of the input iterable will be visited if a `true` (in the case of `any`) or
+    `false` (in the case of `all`) value is found, and `mapreduce` will visit all members of the iterable.
+
+  * Additional methods for `ones` and `zeros` functions to support the same signature as the `similar` function ([#19635]).
+
+  * Methods for `map` and `filter` with `Nullable` arguments have been
+    implemented; the semantics are as if the `Nullable` were a container with
+    zero or one elements ([#16961]).
 
 Compiler/Runtime improvements
 -----------------------------
@@ -65,6 +140,22 @@ Deprecated or removed
   * `isdefined(a::Array, i::Int)` has been deprecated in favor of `isassigned` ([#18346]).
 
   * `is` has been deprecated in favor of `===` (which used to be an alias for `is`) ([#17758]).
+
+  * `num` and `den` have been deprecated in favor of `numerator` and `denominator` respectively ([#19233]).
+
+  * infix operator `$` has been deprecated in favor of infix `⊻` or function `xor()` ([#18977]).
+
+  * `Dates.recur` has been deprecated in favor of `filter` ([#19288])
+
+  * `cummin` and `cummax` have been deprecated in favor of `accumulate`.
+
+  * `sumabs` and `sumabs2` have been deprecated in favor of `sum(abs, x)` and `sum(abs2, x)`, respectively.
+    `maxabs` and `minabs` have similarly been deprecated in favor of `maximum(abs, x)` and `minimum(abs, x)`.
+    Likewise for the in-place counterparts of these functions ([#19598]).
+
+  * `airy`, `airyx` and `airyprime` have been deprecated in favor of more specific
+    functions (`airyai`, `airybi`, `airyaiprime`, `airybiprimex`, `airyaix`, `airybix`,
+    `airyaiprimex`, `airybiprimex`) ([#18050]).
 
 Julia v0.5.0 Release Notes
 ==========================
@@ -508,8 +599,9 @@ Deprecated or removed
   * Sparse matrix functions `etree`, `ereach`, `csc_permute`, and `symperm` have been moved
     to the [SuiteSparse.jl package](https://github.com/JuliaSparse/SuiteSparse.jl) ([#12231], [#17033]).
 
-  * The no-op `transpose` fallback has been deprecated. Consider introducing suitable
-    `transpose` methods or calling `permutedims(x, [2,1])` ([#13171], [#17075], [#17374]).
+  * The no-op `transpose` fallback for non-numeric arrays has been deprecated. Consider introducing suitable
+    `transpose` methods or calling `permutedims(x, (2, 1))` for matrices and `reshape(x, 1, length(x))` for
+    vectors.  ([#13171], [#17075], [#17374]).
 
   * The following macros have been deprecated ([#16219]):
     * `@windows` is deprecated in favor of `is_windows()`
@@ -554,6 +646,7 @@ Language tooling improvements
      calling C++ code from Julia.
 
 <!--- generated by NEWS-update.jl: -->
+[#265]: https://github.com/JuliaLang/julia/issues/265
 [#550]: https://github.com/JuliaLang/julia/issues/550
 [#964]: https://github.com/JuliaLang/julia/issues/964
 [#1090]: https://github.com/JuliaLang/julia/issues/1090
@@ -665,10 +758,12 @@ Language tooling improvements
 [#16731]: https://github.com/JuliaLang/julia/issues/16731
 [#16854]: https://github.com/JuliaLang/julia/issues/16854
 [#16953]: https://github.com/JuliaLang/julia/issues/16953
+[#16961]: https://github.com/JuliaLang/julia/issues/16961
 [#16972]: https://github.com/JuliaLang/julia/issues/16972
 [#16986]: https://github.com/JuliaLang/julia/issues/16986
 [#17033]: https://github.com/JuliaLang/julia/issues/17033
 [#17037]: https://github.com/JuliaLang/julia/issues/17037
+[#17057]: https://github.com/JuliaLang/julia/issues/17057
 [#17075]: https://github.com/JuliaLang/julia/issues/17075
 [#17132]: https://github.com/JuliaLang/julia/issues/17132
 [#17261]: https://github.com/JuliaLang/julia/issues/17261
@@ -682,13 +777,28 @@ Language tooling improvements
 [#17510]: https://github.com/JuliaLang/julia/issues/17510
 [#17546]: https://github.com/JuliaLang/julia/issues/17546
 [#17599]: https://github.com/JuliaLang/julia/issues/17599
+[#17623]: https://github.com/JuliaLang/julia/issues/17623
 [#17668]: https://github.com/JuliaLang/julia/issues/17668
 [#17758]: https://github.com/JuliaLang/julia/issues/17758
 [#17785]: https://github.com/JuliaLang/julia/issues/17785
+[#18050]: https://github.com/JuliaLang/julia/issues/18050
 [#18330]: https://github.com/JuliaLang/julia/issues/18330
 [#18339]: https://github.com/JuliaLang/julia/issues/18339
 [#18346]: https://github.com/JuliaLang/julia/issues/18346
-[#18442]: https://github.com/JuliaLang/julia/issues/18442
 [#18473]: https://github.com/JuliaLang/julia/issues/18473
+[#18628]: https://github.com/JuliaLang/julia/issues/18628
+[#18644]: https://github.com/JuliaLang/julia/issues/18644
+[#18690]: https://github.com/JuliaLang/julia/issues/18690
 [#18839]: https://github.com/JuliaLang/julia/issues/18839
+[#18931]: https://github.com/JuliaLang/julia/issues/18931
+[#18965]: https://github.com/JuliaLang/julia/issues/18965
+[#18977]: https://github.com/JuliaLang/julia/issues/18977
 [#19018]: https://github.com/JuliaLang/julia/issues/19018
+[#19233]: https://github.com/JuliaLang/julia/issues/19233
+[#19288]: https://github.com/JuliaLang/julia/issues/19288
+[#19305]: https://github.com/JuliaLang/julia/issues/19305
+[#19469]: https://github.com/JuliaLang/julia/issues/19469
+[#19543]: https://github.com/JuliaLang/julia/issues/19543
+[#19598]: https://github.com/JuliaLang/julia/issues/19598
+[#19635]: https://github.com/JuliaLang/julia/issues/19635
+[#19787]: https://github.com/JuliaLang/julia/issues/19787

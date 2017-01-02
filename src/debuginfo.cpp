@@ -1138,6 +1138,7 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
 #elif defined(_OS_WINDOWS_)
     iswindows = 1;
 #endif
+    (void)iswindows;
 
 #if JL_LLVM_VERSION < 30500
     if (iswindows) {
@@ -1291,19 +1292,21 @@ bool jl_dylib_DI_for_fptr(size_t pointer, const llvm::object::ObjectFile **obj, 
             }
         }
 
-        if (iswindows) {
-#if JL_LLVM_VERSION >= 30500
-            assert(debugobj->isCOFF());
-            const llvm::object::COFFObjectFile *coffobj = (const llvm::object::COFFObjectFile*)debugobj;
+        if (auto *OF = dyn_cast<const object::COFFObjectFile>(debugobj)) {
+            assert(iswindows);
+#if JL_LLVM_VERSION >= 30800
+            *slide = OF->getImageBase() - fbase;
+            *section_slide = 0; // Since LLVM 3.8+ addresses are adjusted correctly
+#elif JL_LLVM_VERSION >= 30500
             const llvm::object::pe32plus_header *pe32plus;
-            coffobj->getPE32PlusHeader(pe32plus);
+            OF->getPE32PlusHeader(pe32plus);
             if (pe32plus != NULL) {
                 *slide = pe32plus->ImageBase - fbase;
                 *section_slide = -(int64_t)pe32plus->ImageBase;
             }
             else {
                 const llvm::object::pe32_header *pe32;
-                coffobj->getPE32Header(pe32);
+                OF->getPE32Header(pe32);
                 if (pe32 == NULL) {
                     objfileentry_t entry = {};
                     objfilemap[fbase] = entry;
@@ -1894,8 +1897,8 @@ void register_eh_frames(uint8_t *Addr, size_t Size)
     // I'm not a great fan of the naming of this constant, but it means the
     // right thing, which is a table of FDEs and ips.
     di->format = UNW_INFO_FORMAT_IP_OFFSET;
-    di->u.ti.name_ptr = 0;
-    di->u.ti.segbase = (unw_word_t)Addr;
+    di->u.rti.name_ptr = 0;
+    di->u.rti.segbase = (unw_word_t)Addr;
     // Now first count the number of FDEs
     size_t nentries = 0;
     processFDEs((char*)Addr, Size, [&](const char*){ nentries++; });
@@ -2001,8 +2004,8 @@ void register_eh_frames(uint8_t *Addr, size_t Size)
     }
     assert(end_ip != 0);
 
-    di->u.ti.table_len = nentries;
-    di->u.ti.table_data = (unw_word_t*)table;
+    di->u.rti.table_len = nentries * sizeof(*table) / sizeof(unw_word_t);
+    di->u.rti.table_data = (unw_word_t)table;
     di->start_ip = start_ip;
     di->end_ip = end_ip;
 

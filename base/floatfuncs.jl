@@ -42,10 +42,10 @@ end
     round([T,] x, [digits, [base]], [r::RoundingMode])
 
 Rounds `x` to an integer value according to the provided
-[`RoundingMode`](:obj:`RoundingMode`), returning a value of the same type as `x`. When not
+[`RoundingMode`](@ref), returning a value of the same type as `x`. When not
 specifying a rounding mode the global mode will be used
-(see [`rounding`](:func:`rounding`)), which by default is round to the nearest integer
-([`RoundNearest`](:obj:`RoundNearest`) mode), with ties (fractional values of 0.5) being
+(see [`rounding`](@ref)), which by default is round to the nearest integer
+([`RoundNearest`](@ref) mode), with ties (fractional values of 0.5) being
 rounded to the nearest even integer.
 
 ```jldoctest
@@ -59,11 +59,11 @@ julia> round(2.5)
 2.0
 ```
 
-The optional [`RoundingMode`](:obj:`RoundingMode`) argument will change how the number gets
+The optional [`RoundingMode`](@ref) argument will change how the number gets
 rounded.
 
 `round(T, x, [r::RoundingMode])` converts the result to type `T`, throwing an
-[`InexactError`](:exc:`InexactError`) if the value is not representable.
+[`InexactError`](@ref) if the value is not representable.
 
 `round(x, digits)` rounds to the specified number of digits after the decimal place (or
 before if negative). `round(x, digits, base)` rounds using a base other than 10.
@@ -111,49 +111,6 @@ function round(x::AbstractFloat, ::RoundingMode{:NearestTiesUp})
     ifelse(x==y,y,copysign(floor(2*x-y),x))
 end
 round{T<:Integer}(::Type{T}, x::AbstractFloat, r::RoundingMode) = trunc(T,round(x,r))
-
-for f in (:trunc,:floor,:ceil,:round)
-    @eval begin
-        function ($f){T,R}(::Type{T}, x::AbstractArray{R,1})
-            [ ($f)(T, y)::T for y in x ]
-        end
-        function ($f){T,R}(::Type{T}, x::AbstractArray{R,2})
-            [ ($f)(T, x[i,j])::T for i = 1:size(x,1), j = 1:size(x,2) ]
-        end
-        function ($f){T}(::Type{T}, x::AbstractArray)
-            reshape([ ($f)(T, y)::T for y in x ], size(x))
-        end
-        function ($f){R}(x::AbstractArray{R,1}, digits::Integer, base::Integer=10)
-            [ ($f)(y, digits, base) for y in x ]
-        end
-        function ($f){R}(x::AbstractArray{R,2}, digits::Integer, base::Integer=10)
-            [ ($f)(x[i,j], digits, base) for i = 1:size(x,1), j = 1:size(x,2) ]
-        end
-        function ($f)(x::AbstractArray, digits::Integer, base::Integer=10)
-            reshape([ ($f)(y, digits, base) for y in x ], size(x))
-        end
-    end
-end
-
-function round{R}(x::AbstractArray{R,1}, r::RoundingMode)
-    [ round(y, r) for y in x ]
-end
-function round{R}(x::AbstractArray{R,2}, r::RoundingMode)
-    [ round(x[i,j], r) for i = 1:size(x,1), j = 1:size(x,2) ]
-end
-function round(x::AbstractArray, r::RoundingMode)
-    reshape([ round(y, r) for y in x ], size(x))
-end
-
-function round{T,R}(::Type{T}, x::AbstractArray{R,1}, r::RoundingMode)
-    [ round(T, y, r)::T for y in x ]
-end
-function round{T,R}(::Type{T}, x::AbstractArray{R,2}, r::RoundingMode)
-    [ round(T, x[i,j], r)::T for i = 1:size(x,1), j = 1:size(x,2) ]
-end
-function round{T}(::Type{T}, x::AbstractArray, r::RoundingMode)
-    reshape([ round(T, y, r)::T for y in x ], size(x))
-end
 
 # adapted from Matlab File Exchange roundsd: http://www.mathworks.com/matlabcentral/fileexchange/26212
 # for round, og is the power of 10 relative to the decimal point

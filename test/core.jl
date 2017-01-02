@@ -2,6 +2,9 @@
 
 # test core language features
 const Bottom = Union{}
+const curmod = current_module()
+const curmod_name = fullname(curmod)
+const curmod_prefix = "$(["$m." for m in curmod_name]...)"
 
 macro testintersect(args...)
     _testintersect(args...)
@@ -404,7 +407,7 @@ let
         function bar()
             x = 100
         end
-    bar()
+        bar()
         x
     end
     @test foo() === convert(Int8,100)
@@ -544,6 +547,30 @@ let
     f7234_2()
 end
 @test glob_x3 == 12
+
+# interaction between local variable renaming and nested globals (#19333)
+x19333 = 1
+function f19333(x19333)
+    return let x19333 = x19333
+        g19333() = (global x19333 += 2)
+        g19333() + (x19333 += 1)
+    end + (x19333 += 1)
+end
+@test f19333(0) == 5
+@test f19333(0) == 7
+@test x19333 == 5
+
+function h19333()
+    s = 0
+    for (i, j) in ((1, 2),)
+        s += i + j # use + as a global
+    end
+    for (k, +) in ((3, 4),)
+        s -= (k - +) # use + as a local
+    end
+    return s
+end
+@test h19333() == 4
 
 # let - new variables, including undefinedness
 function let_undef()
@@ -1187,8 +1214,8 @@ immutable Foo2509; foo::Int; end
 
 # issue #2517
 immutable Foo2517; end
-@test repr(Foo2517()) == "Foo2517()"
-@test repr(Array{Foo2517}(1)) == "Foo2517[Foo2517()]"
+@test repr(Foo2517()) == "$(curmod_prefix)Foo2517()"
+@test repr(Array{Foo2517}(1)) == "$(curmod_prefix)Foo2517[$(curmod_prefix)Foo2517()]"
 @test Foo2517() === Foo2517()
 
 # issue #1474
@@ -2436,7 +2463,7 @@ let x,y,f
     y = f() # invoke llvm constant folding
     @test Int(0x468ace) === Int(y)
     @test x !== y
-    @test string(y) == "Int24(0x468ace)"
+    @test string(y) == "$(curmod_prefix)Int24(0x468ace)"
 end
 
 # issue #10570
@@ -3020,9 +3047,13 @@ function func8283 end
 @test_throws MethodError func8283()
 
 # issue #11243
-let a = [Pair(1,2), Pair("a","b")]
-    @test typeof(a) == Vector{Pair}
-    @test typeof(a) <: Vector{Pair}
+type Type11243{A, B}
+    x::A
+    y::B
+end
+let a = [Type11243(1,2), Type11243("a","b")]
+    @test typeof(a) == Vector{Type11243}
+    @test typeof(a) <: Vector{Type11243}
 end
 
 # issue #11065, #1571
@@ -3062,7 +3093,7 @@ x7864 = 1
 end
 
 @test_throws UndefVarError x7864
-using M7864
+using .M7864
 @test x7864 == 1
 
 # issue #11715
@@ -3336,7 +3367,7 @@ typealias PossiblyInvalidUnion{T} Union{T,Int}
 # issue #13007
 call13007{T,N}(::Type{Array{T,N}}) = 0
 call13007(::Type{Array}) = 1
-@test length(Base._methods(call13007, Tuple{Type{TypeVar(:_,Array)}}, 4)) == 2
+@test length(Base._methods(call13007, Tuple{Type{TypeVar(:_,Array)}}, 4, typemax(UInt))) == 2
 
 # detecting cycles during type intersection, e.g. #1631
 cycle_in_solve_tvar_constraints{S}(::Type{Nullable{S}}, x::S) = 0
@@ -3459,7 +3490,7 @@ end
 
 # issue 13855
 macro m13855()
-    Expr(:localize, :(() -> x))
+    Expr(:localize, :(() -> $(esc(:x))))
 end
 @noinline function foo13855(x)
     @m13855()
@@ -3651,6 +3682,13 @@ foo9677(x::Array) = invoke(foo9677,(AbstractArray,),x)
 # issue #6846
 f6846() = (please6846; 2)
 @test_throws UndefVarError f6846()
+
+module M6846
+    macro f()
+        return :(please6846; 2)
+    end
+end
+@test_throws UndefVarError @M6846.f()
 
 # issue #14758
 @test isa(eval(:(f14758(; $([]...)) = ())), Function)
@@ -4658,3 +4696,133 @@ gc_enable(true)
 bad_tvars{T}() = 1
 @test isa(@which(bad_tvars()), Method)
 @test_throws MethodError bad_tvars()
+
+# issue #19059 - test for lowering of `let` with assignment not adding Box in simple cases
+contains_Box(e::GlobalRef) = (e.name === :Box)
+contains_Box(e::ANY) = false
+contains_Box(e::Expr) = any(contains_Box, e.args)
+
+function let_noBox()
+    local x
+    for i = 1:2
+        if i == 1
+            x = 21
+        end
+        let x = x
+            return () -> x
+        end
+    end
+end
+function let_Box1()
+    local x
+    for i = 1:2
+        if i == 1
+            x = 22
+        end
+        let y = x
+            return () -> x
+        end
+    end
+end
+function let_Box2()
+    local x
+    for i = 1:2
+        if i == 1
+            x = 23
+        end
+        let x = x
+            # In the future, this may change to no-Box if lowering improves
+            return () -> x
+            x = 43
+        end
+    end
+end
+function let_Box3()
+    local x
+    for i = 1:2
+        if i == 1
+            x = 24
+        end
+        let y
+            # In the future, this may change to no-Box if lowering improves
+            y = x
+            return () -> x
+        end
+    end
+end
+function let_Box4()
+    local x, g
+    for i = 1:2
+        if i == 1
+            x = 25
+        end
+        let x = x
+            g = () -> x
+            x = 44
+        end
+        @test x == 25
+        return g
+    end
+end
+function let_Box5()
+    local x, g, h
+    for i = 1:2
+        if i == 1
+            x = 25
+        end
+        let x = x
+            g = () -> (x = 46)
+            h = () -> x
+        end
+        @test x == 25
+        @test h() == 25
+        @test g() == 46
+        @test h() == 46
+        @test x == 25
+        return g
+    end
+end
+@test any(contains_Box, (@code_lowered let_Box1()).code)
+@test any(contains_Box, (@code_lowered let_Box2()).code)
+@test any(contains_Box, (@code_lowered let_Box3()).code)
+@test any(contains_Box, (@code_lowered let_Box4()).code)
+@test any(contains_Box, (@code_lowered let_Box5()).code)
+@test !any(contains_Box, (@code_lowered let_noBox()).code)
+@test let_Box1()() == 22
+@test let_Box2()() == 23
+@test let_Box3()() == 24
+@test let_Box4()() == 44
+@test let_Box5()() == 46
+@test let_noBox()() == 21
+
+module TestModuleAssignment
+using Base.Test
+@eval $(GlobalRef(TestModuleAssignment, :x)) = 1
+@test x == 1
+@eval $(GlobalRef(TestModuleAssignment, :x)) = 2
+@test x == 2
+end
+
+# issue #14893
+module M14893
+x = 14893
+macro m14893()
+    :x
+end
+function f14893()
+    x = 1
+    @m14893
+end
+end
+function f14893()
+    x = 2
+    M14893.@m14893
+end
+
+@test f14893() == 14893
+@test M14893.f14893() == 14893
+
+# issue #19599
+f19599{T}(x::((S)->Vector{S})(T)...) = 1
+@test f19599([1],[1]) == 1
+@test_throws MethodError f19599([1],[1.0])

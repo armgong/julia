@@ -122,16 +122,6 @@ end
 # simple Array{Any} operations needed for bootstrap
 setindex!(A::Array{Any}, x::ANY, i::Int) = Core.arrayset(A, x, i)
 
-function length_checked_equal(args...)
-    n = length(args[1])
-    for i=2:length(args)
-        if length(args[i]) != n
-            error("argument dimensions must match")
-        end
-    end
-    n
-end
-
 map(f::Function, a::Array{Any,1}) = Any[ f(a[i]) for i=1:length(a) ]
 
 function precompile(f::ANY, args::Tuple)
@@ -146,7 +136,7 @@ end
     esc(e::ANY)
 
 Only valid in the context of an `Expr` returned from a macro. Prevents the macro hygiene
-pass from turning embedded variables into gensym variables. See the [macro](:ref:`man-macros`)
+pass from turning embedded variables into gensym variables. See the [Macros](@ref man-macros)
 section of the Metaprogramming chapter of the manual for more details and examples.
 """
 esc(e::ANY) = Expr(:escape, e)

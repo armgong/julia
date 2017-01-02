@@ -2,6 +2,21 @@
 
 abstract AbstractChannel
 
+"""
+    Channel{T}(sz::Int)
+
+Constructs a `Channel` with an internal buffer that can hold a maximum of `sz` objects
+of type `T`.
+[`put!`](@ref) calls on a full channel block until an object is removed with [`take!`](@ref).
+
+`Channel(0)` constructs an unbuffered channel. `put!` blocks until a matching `take!` is called.
+And vice-versa.
+
+Other constructors:
+
+* `Channel(Inf)`: equivalent to `Channel{Any}(typemax(Int))`
+* `Channel(sz)`: equivalent to `Channel{Any}(sz)`
+"""
 type Channel{T} <: AbstractChannel
     cond_take::Condition    # waiting for data to become available
     cond_put::Condition     # waiting for a writeable slot
@@ -50,8 +65,8 @@ isbuffered(c::Channel) = c.sz_max==0 ? false : true
 
 Closes a channel. An exception is thrown by:
 
-* `put!` on a closed channel.
-* `take!` and `fetch` on an empty, closed channel.
+* [`put!`](@ref) on a closed channel.
+* [`take!`](@ref) and [`fetch`](@ref) on an empty, closed channel.
 """
 function close(c::Channel)
     c.state = :closed
@@ -70,7 +85,7 @@ end
 
 Appends an item `v` to the channel `c`. Blocks if the channel is full.
 
-For unbuffered channels, blocks until a `take!` is performed by a different
+For unbuffered channels, blocks until a [`take!`](@ref) is performed by a different
 task.
 """
 function put!(c::Channel, v)
@@ -116,9 +131,9 @@ fetch_unbuffered(c::Channel) = throw(ErrorException("`fetch` is not supported on
 """
     take!(c::Channel)
 
-Removes and returns a value from a `Channel`. Blocks until data is available.
+Removes and returns a value from a [`Channel`](@ref). Blocks until data is available.
 
-For unbuffered channels, blocks until a `put!` is performed by a different
+For unbuffered channels, blocks until a [`put!`](@ref) is performed by a different
 task.
 """
 take!(c::Channel) = isbuffered(c) ? take_buffered(c) : take_unbuffered(c)
@@ -152,11 +167,11 @@ end
 """
     isready(c::Channel)
 
-Determine whether a `Channel` has a value stored to it. Returns
+Determine whether a [`Channel`](@ref) has a value stored to it. Returns
 immediately, does not block.
 
 For unbuffered channels returns `true` if there are tasks waiting
-on a `put!`.
+on a [`put!`](@ref).
 """
 isready(c::Channel) = n_avail(c) > 0
 n_avail(c::Channel) = isbuffered(c) ? length(c.data) : n_waiters(c.cond_put)

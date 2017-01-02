@@ -6,7 +6,7 @@
 @test isequal(map((x)->"$x"[end:end], 9:11), ["9", "0", "1"])
 # TODO: @test map!() much more thoroughly
 let a = [1.0, 2.0]
-    map!(sin, a)
+    map!(sin, a, a)
     @test isequal(a, sin.([1.0, 2.0]))
 end
 # map -- ranges.jl
@@ -16,7 +16,7 @@ end
 # map on ranges should evaluate first value only once (#4453)
 let io=IOBuffer(3)
     map(x->print(io,x), 1:2)
-    @test takebuf_string(io)=="12"
+    @test String(take!(io))=="12"
 end
 
 # map over Bottom[] should return Bottom[]

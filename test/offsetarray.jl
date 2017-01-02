@@ -1,7 +1,9 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-isdefined(:TestHelpers) || include(joinpath(dirname(@__FILE__), "TestHelpers.jl"))
+isdefined(Main, :TestHelpers) || eval(Main, :(include(joinpath(dirname(@__FILE__), "TestHelpers.jl"))))
 using TestHelpers.OAs
+
+const OAs_name = join(fullname(OAs), ".")
 
 let
 # Basics
@@ -115,44 +117,44 @@ end
 # show
 io = IOBuffer()
 show(io, v)
-str = takebuf_string(io)
+str = String(take!(io))
 show(io, v0)
-@test str == takebuf_string(io)
+@test str == String(take!(io))
 show(io, A)
-str = takebuf_string(io)
+str = String(take!(io))
 @test str == "[1 3; 2 4]"
 show(io, S)
-str = takebuf_string(io)
+str = String(take!(io))
 @test str == "[1 3; 2 4]"
 show(io, MIME("text/plain"), A)
-strs = split(strip(takebuf_string(io)), '\n')
+strs = split(strip(String(take!(io))), '\n')
 @test strs[2] == " 1  3"
 @test strs[3] == " 2  4"
 v = OffsetArray(rand(3), (-2,))
 show(io, v)
-str = takebuf_string(io)
+str = String(take!(io))
 show(io, parent(v))
-@test str == takebuf_string(io)
+@test str == String(take!(io))
 smry = summary(v)
 @test contains(smry, "OffsetArray{Float64,1")
 @test contains(smry, "with indices -1:1")
 function cmp_showf(printfunc, io, A)
     ioc = IOContext(io, limit=true, compact=true)
     printfunc(ioc, A)
-    str1 = takebuf_string(io)
+    str1 = String(take!(io))
     printfunc(ioc, parent(A))
-    str2 = takebuf_string(io)
+    str2 = String(take!(io))
     @test str1 == str2
 end
 cmp_showf(Base.print_matrix, io, OffsetArray(rand(5,5), (10,-9)))       # rows&cols fit
 cmp_showf(Base.print_matrix, io, OffsetArray(rand(10^3,5), (10,-9)))    # columns fit
 cmp_showf(Base.print_matrix, io, OffsetArray(rand(5,10^3), (10,-9)))    # rows fit
 cmp_showf(Base.print_matrix, io, OffsetArray(rand(10^3,10^3), (10,-9))) # neither fits
-targets1 = ["0-dimensional TestHelpers.OAs.OffsetArray{Float64,0,Array{Float64,0}}:\n1.0",
-            "TestHelpers.OAs.OffsetArray{Float64,1,Array{Float64,1}} with indices 2:2:\n 1.0",
-            "TestHelpers.OAs.OffsetArray{Float64,2,Array{Float64,2}} with indices 2:2×3:3:\n 1.0",
-            "TestHelpers.OAs.OffsetArray{Float64,3,Array{Float64,3}} with indices 2:2×3:3×4:4:\n[:, :, 4] =\n 1.0",
-            "TestHelpers.OAs.OffsetArray{Float64,4,Array{Float64,4}} with indices 2:2×3:3×4:4×5:5:\n[:, :, 4, 5] =\n 1.0"]
+targets1 = ["0-dimensional $OAs_name.OffsetArray{Float64,0,Array{Float64,0}}:\n1.0",
+            "$OAs_name.OffsetArray{Float64,1,Array{Float64,1}} with indices 2:2:\n 1.0",
+            "$OAs_name.OffsetArray{Float64,2,Array{Float64,2}} with indices 2:2×3:3:\n 1.0",
+            "$OAs_name.OffsetArray{Float64,3,Array{Float64,3}} with indices 2:2×3:3×4:4:\n[:, :, 4] =\n 1.0",
+            "$OAs_name.OffsetArray{Float64,4,Array{Float64,4}} with indices 2:2×3:3×4:4×5:5:\n[:, :, 4, 5] =\n 1.0"]
 targets2 = ["(1.0,1.0)",
             "([1.0],[1.0])",
             "(\n[1.0],\n\n[1.0])",
@@ -161,9 +163,9 @@ targets2 = ["(1.0,1.0)",
 for n = 0:4
     a = OffsetArray(ones(Float64,ntuple(d->1,n)), ntuple(identity,n))
     show(IOContext(io, limit=true), MIME("text/plain"), a)
-    @test takebuf_string(io) == targets1[n+1]
+    @test String(take!(io)) == targets1[n+1]
     show(IOContext(io, limit=true), MIME("text/plain"), (a,a))
-    @test takebuf_string(io) == targets2[n+1]
+    @test String(take!(io)) == targets2[n+1]
 end
 
 # Similar
@@ -317,6 +319,7 @@ I,J,N = findnz(z)
 @test var(A_3_3) == 7.5
 @test std(A_3_3, 1) == OffsetArray([1 1 1], (0,A_3_3.offsets[2]))
 @test std(A_3_3, 2) == OffsetArray([3,3,3]'', (A_3_3.offsets[1],0))
+@test sum(OffsetArray(ones(Int,3000), -1000)) == 3000
 
 @test_approx_eq vecnorm(v) vecnorm(parent(v))
 @test_approx_eq vecnorm(A) vecnorm(parent(A))
@@ -337,7 +340,7 @@ seek(io, 0)
 @test readdlm(io, eltype(A)) == parent(A)
 
 amin, amax = extrema(parent(A))
-@test clamp(A, (amax+amin)/2, amax) == clamp(parent(A), (amax+amin)/2, amax)
+@test clamp.(A, (amax+amin)/2, amax).parent == clamp.(parent(A), (amax+amin)/2, amax)
 
 @test unique(A, 1) == parent(A)
 @test unique(A, 2) == parent(A)

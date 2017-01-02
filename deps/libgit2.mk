@@ -43,19 +43,20 @@ endif
 # We need to bundle ca certs on linux now that we're using libgit2 with ssl
 ifeq ($(OS),Linux)
 OPENSSL_DIR=$(shell openssl version -d | cut -d '"' -f 2)
+# This certfile location observed on Ubuntu 16.04
+ifeq ($(shell [ -e $(OPENSSL_DIR)/certs/ca-certificates.crt ] && echo exists),exists)
+CERTFILE=$(OPENSSL_DIR)/certs/ca-certificates.crt
+# This certfile location observed on openSUSE Leap 42.1
+else ifeq ($(shell [ -e $(OPENSSL_DIR)/ca-bundle.pem ] && echo exists),exists)
+CERTFILE=$(OPENSSL_DIR)/ca-bundle.pem
 # This certfile location observed on Ubuntu 14.04
-ifeq ($(shell [ -e $(OPENSSL_DIR)/cert.pem ] && echo exists),exists)
+else ifeq ($(shell [ -e $(OPENSSL_DIR)/cert.pem ] && echo exists),exists)
 CERTFILE=$(OPENSSL_DIR)/cert.pem
-endif
 # This certfile location observed on Debian 7
-ifeq ($(shell [ -e $(OPENSSL_DIR)/certs/ca.pem ] && echo exists),exists)
+else ifeq ($(shell [ -e $(OPENSSL_DIR)/certs/ca.pem ] && echo exists),exists)
 CERTFILE=$(OPENSSL_DIR)/certs/ca.pem
 endif
-# This certfile location observed on openSUSE Leap 42.1
-ifeq ($(shell [ -e $(OPENSSL_DIR)/ca-bundle.pem ] && echo exists),exists)
-CERTFILE=$(OPENSSL_DIR)/ca-bundle.pem
-endif
-endif
+endif # Linux
 
 LIBGIT2_SRC_PATH := $(SRCDIR)/srccache/$(LIBGIT2_SRC_DIR)
 
@@ -74,11 +75,6 @@ $(LIBGIT2_SRC_PATH)/libgit2-agent-nonfatal.patch-applied: $(LIBGIT2_SRC_PATH)/so
 		patch -p1 -f < $(SRCDIR)/patches/libgit2-agent-nonfatal.patch
 	echo 1 > $@
 
-$(LIBGIT2_SRC_PATH)/libgit2-openssl-hang.patch-applied: $(LIBGIT2_SRC_PATH)/source-extracted
-	cd $(LIBGIT2_SRC_PATH) && \
-		patch -p1 -f < $(SRCDIR)/patches/libgit2-openssl-hang.patch
-	echo 1 > $@
-
 $(LIBGIT2_SRC_PATH)/libgit2-mbedtls-writer-fix.patch-applied: $(LIBGIT2_SRC_PATH)/source-extracted | $(LIBGIT2_SRC_PATH)/libgit2-mbedtls.patch-applied
 	cd $(LIBGIT2_SRC_PATH) && \
 		patch -p1 -f < $(SRCDIR)/patches/libgit2-mbedtls-writer-fix.patch
@@ -90,7 +86,6 @@ $(build_datarootdir)/julia/cert.pem: $(CERTFILE)
 
 $(BUILDDIR)/$(LIBGIT2_SRC_DIR)/build-configured: \
 	$(LIBGIT2_SRC_PATH)/libgit2-mbedtls.patch-applied \
-	$(LIBGIT2_SRC_PATH)/libgit2-openssl-hang.patch-applied \
 	$(LIBGIT2_SRC_PATH)/libgit2-ssh.patch-applied \
 	$(LIBGIT2_SRC_PATH)/libgit2-agent-nonfatal.patch-applied \
 	$(LIBGIT2_SRC_PATH)/libgit2-mbedtls-writer-fix.patch-applied

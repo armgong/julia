@@ -3,12 +3,12 @@
 ## Functions to compute the reduced shape
 
 # for reductions that expand 0 dims to 1
-reduced_dims(a::AbstractArray, region) = reduced_dims(indices(a), region)
+reduced_indices(a::AbstractArray, region) = reduced_indices(indices(a), region)
 
 # for reductions that keep 0 dims as 0
-reduced_dims0(a::AbstractArray, region) = reduced_dims0(indices(a), region)
+reduced_indices0(a::AbstractArray, region) = reduced_indices0(indices(a), region)
 
-function reduced_dims{N}(inds::Indices{N}, d::Int, rd::AbstractUnitRange)
+function reduced_indices{N}(inds::Indices{N}, d::Int, rd::AbstractUnitRange)
     d < 1 && throw(ArgumentError("dimension must be ≥ 1, got $d"))
     if d == 1
         return (oftype(inds[1], rd), tail(inds)...)
@@ -18,18 +18,18 @@ function reduced_dims{N}(inds::Indices{N}, d::Int, rd::AbstractUnitRange)
         return inds
     end
 end
-reduced_dims{N}(inds::Indices{N}, d::Int) = reduced_dims(inds, d, OneTo(1))
+reduced_indices{N}(inds::Indices{N}, d::Int) = reduced_indices(inds, d, OneTo(1))
 
-function reduced_dims0{N}(inds::Indices{N}, d::Int)
+function reduced_indices0{N}(inds::Indices{N}, d::Int)
     d < 1 && throw(ArgumentError("dimension must be ≥ 1, got $d"))
     if d <= N
-        return reduced_dims(inds, d, (inds[d] == OneTo(0) ? OneTo(0) : OneTo(1)))
+        return reduced_indices(inds, d, (inds[d] == OneTo(0) ? OneTo(0) : OneTo(1)))
     else
         return inds
     end
 end
 
-function reduced_dims{N}(inds::Indices{N}, region)
+function reduced_indices{N}(inds::Indices{N}, region)
     rinds = [inds...]
     for i in region
         isa(i, Integer) || throw(ArgumentError("reduced dimension(s) must be integers"))
@@ -43,7 +43,7 @@ function reduced_dims{N}(inds::Indices{N}, region)
     tuple(rinds...)::typeof(inds)
 end
 
-function reduced_dims0{N}(inds::Indices{N}, region)
+function reduced_indices0{N}(inds::Indices{N}, region)
     rinds = [inds...]
     for i in region
         isa(i, Integer) || throw(ArgumentError("reduced dimension(s) must be integers"))
@@ -70,10 +70,10 @@ for (Op, initval) in ((:(typeof(&)), true), (:(typeof(|)), false))
     @eval initarray!(a::AbstractArray, ::$(Op), init::Bool) = (init && fill!(a, $initval); a)
 end
 
-reducedim_initarray{R}(A::AbstractArray, region, v0, ::Type{R}) = fill!(similar(A,R,reduced_dims(A,region)), v0)
+reducedim_initarray{R}(A::AbstractArray, region, v0, ::Type{R}) = fill!(similar(A,R,reduced_indices(A,region)), v0)
 reducedim_initarray{T}(A::AbstractArray, region, v0::T) = reducedim_initarray(A, region, v0, T)
 
-reducedim_initarray0{R}(A::AbstractArray, region, v0, ::Type{R}) = fill!(similar(A,R,reduced_dims0(A,region)), v0)
+reducedim_initarray0{R}(A::AbstractArray, region, v0, ::Type{R}) = fill!(similar(A,R,reduced_indices0(A,region)), v0)
 reducedim_initarray0{T}(A::AbstractArray, region, v0::T) = reducedim_initarray0(A, region, v0, T)
 
 # TODO: better way to handle reducedim initialization
@@ -250,7 +250,7 @@ dimensions to reduce, and `v0` is the initial value to use in the reductions. Fo
 
 The associativity of the reduction is implementation-dependent; if you need a particular
 associativity, e.g. left-to-right, you should write your own loop. See documentation for
-[`reduce`](:func:`reduce`).
+[`reduce`](@ref).
 
 ```jldoctest
 julia> a = reshape(collect(1:16), (4,4))
@@ -291,19 +291,6 @@ for (fname, op) in [(:sum, :+), (:prod, :*),
         $(fname)(f::Function, A::AbstractArray, region) =
             mapreducedim(f, $(op), A, region)
         $(fname)(A::AbstractArray, region) = $(fname)(identity, A, region)
-    end
-end
-
-for (fname, fbase, fun) in [(:sumabs, :sum, :abs),
-                            (:sumabs2, :sum, :abs2),
-                            (:maxabs, :maximum, :abs),
-                            (:minabs, :minimum, :abs)]
-    fname! = Symbol(fname, '!')
-    fbase! = Symbol(fbase, '!')
-    @eval begin
-        $(fname!)(r::AbstractArray, A::AbstractArray; init::Bool=true) =
-            $(fbase!)($(fun), r, A; init=init)
-        $(fname)(A::AbstractArray, region) = $(fbase)($(fun), A, region)
     end
 end
 
@@ -375,11 +362,11 @@ For an array input, returns the value and index of the minimum over the given re
 """
 function findmin{T}(A::AbstractArray{T}, region)
     if isempty(A)
-        return (similar(A, reduced_dims0(A, region)),
-                similar(dims->zeros(Int, dims), reduced_dims0(A, region)))
+        return (similar(A, reduced_indices0(A, region)),
+                similar(dims->zeros(Int, dims), reduced_indices0(A, region)))
     end
     return findminmax!(<, reducedim_initarray0(A, region, typemax(T)),
-            similar(dims->zeros(Int, dims), reduced_dims0(A, region)), A)
+            similar(dims->zeros(Int, dims), reduced_indices0(A, region)), A)
 end
 
 """
@@ -402,11 +389,11 @@ For an array input, returns the value and index of the maximum over the given re
 """
 function findmax{T}(A::AbstractArray{T}, region)
     if isempty(A)
-        return (similar(A, reduced_dims0(A,region)),
-                similar(dims->zeros(Int, dims), reduced_dims0(A,region)))
+        return (similar(A, reduced_indices0(A,region)),
+                similar(dims->zeros(Int, dims), reduced_indices0(A,region)))
     end
     return findminmax!(>, reducedim_initarray0(A, region, typemin(T)),
-            similar(dims->zeros(Int, dims), reduced_dims0(A, region)), A)
+            similar(dims->zeros(Int, dims), reduced_indices0(A, region)), A)
 end
 
 reducedim1(R, A) = length(indices1(R)) == 1

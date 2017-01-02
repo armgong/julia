@@ -1,7 +1,5 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-module DatesPeriodTesting
-using Base.Test
 # Period testing
 @test -Dates.Year(1) == Dates.Year(-1)
 @test Dates.Year(1) > Dates.Year(0)
@@ -37,8 +35,8 @@ t2 = Dates.Year(2)
 @test_throws MethodError ([t,t,t,t,t] .* Dates.Year(1)) == ([t,t,t,t,t])
 @test ([t,t,t,t,t] * 1) == ([t,t,t,t,t])
 @test ([t,t,t,t,t] .% t2) == ([t,t,t,t,t])
-@test div([t,t,t,t,t],Dates.Year(1)) == ([1,1,1,1,1])
-@test mod([t,t,t,t,t],Dates.Year(2)) == ([t,t,t,t,t])
+@test div.([t,t,t,t,t],Dates.Year(1)) == ([1,1,1,1,1])
+@test mod.([t,t,t,t,t],Dates.Year(2)) == ([t,t,t,t,t])
 @test [t,t,t] / t2 == [0.5,0.5,0.5]
 @test abs(-t) == t
 
@@ -330,6 +328,8 @@ emptyperiod = ((y + d) - d) - y
 pa = [1y 1m 1w 1d; 1h 1mi 1s 1ms]
 cpa = [1y+1s 1m+1s 1w+1s 1d+1s; 1h+1s 1mi+1s 2m+1s 1s+1ms]
 
+@test +pa == pa == -(-pa)
+@test -pa == map(-, pa)
 @test 1y .+ pa == [2y 1y+1m 1y+1w 1y+1d; 1y+1h 1y+1mi 1y+1s 1y+1ms]
 @test (1y+1m) .+ pa == [2y+1m 1y+2m 1y+1m+1w 1y+1m+1d; 1y+1m+1h 1y+1m+1mi 1y+1m+1s 1y+1m+1ms]
 @test pa .+ 1y == [2y 1y+1m 1y+1w 1y+1d; 1y+1h 1y+1mi 1y+1s 1y+1ms]
@@ -382,4 +382,3 @@ cpa = [1y+1s 1m+1s 1w+1s 1d+1s; 1h+1s 1mi+1s 2m+1s 1s+1ms]
 
 @test [1y+1s 1m+1s; 1w+1s 1d+1s] + [1y+1h 1y+1mi; 1y+1s 1y+1ms] == [2y+1h+1s 1y+1m+1mi+1s; 1y+1w+2s 1y+1d+1s+1ms]
 @test [1y+1s 1m+1s; 1w+1s 1d+1s] - [1y+1h 1y+1mi; 1y+1s 1y+1ms] == [1s-1h 1m+1s-1y-1mi; 1w-1y 1d+1s-1y-1ms]
-end
