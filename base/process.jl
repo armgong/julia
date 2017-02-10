@@ -97,13 +97,14 @@ end
 hash(x::AndCmds, h::UInt) = hash(x.a, hash(x.b, h))
 ==(x::AndCmds, y::AndCmds) = x.a == y.a && x.b == y.b
 
-shell_escape(cmd::Cmd) = shell_escape(cmd.exec...)
+shell_escape(cmd::Cmd; special::AbstractString="") =
+    shell_escape(cmd.exec..., special=special)
 
 function show(io::IO, cmd::Cmd)
     print_env = cmd.env !== nothing
     print_dir = !isempty(cmd.dir)
     (print_env || print_dir) && print(io, "setenv(")
-    esc = shell_escape(cmd)
+    esc = shell_escape(cmd, special=shell_special)
     print(io, '`')
     for c in esc
         if c == '`'
@@ -207,7 +208,7 @@ function cstr(s)
 end
 
 # convert various env representations into an array of "key=val" strings
-byteenv{S<:AbstractString}(env::AbstractArray{S}) =
+byteenv(env::AbstractArray{<:AbstractString}) =
     String[cstr(x) for x in env]
 byteenv(env::Associative) =
     String[cstr(string(k)*"="*string(v)) for (k,v) in env]
@@ -227,15 +228,15 @@ use `withenv`.
 The `dir` keyword argument can be used to specify a working directory for the command.
 """
 setenv(cmd::Cmd, env; dir="") = Cmd(cmd; env=byteenv(env), dir=dir)
-setenv{T<:AbstractString}(cmd::Cmd, env::Pair{T}...; dir="") =
+setenv(cmd::Cmd, env::Pair{<:AbstractString}...; dir="") =
     setenv(cmd, env; dir=dir)
 setenv(cmd::Cmd; dir="") = Cmd(cmd; dir=dir)
 
 (&)(left::AbstractCmd, right::AbstractCmd) = AndCmds(left, right)
 redir_out(src::AbstractCmd, dest::AbstractCmd) = OrCmds(src, dest)
 redir_err(src::AbstractCmd, dest::AbstractCmd) = ErrOrCmds(src, dest)
-Base.mr_empty{T2<:Base.AbstractCmd}(f, op::typeof(&), T1::Type{T2}) =
-    throw(ArgumentError("reducing over an empty collection of type $T1 with operator & is not allowed"))
+Base.mr_empty(f, op::typeof(&), T::Type{<:Base.AbstractCmd}) =
+    throw(ArgumentError("reducing over an empty collection of type $T with operator & is not allowed"))
 
 # Stream Redirects
 redir_out(dest::Redirectable, src::AbstractCmd) = CmdRedirect(src, dest, STDIN_NO)
@@ -554,15 +555,16 @@ spawn_opts_inherit(in::Redirectable=RawFD(0), out::Redirectable=RawFD(1), err::R
 spawn(cmds::AbstractCmd, args...; chain::Nullable{ProcessChain}=Nullable{ProcessChain}()) =
     spawn(cmds, spawn_opts_swallow(args...)...; chain=chain)
 
-function eachline(cmd::AbstractCmd, stdin)
+function eachline(cmd::AbstractCmd, stdin; chomp::Bool=true)
     stdout = Pipe()
     processes = spawn(cmd, (stdin,stdout,STDERR))
     close(stdout.in)
     out = stdout.out
     # implicitly close after reading lines, since we opened
-    return EachLine(out, ()->(close(out); success(processes) || pipeline_error(processes)))
+    return EachLine(out, chomp=chomp,
+        ondone=()->(close(out); success(processes) || pipeline_error(processes)))::EachLine
 end
-eachline(cmd::AbstractCmd) = eachline(cmd, DevNull)
+eachline(cmd::AbstractCmd; chomp::Bool=true) = eachline(cmd, DevNull, chomp=chomp)
 
 # return a Process object to read-to/write-from the pipeline
 """
@@ -796,7 +798,7 @@ function cmd_gen(parsed)
 end
 
 macro cmd(str)
-    return :(cmd_gen($(shell_parse(str)[1])))
+    return :(cmd_gen($(shell_parse(str, special=shell_special)[1])))
 end
 
 wait(x::Process)      = if !process_exited(x); stream_wait(x, x.exitnotify); end

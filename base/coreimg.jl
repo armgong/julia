@@ -23,6 +23,7 @@ include("options.jl")
 # core operations & types
 include("promotion.jl")
 include("tuple.jl")
+include("traits.jl")
 include("range.jl")
 include("expr.jl")
 include("error.jl")
@@ -50,6 +51,7 @@ end
 include("reduce.jl")
 
 ## core structures
+include("bitarray.jl")
 include("intset.jl")
 include("associative.jl")
 

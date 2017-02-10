@@ -45,6 +45,7 @@ function convert{T}(::Type{Nullable{T}}, x::Nullable)
     return isnull(x) ? Nullable{T}() : Nullable{T}(convert(T, get(x)))
 end
 
+convert{T<:Nullable}(::Type{Nullable{T}}, x::T) = Nullable{T}(x)
 convert{T}(::Type{Nullable{T}}, x::T) = Nullable{T}(x)
 convert{T}(::Type{Nullable   }, x::T) = Nullable{T}(x)
 
@@ -56,7 +57,7 @@ promote_rule{S,T}(::Type{Nullable{S}}, ::Type{Nullable{T}}) = Nullable{promote_t
 promote_op{S,T}(op::Any, ::Type{Nullable{S}}, ::Type{Nullable{T}}) = Nullable{promote_op(op, S, T)}
 promote_op{S,T}(op::Type, ::Type{Nullable{S}}, ::Type{Nullable{T}}) = Nullable{promote_op(op, S, T)}
 
-function show{T}(io::IO, x::Nullable{T})
+function show(io::IO, x::Nullable)
     if get(io, :compact, false)
         if isnull(x)
             print(io, "#NULL")
@@ -80,8 +81,8 @@ end
 Attempt to access the value of `x`. Returns the value if it is present;
 otherwise, returns `y` if provided, or throws a `NullException` if not.
 """
-@inline function get{S,T}(x::Nullable{S}, y::T)
-    if isbits(S)
+@inline function get{T}(x::Nullable{T}, y)
+    if isbits(T)
         ifelse(isnull(x), y, x.value)
     else
         isnull(x) ? y : x.value
@@ -112,7 +113,7 @@ Nullable{String}()
 julia> unsafe_get(x)
 ERROR: UndefRefError: access to undefined reference
 Stacktrace:
- [1] unsafe_get(::Nullable{String}) at ./nullable.jl:124
+ [1] unsafe_get(::Nullable{String}) at ./nullable.jl:125
 
 julia> x = 1
 1

@@ -81,6 +81,17 @@ gc_bytes() = ccall(:jl_gc_total_bytes, Int64, ())
 
 Set a timer to be read by the next call to [`toc`](@ref) or [`toq`](@ref). The
 macro call `@time expr` can also be used to time evaluation.
+
+```julia
+julia> tic()
+0x0000c45bc7abac95
+
+julia> sleep(0.3)
+
+julia> toc()
+elapsed time: 0.302745944 seconds
+0.302745944
+```
 """
 function tic()
     t0 = time_ns()
@@ -93,6 +104,16 @@ end
 
 Return, but do not print, the time elapsed since the last [`tic`](@ref). The
 macro calls `@timed expr` and `@elapsed expr` also return evaluation time.
+
+```julia
+julia> tic()
+0x0000c46477a9675d
+
+julia> sleep(0.3)
+
+julia> toq()
+0.302251004
+```
 """
 function toq()
     t1 = time_ns()
@@ -110,6 +131,17 @@ end
 
 Print and return the time elapsed since the last [`tic`](@ref). The macro call
 `@time expr` can also be used to time evaluation.
+
+```julia
+julia> tic()
+0x0000c45bc7abac95
+
+julia> sleep(0.3)
+
+julia> toc()
+elapsed time: 0.302745944 seconds
+0.302745944
+```
 """
 function toc()
     t = toq()
@@ -118,7 +150,7 @@ function toc()
 end
 
 # print elapsed time, return expression value
-const _mem_units = ["byte", "KB", "MB", "GB", "TB", "PB"]
+const _mem_units = ["byte", "KiB", "MiB", "GiB", "TiB", "PiB"]
 const _cnt_units = ["", " k", " M", " G", " T", " P"]
 function prettyprint_getunits(value, numunits, factor)
     if value == 0 || value == 1
@@ -186,6 +218,17 @@ returning the value of the expression.
 
 See also [`@timev`](@ref), [`@timed`](@ref), [`@elapsed`](@ref), and
 [`@allocated`](@ref).
+
+```julia
+julia> @time rand(10^6);
+  0.001525 seconds (7 allocations: 7.630 MiB)
+
+julia> @time begin
+           sleep(0.3)
+           1+1
+       end
+  0.301395 seconds (8 allocations: 336 bytes)
+```
 """
 macro time(ex)
     quote
@@ -209,6 +252,15 @@ expression.
 
 See also [`@time`](@ref), [`@timed`](@ref), [`@elapsed`](@ref), and
 [`@allocated`](@ref).
+
+```julia
+julia> @timev rand(10^6);
+  0.001006 seconds (7 allocations: 7.630 MiB)
+elapsed time (ns): 1005567
+bytes allocated:   8000256
+pool allocs:       6
+malloc() calls:    1
+```
 """
 macro timev(ex)
     quote
@@ -229,6 +281,11 @@ number of seconds it took to execute as a floating-point number.
 
 See also [`@time`](@ref), [`@timev`](@ref), [`@timed`](@ref),
 and [`@allocated`](@ref).
+
+```julia
+julia> @elapsed sleep(0.3)
+0.301391426
+```
 """
 macro elapsed(ex)
     quote
@@ -256,6 +313,11 @@ for the effects of compilation.
 
 See also [`@time`](@ref), [`@timev`](@ref), [`@timed`](@ref),
 and [`@elapsed`](@ref).
+
+```julia
+julia> @allocated rand(10^6)
+8000080
+```
 """
 macro allocated(ex)
     quote
@@ -280,6 +342,34 @@ counters.
 
 See also [`@time`](@ref), [`@timev`](@ref), [`@elapsed`](@ref), and
 [`@allocated`](@ref).
+
+```julia
+julia> val, t, bytes, gctime, memallocs = @timed rand(10^6);
+
+julia> t
+0.006634834
+
+julia> bytes
+8000256
+
+julia> gctime
+0.0055765
+
+julia> fieldnames(typeof(memallocs))
+9-element Array{Symbol,1}:
+ :allocd
+ :malloc
+ :realloc
+ :poolalloc
+ :bigalloc
+ :freecall
+ :total_time
+ :pause
+ :full_sweep
+
+julia> memallocs.total_time
+5576500
+```
 """
 macro timed(ex)
     quote
@@ -335,9 +425,88 @@ println_with_color(color::Union{Int, Symbol}, msg::AbstractString...; bold::Bool
 
 ## warnings and messages ##
 
+const log_info_to = Dict{Tuple{Union{Module,Void},Union{Symbol,Void}},IO}()
+const log_warn_to = Dict{Tuple{Union{Module,Void},Union{Symbol,Void}},IO}()
+const log_error_to = Dict{Tuple{Union{Module,Void},Union{Symbol,Void}},IO}()
+
+function _redirect(io::IO, log_to::Dict, sf::StackTraces.StackFrame)
+    isnull(sf.linfo) && return io
+    mod = get(sf.linfo).def.module
+    fun = sf.func
+    if haskey(log_to, (mod,fun))
+        return log_to[(mod,fun)]
+    elseif haskey(log_to, (mod,nothing))
+        return log_to[(mod,nothing)]
+    elseif haskey(log_to, (nothing,nothing))
+        return log_to[(nothing,nothing)]
+    else
+        return io
+    end
+end
+
+function _redirect(io::IO, log_to::Dict, fun::Symbol)
+    clos = string("#",fun,"#")
+    kw = string("kw##",fun)
+    local sf
+    break_next_frame = false
+    for trace in backtrace()
+        stack::Vector{StackFrame} = StackTraces.lookup(trace)
+        filter!(frame -> !frame.from_c, stack)
+        for frame in stack
+            isnull(frame.linfo) && continue
+            sf = frame
+            break_next_frame && (@goto skip)
+            get(frame.linfo).def.module == Base || continue
+            sff = string(frame.func)
+            if frame.func == fun || startswith(sff, clos) || startswith(sff, kw)
+                break_next_frame = true
+            end
+        end
+    end
+    @label skip
+    _redirect(io, log_to, sf)
+end
+
+@inline function redirect(io::IO, log_to::Dict, arg::Union{Symbol,StackTraces.StackFrame})
+    if isempty(log_to)
+        return io
+    else
+        if length(log_to)==1 && haskey(log_to,(nothing,nothing))
+            return log_to[(nothing,nothing)]
+        else
+            return _redirect(io, log_to, arg)
+        end
+    end
+end
 
 """
-    info(msg...; prefix="INFO: ")
+    logging(io [, m [, f]][; kind=:all])
+    logging([; kind=:all])
+
+Stream output of informational, warning, and/or error messages to `io`,
+overriding what was otherwise specified.  Optionally, divert stream only for
+module `m`, or specifically function `f` within `m`.  `kind` can be `:all` (the
+default), `:info`, `:warn`, or `:error`.  See `Base.log_{info,warn,error}_to`
+for the current set of redirections.  Call `logging` with no arguments (or just
+the `kind`) to reset everything.
+"""
+function logging(io::IO, m::Union{Module,Void}=nothing, f::Union{Symbol,Void}=nothing;
+                 kind::Symbol=:all)
+    (kind==:all || kind==:info)  && (log_info_to[(m,f)] = io)
+    (kind==:all || kind==:warn)  && (log_warn_to[(m,f)] = io)
+    (kind==:all || kind==:error) && (log_error_to[(m,f)] = io)
+    nothing
+end
+
+function logging(;  kind::Symbol=:all)
+    (kind==:all || kind==:info)  && empty!(log_info_to)
+    (kind==:all || kind==:warn)  && empty!(log_warn_to)
+    (kind==:all || kind==:error) && empty!(log_error_to)
+    nothing
+end
+
+"""
+    info([io, ] msg..., [prefix="INFO: "])
 
 Display an informational message.
 Argument `msg` is a string describing the information to be displayed.
@@ -351,10 +520,14 @@ INFO: hello world
 julia> info("hello world"; prefix="MY INFO: ")
 MY INFO: hello world
 ```
+
+See also [`logging`](@ref).
 """
 function info(io::IO, msg...; prefix="INFO: ")
+    io = redirect(io, log_info_to, :info)
     print_with_color(info_color(), io, prefix; bold = true)
     println_with_color(info_color(), io, chomp(string(msg...)))
+    return
 end
 info(msg...; prefix="INFO: ") = info(STDERR, msg..., prefix=prefix)
 
@@ -365,6 +538,16 @@ const have_warned = Set()
 warn_once(io::IO, msg...) = warn(io, msg..., once=true)
 warn_once(msg...) = warn(STDERR, msg..., once=true)
 
+"""
+    warn([io, ] msg..., [prefix="WARNING: ", once=false, key=nothing, bt=nothing, filename=nothing, lineno::Int=0])
+
+Display a warning. Argument `msg` is a string describing the warning to be
+displayed.  Set `once` to true and specify a `key` to only display `msg` the
+first time `warn` is called.  If `bt` is not `nothing` a backtrace is displayed.
+If `filename` is not `nothing` both it and `lineno` are displayed.
+
+See also [`logging`](@ref).
+"""
 function warn(io::IO, msg...;
               prefix="WARNING: ", once=false, key=nothing, bt=nothing,
               filename=nothing, lineno::Int=0)
@@ -376,6 +559,7 @@ function warn(io::IO, msg...;
         (key in have_warned) && return
         push!(have_warned, key)
     end
+    io = redirect(io, log_warn_to, :warn)
     print_with_color(warn_color(), io, prefix; bold = true)
     print_with_color(warn_color(), io, str)
     if bt !== nothing
@@ -392,6 +576,11 @@ end
     warn(msg)
 
 Display a warning. Argument `msg` is a string describing the warning to be displayed.
+
+```jldoctest
+julia> warn("Beep Beep")
+WARNING: Beep Beep
+```
 """
 warn(msg...; kw...) = warn(STDERR, msg...; kw...)
 
@@ -441,8 +630,8 @@ the compiler for objects about to be discarded, the `securezero!` function
 will always be called.
 """
 function securezero! end
-@noinline securezero!{T<:Number}(a::AbstractArray{T}) = fill!(a, 0)
-securezero!(s::String) = securezero!(s.data)
+@noinline securezero!(a::AbstractArray{<:Number}) = fill!(a, 0)
+securezero!(s::String) = unsafe_securezero!(pointer(s), sizeof(s))
 @noinline unsafe_securezero!{T}(p::Ptr{T}, len::Integer=1) =
     ccall(:memset, Ptr{T}, (Ptr{T}, Cint, Csize_t), p, 0, len*sizeof(T))
 unsafe_securezero!(p::Ptr{Void}, len::Integer=1) = Ptr{Void}(unsafe_securezero!(Ptr{UInt8}(p), len))
@@ -575,8 +764,8 @@ a starting `crc` integer to be mixed in with the checksum.
 (Technically, a little-endian checksum is computed.)
 """
 function crc32c end
-crc32c(a::Array{UInt8}, crc::UInt32=0x00000000) = ccall(:jl_crc32c, UInt32, (UInt32, Ptr{UInt8}, Csize_t), crc, a, sizeof(a))
-crc32c(s::String, crc::UInt32=0x00000000) = crc32c(s.data, crc)
+crc32c(a::Union{Array{UInt8},String}, crc::UInt32=0x00000000) =
+    ccall(:jl_crc32c, UInt32, (UInt32, Ptr{UInt8}, Csize_t), crc, a, sizeof(a))
 
 """
     @kwdef typedef
@@ -587,7 +776,7 @@ expression. The default argument is supplied by declaring fields of the form `fi
 default`. If no default is provided then the default is provided by the `kwdef_val(T)`
 function.
 
-```
+```julia
 @kwdef immutable Foo
     a::Cint            # implied default Cint(0)
     b::Cint = 1        # specified default

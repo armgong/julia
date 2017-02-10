@@ -83,7 +83,7 @@ If you need to build Julia in an environment that does not allow access to the o
 **Note:** the build process fail badly if any of the build directory's parent directories have spaces or other shell meta-characters such as `$` or `:` in their names (this is due to a limitation in GNU make).
 
 Once it is built, you can run the `julia` executable using its full path in the directory created above (the `julia` directory), or, to run it from anywhere, either
-
+- add an alias (in `bash`: `echo "alias julia='/path/to/install/folder/bin/julia'" >> ~/.bashrc && source ~/.bashrc`), or
 - add a soft link to the `julia` executable in the `julia` directory to `/usr/local/bin` (or any suitable directory already in your path), or
 
 - add the `julia` directory to your executable path for this shell session (in `bash`: `export PATH="$(pwd):$PATH"` ; in `csh` or `tcsh`:
@@ -105,7 +105,7 @@ the `julia` source directory, type `make testall`. You should see output
 that lists a series of tests being run; if they complete without
 error, you should be in good shape to start using Julia.
 
-You can read about [getting started](http://julialang.org/manual/getting-started) in the manual.
+You can read about [getting started](http://docs.julialang.org/en/stable/manual/getting-started/) in the manual.
 
 If you are building a Julia package for distribution on Linux, OS X,
 or Windows, take a look at the detailed notes in
@@ -214,7 +214,6 @@ Install or contact your systems administrator to install a more recent version o
 ------------------------|---------------------
  OpenBLAS build failure | Set one of the following build options in `Make.user` and build again: <ul><li> `OPENBLAS_TARGET_ARCH=BARCELONA` (AMD CPUs) or `OPENBLAS_TARGET_ARCH=NEHALEM` (Intel CPUs)<ul>Set `OPENBLAS_DYNAMIC_ARCH = 0` to disable compiling multiple architectures in a single binary.</ul></li><li> `OPENBLAS_NO_AVX2 = 1` disables AVX2 instructions, allowing OpenBLAS to compile with `OPENBLAS_DYNAMIC_ARCH = 1` using old versions of binutils </li><li> `USE_SYSTEM_BLAS=1` uses the system provided `libblas` <ul><li>Set `LIBBLAS=-lopenblas` and `LIBBLASNAME=libopenblas` to force the use of the system provided OpenBLAS when multiple BLAS versions are installed. </li></ul></li></ul><p> If you get an error that looks like ```../kernel/x86_64/dgemm_kernel_4x4_haswell.S:1709: Error: no such instruction: `vpermpd $ 0xb1,%ymm0,%ymm0'```, then you need to set `OPENBLAS_DYNAMIC_ARCH = 0` or `OPENBLAS_NO_AVX2 = 1`, or you need a newer version of `binutils` (2.18 or newer). ([Issue #7653](https://github.com/JuliaLang/julia/issues/7653))
 Illegal Instruction error | Check if your CPU supports AVX while your OS does not (e.g. through virtualization, as described in [this issue](https://github.com/JuliaLang/julia/issues/3263)).
-LibGit2 build failure | If LibGit2 configuration step reports `CMake Error at /usr/share/cmake-3.0/Modules/FindOpenSSL.cmake:294 (list):` then the versions of [OpenSSL and CMake are probably incompatible](https://cmake.org/Bug/view.php?id=15386). The recommended solution is to upgrade the version of CMake to 3.1.2 or above.
 
 ### OS X
 
@@ -294,7 +293,7 @@ Julia uses the following external libraries, which are automatically downloaded 
 - **[curl]** (>= 7.50)       — libcurl provides download and proxy support for Julia's package manager
 - **[libssh2]** (>= 1.7)     — library for SSH transport, used by libgit2 for packages with SSH remotes
 - **[mbedtls]** (>= 2.2)     — library used for cryptography and transport layer security, used by libssh2
-- **[utf8proc]** (>= 2.0)    — a library for processing UTF-8 encoded Unicode strings
+- **[utf8proc]** (>= 2.1)    — a library for processing UTF-8 encoded Unicode strings
 - **[libosxunwind]**         — clone of [libunwind], a library that determines the call-chain of a program
 
 [GNU make]:     http://www.gnu.org/software/make

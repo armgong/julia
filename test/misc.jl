@@ -28,6 +28,113 @@ let bt = backtrace()
     end
 end
 
+# PR #16213
+module Logging
+    function bar(io)
+        info(io,"barinfo")
+        warn(io,"barwarn")
+        Base.display_error(io,"barerror",backtrace())
+    end
+    function pooh(io)
+        info(io,"poohinfo")
+        warn(io,"poohwarn")
+        Base.display_error(io,"pooherror",backtrace())
+    end
+end
+function foo(io)
+    info(io,"fooinfo")
+    warn(io,"foowarn")
+    Base.display_error(io,"fooerror",backtrace())
+end
+
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "WARNING: barwarn", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+
+logging(DevNull, TestMain_misc.Logging, :bar;  kind=:info)
+@test all(contains.(sprint(Logging.bar), ["WARNING: barwarn", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+logging(DevNull, TestMain_misc.Logging;  kind=:info)
+@test all(contains.(sprint(Logging.bar), ["WARNING: barwarn", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+logging(DevNull;  kind=:info)
+@test all(contains.(sprint(Logging.bar), ["WARNING: barwarn", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+logging(kind=:info)
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "WARNING: barwarn", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+
+logging(DevNull, TestMain_misc.Logging, :bar;  kind=:warn)
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+logging(DevNull, TestMain_misc.Logging;  kind=:warn)
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+logging(DevNull;  kind=:warn)
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "ERROR: \"fooerror\""]))
+
+logging(kind=:warn)
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "WARNING: barwarn", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+
+logging(DevNull, TestMain_misc.Logging, :bar;  kind=:error)
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "WARNING: barwarn"]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+logging(DevNull, TestMain_misc.Logging;  kind=:error)
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "WARNING: barwarn"]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn"]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+logging(DevNull;  kind=:error)
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "WARNING: barwarn"]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn"]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn"]))
+
+logging(kind=:error)
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "WARNING: barwarn", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+
+logging(DevNull, TestMain_misc.Logging, :bar)
+@test sprint(Logging.bar) == ""
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+logging(DevNull, TestMain_misc.Logging)
+@test sprint(Logging.bar) == ""
+@test sprint(Logging.pooh) == ""
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
+logging(DevNull)
+@test sprint(Logging.bar) == ""
+@test sprint(Logging.pooh) == ""
+@test sprint(foo) == ""
+
+logging()
+@test all(contains.(sprint(Logging.bar), ["INFO: barinfo", "WARNING: barwarn", "ERROR: \"barerror\""]))
+@test all(contains.(sprint(Logging.pooh), ["INFO: poohinfo", "WARNING: poohwarn", "ERROR: \"pooherror\""]))
+@test all(contains.(sprint(foo), ["INFO: fooinfo", "WARNING: foowarn", "ERROR: \"fooerror\""]))
+
 # test assert() method
 @test_throws AssertionError assert(false)
 let res = assert(true)
@@ -186,8 +293,17 @@ v11801, t11801 = @timed sin(1)
 # interactive utilities
 
 import Base.summarysize
-@test summarysize(Core) > summarysize(Core.Inference) > Core.sizeof(Core)
-@test summarysize(Base) > 10_000*sizeof(Int)
+@test summarysize(Core) > (summarysize(Core.Inference) + Base.summarysize(Core.Intrinsics)) > Core.sizeof(Core)
+@test summarysize(Base) > 100_000 * sizeof(Ptr)
+
+let R = Ref{Any}(nothing), depth = 10^6
+    for i = 1:depth
+        R = Ref{Any}(R)
+    end
+    R = Core.svec(R, R)
+    @test summarysize(R) == (depth + 4) * sizeof(Ptr)
+end
+
 module _test_whos_
 export x
 x = 1.0
@@ -385,7 +501,7 @@ end
 
 let s = "abcα🐨\0x\0"
     for T in (UInt8, UInt16, UInt32, Int32)
-        @test transcode(T, s) == transcode(T, s.data)
+        @test transcode(T, s) == transcode(T, Vector{UInt8}(s))
         @test transcode(String, transcode(T, s)) == s
     end
 end
@@ -447,12 +563,12 @@ end
 let
     old_have_color = Base.have_color
     try
-        eval(Base, :(have_color = true))
+        @eval Base have_color = true
         buf = IOBuffer()
         print_with_color(:red, buf, "foo")
         @test startswith(String(take!(buf)), Base.text_colors[:red])
     finally
-        eval(Base, :(have_color = $(old_have_color)))
+        @eval Base have_color = $(old_have_color)
     end
 end
 
@@ -469,7 +585,7 @@ end
 let
     old_have_color = Base.have_color
     try
-        eval(Base, :(have_color = true))
+        @eval Base have_color = true
         buf = IOBuffer()
         print_with_color(:red, buf, "foo")
         # Check that we get back to normal text color in the end
@@ -479,6 +595,48 @@ let
         print_with_color(:red, buf, "foo"; bold = true)
         @test String(take!(buf)) == "\e[1m\e[31mfoo\e[39m\e[22m"
     finally
-        eval(Base, :(have_color = $(old_have_color)))
+        @eval Base have_color = $(old_have_color)
+    end
+end
+
+abstract DA_19281{T, N} <: AbstractArray{T, N}
+Base.convert{S,T,N}(::Type{Array{S, N}}, ::DA_19281{T, N}) = error()
+x_19281 = [(), (1,)]
+type Foo_19281
+    f::Vector{Tuple}
+    Foo_19281() = new(x_19281)
+end
+
+@testset "test this does not segfault #19281" begin
+    @test Foo_19281().f[1] == ()
+    @test Foo_19281().f[2] == (1, )
+end
+
+let
+    x_notdefined = Ref{String}()
+    @test !isassigned(x_notdefined)
+
+    x_defined = Ref{String}("Test")
+    @test isassigned(x_defined)
+end
+
+type Demo_20254
+    arr::Array{String}
+end
+
+# these cause stack overflows and are a little flaky on CI, ref #20256
+if Bool(parse(Int,(get(ENV, "JULIA_TESTFULL", "0"))))
+    function Demo_20254(arr::AbstractArray=Any[])
+        Demo_20254(string.(arr))
+    end
+
+    _unsafe_get_19433(x::NTuple{1}) = (unsafe_get(x[1]),)
+    _unsafe_get_19433(xs::Vararg) = (unsafe_get(xs[1]), _unsafe_get_19433(xs[2:end])...)
+
+    f_19433(f_19433, xs...) = f_19433(_unsafe_get_19433(xs)...)
+
+    @testset "test this does not crash, issue #19433 and #20254" begin
+        @test_throws StackOverflowError Demo_20254()
+        @test_throws StackOverflowError f_19433(+, 1, 2)
     end
 end

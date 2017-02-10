@@ -9,15 +9,16 @@ Base.:-(::Any, ::Any)
 Base.:*(::Any, ::Any...)
 Base.:(/)
 Base.:\(::Any, ::Any)
-Base.:^(::Any, ::Any)
+Base.:^(::Number, ::Number)
 Base.fma
 Base.muladd
 Base.div
 Base.fld
 Base.cld
 Base.mod
-Base.Math.mod2pi
 Base.rem
+Base.rem2pi
+Base.Math.mod2pi
 Base.divrem
 Base.fldmod
 Base.fld1
@@ -33,6 +34,7 @@ Base.:(>>>)
 Base.colon
 Base.range
 Base.OneTo
+Base.StepRangeLen
 Base.:(==)
 Base.:(!=)
 Base.:(!==)
@@ -232,7 +234,6 @@ Base.varm
 Base.middle
 Base.median
 Base.median!
-Base.midpoints
 Base.quantile
 Base.quantile!
 Base.cov

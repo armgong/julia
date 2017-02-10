@@ -64,9 +64,11 @@ in(k, v::KeyIterator) = get(v.dict, k, secret_table_token) !== secret_table_toke
     keys(a::Associative)
 
 Return an iterator over all keys in a collection.
-`collect(keys(d))` returns an array of keys.
+`collect(keys(a))` returns an array of keys.
 Since the keys are stored internally in a hash table,
 the order in which they are returned may vary.
+But `keys(a)` and `values(a)` both iterate `a` and
+return the elements in the same order.
 
 ```jldoctest
 julia> a = Dict('a'=>2, 'b'=>3)
@@ -87,7 +89,11 @@ eachindex(a::Associative) = KeyIterator(a)
     values(a::Associative)
 
 Return an iterator over all values in a collection.
-`collect(values(d))` returns an array of values.
+`collect(values(a))` returns an array of values.
+Since the values are stored internally in a hash table,
+the order in which they are returned may vary.
+But `keys(a)` and `values(a)` both iterate `a` and
+return the elements in the same order.
 
 ```jldoctest
 julia> a = Dict('a'=>2, 'b'=>3)
@@ -249,11 +255,11 @@ end
 
 const hasha_seed = UInt === UInt64 ? 0x6d35bb51952d5539 : 0x952d5539
 function hash(a::Associative, h::UInt)
-    h = hash(hasha_seed, h)
+    hv = hasha_seed
     for (k,v) in a
-        h ⊻= hash(k, hash(v))
+        hv ⊻= hash(k, hash(v))
     end
-    return h
+    hash(hv, h)
 end
 
 function getindex(t::Associative, key)
@@ -275,6 +281,15 @@ push!(t::Associative, p::Pair, q::Pair, r::Pair...) = push!(push!(push!(t, p), q
 
 # hashing objects by identity
 
+"""
+    ObjectIdDict([itr])
+
+`ObjectIdDict()` constructs a hash table where the keys are (always)
+object identities.  Unlike `Dict` it is not parameterized on its key
+and value type and thus its `eltype` is always `Pair{Any,Any}`.
+
+See [`Dict`](@ref) for further help.
+"""
 type ObjectIdDict <: Associative{Any,Any}
     ht::Vector{Any}
     ndel::Int

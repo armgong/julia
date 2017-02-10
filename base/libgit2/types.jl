@@ -6,11 +6,34 @@ const OID_RAWSZ = 20
 const OID_HEXSZ = OID_RAWSZ * 2
 const OID_MINPREFIXLEN = 4
 
-immutable Oid
+abstract AbstractGitHash
+
+"""
+    GitHash
+
+A git object identifier, based on the sha-1 hash. It is a $OID_RAWSZ byte string
+($OID_HEXSZ hex digits) used to identify a `GitObject` in a repository.
+"""
+immutable GitHash <: AbstractGitHash
     val::NTuple{OID_RAWSZ, UInt8}
-    Oid(val::NTuple{OID_RAWSZ, UInt8}) = new(val)
+    GitHash(val::NTuple{OID_RAWSZ, UInt8}) = new(val)
 end
-Oid() = Oid(ntuple(i->zero(UInt8), OID_RAWSZ))
+GitHash() = GitHash(ntuple(i->zero(UInt8), OID_RAWSZ))
+
+"""
+    GitShortHash
+
+This is a shortened form of `GitHash`, which can be used to identify a git object when it
+is unique.
+
+Internally it is stored as two fields: a full-size `GitHash` (`hash`) and a length
+(`len`). Only the initial `len` hex digits of `hash` are used.
+"""
+immutable GitShortHash <: AbstractGitHash
+    hash::GitHash   # underlying hash: unused digits are ignored
+    len::Csize_t    # length in hex digits
+end
+
 
 """
     LibGit2.TimeStruct
@@ -38,17 +61,34 @@ end
 """
     LibGit2.StrArrayStruct
 
-Array of strings.
+A LibGit2 representation of an array of strings.
 Matches the [`git_strarray`](https://libgit2.github.com/libgit2/#HEAD/type/git_strarray) struct.
+
+When fetching data from LibGit2, a typical usage would look like:
+```julia
+sa_ref = Ref(StrArrayStruct())
+@check ccall(..., (Ptr{StrArrayStruct},), sa_ref)
+res = convert(Vector{String}, sa_ref[])
+free(sa_ref)
+```
+In particular, note that `LibGit2.free` should be called afterward on the `Ref` object.
+
+Conversely, when passing a vector of strings to LibGit2, it is generally simplest to rely
+on implicit conversion:
+```julia
+strs = String[...]
+@check ccall(..., (Ptr{StrArrayStruct},), strs)
+```
+Note that no call to `free` is required as the data is allocated by Julia.
 """
-@kwdef immutable StrArrayStruct
+immutable StrArrayStruct
    strings::Ptr{Cstring}
    count::Csize_t
 end
-function Base.finalize(sa::StrArrayStruct)
-    sa_ptr = Ref(sa)
-    ccall((:git_strarray_free, :libgit2), Void, (Ptr{StrArrayStruct},), sa_ptr)
-    return sa_ptr[]
+StrArrayStruct() = StrArrayStruct(C_NULL, 0)
+
+function free(sa_ref::Base.Ref{StrArrayStruct})
+    ccall((:git_strarray_free, :libgit2), Void, (Ptr{StrArrayStruct},), sa_ref)
 end
 
 """
@@ -56,16 +96,25 @@ end
 
 A data buffer for exporting data from libgit2.
 Matches the [`git_buf`](https://libgit2.github.com/libgit2/#HEAD/type/git_buf) struct.
+
+When fetching data from LibGit2, a typical usage would look like:
+```julia
+buf_ref = Ref(Buffer())
+@check ccall(..., (Ptr{Buffer},), buf_ref)
+# operation on buf_ref
+free(buf_ref)
+```
+In particular, note that `LibGit2.free` should be called afterward on the `Ref` object.
 """
-@kwdef immutable Buffer
+immutable Buffer
     ptr::Ptr{Cchar}
     asize::Csize_t
     size::Csize_t
 end
-function Base.finalize(buf::Buffer)
-    buf_ptr = Ref(buf)
-    ccall((:git_buf_free, :libgit2), Void, (Ptr{Buffer},), buf_ptr)
-    return buf_ptr[]
+Buffer() = Buffer(C_NULL, 0, 0)
+
+function free(buf_ref::Base.Ref{Buffer})
+    ccall((:git_buf_free, :libgit2), Void, (Ptr{Buffer},), buf_ref)
 end
 
 "Abstract credentials payload"
@@ -140,6 +189,23 @@ function RemoteCallbacks(credentials::Ptr{Void}, payload::Ref{Nullable{AbstractC
 end
 
 """
+    LibGit2.ProxyOptions
+
+Options for connecting through a proxy.
+
+Matches the [`git_proxy_options`](https://libgit2.github.com/libgit2/#HEAD/type/git_proxy_options) struct.
+"""
+@kwdef immutable ProxyOptions
+    version::Cuint             = 1
+    proxytype::Cint
+    url::Cstring
+    credential_cb::Ptr{Void}
+    certificate_cb::Ptr{Void}
+    payload::Ptr{Void}
+end
+
+
+"""
     LibGit2.FetchOptions
 
 Matches the [`git_fetch_options`](https://libgit2.github.com/libgit2/#HEAD/type/git_fetch_options) struct.
@@ -150,6 +216,9 @@ Matches the [`git_fetch_options`](https://libgit2.github.com/libgit2/#HEAD/type/
     prune::Cint                     = Consts.FETCH_PRUNE_UNSPECIFIED
     update_fetchhead::Cint          = 1
     download_tags::Cint             = Consts.REMOTE_DOWNLOAD_TAGS_AUTO
+    @static if LibGit2.VERSION >= v"0.25.0"
+        proxy_opts::ProxyOptions
+    end
     @static if LibGit2.VERSION >= v"0.24.0"
         custom_headers::StrArrayStruct
     end
@@ -207,11 +276,14 @@ Description of one side of a delta.
 Matches the [`git_diff_file`](https://libgit2.github.com/libgit2/#HEAD/type/git_diff_file) struct.
 """
 immutable DiffFile
-    id::Oid
+    id::GitHash
     path::Cstring
     size::Int64
     flags::UInt32
     mode::UInt16
+    @static if LibGit2.VERSION >= v"0.25.0"
+        id_abbrev::UInt16
+    end
 end
 
 """
@@ -229,7 +301,6 @@ immutable DiffDelta
     new_file::DiffFile
 end
 
-# TODO: double check this when libgit2 v0.25.0 is released
 """
     LibGit2.MergeOptions
 
@@ -260,6 +331,9 @@ Matches the [`git_push_options`](https://libgit2.github.com/libgit2/#HEAD/type/g
     version::Cuint                     = 1
     parallelism::Cint                  = 1
     callbacks::RemoteCallbacks
+    @static if LibGit2.VERSION >= v"0.25.0"
+        proxy_opts::ProxyOptions
+    end
     @static if LibGit2.VERSION >= v"0.24.0"
         custom_headers::StrArrayStruct
     end
@@ -292,7 +366,7 @@ immutable IndexEntry
     gid::UInt32
     file_size::Int64
 
-    id::Oid
+    id::GitHash
 
     flags::UInt16
     flags_extended::UInt16
@@ -323,11 +397,11 @@ end
     LibGit2.RebaseOperation
 
 Describes a single instruction/operation to be performed during the rebase.
-Matches the `git_rebase_operation` struct.
+Matches the [`git_rebase_operation`](https://libgit2.github.com/libgit2/#HEAD/type/git_rebase_operation_t) struct.
 """
 immutable RebaseOperation
     optype::Cint
-    id::Oid
+    id::GitHash
     exec::Cstring
 end
 Base.show(io::IO, rbo::RebaseOperation) = print(io, "RebaseOperation($(string(rbo.id)))")
@@ -336,7 +410,7 @@ Base.show(io::IO, rbo::RebaseOperation) = print(io, "RebaseOperation($(string(rb
     LibGit2.StatusOptions
 
 Options to control how `git_status_foreach_ext()` will issue callbacks.
-Matches the `git_status_options` struct.
+Matches the [`git_status_opt_t`](https://libgit2.github.com/libgit2/#HEAD/type/git_status_opt_t) struct.
 """
 @kwdef immutable StatusOptions
     version::Cuint           = 1
@@ -361,10 +435,17 @@ immutable StatusEntry
     index_to_workdir::Ptr{DiffDelta}
 end
 
+"""
+    LibGit2.FetchHead
+
+Contains the information about HEAD during a fetch, including the name and URL
+of the branch fetched from, the oid of the HEAD, and whether the fetched HEAD
+has been merged locally.
+"""
 immutable FetchHead
     name::String
     url::String
-    oid::Oid
+    oid::GitHash
     ismerge::Bool
 end
 
@@ -373,53 +454,111 @@ abstract AbstractGitObject
 Base.isempty(obj::AbstractGitObject) = (obj.ptr == C_NULL)
 
 abstract GitObject <: AbstractGitObject
-function Base.finalize(obj::GitObject)
-    if obj.ptr != C_NULL
-        ccall((:git_object_free, :libgit2), Void, (Ptr{Void},), obj.ptr)
-        obj.ptr = C_NULL
-    end
-end
 
-# Common types
-for (typ, ref, sup, fnc) in (
-            (:GitRemote,     :Void, :AbstractGitObject, :(:git_remote_free)),
-            (:GitRevWalker,  :Void, :AbstractGitObject, :(:git_revwalk_free)),
-            (:GitConfig,     :Void, :AbstractGitObject, :(:git_config_free)),
-            (:GitReference,  :Void, :AbstractGitObject, :(:git_reference_free)),
-            (:GitDiff,       :Void, :AbstractGitObject, :(:git_diff_free)),
-            (:GitIndex,      :Void, :AbstractGitObject, :(:git_index_free)),
-            (:GitRepo,       :Void, :AbstractGitObject, :(:git_repository_free)),
-            (:GitAnnotated,  :Void, :AbstractGitObject, :(:git_annotated_commit_free)),
-            (:GitRebase,     :Void, :AbstractGitObject, :(:git_rebase_free)),
-            (:GitStatus,     :Void, :AbstractGitObject, :(:git_status_list_free)),
-            (:GitBranchIter, :Void, :AbstractGitObject, :(:git_branch_iterator_free)),
-            (:GitTreeEntry,  :Void, :AbstractGitObject, :(:git_tree_entry_free)),
-            (:GitSignature,  :SignatureStruct, :AbstractGitObject, :(:git_signature_free)),
-            (:GitAnyObject,  :Void, :GitObject, nothing),
-            (:GitCommit,     :Void, :GitObject, nothing),
-            (:GitBlob,       :Void, :GitObject, nothing),
-            (:GitTree,       :Void, :GitObject, nothing),
-            (:GitTag,        :Void, :GitObject, nothing)
-        )
+for (typ, reporef, sup, cname) in [
+    (:GitRepo,       nothing,   :AbstractGitObject, :git_repository),
+    (:GitTreeEntry,  nothing,   :AbstractGitObject, :git_tree_entry),
+    (:GitConfig,     :Nullable, :AbstractGitObject, :git_config),
+    (:GitIndex,      :Nullable, :AbstractGitObject, :git_index),
+    (:GitRemote,     :GitRepo,  :AbstractGitObject, :git_remote),
+    (:GitRevWalker,  :GitRepo,  :AbstractGitObject, :git_revwalk),
+    (:GitReference,  :GitRepo,  :AbstractGitObject, :git_reference),
+    (:GitDiff,       :GitRepo,  :AbstractGitObject, :git_diff),
+    (:GitAnnotated,  :GitRepo,  :AbstractGitObject, :git_annotated_commit),
+    (:GitRebase,     :GitRepo,  :AbstractGitObject, :git_rebase),
+    (:GitStatus,     :GitRepo,  :AbstractGitObject, :git_status_list),
+    (:GitBranchIter, :GitRepo,  :AbstractGitObject, :git_branch_iterator),
+    (:GitUnknownObject,  :GitRepo,  :GitObject,         :git_object),
+    (:GitCommit,     :GitRepo,  :GitObject,         :git_commit),
+    (:GitBlob,       :GitRepo,  :GitObject,         :git_blob),
+    (:GitTree,       :GitRepo,  :GitObject,         :git_tree),
+    (:GitTag,        :GitRepo,  :GitObject,         :git_tag)]
 
-    @eval type $typ <: $sup
-        ptr::Ptr{$ref}
-        function $typ(ptr::Ptr{$ref})
-            @assert ptr != C_NULL
-            obj = new(ptr)
-            return obj
+    if reporef === nothing
+        @eval type $typ <: $sup
+            ptr::Ptr{Void}
+            function $typ(ptr::Ptr{Void},fin=true)
+                # fin=false should only be used when the pointer should not be free'd
+                # e.g. from within callback functions which are passed a pointer
+                @assert ptr != C_NULL
+                obj = new(ptr)
+                if fin
+                    Threads.atomic_add!(REFCOUNT, UInt(1))
+                    finalizer(obj, Base.close)
+                end
+                return obj
+            end
         end
-    end
-
-    if fnc !== nothing
-        @eval function Base.finalize(obj::$typ)
-            if obj.ptr != C_NULL
-                ccall(($fnc, :libgit2), Void, (Ptr{$ref},), obj.ptr)
-                obj.ptr = C_NULL
+    elseif reporef == :Nullable
+        @eval type $typ <: $sup
+            nrepo::Nullable{GitRepo}
+            ptr::Ptr{Void}
+            function $typ(repo::GitRepo, ptr::Ptr{Void})
+                @assert ptr != C_NULL
+                obj = new(Nullable(repo), ptr)
+                Threads.atomic_add!(REFCOUNT, UInt(1))
+                finalizer(obj, Base.close)
+                return obj
+            end
+            function $typ(ptr::Ptr{Void})
+                @assert ptr != C_NULL
+                obj = new(Nullable{GitRepo}(), ptr)
+                Threads.atomic_add!(REFCOUNT, UInt(1))
+                finalizer(obj, Base.close)
+                return obj
+            end
+        end
+    elseif reporef == :GitRepo
+        @eval type $typ <: $sup
+            repo::GitRepo
+            ptr::Ptr{Void}
+            function $typ(repo::GitRepo, ptr::Ptr{Void})
+                @assert ptr != C_NULL
+                obj = new(repo, ptr)
+                Threads.atomic_add!(REFCOUNT, UInt(1))
+                finalizer(obj, Base.close)
+                return obj
             end
         end
     end
+    @eval function Base.close(obj::$typ)
+        if obj.ptr != C_NULL
+            ccall(($(string(cname, :_free)), :libgit2), Void, (Ptr{Void},), obj.ptr)
+            obj.ptr = C_NULL
+            if Threads.atomic_sub!(REFCOUNT, UInt(1)) == 1
+                # will the last finalizer please turn out the lights?
+                ccall((:git_libgit2_shutdown, :libgit2), Cint, ())
+            end
+        end
+    end
+end
 
+## Calling `GitObject(repo, ...)` will automatically resolve to the appropriate type.
+function GitObject(repo::GitRepo, ptr::Ptr{Void})
+    T = objtype(Consts.OBJECT(ptr))
+    T(repo, ptr)
+end
+
+"""
+    LibGit2.GitSignature
+
+This is a Julia wrapper around a pointer to a
+[`git_signature`](https://libgit2.github.com/libgit2/#HEAD/type/git_signature) object.
+"""
+type GitSignature <: AbstractGitObject
+    ptr::Ptr{SignatureStruct}
+    function GitSignature(ptr::Ptr{SignatureStruct})
+        @assert ptr != C_NULL
+        obj = new(ptr)
+        finalizer(obj, Base.close)
+        return obj
+    end
+end
+function Base.close(obj::GitSignature)
+    if obj.ptr != C_NULL
+        ccall((:git_signature_free, :libgit2), Void, (Ptr{SignatureStruct},), obj.ptr)
+        obj.ptr = C_NULL
+    end
 end
 
 # Structure has the same layout as SignatureStruct
@@ -436,7 +575,7 @@ function with(f::Function, obj)
     try
         f(obj)
     finally
-        finalize(obj)
+        close(obj)
     end
 end
 
@@ -451,25 +590,28 @@ function with_warn{T}(f::Function, ::Type{T}, args...)
     end
 end
 
+"""
+    LibGit2.Const.OBJECT{T<:GitObject}(::Type{T})
 
-function getobjecttype{T<:GitObject}(::Type{T})
-    return if T == GitCommit
-        Consts.OBJ_COMMIT
-    elseif T == GitTree
-        Consts.OBJ_TREE
-    elseif T == GitBlob
-        Consts.OBJ_BLOB
-    elseif T == GitTag
-        Consts.OBJ_TAG
-    elseif T == GitAnyObject
-        Consts.OBJ_ANY
-    else
-        throw(GitError(Error.Object, Error.ENOTFOUND, "Type $T is not supported"))
-    end
-end
+The `OBJECT` enum value corresponding to type `T`.
+"""
+Consts.OBJECT(::Type{GitCommit})        = Consts.OBJ_COMMIT
+Consts.OBJECT(::Type{GitTree})          = Consts.OBJ_TREE
+Consts.OBJECT(::Type{GitBlob})          = Consts.OBJ_BLOB
+Consts.OBJECT(::Type{GitTag})           = Consts.OBJ_TAG
+Consts.OBJECT(::Type{GitUnknownObject}) = Consts.OBJ_ANY
+Consts.OBJECT(::Type{GitObject})        = Consts.OBJ_ANY
 
-function getobjecttype(obj_type::Cint)
-    return if obj_type == Consts.OBJ_COMMIT
+Consts.OBJECT(ptr::Ptr{Void}) =
+    ccall((:git_object_type, :libgit2), Consts.OBJECT, (Ptr{Void},), ptr)
+
+"""
+    objtype(obj_type::Consts.OBJECT)
+
+Returns the type corresponding to the enum value.
+"""
+function objtype(obj_type::Consts.OBJECT)
+    if obj_type == Consts.OBJ_COMMIT
         GitCommit
     elseif obj_type == Consts.OBJ_TREE
         GitTree
@@ -477,8 +619,8 @@ function getobjecttype(obj_type::Cint)
         GitBlob
     elseif obj_type == Consts.OBJ_TAG
         GitTag
-    elseif obj_type == Consts.OBJ_ANY
-        GitAnyObject
+    elseif obj_type == Consts.OBJ_ANY #this name comes from the header
+        GitUnknownObject
     else
         throw(GitError(Error.Object, Error.ENOTFOUND, "Object type $obj_type is not supported"))
     end

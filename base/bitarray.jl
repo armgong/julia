@@ -8,7 +8,7 @@ type BitArray{N} <: DenseArray{Bool, N}
     chunks::Vector{UInt64}
     len::Int
     dims::NTuple{N,Int}
-    function BitArray(dims::Vararg{Int,N})
+    function BitArray{N}(dims::Vararg{Int,N}) where N
         n = 1
         i = 1
         for d in dims
@@ -34,9 +34,22 @@ end
 
 Construct an uninitialized `BitArray` with the given dimensions.
 Behaves identically to the [`Array`](@ref) constructor.
+
+```julia
+julia> BitArray(2, 2)
+2×2 BitArray{2}:
+ false  false
+ false  true
+
+julia> BitArray((3, 1))
+3×1 BitArray{2}:
+ false
+ true
+ false
+```
 """
 BitArray(dims::Integer...) = BitArray(map(Int,dims))
-BitArray{N}(dims::NTuple{N,Int}) = BitArray{N}(dims...)
+BitArray(dims::NTuple{N,Int}) where {N} = BitArray{N}(dims...)
 
 typealias BitVector BitArray{1}
 typealias BitMatrix BitArray{2}
@@ -54,9 +67,9 @@ size(B::BitArray) = B.dims
     ifelse(d == 1, B.len, 1)
 end
 
-isassigned{N}(B::BitArray{N}, i::Int) = 1 <= i <= length(B)
+isassigned(B::BitArray, i::Int) = 1 <= i <= length(B)
 
-linearindexing{A<:BitArray}(::Type{A}) = LinearFast()
+linearindexing(::Type{<:BitArray}) = LinearFast()
 
 ## aux functions ##
 
@@ -322,7 +335,7 @@ end
 @inline try_bool_conversion(x::Real) = x == 0 || x == 1 || throw(InexactError())
 @inline unchecked_bool_convert(x::Real) = x == 1
 
-function copy_to_bitarray_chunks!{T<:Real}(Bc::Vector{UInt64}, pos_d::Int, C::Array{T}, pos_s::Int, numbits::Int)
+function copy_to_bitarray_chunks!(Bc::Vector{UInt64}, pos_d::Int, C::Array{<:Real}, pos_s::Int, numbits::Int)
     @inbounds for i = (1:numbits) + pos_s - 1
         try_bool_conversion(C[i])
     end
@@ -735,6 +748,20 @@ end
 @inline function setindex!(B::BitArray, x, i::Int)
     @boundscheck checkbounds(B, i)
     unsafe_bitsetindex!(B.chunks, convert(Bool, x), i)
+    return B
+end
+
+indexoffset(i) = first(i)-1
+indexoffset(::Colon) = 0
+
+@inline function setindex!(B::BitArray, x, J0::Union{Colon,UnitRange{Int}})
+    I0 = to_indices(B, (J0,))[1]
+    @boundscheck checkbounds(B, I0)
+    y = Bool(x)
+    l0 = length(I0)
+    l0 == 0 && return B
+    f0 = indexoffset(I0)+1
+    fill_chunks!(B.chunks, y, f0, l0)
     return B
 end
 
@@ -1166,7 +1193,7 @@ function (-)(B::BitArray)
     end
     return A
 end
-sign(B::BitArray) = copy(B)
+broadcast(::typeof(sign), B::BitArray) = copy(B)
 
 function (~)(B::BitArray)
     C = similar(B)
@@ -1278,38 +1305,19 @@ end
 
 ## Data movement ##
 
-# TODO some of this could be optimized
-
-function slicedim(A::BitArray, d::Integer, i::Integer)
-    d_in = size(A)
-    leading = d_in[1:(d-1)]
-    d_out = tuple(leading..., d_in[(d+1):end]...)
-
-    M = prod(leading)
-    N = length(A)
-    stride = M * d_in[d]
-
-    B = BitArray(d_out)
-    index_offset = 1 + (i-1)*M
-
-    l = 1
-
-    if M == 1
-        for j = 0:stride:(N-stride)
-            B[l] = A[j + index_offset]
-            l += 1
-        end
+# preserve some special behavior
+function slicedim(A::BitVector, d::Integer, i::Integer)
+    d >= 1 || throw(ArgumentError("dimension must be ≥ 1"))
+    if d > 1
+        i == 1 || throw_boundserror(A, (:, ntuple(k->1,d-2)..., i))
+        A[:]
     else
-        for j = 0:stride:(N-stride)
-            offs = j + index_offset
-            for k = 0:(M-1)
-                B[l] = A[offs + k]
-                l += 1
-            end
-        end
+        fill!(BitArray{0}(), A[i]) # generic slicedim would return A[i] here
     end
-    return B
 end
+
+
+# TODO some of this could be optimized
 
 function flipdim(A::BitArray, d::Integer)
     nd = ndims(A)
@@ -1423,7 +1431,8 @@ end
 
 reverse(v::BitVector) = reverse!(copy(v))
 
-function (<<)(B::BitVector, i::Int)
+
+function (<<)(B::BitVector, i::UInt)
     n = length(B)
     i == 0 && return copy(B)
     A = falses(n)
@@ -1431,7 +1440,7 @@ function (<<)(B::BitVector, i::Int)
     return A
 end
 
-function (>>>)(B::BitVector, i::Int)
+function (>>>)(B::BitVector, i::UInt)
     n = length(B)
     i == 0 && return copy(B)
     A = falses(n)
@@ -1439,7 +1448,11 @@ function (>>>)(B::BitVector, i::Int)
     return A
 end
 
-(>>)(B::BitVector, i::Int) = B >>> i
+(>>)(B::BitVector, i::Union{Int, UInt}) = B >>> i
+
+# signed integer version of shift operators with handling of negative values
+(<<)(B::BitVector, i::Int) = (i >=0 ? B << unsigned(i) : B >> unsigned(-i))
+(>>>)(B::BitVector, i::Int) = (i >=0 ? B >> unsigned(i) : B << unsigned(-i))
 
 """
     rol!(dest::BitVector, src::BitVector, i::Integer) -> BitVector
@@ -1589,6 +1602,7 @@ function countnz(B::BitArray)
     end
     return n
 end
+count(B::BitArray) = countnz(B)
 
 # returns the index of the next non-zero element, or 0 if all zeros
 function findnext(B::BitArray, start::Integer)
@@ -1888,94 +1902,6 @@ function filter(f, Bs::BitArray)
     Bs[boolmap]
 end
 
-## Transpose ##
-
-transpose(B::BitVector) = reshape(copy(B), 1, length(B))
-
-# fast 8x8 bit transpose from Henry S. Warrens's "Hacker's Delight"
-# http://www.hackersdelight.org/hdcodetxt/transpose8.c.txt
-function transpose8x8(x::UInt64)
-    y = x
-    t = xor(y, y >>> 7) & 0x00aa00aa00aa00aa
-    y = xor(y, t, t << 7)
-    t = xor(y, y >>> 14) & 0x0000cccc0000cccc
-    y = xor(y, t, t << 14)
-    t = xor(y, y >>> 28) & 0x00000000f0f0f0f0
-    return xor(y, t, t << 28)
-end
-
-function form_8x8_chunk(Bc::Vector{UInt64}, i1::Int, i2::Int, m::Int, cgap::Int, cinc::Int, nc::Int, msk8::UInt64)
-    x = UInt64(0)
-
-    k, l = get_chunks_id(i1 + (i2 - 1) * m)
-    r = 0
-    for j = 1:8
-        k > nc && break
-        x |= ((Bc[k] >>> l) & msk8) << r
-        if l + 8 >= 64 && nc > k
-            r0 = 8 - _mod64(l + 8)
-            x |= (Bc[k + 1] & (msk8 >>> r0)) << (r + r0)
-        end
-        k += cgap + (l + cinc >= 64 ? 1 : 0)
-        l = _mod64(l + cinc)
-        r += 8
-    end
-    return x
-end
-
-# note: assumes B is filled with 0's
-function put_8x8_chunk(Bc::Vector{UInt64}, i1::Int, i2::Int, x::UInt64, m::Int, cgap::Int, cinc::Int, nc::Int, msk8::UInt64)
-    k, l = get_chunks_id(i1 + (i2 - 1) * m)
-    r = 0
-    for j = 1:8
-        k > nc && break
-        Bc[k] |= ((x >>> r) & msk8) << l
-        if l + 8 >= 64 && nc > k
-            r0 = 8 - _mod64(l + 8)
-            Bc[k + 1] |= ((x >>> (r + r0)) & (msk8 >>> r0))
-        end
-        k += cgap + (l + cinc >= 64 ? 1 : 0)
-        l = _mod64(l + cinc)
-        r += 8
-    end
-    return
-end
-
-function transpose(B::BitMatrix)
-    l1 = size(B, 1)
-    l2 = size(B, 2)
-    Bt = falses(l2, l1)
-
-    cgap1, cinc1 = _div64(l1), _mod64(l1)
-    cgap2, cinc2 = _div64(l2), _mod64(l2)
-
-    Bc = B.chunks
-    Btc = Bt.chunks
-
-    nc = length(Bc)
-
-    for i = 1:8:l1
-        msk8_1 = UInt64(0xff)
-        if (l1 < i + 7)
-            msk8_1 >>>= i + 7 - l1
-        end
-
-        for j = 1:8:l2
-            x = form_8x8_chunk(Bc, i, j, l1, cgap1, cinc1, nc, msk8_1)
-            x = transpose8x8(x)
-
-            msk8_2 = UInt64(0xff)
-            if (l2 < j + 7)
-                msk8_2 >>>= j + 7 - l2
-            end
-
-            put_8x8_chunk(Btc, j, i, x, l2, cgap2, cinc2, nc, msk8_2)
-        end
-    end
-    return Bt
-end
-
-ctranspose(B::BitArray) = transpose(B)
 
 ## Concatenation ##
 

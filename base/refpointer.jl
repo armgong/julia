@@ -37,10 +37,11 @@ unsafe_convert{T}(::Type{Ref{T}}, x) = unsafe_convert(Ptr{T}, x)
 
 type RefValue{T} <: Ref{T}
     x::T
-    RefValue() = new()
-    RefValue(x) = new(x)
+    RefValue{T}() where {T} = new()
+    RefValue{T}(x) where {T} = new(x)
 end
 RefValue{T}(x::T) = RefValue{T}(x)
+isassigned(x::RefValue) = isdefined(x, :x)
 
 Ref(x::Ref) = x
 Ref(x::Any) = RefValue(x)
@@ -63,11 +64,11 @@ end
 unsafe_convert{T}(::Type{Ptr{Void}}, b::RefValue{T}) = convert(Ptr{Void}, unsafe_convert(Ptr{T}, b))
 
 ### Methods for a Ref object that is backed by an array at index i
-immutable RefArray{T, A<:AbstractArray, R} <: Ref{T}
+immutable RefArray{T, A<:AbstractArray{T}, R} <: Ref{T}
     x::A
     i::Int
     roots::R # should be either ::Void or ::Any
-    RefArray(x,i,roots=nothing) = (@assert(eltype(A) == T); new(x,i,roots))
+    RefArray{T,A,R}(x,i,roots=nothing) where {T,A<:AbstractArray{T},R} = new(x,i,roots)
 end
 RefArray{T}(x::AbstractArray{T},i::Int,roots::Any) = RefArray{T,typeof(x),Any}(x, i, roots)
 RefArray{T}(x::AbstractArray{T},i::Int=1,roots::Void=nothing) = RefArray{T,typeof(x),Void}(x, i, nothing)
@@ -87,7 +88,7 @@ end
 unsafe_convert{T}(::Type{Ptr{Void}}, b::RefArray{T}) = convert(Ptr{Void}, unsafe_convert(Ptr{T}, b))
 
 # convert Arrays to pointer arrays for ccall
-function (::Type{Ref{P}}){P<:Union{Ptr,Cwstring,Cstring},T<:Union{Ptr,Cwstring,Cstring}}(a::Array{T}) # Ref{P<:Ptr}(a::Array{T<:Ptr})
+function (::Type{Ref{<:Union{Ptr,Cwstring,Cstring}}})(a::Array{<:Union{Ptr,Cwstring,Cstring}}) # Ref{P<:Ptr}(a::Array{T<:Ptr})
     return RefArray(a) # effectively a no-op
 end
 function (::Type{Ref{P}}){P<:Union{Ptr,Cwstring,Cstring},T}(a::Array{T}) # Ref{P<:Ptr}(a::Array)
@@ -106,7 +107,7 @@ function (::Type{Ref{P}}){P<:Union{Ptr,Cwstring,Cstring},T}(a::Array{T}) # Ref{P
         return RefArray(ptrs,1,roots)
     end
 end
-cconvert{P<:Ptr,T<:Ptr}(::Union{Type{Ptr{P}},Type{Ref{P}}}, a::Array{T}) = a
+cconvert{P<:Ptr}(::Union{Type{Ptr{P}},Type{Ref{P}}}, a::Array{<:Ptr}) = a
 cconvert{P<:Union{Ptr,Cwstring,Cstring}}(::Union{Type{Ptr{P}},Type{Ref{P}}}, a::Array) = Ref{P}(a)
 
 ###

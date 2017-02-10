@@ -52,8 +52,8 @@ end
 """
     mapfoldl(f, op, v0, itr)
 
-Like [`mapreduce`](@ref), but with guaranteed left associativity. `v0` will be
-used exactly once.
+Like [`mapreduce`](@ref), but with guaranteed left associativity, as in [`foldl`](@ref).
+`v0` will be used exactly once.
 """
 mapfoldl(f, op, v0, itr) = mapfoldl_impl(f, op, v0, itr, start(itr))
 
@@ -78,6 +78,11 @@ end
 
 Like [`reduce`](@ref), but with guaranteed left associativity. `v0` will be used
 exactly once.
+
+```jldoctest
+julia> foldl(-, 1, 2:5)
+-13
+```
 """
 foldl(op, v0, itr) = mapfoldl(identity, op, v0, itr)
 
@@ -86,6 +91,11 @@ foldl(op, v0, itr) = mapfoldl(identity, op, v0, itr)
 
 Like `foldl(op, v0, itr)`, but using the first element of `itr` as `v0`. In general, this
 cannot be used with empty collections (see `reduce(op, itr)`).
+
+```jldoctest
+julia> foldl(-, 2:5)
+-10
+```
 """
 foldl(op, itr) = mapfoldl(identity, op, itr)
 
@@ -94,7 +104,7 @@ foldl(op, itr) = mapfoldl(identity, op, itr)
 function mapfoldr_impl(f, op, v0, itr, i::Integer)
     # Unroll the while loop once; if v0 is known, the call to op may
     # be evaluated at compile time
-    if i == 0
+    if isempty(itr)
         return r_promote(op, v0)
     else
         x = itr[i]
@@ -110,8 +120,8 @@ end
 """
     mapfoldr(f, op, v0, itr)
 
-Like [`mapreduce`](@ref), but with guaranteed right associativity. `v0` will be
-used exactly once.
+Like [`mapreduce`](@ref), but with guaranteed right associativity, as in [`foldr`](@ref).
+`v0` will be used exactly once.
 """
 mapfoldr(f, op, v0, itr) = mapfoldr_impl(f, op, v0, itr, endof(itr))
 
@@ -121,13 +131,24 @@ mapfoldr(f, op, v0, itr) = mapfoldr_impl(f, op, v0, itr, endof(itr))
 Like `mapfoldr(f, op, v0, itr)`, but using the first element of `itr` as `v0`. In general,
 this cannot be used with empty collections (see `reduce(op, itr)`).
 """
-mapfoldr(f, op, itr) = (i = endof(itr); mapfoldr_impl(f, op, f(itr[i]), itr, i-1))
+function mapfoldr(f, op, itr)
+    i = endof(itr)
+    if isempty(itr)
+        return Base.mr_empty_iter(f, op, itr, iteratoreltype(itr))
+    end
+    return mapfoldr_impl(f, op, f(itr[i]), itr, i-1)
+end
 
 """
     foldr(op, v0, itr)
 
 Like [`reduce`](@ref), but with guaranteed right associativity. `v0` will be used
 exactly once.
+
+```jldoctest
+julia> foldr(-, 1, 2:5)
+-1
+```
 """
 foldr(op, v0, itr) = mapfoldr(identity, op, v0, itr)
 
@@ -136,6 +157,11 @@ foldr(op, v0, itr) = mapfoldr(identity, op, v0, itr)
 
 Like `foldr(op, v0, itr)`, but using the last element of `itr` as `v0`. In general, this
 cannot be used with empty collections (see `reduce(op, itr)`).
+
+```jldoctest
+julia> foldr(-, 2:5)
+-2
+```
 """
 foldr(op, itr) = mapfoldr(identity, op, itr)
 
@@ -246,7 +272,7 @@ function _mapreduce{T}(f, op, ::LinearFast, A::AbstractArray{T})
     end
 end
 
-_mapreduce{T}(f, op, ::LinearSlow, A::AbstractArray{T}) = mapfoldl(f, op, A)
+_mapreduce(f, op, ::LinearSlow, A::AbstractArray) = mapfoldl(f, op, A)
 
 mapreduce(f, op, A::AbstractArray) = _mapreduce(f, op, linearindexing(A), A)
 mapreduce(f, op, a::Number) = f(a)
@@ -270,6 +296,13 @@ should be evaluated as `(1-2)-3` or `1-(2-3)`. Use [`foldl`](@ref) or
 Some operations accumulate error, and parallelism will also be easier if the reduction can
 be executed in groups. Future versions of Julia might change the algorithm. Note that the
 elements are not reordered if you use an ordered collection.
+
+# Examples
+
+```jldoctest
+julia> reduce(*, 1, [2; 3; 4])
+24
+```
 """
 reduce(op, v0, itr) = mapreduce(identity, op, v0, itr)
 
@@ -279,6 +312,11 @@ reduce(op, v0, itr) = mapreduce(identity, op, v0, itr)
 Like `reduce(op, v0, itr)`. This cannot be used with empty collections, except for some
 special cases (e.g. when `op` is one of `+`, `*`, `max`, `min`, `&`, `|`) when Julia can
 determine the neutral element of `op`.
+
+```jldoctest
+julia> reduce(*, [2; 3; 4])
+24
+```
 """
 reduce(op, itr) = mapreduce(identity, op, itr)
 reduce(op, a::Number) = a
@@ -291,6 +329,11 @@ reduce(op, a::Number) = a
     sum(f, itr)
 
 Sum the results of calling function `f` on each element of `itr`.
+
+```jldoctest
+julia> sum(abs2, [2; 3; 4])
+29
+```
 """
 sum(f::Callable, a) = mapreduce(f, +, a)
 
@@ -298,6 +341,11 @@ sum(f::Callable, a) = mapreduce(f, +, a)
     sum(itr)
 
 Returns the sum of all elements in a collection.
+
+```jldoctest
+julia> sum(1:20)
+210
+```
 """
 sum(a) = mapreduce(identity, +, a)
 sum(a::AbstractArray{Bool}) = countnz(a)
@@ -309,35 +357,41 @@ sum(a::AbstractArray{Bool}) = countnz(a)
 """
     sum_kbn(A)
 
-Returns the sum of all array elements, using the Kahan-Babuska-Neumaier compensated
+Returns the sum of all elements of `A`, using the Kahan-Babuska-Neumaier compensated
 summation algorithm for additional accuracy.
 """
-function sum_kbn{T<:AbstractFloat}(A::AbstractArray{T})
+function sum_kbn(A)
+    T = _default_eltype(typeof(A))
     c = r_promote(+, zero(T)::T)
-    if isempty(A)
+    i = start(A)
+    if done(A, i)
         return c
     end
-    inds = linearindices(A)
-    s = A[first(inds)] + c
-    for i in first(inds)+1:last(inds)
-        @inbounds Ai = A[i]
+    Ai, i = next(A, i)
+    s = Ai - c
+    while !(done(A, i))
+        Ai, i = next(A, i)
         t = s + Ai
         if abs(s) >= abs(Ai)
-            c += ((s-t) + Ai)
+            c -= ((s-t) + Ai)
         else
-            c += ((Ai-t) + s)
+            c -= ((Ai-t) + s)
         end
         s = t
     end
-    s + c
+    s - c
 end
-
 
 ## prod
 """
     prod(f, itr)
 
 Returns the product of `f` applied to each element of `itr`.
+
+```jldoctest
+julia> prod(abs2, [2; 3; 4])
+576
+```
 """
 prod(f::Callable, a) = mapreduce(f, *, a)
 
@@ -345,6 +399,11 @@ prod(f::Callable, a) = mapreduce(f, *, a)
     prod(itr)
 
 Returns the product of all elements of a collection.
+
+```jldoctest
+julia> prod(1:20)
+2432902008176640000
+```
 """
 prod(a) = mapreduce(identity, *, a)
 
@@ -417,10 +476,10 @@ Compute both the minimum and maximum element in a single pass, and return them a
 
 ```jldoctest
 julia> extrema(2:10)
-(2,10)
+(2, 10)
 
 julia> extrema([9,pi,4.5])
-(3.141592653589793,9.0)
+(3.141592653589793, 9.0)
 ```
 """
 function extrema(itr)
@@ -572,6 +631,31 @@ const ∈ = in
 ∋(itr, x)= ∈(x, itr)
 ∌(itr, x)=!∋(itr, x)
 
+"""
+    contains(fun, itr, x) -> Bool
+
+Returns `true` if there is at least one element `y` in `itr` such that `fun(y,x)` is `true`.
+
+```jldoctest
+julia> vec = [ 10, 100, 200 ]
+3-element Array{Int64,1}:
+  10
+ 100
+ 200
+
+julia> contains(==, vec, 200)
+true
+
+julia> contains(==, vec, 300)
+false
+
+julia> contains(>, vec, 100)
+true
+
+julia> contains(>, vec, 200)
+false
+```
+"""
 function contains(eq::Function, itr, x)
     for y in itr
         eq(y, x) && return true
@@ -584,24 +668,38 @@ end
 
 """
     count(p, itr) -> Integer
+    count(itr) -> Integer
 
 Count the number of elements in `itr` for which predicate `p` returns `true`.
+If `p` is omitted, counts the number of `true` elements in `itr` (which
+should be a collection of boolean values).
 
 ```jldoctest
 julia> count(i->(4<=i<=6), [2,3,4,5,6])
+3
+
+julia> count([true, false, true, true])
 3
 ```
 """
 function count(pred, itr)
     n = 0
     for x in itr
-        n += pred(x)
+        n += pred(x)::Bool
     end
     return n
 end
+function count(pred, a::AbstractArray)
+    n = 0
+    for i in eachindex(a)
+        @inbounds n += pred(a[i])::Bool
+    end
+    return n
+end
+count(itr) = count(identity, itr)
 
 """
-    countnz(A)
+    countnz(A) -> Integer
 
 Counts the number of nonzero values in array `A` (dense or sparse). Note that this is not a constant-time operation.
 For sparse matrices, one should usually use [`nnz`](@ref), which returns the number of stored values.

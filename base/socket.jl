@@ -4,7 +4,7 @@
 abstract IPAddr
 
 Base.isless{T<:IPAddr}(a::T, b::T) = isless(a.host, b.host)
-Base.convert{T<:Integer}(dt::Type{T}, ip::IPAddr) = dt(ip.host)
+Base.convert(dt::Type{<:Integer}, ip::IPAddr) = dt(ip.host)
 
 immutable IPv4 <: IPAddr
     host::UInt32
@@ -148,6 +148,11 @@ end
 
 # Parsing
 
+const ipv4_leading_zero_error = """
+Leading zeros in IPv4 addresses are disallowed due to ambiguity.
+If the address is in octal or hexadecimal, convert it to decimal, otherwise remove the leading zero.
+"""
+
 function parse(::Type{IPv4}, str::AbstractString)
     fields = split(str,'.')
     i = 1
@@ -156,18 +161,8 @@ function parse(::Type{IPv4}, str::AbstractString)
         if isempty(f)
             throw(ArgumentError("empty field in IPv4 address"))
         end
-        if f[1] == '0'
-            if length(f) >= 2 && f[2] == 'x'
-                if length(f) > 8 # 2+(3*2) - prevent parseint from overflowing on 32bit
-                    throw(ArgumentError("IPv4 field too large"))
-                end
-                r = parse(Int,f[3:end],16)
-            else
-                if length(f) > 9 # 1+8 - prevent parseint from overflowing on 32bit
-                    throw(ArgumentError("IPv4 field too large"))
-                end
-                r = parse(Int,f,8)
-            end
+        if length(f) > 1 && f[1] == '0'
+            throw(ArgumentError(ipv4_leading_zero_error))
         else
             r = parse(Int,f,10)
         end
@@ -664,11 +659,8 @@ function getipaddr()
     count_ref = Ref{Int32}(1)
     lo_present = false
     err = ccall(:jl_uv_interface_addresses, Int32, (Ref{Ptr{UInt8}}, Ref{Int32}), addr_ref, count_ref)
+    uv_error("getlocalip", err)
     addr, count = addr_ref[], count_ref[]
-    if err != 0
-        ccall(:uv_free_interface_addresses, Void, (Ptr{UInt8}, Int32), addr, count)
-        throw(UVError("getlocalip", err))
-    end
     for i = 0:(count-1)
         current_addr = addr + i*_sizeof_uv_interface_address
         if 1 == ccall(:jl_uv_interface_address_is_internal, Int32, (Ptr{UInt8},), current_addr)

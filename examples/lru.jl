@@ -39,7 +39,7 @@ type UnboundedLRU{K,V} <: LRU{K,V}
     ht::Dict
     q::Vector{CacheItem}
 
-    UnboundedLRU() = new(Dict(), similar(Array{CacheItem}(1), 0))
+    UnboundedLRU{K,V}() where {K,V} = new(Dict(), similar(Array{CacheItem}(1), 0))
 end
 UnboundedLRU() = UnboundedLRU{Any, Any}()
 
@@ -48,8 +48,8 @@ type BoundedLRU{K,V} <: LRU{K,V}
     q::Vector{CacheItem}
     maxsize::Int
 
-    BoundedLRU(m) = new(Dict(), similar(Array{CacheItem}(1), 0), m)
-    BoundedLRU() = BoundedLRU(__MAXCACHE)
+    BoundedLRU{K,V}(m) where {K,V} = new(Dict(), similar(Array{CacheItem}(1), 0), m)
+    BoundedLRU{K,V}() where {K,V} = BoundedLRU(__MAXCACHE)
 end
 BoundedLRU(m) = BoundedLRU{Any, Any}(m)
 BoundedLRU() = BoundedLRU{Any, Any}()
@@ -110,7 +110,7 @@ end
 
 # Eviction
 function setindex!{V,K}(lru::BoundedLRU, v::V, key::K)
-    invoke(setindex!, (LRU, V, K), lru, v, key)
+    invoke(setindex!, Tuple{LRU,V,K}, lru, v, key)
     nrm = length(lru) - lru.maxsize
     for i in 1:nrm
         rm = pop!(lru.q)

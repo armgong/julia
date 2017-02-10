@@ -240,6 +240,76 @@ and `fetch(Bref)`, it might be better to eliminate the parallelism altogether. O
 is replaced with a more expensive operation. Then it might make sense to add another [`@spawn`](@ref)
 statement just for this step.
 
+# Global variables
+Expressions executed remotely via `@spawn`, or closures specified for remote execution using
+`remotecall` may refer to global variables. Global bindings under module `Main` are treated
+a little differently compared to global bindings in other modules. Consider the following code
+snippet:
+
+```julia
+A = rand(10,10)
+remotecall_fetch(()->foo(A), 2)
+```
+
+Note that `A` is a global variable defined in the local workspace. Worker 2 does not have a variable called
+`A` under `Main`. The act of shipping the closure `()->foo(A)` to worker 2 results in `Main.A` being defined
+on 2. `Main.A` continues to exist on worker 2 even after the call `remotecall_fetch` returns. Remote calls
+with embedded global references (under `Main` module only) manage globals as follows:
+
+- New global bindings are created on destination workers if they are referenced as part of a remote call.
+
+- Global constants are declared as constants on remote nodes too.
+
+- Globals are re-sent to a destination worker only in the context of a remote call, and then only
+  if its value has changed. Also, the cluster does not synchronize global bindings across nodes.
+  For example:
+
+```julia
+A = rand(10,10)
+remotecall_fetch(()->foo(A), 2)  # worker 2
+A = rand(10,10)
+remotecall_fetch(()->foo(A), 3)  # worker 3
+A = nothing
+```
+
+  Executing the above snippet results in `Main.A` on worker 2 having a different value from
+  `Main.A` on worker 3, while the value of `Main.A` on node 1 is set to `nothing`.
+
+As you may have realized, while memory associated with globals may be collected when they are reassigned
+on the master, no such action is taken on the workers as the bindings continue to be valid.
+[`clear!`](@ref) can be used to manually reassign specific globals on remote nodes to `nothing` once
+they are no longer required. This will release any memory associated with them as part of a regular garbage
+collection cycle.
+
+Thus programs should be careful referencing globals in remote calls. In fact, it is preferable to avoid them
+altogether if possible. If you must reference globals, consider using `let` blocks to localize global variables.
+
+For example:
+
+```julia
+julia> A = rand(10,10);
+
+julia> remotecall_fetch(()->A, 2);
+
+julia> B = rand(10,10);
+
+julia> let B = B
+           remotecall_fetch(()->B, 2)
+       end;
+
+julia> @spawnat 2 whos();
+
+julia> 	From worker 2:	                             A    800 bytes  10×10 Array{Float64,2}
+	From worker 2:	                          Base               Module
+	From worker 2:	                          Core               Module
+	From worker 2:	                          Main               Module
+
+```
+
+As can be seen, global variable `A` is defined on worker 2, but `B` is captured as a local variable
+and hence a binding for `B` does not exist on worker 2.
+
+
 ## Parallel Map and Loops
 
 Fortunately, many useful parallel computations do not require data movement. A common example
@@ -312,7 +382,7 @@ Parallel for loops like these must be avoided. Fortunately, [Shared Arrays](@ref
 to get around this limitation:
 
 ```julia
-a = SharedArray(Float64,10)
+a = SharedArray{Float64}(10)
 @parallel for i=1:10
   a[i] = i
 end
@@ -720,10 +790,10 @@ just returns the object itself, so it's safe to use [`sdata()`](@ref) on any `Ar
 The constructor for a shared array is of the form:
 
 ```julia
-SharedArray(T::Type, dims::NTuple; init=false, pids=Int[])
+SharedArray{T,N}(dims::NTuple; init=false, pids=Int[])
 ```
 
-which creates a shared array of a bits type `T` and size `dims` across the processes specified
+which creates an `N`-dimensional shared array of a bits type `T` and size `dims` across the processes specified
 by `pids`.  Unlike distributed arrays, a shared array is accessible only from those participating
 workers specified by the `pids` named argument (and the creating process too, if it is on the
 same host).
@@ -741,7 +811,7 @@ julia> addprocs(3)
  3
  4
 
-julia> S = SharedArray(Int, (3,4), init = S -> S[Base.localindexes(S)] = myid())
+julia> S = SharedArray{Int,2}((3,4), init = S -> S[Base.localindexes(S)] = myid())
 3×4 SharedArray{Int64,2}:
  2  2  3  4
  2  3  3  4
@@ -762,7 +832,7 @@ convenient for splitting up tasks among processes. You can, of course, divide th
 you wish:
 
 ```julia
-julia> S = SharedArray(Int, (3,4), init = S -> S[indexpids(S):length(procs(S)):length(S)] = myid())
+julia> S = SharedArray{Int,2}((3,4), init = S -> S[indexpids(S):length(procs(S)):length(S)] = myid())
 3×4 SharedArray{Int64,2}:
  2  2  2  2
  3  3  3  3
@@ -861,8 +931,8 @@ end
 If we create `SharedArray`s and time these functions, we get the following results (with `julia -p 4`):
 
 ```julia
-q = SharedArray(Float64, (500,500,500))
-u = SharedArray(Float64, (500,500,500))
+q = SharedArray{Float64,3}((500,500,500))
+u = SharedArray{Float64,3}((500,500,500))
 
 # Run once to JIT-compile
 advection_serial!(q, u)

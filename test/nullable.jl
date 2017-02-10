@@ -296,7 +296,7 @@ for T in types
 end
 
 # Operators
-TestTypes = [[T.parameters[1] for T in Base.NullSafeTypes.types];
+TestTypes = [[T.parameters[1] for T in Base.uniontypes(Base.NullSafeTypes)];
              [BigInt, BigFloat,
               Complex{Int}, Complex{Float64}, Complex{BigFloat},
               Rational{Int}, Rational{BigInt}]]
@@ -467,10 +467,10 @@ sqr(x) = x^2
 @test Nullable(2) .^ Nullable{Int}()  |> isnull_oftype(Int)
 
 # multi-arg broadcast
-@test Nullable(1) .+ Nullable(1) .+ Nullable(1) .+ Nullable(1) .+ Nullable(1) .+
-    Nullable(1) === Nullable(6)
-@test Nullable(1) .+ Nullable(1) .+ Nullable(1) .+ Nullable{Int}() .+
-    Nullable(1) .+ Nullable(1) |> isnull_oftype(Int)
+@test (Nullable(1) .+ Nullable(1) .+ Nullable(1) .+ Nullable(1) .+ Nullable(1) .+
+       Nullable(1) === Nullable(6))
+@test (Nullable(1) .+ Nullable(1) .+ Nullable(1) .+ Nullable{Int}() .+
+       Nullable(1) .+ Nullable(1) |> isnull_oftype(Int))
 
 # these are not inferrable because there are too many arguments
 us = map(Nullable, 1:20)

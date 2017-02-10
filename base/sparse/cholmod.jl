@@ -238,7 +238,7 @@ end
 
 type Sparse{Tv<:VTypes} <: AbstractSparseMatrix{Tv,SuiteSparse_long}
     p::Ptr{C_Sparse{Tv}}
-    function Sparse(p::Ptr{C_Sparse{Tv}})
+    function Sparse{Tv}(p::Ptr{C_Sparse{Tv}}) where Tv<:VTypes
         if p == C_NULL
             throw(ArgumentError("sparse matrix construction failed for " *
                 "unknown reasons. Please submit a bug report."))
@@ -246,7 +246,7 @@ type Sparse{Tv<:VTypes} <: AbstractSparseMatrix{Tv,SuiteSparse_long}
         new(p)
     end
 end
-Sparse{Tv<:VTypes}(p::Ptr{C_Sparse{Tv}}) = Sparse{Tv}(p)
+Sparse(p::Ptr{C_Sparse{Tv}}) where Tv<:VTypes = Sparse{Tv}(p)
 
 # Factor
 
@@ -317,7 +317,7 @@ end
 
 type Factor{Tv} <: Factorization{Tv}
     p::Ptr{C_Factor{Tv}}
-    function Factor(p::Ptr{C_Factor{Tv}})
+    function Factor{Tv}(p::Ptr{C_Factor{Tv}}) where Tv
         if p == C_NULL
             throw(ArgumentError("factorization construction failed for " *
                 "unknown reasons. Please submit a bug report."))
@@ -325,7 +325,7 @@ type Factor{Tv} <: Factorization{Tv}
         new(p)
     end
 end
-Factor{Tv<:VTypes}(p::Ptr{C_Factor{Tv}}) = Factor{Tv}(p)
+Factor(p::Ptr{C_Factor{Tv}}) where Tv<:VTypes = Factor{Tv}(p)
 
 # Define get similar to get(Nullable) to check pointers. All pointer loads
 # should be wrapped in get to make sure that SuiteSparse is not called with
@@ -344,7 +344,7 @@ end
 type FactorComponent{Tv,S} <: AbstractMatrix{Tv}
     F::Factor{Tv}
 
-    function FactorComponent(F::Factor{Tv})
+    function FactorComponent{Tv,S}(F::Factor{Tv}) where {Tv,S}
         s = unsafe_load(get(F.p))
         if s.is_ll != 0
             if !(S == :L || S == :U || S == :PtL || S == :UP)
@@ -359,7 +359,7 @@ type FactorComponent{Tv,S} <: AbstractMatrix{Tv}
         new(F)
     end
 end
-function FactorComponent{Tv}(F::Factor{Tv}, sym::Symbol)
+function FactorComponent(F::Factor{Tv}, sym::Symbol) where Tv
     FactorComponent{Tv,sym}(F)
 end
 
@@ -881,10 +881,10 @@ function (::Type{Sparse}){Tv<:VTypes}(m::Integer, n::Integer,
     return o
 end
 
-function (::Type{Sparse}){Tv<:VTypes}(m::Integer, n::Integer,
+function (::Type{Sparse})(m::Integer, n::Integer,
         colptr::Vector{SuiteSparse_long},
         rowval::Vector{SuiteSparse_long},
-        nzval::Vector{Tv})
+        nzval::Vector{<:VTypes})
     o = Sparse(m, n, colptr, rowval, nzval, 0)
 
     # sort indices
@@ -914,9 +914,9 @@ function (::Type{Sparse}){Tv<:VTypes}(A::SparseMatrixCSC{Tv,SuiteSparse_long}, s
 end
 
 # convert SparseVectors into CHOLMOD Sparse types through a mx1 CSC matrix
-convert{Tv<:VTypes}(::Type{Sparse}, A::SparseVector{Tv,SuiteSparse_long}) =
+convert(::Type{Sparse}, A::SparseVector{<:VTypes,SuiteSparse_long}) =
     convert(Sparse, convert(SparseMatrixCSC, A))
-function convert{Tv<:VTypes,Ti<:ITypes}(::Type{Sparse}, A::SparseMatrixCSC{Tv,Ti})
+function convert(::Type{Sparse}, A::SparseMatrixCSC{<:VTypes,<:ITypes})
     o = Sparse(A, 0)
     # check if array is symmetric and change stype if it is
     if ishermitian(o)
@@ -924,7 +924,7 @@ function convert{Tv<:VTypes,Ti<:ITypes}(::Type{Sparse}, A::SparseMatrixCSC{Tv,Ti
     end
     o
 end
-convert{Ti<:ITypes}(::Type{Sparse}, A::SparseMatrixCSC{Complex{Float32},Ti}) =
+convert(::Type{Sparse}, A::SparseMatrixCSC{Complex{Float32},<:ITypes}) =
     convert(Sparse, convert(SparseMatrixCSC{Complex{Float64},SuiteSparse_long}, A))
 convert(::Type{Sparse}, A::Symmetric{Float64,SparseMatrixCSC{Float64,SuiteSparse_long}}) =
     Sparse(A.data, A.uplo == 'L' ? -1 : 1)
@@ -1007,6 +1007,9 @@ function convert{T}(::Type{Matrix{T}}, D::Dense{T})
 end
 
 Base.copy!(dest::Base.PermutedDimsArrays.PermutedDimsArray, src::Dense) = _copy!(dest, src) # ambig
+Base.copy!{T<:VTypes}(dest::Dense{T}, D::Dense{T}) = _copy!(dest, D)
+Base.copy!{T<:VTypes}(dest::AbstractArray{T}, D::Dense{T}) = _copy!(dest, D)
+Base.copy!{T<:VTypes}(dest::AbstractArray{T,2}, D::Dense{T}) = _copy!(dest, D)
 Base.copy!(dest::AbstractArray, D::Dense) = _copy!(dest, D)
 
 function _copy!(dest::AbstractArray, D::Dense)
@@ -1136,7 +1139,7 @@ sparse{Tv}(FC::FactorComponent{Tv,:LD}) = sparse(Sparse(Factor(FC)))
 
 # Calculate the offset into the stype field of the cholmod_sparse_struct and
 # change the value
-let offset = fieldoffset(C_Sparse{Float64}, findfirst(name -> name === :stype, fieldnames(C_Sparse)))
+let offset = fieldoffset(C_Sparse{Float64}, findfirst(name -> name === :stype, fieldnames(C_Sparse{Float64})))
     global change_stype!
     function change_stype!(A::Sparse, i::Integer)
         unsafe_store!(convert(Ptr{Cint}, A.p), i, div(offset, 4) + 1)
@@ -1299,7 +1302,7 @@ Ac_mul_B(A::Sparse, B::VecOrMat) =  Ac_mul_B(A, Dense(B))
 ## Factorization methods
 
 ## Compute that symbolic factorization only
-function fact_{Tv<:VTypes}(A::Sparse{Tv}, cm::Array{UInt8};
+function fact_(A::Sparse{<:VTypes}, cm::Array{UInt8};
     perm::AbstractVector{SuiteSparse_long}=SuiteSparse_long[],
     postorder::Bool=true, userperm_only::Bool=true)
 
@@ -1570,6 +1573,7 @@ function (\)(L::FactorComponent, B::SparseVecOrMat)
 end
 
 Ac_ldiv_B(L::FactorComponent, B) = ctranspose(L)\B
+Ac_ldiv_B(L::FactorComponent, B::RowVector) = ctranspose(L)\B # ambiguity
 
 (\){T<:VTypes}(L::Factor{T}, B::Dense{T}) = solve(CHOLMOD_A, L, B)
 (\)(L::Factor{Float64}, B::VecOrMat{Complex{Float64}}) = complex.(L\real(B), L\imag(B))
@@ -1641,7 +1645,7 @@ end
 
 det(L::Factor) = exp(logdet(L))
 
-function isposdef{Tv<:VTypes}(A::SparseMatrixCSC{Tv,SuiteSparse_long})
+function isposdef(A::SparseMatrixCSC{<:VTypes,SuiteSparse_long})
     if !ishermitian(A)
         return false
     end

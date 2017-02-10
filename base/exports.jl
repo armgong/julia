@@ -2,7 +2,6 @@
 
 export
 # Modules
-    Collections,
     FFTW,
     Meta,
     Operators,
@@ -24,6 +23,7 @@ export
     Markdown,
     Threads,
     Iterators,
+    Parallel,
 
 # Types
     AbstractChannel,
@@ -50,6 +50,9 @@ export
     Complex128,
     Complex64,
     Complex32,
+    ConjArray,
+    ConjVector,
+    ConjMatrix,
     DenseMatrix,
     DenseVecOrMat,
     DenseVector,
@@ -60,10 +63,10 @@ export
     EachLine,
     Enum,
     Enumerate,
+    ExponentialBackOff,
     Factorization,
     FileMonitor,
-    FloatRange,
-    Future,
+    StepRangeLen,
     Hermitian,
     UniformScaling,
     InsertionSort,
@@ -81,6 +84,7 @@ export
     OrdinalRange,
     Pair,
     PartialQuickSort,
+    PermutedDimsArray,
     PollingFileWatcher,
     QuickSort,
     Range,
@@ -88,8 +92,6 @@ export
     Rational,
     Regex,
     RegexMatch,
-    RemoteChannel,
-    RepString,
     RevString,
     RoundFromZero,
     RoundDown,
@@ -99,6 +101,7 @@ export
     RoundNearestTiesUp,
     RoundToZero,
     RoundUp,
+    RowVector,
     AbstractSerializer,
     SerializationState,
     Set,
@@ -123,7 +126,6 @@ export
     Vector,
     VersionNumber,
     WeakKeyDict,
-    WorkerConfig,
 
 # Ccall types
     Cchar,
@@ -161,8 +163,6 @@ export
     MethodError,
     NullException,
     ParseError,
-    ProcessExitedException,
-    RemoteException,
     SystemError,
     TypeError,
     AssertionError,
@@ -233,6 +233,7 @@ export
     ~,
     :,
     =>,
+    ∘,
     A_ldiv_B!,
     A_ldiv_Bc,
     A_ldiv_Bt,
@@ -359,8 +360,8 @@ export
     ispow2,
     isqrt,
     isreal,
-    isimag,
     issubnormal,
+    iszero,
     lcm,
     ldexp,
     leading_ones,
@@ -384,6 +385,7 @@ export
     numerator,
     num2hex,
     one,
+    oneunit,
     powermod,
     prevfloat,
     prevpow,
@@ -396,6 +398,7 @@ export
     reim,
     reinterpret,
     rem,
+    rem2pi,
     round,
     sec,
     secd,
@@ -578,6 +581,7 @@ export
     sum!,
     sum,
     sum_kbn,
+    to_indices,
     vcat,
     vec,
     view,
@@ -650,7 +654,6 @@ export
     lqfact,
     rank,
     scale!,
-    scale,
     schur,
     schurfact!,
     schurfact,
@@ -779,6 +782,7 @@ export
     chomp,
     chop,
     chr2ind,
+    codeunit,
     dec,
     digits,
     digits!,
@@ -809,6 +813,7 @@ export
     isxdigit,
     join,
     lcfirst,
+    logging,
     lowercase,
     lpad,
     lstrip,
@@ -882,7 +887,6 @@ export
     median!,
     median,
     middle,
-    midpoints,
     quantile!,
     quantile,
     std,
@@ -951,14 +955,12 @@ export
 
 # tasks and conditions
     Condition,
-    consume,
     current_task,
     islocked,
     istaskdone,
     istaskstarted,
     lock,
     notify,
-    produce,
     ReentrantLock,
     schedule,
     task_local_storage,
@@ -966,6 +968,16 @@ export
     unlock,
     yield,
     yieldto,
+    wait,
+    timedwait,
+    asyncmap,
+    asyncmap!,
+
+# channels
+    take!,
+    put!,
+    isready,
+    fetch,
 
 # time
     sleep,
@@ -978,6 +990,8 @@ export
 # dates
     Date,
     DateTime,
+    DateFormat,
+    @dateformat_str,
     now,
 
 # errors
@@ -1146,38 +1160,6 @@ export
     TCPSocket,
     UDPSocket,
 
-# multiprocessing
-    addprocs,
-    asyncmap,
-    asyncmap!,
-    CachingPool,
-    clear!,
-    ClusterManager,
-    default_worker_pool,
-    fetch,
-    init_worker,
-    interrupt,
-    isready,
-    launch,
-    manage,
-    myid,
-    nprocs,
-    nworkers,
-    pmap,
-    procs,
-    put!,
-    remote,
-    remotecall,
-    remotecall_fetch,
-    remotecall_wait,
-    remote_do,
-    rmprocs,
-    take!,
-    timedwait,
-    wait,
-    workers,
-    WorkerPool,
-
 # multimedia I/O
     Display,
     display,
@@ -1303,10 +1285,11 @@ export
     @cmd,    # `commands`
 
     # notation for certain types
-    @b_str,  # byte vector
-    @r_str,  # regex
-    @s_str,  # regex substitution string
-    @v_str,  # version number
+    @b_str,    # byte vector
+    @r_str,    # regex
+    @s_str,    # regex substitution string
+    @v_str,    # version number
+    @raw_str,  # raw string with no interpolation/unescaping
 
     # documentation
     @text_str,
@@ -1353,14 +1336,6 @@ export
     @task,
     @threadcall,
 
-    # multiprocessing
-    @spawn,
-    @spawnat,
-    @fetch,
-    @fetchfrom,
-    @everywhere,
-    @parallel,
-
     # metaprogramming utilities
     @generated,
     @gensym,
@@ -1377,10 +1352,12 @@ export
     @polly,
 
     @assert,
+    @__dot__,
     @enum,
     @label,
     @goto,
     @view,
+    @views,
 
 # SparseArrays module re-exports
     SparseArrays,
@@ -1398,7 +1375,42 @@ export
     sprand,
     sprandn,
     spzeros,
-    symperm,
     rowvals,
     nzrange,
-    nnz
+    nnz,
+
+# Parallel module re-exports
+    @spawn,
+    @spawnat,
+    @fetch,
+    @fetchfrom,
+    @everywhere,
+    @parallel,
+
+    addprocs,
+    CachingPool,
+    clear!,
+    ClusterManager,
+    default_worker_pool,
+    init_worker,
+    interrupt,
+    launch,
+    manage,
+    myid,
+    nprocs,
+    nworkers,
+    pmap,
+    procs,
+    remote,
+    remotecall,
+    remotecall_fetch,
+    remotecall_wait,
+    remote_do,
+    rmprocs,
+    workers,
+    WorkerPool,
+    RemoteChannel,
+    Future,
+    WorkerConfig,
+    RemoteException,
+    ProcessExitedException
