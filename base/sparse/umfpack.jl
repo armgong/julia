@@ -11,7 +11,7 @@ importall ..SparseArrays
 import ..SparseArrays: increment, increment!, decrement, decrement!, nnz
 
 include("umfpack_h.jl")
-type MatrixIllConditionedException <: Exception
+mutable struct MatrixIllConditionedException <: Exception
     message::AbstractString
 end
 
@@ -60,13 +60,13 @@ end
 # check the size of SuiteSparse_long
 if Int(ccall((:jl_cholmod_sizeof_long,:libsuitesparse_wrapper),Csize_t,())) == 4
     const UmfpackIndexTypes = (:Int32,)
-    typealias UMFITypes Int32
+    const UMFITypes = Int32
 else
     const UmfpackIndexTypes = (:Int32, :Int64)
-    typealias UMFITypes Union{Int32, Int64}
+    const UMFITypes = Union{Int32, Int64}
 end
 
-typealias UMFVTypes Union{Float64,Complex128}
+const UMFVTypes = Union{Float64,Complex128}
 
 ## UMFPACK
 
@@ -91,7 +91,7 @@ function show_umf_info(level::Real = 2.0)
 end
 
 ## Should this type be immutable?
-type UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
+mutable struct UmfpackLU{Tv<:UMFVTypes,Ti<:UMFITypes} <: Factorization{Tv}
     symbolic::Ptr{Void}
     numeric::Ptr{Void}
     m::Int

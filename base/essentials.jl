@@ -2,12 +2,12 @@
 
 using Core: CodeInfo
 
-typealias Callable Union{Function,Type}
+const Callable = Union{Function,Type}
 
 const Bottom = Union{}
 
-abstract AbstractSet{T}
-abstract Associative{K,V}
+abstract type AbstractSet{T} end
+abstract type Associative{K,V} end
 
 # The real @inline macro is not available until after array.jl, so this
 # internal macro splices the meta Expr directly into the function body.
@@ -42,6 +42,19 @@ macro generated(f)
     else
         error("invalid syntax; @generated must be used with a function definition")
     end
+end
+
+"""
+    @eval [mod,] ex
+
+Evaluate an expression with values interpolated into it using `eval`.
+If two arguments are provided, the first is the module to evaluate in.
+"""
+macro eval(ex)
+    :(eval($(current_module()), $(Expr(:quote,ex))))
+end
+macro eval(mod, ex)
+    :(eval($(esc(mod)), $(Expr(:quote,ex))))
 end
 
 argtail(x, rest...) = rest
@@ -202,6 +215,7 @@ end
 Eliminates array bounds checking within expressions.
 
 In the example below the bound check of array A is skipped to improve performance.
+
 ```julia
 function sum(A::AbstractArray)
     r = zero(eltype(A))
@@ -211,6 +225,7 @@ function sum(A::AbstractArray)
     return r
 end
 ```
+
 !!! Warning
 
     Using `@inbounds` may return incorrect results/crashes/corruption
@@ -268,6 +283,25 @@ getindex(v::SimpleVector, I::AbstractArray) = Core.svec(Any[ v[i] for i in I ]..
 
 Tests whether the given array has a value associated with index `i`. Returns `false`
 if the index is out of bounds, or has an undefined reference.
+
+```jldoctest
+julia> isassigned(rand(3, 3), 5)
+true
+
+julia> isassigned(rand(3, 3), 3 * 3 + 1)
+false
+
+julia> mutable struct Foo end
+
+julia> v = similar(rand(3), Foo)
+3-element Array{Foo,1}:
+ #undef
+ #undef
+ #undef
+
+julia> isassigned(v, 1)
+false
+```
 """
 function isassigned end
 
@@ -286,12 +320,12 @@ Very few operations are defined on Colons directly; instead they are converted
 by `to_indices` to an internal vector type (`Base.Slice`) to represent the
 collection of indices they span before being used.
 """
-immutable Colon
+struct Colon
 end
 const (:) = Colon()
 
 # For passing constants through type inference
-immutable Val{T}
+struct Val{T}
 end
 
 # used by interpolating quote and some other things in the front end

@@ -20,6 +20,7 @@
 
 macro deprecate(old,new,ex=true)
     meta = Expr(:meta, :noinline)
+    @gensym oldmtname
     if isa(old,Symbol)
         oldname = Expr(:quote,old)
         newname = Expr(:quote,new)
@@ -28,31 +29,30 @@ macro deprecate(old,new,ex=true)
             :(function $(esc(old))(args...)
                   $meta
                   depwarn(string($oldname," is deprecated, use ",$newname," instead."),
-                          $oldname)
+                          $oldmtname)
                   $(esc(new))(args...)
-              end))
+              end),
+            :(const $oldmtname = Core.Typeof($(esc(old))).name.mt.name))
     elseif isa(old,Expr) && old.head == :call
         remove_linenums!(new)
-        oldcall = sprint(io->show_unquoted(io,old))
-        newcall = sprint(io->show_unquoted(io,new))
+        oldcall = sprint(show_unquoted, old)
+        newcall = sprint(show_unquoted, new)
         oldsym = if isa(old.args[1],Symbol)
-            old.args[1]
+            old.args[1]::Symbol
         elseif isa(old.args[1],Expr) && old.args[1].head == :curly
-            old.args[1].args[1]
+            old.args[1].args[1]::Symbol
         else
             error("invalid usage of @deprecate")
         end
-        # work around #20220, deprecation for Array repeating over and over
-        # TODO: remove the special case when 0.6 deprecations are removed
-        oldname = Expr(:quote, oldsym in (:Array, :SharedArray) ? :Type : oldsym)
         Expr(:toplevel,
-            Expr(:export,esc(oldsym)),
+            ex ? Expr(:export,esc(oldsym)) : nothing,
             :($(esc(old)) = begin
                   $meta
                   depwarn(string($oldcall," is deprecated, use ",$newcall," instead."),
-                          $oldname)
+                          $oldmtname)
                   $(esc(new))
-              end))
+              end),
+            :(const $oldmtname = Core.Typeof($(esc(oldsym))).name.mt.name))
     else
         error("invalid usage of @deprecate")
     end
@@ -228,14 +228,9 @@ for f in (
         # base/special/log.jl
         :log, :log1p,
         # base/special/gamma.jl
-        :gamma, :lfact, :digamma, :trigamma, :zeta, :eta,
-        # base/special/erf.jl
-        :erfcx, :erfi, :dawson,
-        # base/special/bessel.jl
-        :airyai, :airyaiprime, :airybi, :airybiprime,
-        :besselj0, :besselj1, :bessely0, :bessely1,
+        :gamma, :lfact,
         # base/math.jl
-        :cbrt, :sinh, :cosh, :tanh, :atan, :asinh, :exp, :erf, :erfc, :exp2,
+        :cbrt, :sinh, :cosh, :tanh, :atan, :asinh, :exp, :exp2,
         :expm1, :exp10, :sin, :cos, :tan, :asin, :acos, :acosh, :atanh,
         #=:log,=# :log2, :log10, :lgamma, #=:log1p,=# :sqrt,
         # base/floatfuncs.jl
@@ -254,8 +249,6 @@ for f in ( :acos_fast, :acosh_fast, :angle_fast, :asin_fast, :asinh_fast,
     @eval FastMath Base.@dep_vectorize_1arg Number $f
 end
 for f in (
-        :invdigamma, # base/special/gamma.jl
-        :erfinc, :erfcinv, # base/special/erf.jl
         :trunc, :floor, :ceil, :round, # base/floatfuncs.jl
         :rad2deg, :deg2rad, :exponent, :significand, # base/math.jl
         :sind, :cosd, :tand, :asind, :acosd, :atand, :asecd, :acscd, :acotd, # base/special/trig.jl
@@ -294,11 +287,7 @@ end
 # Deprecate @vectorize_2arg-vectorized functions from...
 for f in (
         # base/special/gamma.jl
-        :polygamma, :zeta, :beta, :lbeta,
-        # base/special/bessel.jl
-        :besseli, :besselix, :besselj, :besseljx,
-        :besselk, :besselkx, :bessely, :besselyx, :besselh,
-        :besselhx, :hankelh1, :hankelh2, :hankelh1x, :hankelh2x,
+        :beta, :lbeta,
         # base/math.jl
         :log, :hypot, :atan2,
     )
@@ -674,65 +663,6 @@ end
 # Deprecate isimag (#19947).
 @deprecate isimag(z::Number) iszero(real(z))
 
-@deprecate airy(z::Number) airyai(z)
-@deprecate airyx(z::Number) airyaix(z)
-@deprecate airyprime(z::Number) airyaiprime(z)
-@deprecate airy(x::AbstractArray{<:Number}) airyai.(x)
-@deprecate airyx(x::AbstractArray{<:Number}) airyaix.(x)
-@deprecate airyprime(x::AbstractArray{<:Number}) airyprime.(x)
-
-function _airy(k::Integer, z::Complex128)
-    depwarn("`airy(k,x)` is deprecated, use `airyai(x)`, `airyaiprime(x)`, `airybi(x)` or `airybiprime(x)` instead.",:airy)
-    id = Int32(k==1 || k==3)
-    if k == 0 || k == 1
-        return Base.Math._airy(z, id, Int32(1))
-    elseif k == 2 || k == 3
-        return Base.Math._biry(z, id, Int32(1))
-    else
-        throw(ArgumentError("k must be between 0 and 3"))
-    end
-end
-function _airyx(k::Integer, z::Complex128)
-    depwarn("`airyx(k,x)` is deprecated, use `airyaix(x)`, `airyaiprimex(x)`, `airybix(x)` or `airybiprimex(x)` instead.",:airyx)
-    id = Int32(k==1 || k==3)
-    if k == 0 || k == 1
-        return Base.Math._airy(z, id, Int32(2))
-    elseif k == 2 || k == 3
-        return Base.Math._biry(z, id, Int32(2))
-    else
-        throw(ArgumentError("k must be between 0 and 3"))
-    end
-end
-
-for afn in (:airy,:airyx)
-    _afn = Symbol("_"*string(afn))
-    suf  = string(afn)[5:end]
-    @eval begin
-        function $afn(k::Integer, z::Complex128)
-            afn = $(QuoteNode(afn))
-            suf = $(QuoteNode(suf))
-            depwarn("`$afn(k,x)` is deprecated, use `airyai$suf(x)`, `airyaiprime$suf(x)`, `airybi$suf(x)` or `airybiprime$suf(x)` instead.",$(QuoteNode(afn)))
-            $_afn(k,z)
-        end
-
-        $afn(k::Integer, z::Complex) = $afn(k, float(z))
-        $afn(k::Integer, z::Complex{<:AbstractFloat}) = throw(MethodError($afn,(k,z)))
-        $afn(k::Integer, z::Complex64) = Complex64($afn(k, Complex128(z)))
-        $afn(k::Integer, x::Real) = $afn(k, float(x))
-        $afn(k::Integer, x::AbstractFloat) = real($afn(k, complex(x)))
-
-        function $afn(k::Number, x::AbstractArray{<:Number})
-            $afn.(k,x)
-        end
-        function $afn(k::AbstractArray{<:Number}, x::Number)
-            $afn.(k,x)
-        end
-        function $afn(k::AbstractArray{<:Number}, x::AbstractArray{<:Number})
-            $afn.(k,x)
-        end
-    end
-end
-
 # Deprecate vectorized xor in favor of compact broadcast syntax
 @deprecate xor(a::Bool, B::BitArray)                xor.(a, B)
 @deprecate xor(A::BitArray, b::Bool)                xor.(A, b)
@@ -892,6 +822,14 @@ end
 @deprecate ifelse(c::AbstractArray{Bool}, x, y::AbstractArray) ifelse.(c, x, y)
 @deprecate ifelse(c::AbstractArray{Bool}, x::AbstractArray, y) ifelse.(c, x, y)
 @deprecate ifelse(c::AbstractArray{Bool}, x::AbstractArray, y::AbstractArray) ifelse.(c, x, y)
+
+# Deprecate vectorized !
+@deprecate(!(A::AbstractArray{Bool}), .!A) # parens for #20541
+@deprecate(!(B::BitArray), .!B) # parens for #20541
+
+# Deprecate vectorized ~
+@deprecate ~(A::AbstractArray) .~A
+@deprecate ~(B::BitArray) .~B
 
 function frexp(A::Array{<:AbstractFloat})
     depwarn("`frexp(x::Array)` is discontinued.", :frexp)
@@ -1142,7 +1080,6 @@ function partial_linear_indexing_warning(n)
 end
 
 # Deprecate Array(T, dims...) in favor of proper type constructors
-# TODO: when removing these, get rid of the special casing in the @deprecate macro up top
 @deprecate Array{T,N}(::Type{T}, d::NTuple{N,Int})               Array{T}(d)
 @deprecate Array{T}(::Type{T}, d::Int...)                        Array{T}(d...)
 @deprecate Array{T}(::Type{T}, m::Int)                           Array{T}(m)
@@ -1209,9 +1146,94 @@ end
     end
 end
 
+# TODO: remove `:typealias` from BINDING_HEADS in base/docs/Docs.jl
+# TODO: remove `'typealias` case in expand-table in julia-syntax.scm
+
 # FloatRange replaced by StepRangeLen
 
-@deprecate FloatRange{T}(start::T, step, len, den) Base.floatrange(T, start, step, len, den)
+## Old-style floating point ranges. We reimplement them here because
+## the replacement StepRangeLen also has 4 real-valued fields, which
+## makes deprecation tricky. See #20506.
+
+immutable Use_StepRangeLen_Instead{T<:AbstractFloat} <: Range{T}
+    start::T
+    step::T
+    len::T
+    divisor::T
+end
+
+Use_StepRangeLen_Instead(a::AbstractFloat, s::AbstractFloat, l::Real, d::AbstractFloat) =
+    Use_StepRangeLen_Instead{promote_type(typeof(a),typeof(s),typeof(d))}(a,s,l,d)
+
+isempty(r::Use_StepRangeLen_Instead) = length(r) == 0
+
+step(r::Use_StepRangeLen_Instead) = r.step/r.divisor
+
+length(r::Use_StepRangeLen_Instead) = Integer(r.len)
+
+first{T}(r::Use_StepRangeLen_Instead{T}) = convert(T, r.start/r.divisor)
+
+last{T}(r::Use_StepRangeLen_Instead{T}) = convert(T, (r.start + (r.len-1)*r.step)/r.divisor)
+
+start(r::Use_StepRangeLen_Instead) = 0
+done(r::Use_StepRangeLen_Instead, i::Int) = length(r) <= i
+next{T}(r::Use_StepRangeLen_Instead{T}, i::Int) =
+    (convert(T, (r.start + i*r.step)/r.divisor), i+1)
+
+function getindex{T}(r::Use_StepRangeLen_Instead{T}, i::Integer)
+    @_inline_meta
+    @boundscheck checkbounds(r, i)
+    convert(T, (r.start + (i-1)*r.step)/r.divisor)
+end
+
+function getindex(r::Use_StepRangeLen_Instead, s::OrdinalRange)
+    @_inline_meta
+    @boundscheck checkbounds(r, s)
+    Use_StepRangeLen_Instead(r.start + (first(s)-1)*r.step, step(s)*r.step, length(s), r.divisor)
+end
+
+-(r::Use_StepRangeLen_Instead)   = Use_StepRangeLen_Instead(-r.start, -r.step, r.len, r.divisor)
++(x::Real, r::Use_StepRangeLen_Instead) = Use_StepRangeLen_Instead(r.divisor*x + r.start, r.step, r.len, r.divisor)
+-(x::Real, r::Use_StepRangeLen_Instead) = Use_StepRangeLen_Instead(r.divisor*x - r.start, -r.step, r.len, r.divisor)
+-(r::Use_StepRangeLen_Instead, x::Real) = Use_StepRangeLen_Instead(r.start - r.divisor*x, r.step, r.len, r.divisor)
+*(x::Real, r::Use_StepRangeLen_Instead)   = Use_StepRangeLen_Instead(x*r.start, x*r.step, r.len, r.divisor)
+*(r::Use_StepRangeLen_Instead, x::Real)   = x * r
+/(r::Use_StepRangeLen_Instead, x::Real)   = Use_StepRangeLen_Instead(r.start/x, r.step/x, r.len, r.divisor)
+promote_rule{T1,T2}(::Type{Use_StepRangeLen_Instead{T1}},::Type{Use_StepRangeLen_Instead{T2}}) =
+    Use_StepRangeLen_Instead{promote_type(T1,T2)}
+convert{T<:AbstractFloat}(::Type{Use_StepRangeLen_Instead{T}}, r::Use_StepRangeLen_Instead{T}) = r
+convert{T<:AbstractFloat}(::Type{Use_StepRangeLen_Instead{T}}, r::Use_StepRangeLen_Instead) =
+    Use_StepRangeLen_Instead{T}(r.start,r.step,r.len,r.divisor)
+
+promote_rule{F,OR<:OrdinalRange}(::Type{Use_StepRangeLen_Instead{F}}, ::Type{OR}) =
+    Use_StepRangeLen_Instead{promote_type(F,eltype(OR))}
+convert{T<:AbstractFloat}(::Type{Use_StepRangeLen_Instead{T}}, r::OrdinalRange) =
+    Use_StepRangeLen_Instead{T}(first(r), step(r), length(r), one(T))
+convert{T}(::Type{Use_StepRangeLen_Instead}, r::OrdinalRange{T}) =
+    Use_StepRangeLen_Instead{typeof(float(first(r)))}(first(r), step(r), length(r), one(T))
+
+promote_rule{F,OR<:Use_StepRangeLen_Instead}(::Type{LinSpace{F}}, ::Type{OR}) =
+    LinSpace{promote_type(F,eltype(OR))}
+convert{T<:AbstractFloat}(::Type{LinSpace{T}}, r::Use_StepRangeLen_Instead) =
+    linspace(convert(T, first(r)), convert(T, last(r)), convert(T, length(r)))
+convert{T<:AbstractFloat}(::Type{LinSpace}, r::Use_StepRangeLen_Instead{T}) =
+    convert(LinSpace{T}, r)
+
+reverse(r::Use_StepRangeLen_Instead)   = Use_StepRangeLen_Instead(r.start + (r.len-1)*r.step, -r.step, r.len, r.divisor)
+
+function sum(r::Use_StepRangeLen_Instead)
+    l = length(r)
+    if iseven(l)
+        s = r.step * (l-1) * (l>>1)
+    else
+        s = (r.step * l) * ((l-1)>>1)
+    end
+    return (l * r.start + s)/r.divisor
+end
+
+@deprecate_binding FloatRange Use_StepRangeLen_Instead
+
+## end of FloatRange
 
 @noinline zero_arg_matrix_constructor(prefix::String) =
     depwarn("$prefix() is deprecated, use $prefix(0, 0) instead.", :zero_arg_matrix_constructor)
@@ -1231,6 +1253,24 @@ for name in ("alnum", "alpha", "cntrl", "digit", "number", "graph",
 end
 
 # TODO: remove warning for using `_` in parse_input_line in base/client.jl
+
+# Special functions have been moved to a package
+for f in (:airyai, :airyaiprime, :airybi, :airybiprime, :airyaix, :airyaiprimex, :airybix, :airybiprimex,
+          :besselh, :besselhx, :besseli, :besselix, :besselj, :besselj0, :besselj1, :besseljx, :besselk,
+          :besselkx, :bessely, :bessely0, :bessely1, :besselyx,
+          :dawson, :erf, :erfc, :erfcinv, :erfcx, :erfi, :erfinv,
+          :eta, :zeta, :digamma, :invdigamma, :polygamma, :trigamma,
+          :hankelh1, :hankelh1x, :hankelh2, :hankelh2x,
+          :airy, :airyx, :airyprime)
+    @eval begin
+        function $f(args...; kwargs...)
+            error(string($f, args, " has been moved to the package SpecialFunctions.jl.\n",
+                         "Run Pkg.add(\"SpecialFunctions\") to install SpecialFunctions on Julia v0.6 and later,\n",
+                         "and then run `using SpecialFunctions`."))
+        end
+        export $f
+    end
+end
 
 # END 0.6 deprecations
 

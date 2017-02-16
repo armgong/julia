@@ -571,13 +571,13 @@ julia> sqrt(-1)
 ERROR: DomainError:
 sqrt will only return a complex result if called with a complex argument. Try sqrt(complex(x)).
 Stacktrace:
- [1] sqrt(::Int64) at ./math.jl:432
+ [1] sqrt(::Int64) at ./math.jl:410
 ```
 
 You may define your own exceptions in the following way:
 
 ```jldoctest
-julia> type MyCustomException <: Exception end
+julia> struct MyCustomException <: Exception end
 ```
 
 ### The [`throw()`](@ref) function
@@ -621,7 +621,7 @@ This mechanism can be implemented easily by custom exception types following the
 is written:
 
 ```jldoctest
-julia> type MyUndefVarError <: Exception
+julia> struct MyUndefVarError <: Exception
            var::Symbol
        end
 

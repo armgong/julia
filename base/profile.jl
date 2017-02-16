@@ -73,10 +73,10 @@ Clear any existing backtraces from the internal buffer.
 """
 clear() = ccall(:jl_profile_clear_data, Void, ())
 
-typealias LineInfoDict Dict{UInt64, Vector{StackFrame}}
-typealias LineInfoFlatDict Dict{UInt64, StackFrame}
+const LineInfoDict = Dict{UInt64, Vector{StackFrame}}
+const LineInfoFlatDict = Dict{UInt64, StackFrame}
 
-immutable ProfileFormat
+struct ProfileFormat
     maxdepth::Int
     mincount::Int
     noisefloor::Float64
@@ -346,7 +346,7 @@ function parse_flat(iplist, n, lidict::LineInfoFlatDict, C::Bool)
     # The ones with no line number might appear multiple times in a single
     # backtrace, giving the wrong impression about the total number of backtraces.
     # Delete them too.
-    keep = !Bool[x == UNKNOWN || x.line == 0 || (x.from_c && !C) for x in lilist]
+    keep = .!Bool[x == UNKNOWN || x.line == 0 || (x.from_c && !C) for x in lilist]
     n = n[keep]
     lilist = lilist[keep]
     return (lilist, n)

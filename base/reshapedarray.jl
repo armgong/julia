@@ -2,7 +2,7 @@
 
 using  Base.MultiplicativeInverses: SignedMultiplicativeInverse
 
-immutable ReshapedArray{T,N,P<:AbstractArray,MI<:Tuple{Vararg{SignedMultiplicativeInverse{Int}}}} <: AbstractArray{T,N}
+struct ReshapedArray{T,N,P<:AbstractArray,MI<:Tuple{Vararg{SignedMultiplicativeInverse{Int}}}} <: AbstractArray{T,N}
     parent::P
     dims::NTuple{N,Int}
     mi::MI
@@ -10,10 +10,10 @@ end
 ReshapedArray{T,N}(parent::AbstractArray{T}, dims::NTuple{N,Int}, mi) = ReshapedArray{T,N,typeof(parent),typeof(mi)}(parent, dims, mi)
 
 # LinearFast ReshapedArray
-typealias ReshapedArrayLF{T,N,P<:AbstractArray} ReshapedArray{T,N,P,Tuple{}}
+ReshapedArrayLF{T,N,P<:AbstractArray} = ReshapedArray{T,N,P,Tuple{}}
 
 # Fast iteration on ReshapedArrays: use the parent iterator
-immutable ReshapedArrayIterator{I,M}
+struct ReshapedArrayIterator{I,M}
     iter::I
     mi::NTuple{M,SignedMultiplicativeInverse{Int}}
 end
@@ -23,7 +23,7 @@ function _rs_iterator{M}(P, mi::NTuple{M})
     ReshapedArrayIterator{typeof(iter),M}(iter, mi)
 end
 
-immutable ReshapedIndex{T}
+struct ReshapedIndex{T}
     parentindex::T
 end
 
@@ -227,7 +227,7 @@ end
 end
 
 # helpful error message for a common failure case
-typealias ReshapedRange{T,N,A<:Range} ReshapedArray{T,N,A,Tuple{}}
+ReshapedRange{T,N,A<:Range} = ReshapedArray{T,N,A,Tuple{}}
 setindex!(A::ReshapedRange, val, index::Int) = _rs_setindex!_err()
 setindex!(A::ReshapedRange, val, indexes::Int...) = _rs_setindex!_err()
 setindex!(A::ReshapedRange, val, index::ReshapedIndex) = _rs_setindex!_err()

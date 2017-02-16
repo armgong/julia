@@ -18,6 +18,11 @@ colon{T<:Real}(start::T, step::Real, stop::T) = colon(promote(start, step, stop)
     colon(start, [step], stop)
 
 Called by `:` syntax for constructing ranges.
+
+```jldoctest
+julia> colon(1, 2, 5)
+1:2:5
+```
 """
 colon{T<:AbstractFloat}(start::T, step::T, stop::T) = _colon(TypeOrder(T), TypeArithmetic(T), start, step, stop)
 colon{T<:Real}(start::T, step::T, stop::T) = _colon(TypeOrder(T), TypeArithmetic(T), start, step, stop)
@@ -33,7 +38,10 @@ Range operator. `a:b` constructs a range from `a` to `b` with a step size of 1, 
 is similar but uses a step size of `s`. These syntaxes call the function `colon`. The colon
 is also used in indexing to select whole dimensions.
 """
-colon{T}(start::T, step, stop::T) = StepRange(start, step, stop)
+function colon{T}(start::T, step, stop::T)
+    T′ = typeof(start+step)
+    StepRange(convert(T′,start), step, convert(T′,stop))
+end
 
 """
     range(start, [step], length)
@@ -58,14 +66,14 @@ range(a::AbstractFloat, st::Real, len::Integer) = range(a, float(st), len)
 
 ## 1-dimensional ranges ##
 
-abstract Range{T} <: AbstractArray{T,1}
+abstract type Range{T} <: AbstractArray{T,1} end
 
 ## ordinal ranges
 
-abstract OrdinalRange{T,S} <: Range{T}
-abstract AbstractUnitRange{T} <: OrdinalRange{T,Int}
+abstract type OrdinalRange{T,S} <: Range{T} end
+abstract type AbstractUnitRange{T} <: OrdinalRange{T,Int} end
 
-immutable StepRange{T,S} <: OrdinalRange{T,S}
+struct StepRange{T,S} <: OrdinalRange{T,S}
     start::T
     step::S
     stop::T
@@ -125,7 +133,7 @@ steprem(start,stop,step) = (stop-start) % step
 
 StepRange(start::T, step::S, stop::T) where {T,S} = StepRange{T,S}(start, step, stop)
 
-immutable UnitRange{T<:Real} <: AbstractUnitRange{T}
+struct UnitRange{T<:Real} <: AbstractUnitRange{T}
     start::T
     stop::T
     UnitRange{T}(start, stop) where T<:Real = new(start, unitrange_last(start,stop))
@@ -146,7 +154,7 @@ Define an `AbstractUnitRange` that behaves like `1:n`, with the added
 distinction that the lower limit is guaranteed (by the type system) to
 be 1.
 """
-immutable OneTo{T<:Integer} <: AbstractUnitRange{T}
+struct OneTo{T<:Integer} <: AbstractUnitRange{T}
     stop::T
     OneTo{T}(stop) where T<:Integer = new(max(zero(T), stop))
 end
@@ -164,7 +172,7 @@ value of `r[offset]` for some other index `1 <= offset <= len`.  In
 conjunction with `TwicePrecision` this can be used to implement ranges
 that are free of roundoff error.
 """
-immutable StepRangeLen{T,R,S} <: Range{T}
+struct StepRangeLen{T,R,S} <: Range{T}
     ref::R       # reference value (might be smallest-magnitude value in the range)
     step::S      # step value
     len::Int     # length of the range
@@ -182,7 +190,7 @@ StepRangeLen(ref::R, step::S, len::Integer, offset::Integer = 1) where {R,S} =
 
 ## linspace and logspace
 
-immutable LinSpace{T} <: Range{T}
+struct LinSpace{T} <: Range{T}
     start::T
     stop::T
     len::Int
@@ -254,7 +262,7 @@ function print_range(io::IO, r::Range,
     limit = get(io, :limit, false)
     sz = displaysize(io)
     if !haskey(io, :compact)
-        io = IOContext(io, compact=true)
+        io = IOContext(io, :compact => true)
     end
     screenheight, screenwidth = sz[1] - 4, sz[2]
     screenwidth -= length(pre) + length(post)
@@ -844,3 +852,39 @@ end
 in(x::Integer, r::AbstractUnitRange{<:Integer}) = (first(r) <= x) & (x <= last(r))
 in{T<:Integer}(x, r::Range{T}) = isinteger(x) && !isempty(r) && x>=minimum(r) && x<=maximum(r) && (mod(convert(T,x),step(r))-mod(first(r),step(r)) == 0)
 in(x::Char, r::Range{Char}) = !isempty(r) && x >= minimum(r) && x <= maximum(r) && (mod(Int(x) - Int(first(r)), step(r)) == 0)
+
+# Addition/subtraction of ranges
+
+function _define_range_op(f::ANY)
+    @eval begin
+        function $f(r1::OrdinalRange, r2::OrdinalRange)
+            r1l = length(r1)
+            (r1l == length(r2) ||
+             throw(DimensionMismatch("argument dimensions must match")))
+            range($f(first(r1),first(r2)), $f(step(r1),step(r2)), r1l)
+        end
+
+        function $f{T}(r1::LinSpace{T}, r2::LinSpace{T})
+            len = r1.len
+            (len == r2.len ||
+             throw(DimensionMismatch("argument dimensions must match")))
+            linspace(convert(T, $f(first(r1), first(r2))),
+                     convert(T, $f(last(r1), last(r2))), len)
+        end
+
+        $f(r1::Union{StepRangeLen, OrdinalRange, LinSpace},
+           r2::Union{StepRangeLen, OrdinalRange, LinSpace}) =
+               $f(promote_noncircular(r1, r2)...)
+    end
+end
+_define_range_op(:+)
+_define_range_op(:-)
+
+function +{T,S}(r1::StepRangeLen{T,S}, r2::StepRangeLen{T,S})
+    len = length(r1)
+    (len == length(r2) ||
+        throw(DimensionMismatch("argument dimensions must match")))
+    StepRangeLen(first(r1)+first(r2), step(r1)+step(r2), len)
+end
+
+-(r1::StepRangeLen, r2::StepRangeLen) = +(r1, -r2)

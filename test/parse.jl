@@ -199,6 +199,52 @@ macro f(args...) end; @f ""
 @test parse(Int,'3') == 3
 @test parse(Int,'3', 8) == 3
 
+# Issue 20587
+for T in vcat(subtypes(Signed), subtypes(Unsigned))
+    for s in ["", " ", "  "]
+        # Without a base (handles things like "0x00001111", etc)
+        result = @test_throws ArgumentError parse(T, s)
+        exception_without_base = result.value
+        if T == Bool
+            if s == ""
+                @test exception_without_base.msg == "input string is empty"
+            else
+                @test exception_without_base.msg == "input string only contains whitespace"
+            end
+        else
+            @test exception_without_base.msg == "input string is empty or only contains whitespace"
+        end
+
+        # With a base
+        result = @test_throws ArgumentError parse(T, s, 16)
+        exception_with_base = result.value
+        if T == Bool
+            if s == ""
+                @test exception_with_base.msg == "input string is empty"
+            else
+                @test exception_with_base.msg == "input string only contains whitespace"
+            end
+        else
+            @test exception_with_base.msg == "input string is empty or only contains whitespace"
+        end
+    end
+
+    # Test `tryparse_internal` with part of a string
+    let b = "                   "
+        result = @test_throws ArgumentError get(Base.tryparse_internal(Bool, b, 7, 11, 0, true))
+        exception_bool = result.value
+        @test exception_bool.msg == "input string only contains whitespace"
+
+        result = @test_throws ArgumentError get(Base.tryparse_internal(Int, b, 7, 11, 0, true))
+        exception_int = result.value
+        @test exception_int.msg == "input string is empty or only contains whitespace"
+
+        result = @test_throws ArgumentError get(Base.tryparse_internal(UInt128, b, 7, 11, 0, true))
+        exception_uint = result.value
+        @test exception_uint.msg == "input string is empty or only contains whitespace"
+    end
+end
+
 parsebin(s) = parse(Int,s,2)
 parseoct(s) = parse(Int,s,8)
 parsehex(s) = parse(Int,s,16)
@@ -646,12 +692,12 @@ end
 for (str, tag) in Dict("" => :none, "\"" => :string, "#=" => :comment, "'" => :char,
                        "`" => :cmd, "begin;" => :block, "quote;" => :block,
                        "let;" => :block, "for i=1;" => :block, "function f();" => :block,
-                       "f() do x;" => :block, "module X;" => :block, "type X;" => :block,
-                       "immutable X;" => :block, "(" => :other, "[" => :other,
+                       "f() do x;" => :block, "module X;" => :block, "mutable struct X;" => :block,
+                       "struct X;" => :block, "(" => :other, "[" => :other,
                        "begin" => :other, "quote" => :other,
                        "let" => :other, "for" => :other, "function" => :other,
-                       "f() do" => :other, "module" => :other, "type" => :other,
-                       "immutable" => :other)
+                       "f() do" => :other, "module" => :other, "mutable struct" => :other,
+                       "struct" => :other)
     @test Base.incomplete_tag(parse(str, raise=false)) == tag
 end
 
@@ -851,15 +897,13 @@ end
 
 # issue 18756
 module Mod18756
-type Type
+mutable struct Type
 end
 end
 @test method_exists(Mod18756.Type, ())
 
 # issue 18002
-@test parse("typealias a (Int)") == Expr(:typealias, :a, :Int)
-@test parse("typealias b (Int,)") == Expr(:typealias, :b, Expr(:tuple, :Int))
-@test parse("typealias Foo{T} Bar{T}") == Expr(:typealias, Expr(:curly, :Foo, :T), Expr(:curly, :Bar, :T))
+@test parse("Foo{T} = Bar{T}") == Expr(:(=), Expr(:curly, :Foo, :T), Expr(:curly, :Bar, :T))
 
 # don't insert push_loc for filename `none` at the top level
 let ex = expand(parse("""
@@ -932,3 +976,9 @@ end
 # a :block for its body
 short_where_call = :(f(x::T) where T = T)
 @test short_where_call.args[2].head == :block
+
+# issue #20541
+@test parse("[a .!b]") == Expr(:hcat, :a, Expr(:call, :(.!), :b))
+
+@test expand(:(a{1} = b)) == Expr(:error, "invalid type parameter name \"1\"")
+@test expand(:(a{2<:Any} = b)) == Expr(:error, "invalid type parameter name \"2\"")

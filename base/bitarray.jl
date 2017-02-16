@@ -4,7 +4,7 @@
 
 # notes: bits are stored in contiguous chunks
 #        unused bits must always be set to 0
-type BitArray{N} <: DenseArray{Bool, N}
+mutable struct BitArray{N} <: DenseArray{Bool, N}
     chunks::Vector{UInt64}
     len::Int
     dims::NTuple{N,Int}
@@ -51,8 +51,8 @@ julia> BitArray((3, 1))
 BitArray(dims::Integer...) = BitArray(map(Int,dims))
 BitArray(dims::NTuple{N,Int}) where {N} = BitArray{N}(dims...)
 
-typealias BitVector BitArray{1}
-typealias BitMatrix BitArray{2}
+const BitVector = BitArray{1}
+const BitMatrix = BitArray{2}
 
 BitVector() = BitArray{1}(0)
 
@@ -1195,7 +1195,7 @@ function (-)(B::BitArray)
 end
 broadcast(::typeof(sign), B::BitArray) = copy(B)
 
-function (~)(B::BitArray)
+function broadcast(::typeof(~), B::BitArray)
     C = similar(B)
     Bc = B.chunks
     if !isempty(Bc)
@@ -1236,7 +1236,6 @@ function flipbits!(B::BitArray)
     return B
 end
 
-!(B::BitArray) = ~B
 
 ## Binary arithmetic operators ##
 
@@ -1269,7 +1268,7 @@ broadcast(::typeof(&), B::BitArray, x::Bool) = x ? copy(B) : falses(size(B))
 broadcast(::typeof(&), x::Bool, B::BitArray) = broadcast(&, B, x)
 broadcast(::typeof(|), B::BitArray, x::Bool) = x ? trues(size(B)) : copy(B)
 broadcast(::typeof(|), x::Bool, B::BitArray) = broadcast(|, B, x)
-broadcast(::typeof(xor), B::BitArray, x::Bool) = x ? ~B : copy(B)
+broadcast(::typeof(xor), B::BitArray, x::Bool) = x ? .~B : copy(B)
 broadcast(::typeof(xor), x::Bool, B::BitArray) = broadcast(xor, B, x)
 for f in (:&, :|, :xor)
     @eval begin

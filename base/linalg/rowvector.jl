@@ -11,7 +11,7 @@ vector can be multiplied by a matrix on its right (such that `v.' * A = (A.' * v
 differs from a `1×n`-sized matrix by the facts that its transpose returns a vector and the
 inner product `v1.' * v2` returns a scalar, but will otherwise behave similarly.
 """
-immutable RowVector{T,V<:AbstractVector} <: AbstractMatrix{T}
+struct RowVector{T,V<:AbstractVector} <: AbstractMatrix{T}
     vec::V
     function RowVector{T,V}(v::V) where V<:AbstractVector where T
         check_types(T,v)
@@ -23,7 +23,7 @@ end
 @pure check_types{T1,T2}(::Type{T1},::Type{T2}) = T1 === transpose_type(T2) ? nothing :
     error("Element type mismatch. Tried to create a `RowVector{$T1}` from an `AbstractVector{$T2}`")
 
-typealias ConjRowVector{T, CV <: ConjVector} RowVector{T, CV}
+ConjRowVector{T, CV <: ConjVector} = RowVector{T, CV}
 
 # The element type may be transformed as transpose is recursive
 @inline transpose_type{T}(::Type{T}) = promote_op(transpose, T)

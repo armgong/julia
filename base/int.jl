@@ -14,14 +14,14 @@ const BitSigned_types     = (BitSigned64_types..., Int128)
 const BitUnsigned_types   = (BitUnsigned64_types..., UInt128)
 const BitInteger_types    = (BitSigned_types..., BitUnsigned_types...)
 
-typealias BitSigned64   Union{BitSigned64_types...}
-typealias BitUnsigned64 Union{BitUnsigned64_types...}
-typealias BitInteger64  Union{BitInteger64_types...}
-typealias BitSigned     Union{BitSigned_types...}
-typealias BitUnsigned   Union{BitUnsigned_types...}
-typealias BitInteger    Union{BitInteger_types...}
-typealias BitSigned64T  Union{Type{Int8}, Type{Int16}, Type{Int32}, Type{Int64}}
-typealias BitUnsigned64T Union{Type{UInt8}, Type{UInt16}, Type{UInt32}, Type{UInt64}}
+const BitSigned64    = Union{BitSigned64_types...}
+const BitUnsigned64  = Union{BitUnsigned64_types...}
+const BitInteger64   = Union{BitInteger64_types...}
+const BitSigned      = Union{BitSigned_types...}
+const BitUnsigned    = Union{BitUnsigned_types...}
+const BitInteger     = Union{BitInteger_types...}
+const BitSigned64T   = Union{Type{Int8}, Type{Int16}, Type{Int32}, Type{Int64}}
+const BitUnsigned64T = Union{Type{UInt8}, Type{UInt16}, Type{UInt32}, Type{UInt64}}
 
 ## integer comparisons ##
 
@@ -94,6 +94,17 @@ resulting in the return of a negative value. This overflow occurs only
 when `abs` is applied to the minimum representable value of a signed
 integer. That is, when `x == typemin(typeof(x))`, `abs(x) == x < 0`,
 not `-x` as might be expected.
+
+```jldoctest
+julia> abs(-3)
+3
+
+julia> abs(1 + im)
+1.4142135623730951
+
+julia> abs(typemin(Int64))
+-9223372036854775808
+```
 """
 function abs end
 

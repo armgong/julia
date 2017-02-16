@@ -1,7 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
 #Symmetric and Hermitian matrices
-immutable Symmetric{T,S<:AbstractMatrix} <: AbstractMatrix{T}
+struct Symmetric{T,S<:AbstractMatrix} <: AbstractMatrix{T}
     data::S
     uplo::Char
 end
@@ -41,7 +41,7 @@ julia> Slower = Symmetric(A, :L)
 Note that `Supper` will not be equal to `Slower` unless `A` is itself symmetric (e.g. if `A == A.'`).
 """
 Symmetric(A::AbstractMatrix, uplo::Symbol=:U) = (checksquare(A);Symmetric{eltype(A),typeof(A)}(A, char_uplo(uplo)))
-immutable Hermitian{T,S<:AbstractMatrix} <: AbstractMatrix{T}
+struct Hermitian{T,S<:AbstractMatrix} <: AbstractMatrix{T}
     data::S
     uplo::Char
 end
@@ -83,8 +83,8 @@ function Hermitian(A::AbstractMatrix, uplo::Symbol=:U)
     Hermitian{eltype(A),typeof(A)}(A, char_uplo(uplo))
 end
 
-typealias HermOrSym{T,S} Union{Hermitian{T,S}, Symmetric{T,S}}
-typealias RealHermSymComplexHerm{T<:Real,S} Union{Hermitian{T,S}, Symmetric{T,S}, Hermitian{Complex{T},S}}
+HermOrSym{T,S} = Union{Hermitian{T,S}, Symmetric{T,S}}
+RealHermSymComplexHerm{T<:Real,S} = Union{Hermitian{T,S}, Symmetric{T,S}, Hermitian{Complex{T},S}}
 
 size(A::HermOrSym, d) = size(A.data, d)
 size(A::HermOrSym) = size(A.data)
@@ -261,8 +261,8 @@ det(A::Symmetric) = det(bkfact(A))
 
 \(A::HermOrSym{<:Any,<:StridedMatrix}, B::StridedVecOrMat) = \(bkfact(A.data, Symbol(A.uplo), issymmetric(A)), B)
 
-inv{T<:BlasFloat,S<:StridedMatrix}(A::Hermitian{T,S}) = Hermitian{T,S}(inv(bkfact(A.data, Symbol(A.uplo))), A.uplo)
-inv{T<:BlasFloat,S<:StridedMatrix}(A::Symmetric{T,S}) = Symmetric{T,S}(inv(bkfact(A.data, Symbol(A.uplo), true)), A.uplo)
+inv{T<:BlasFloat,S<:StridedMatrix}(A::Hermitian{T,S}) = Hermitian{T,S}(inv(bkfact(A)), A.uplo)
+inv{T<:BlasFloat,S<:StridedMatrix}(A::Symmetric{T,S}) = Symmetric{T,S}(inv(bkfact(A)), A.uplo)
 
 eigfact!(A::RealHermSymComplexHerm{<:BlasReal,<:StridedMatrix}) = Eigen(LAPACK.syevr!('V', 'A', A.uplo, A.data, 0.0, 0.0, 0, 0, -1.0)...)
 # Because of #6721 it is necessary to specify the parameters explicitly here.

@@ -55,7 +55,7 @@ function show{K,V}(io::IO, t::Associative{K,V})
     end
 end
 
-abstract AbstractSerializer
+abstract type AbstractSerializer end
 
 # Dict
 
@@ -89,7 +89,7 @@ Dict{String,Int64} with 2 entries:
   "A" => 1
 ```
 """
-type Dict{K,V} <: Associative{K,V}
+mutable struct Dict{K,V} <: Associative{K,V}
     slots::Array{UInt8,1}
     keys::Array{K,1}
     vals::Array{V,1}
@@ -152,7 +152,7 @@ function Dict(kv)
     end
 end
 
-typealias TP{K,V} Union{Type{Tuple{K,V}},Type{Pair{K,V}}}
+TP{K,V} = Union{Type{Tuple{K,V}},Type{Pair{K,V}}}
 
 associative_with_eltype{K,V}(DT_apply, kv, ::TP{K,V}) = DT_apply(K, V)(kv)
 associative_with_eltype{K,V}(DT_apply, kv::Generator, ::TP{K,V}) = DT_apply(K, V)(kv)
@@ -595,7 +595,7 @@ function filter!(f, d::Union{ObjectIdDict,Dict})
     return d
 end
 
-immutable ImmutableDict{K, V} <: Associative{K,V}
+struct ImmutableDict{K, V} <: Associative{K,V}
     parent::ImmutableDict{K, V}
     key::K
     value::V

@@ -805,7 +805,7 @@ end
     FS = Array(S)
     FI = Array(I)
     @test sparse(FS[FI]) == S[I] == S[FI]
-    @test sum(S[FI]) + sum(S[!FI]) == sum(S)
+    @test sum(S[FI]) + sum(S[.!FI]) == sum(S)
     @test countnz(I) == count(I)
 
     sumS1 = sum(S)
@@ -1720,4 +1720,34 @@ end
     Base.SparseArrays.dropstored!(x, 2, 3)
     @test x.colptr == [1, 2, 4, 6]
     @test x[2, 3] == 0.0
+end
+
+@testset "show" begin
+    io = IOBuffer()
+    show(io, MIME"text/plain"(), sparse(Int64[1], Int64[1], [1.0]))
+    @test String(take!(io)) == "1×1 SparseMatrixCSC{Float64,Int64} with 1 stored entry:\n  [1, 1]  =  1.0"
+    show(io, MIME"text/plain"(), spzeros(Float32, Int64, 2, 2))
+    @test String(take!(io)) == "2×2 SparseMatrixCSC{Float32,Int64} with 0 stored entries"
+end
+
+@testset "similar aliasing" begin
+    a = sparse(rand(3,3) .+ 0.1)
+    b = similar(a, Float32, Int32)
+    c = similar(b, Float32, Int32)
+    Base.SparseArrays.dropstored!(b, 1, 1)
+    @test length(c.rowval) == 9
+    @test length(c.nzval) == 9
+end
+
+@testset "check buffers" for n in 1:3
+    colptr = [1,2,3,4]
+    rowval = [1,2,3]
+    nzval1  = ones(0)
+    nzval2  = ones(3)
+    A = SparseMatrixCSC(n, n, colptr, rowval, nzval1)
+    @test nnz(A) == n
+    @test_throws BoundsError A[n,n]
+    A = SparseMatrixCSC(n, n, colptr, rowval, nzval2)
+    @test nnz(A) == n
+    @test A      == eye(n)
 end

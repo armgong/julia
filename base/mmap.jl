@@ -5,7 +5,7 @@ module Mmap
 const PAGESIZE = Int(is_unix() ? ccall(:jl_getpagesize, Clong, ()) : ccall(:jl_getallocationgranularity, Clong, ()))
 
 # for mmaps not backed by files
-type Anonymous <: IO
+mutable struct Anonymous <: IO
     name::AbstractString
     readonly::Bool
     create::Bool
@@ -67,7 +67,7 @@ end
 
 elseif is_windows()
 
-typealias DWORD Culong
+const DWORD = Culong
 
 const PAGE_READONLY          = DWORD(0x02)
 const PAGE_READWRITE         = DWORD(0x04)

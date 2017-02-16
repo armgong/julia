@@ -3,7 +3,7 @@
 module DFT
 
 # DFT plan where the inputs are an array of eltype T
-abstract Plan{T}
+abstract type Plan{T} end
 
 import Base: show, summary, size, ndims, length, eltype,
              *, A_mul_B!, inv, \, A_ldiv_B!
@@ -20,7 +20,7 @@ export fft, ifft, bfft, fft!, ifft!, bfft!,
        plan_fft, plan_ifft, plan_bfft, plan_fft!, plan_ifft!, plan_bfft!,
        rfft, irfft, brfft, plan_rfft, plan_irfft, plan_brfft
 
-typealias FFTWFloat Union{Float32,Float64}
+const FFTWFloat = Union{Float32,Float64}
 fftwfloat(x) = _fftwfloat(float(x))
 _fftwfloat{T<:FFTWFloat}(::Type{T}) = T
 _fftwfloat(::Type{Float16}) = Float32
@@ -237,7 +237,7 @@ A_ldiv_B!(y::AbstractArray, p::Plan, x::AbstractArray) = A_mul_B!(y, inv(p), x)
 # implementations only need to provide the unnormalized backwards FFT,
 # similar to FFTW, and we do the scaling generically to get the ifft:
 
-type ScaledPlan{T,P,N} <: Plan{T}
+mutable struct ScaledPlan{T,P,N} <: Plan{T}
     p::P
     scale::N # not T, to avoid unnecessary promotion to Complex
     pinv::Plan

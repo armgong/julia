@@ -626,7 +626,7 @@ end
 
 # stringmime/show should display the range or linspace nicely
 # to test print_range in range.jl
-replstrmime(x) = sprint((io,x) -> show(IOContext(io, limit=true), MIME("text/plain"), x), x)
+replstrmime(x) = sprint((io,x) -> show(IOContext(io, :limit => true), MIME("text/plain"), x), x)
 @test replstrmime(1:4) == "1:4"
 @test stringmime("text/plain", 1:4) == "1:4"
 @test stringmime("text/plain", linspace(1,5,7)) == "1.0:0.6666666666666666:5.0"
@@ -640,8 +640,8 @@ replstrmime(x) = sprint((io,x) -> show(IOContext(io, limit=true), MIME("text/pla
 @test replstrmime(linspace(0,100, 10000)) == "0.0:0.010001000100010001:100.0"
 @test replstrmime(LinSpace{Float64}(0,100, 10000)) == "10000-element LinSpace{Float64}:\n 0.0,0.010001,0.020002,0.030003,0.040004,…,99.95,99.96,99.97,99.98,99.99,100.0"
 
-@test sprint(io -> show(io,UnitRange(1,2))) == "1:2"
-@test sprint(io -> show(io,StepRange(1,2,5))) == "1:2:5"
+@test sprint(show, UnitRange(1, 2)) == "1:2"
+@test sprint(show, StepRange(1, 2, 5)) == "1:2:5"
 
 
 # Issue 11049 and related
@@ -784,8 +784,8 @@ let A = -1:1, B = -1.0:1.0
     @test conj(A) === A
     @test conj(B) === B
 
-    @test ~A == [0,-1,-2]
-    @test typeof(~A) == Vector{Int}
+    @test .~A == [0,-1,-2]
+    @test typeof(.~A) == Vector{Int}
 end
 
 # conversion to Array
@@ -884,3 +884,12 @@ let r = linspace(1.0, 3+im, 4)
     @test r[3] ≈ (7/3)+(2/3)im
     @test r[4] === 3.0+im
 end
+
+# dimensional correctness:
+isdefined(Main, :TestHelpers) || @eval Main include("TestHelpers.jl")
+using TestHelpers.Furlong
+@test_throws MethodError collect(Furlong(2):Furlong(10)) # step size is ambiguous
+@test_throws MethodError range(Furlong(2), 9) # step size is ambiguous
+@test collect(Furlong(2):Furlong(1):Furlong(10)) == collect(range(Furlong(2),Furlong(1),9)) == Furlong.(2:10)
+@test collect(Furlong(1.0):Furlong(0.5):Furlong(10.0)) ==
+      collect(Furlong(1):Furlong(0.5):Furlong(10)) == Furlong.(1:0.5:10)

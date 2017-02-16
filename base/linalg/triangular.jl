@@ -3,13 +3,13 @@
 ## Triangular
 
 # could be renamed to Triangular when that name has been fully deprecated
-abstract AbstractTriangular{T,S<:AbstractMatrix} <: AbstractMatrix{T}
+abstract type AbstractTriangular{T,S<:AbstractMatrix} <: AbstractMatrix{T} end
 
 # First loop through all methods that don't need special care for upper/lower and unit diagonal
 for t in (:LowerTriangular, :UnitLowerTriangular, :UpperTriangular,
           :UnitUpperTriangular)
     @eval begin
-        immutable $t{T,S<:AbstractMatrix} <: AbstractTriangular{T,S}
+        struct $t{T,S<:AbstractMatrix} <: AbstractTriangular{T,S}
             data::S
         end
         $t(A::$t) = A
@@ -1859,7 +1859,8 @@ function sqrtm(A::UpperTriangular)
     if isreal(A)
         realmatrix = true
         for i = 1:checksquare(A)
-            if real(A[i,i]) < 0
+            x = real(A[i,i])
+            if x < zero(x)
                 realmatrix = false
                 break
             end
@@ -1880,7 +1881,7 @@ function sqrtm{T,realmatrix}(A::UpperTriangular{T},::Type{Val{realmatrix}})
             @simd for k = i+1:j-1
                 r -= R[i,k]*R[k,j]
             end
-            r==0 || (R[i,j] = sylvester(R[i,i],R[j,j],-r))
+            iszero(r) || (R[i,j] = sylvester(R[i,i],R[j,j],-r))
         end
     end
     return UpperTriangular(R)

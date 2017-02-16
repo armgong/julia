@@ -1,8 +1,8 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-abstract ClusterManager
+abstract type ClusterManager end
 
-type WorkerConfig
+mutable struct WorkerConfig
     # Common fields relevant to all cluster managers
     io::Nullable{IO}
     host::Nullable{AbstractString}
@@ -51,7 +51,7 @@ type WorkerConfig
 end
 
 @enum WorkerState W_CREATED W_CONNECTED W_TERMINATING W_TERMINATED
-type Worker
+mutable struct Worker
     id::Int
     del_msgs::Array{Any,1}
     add_msgs::Array{Any,1}
@@ -119,7 +119,7 @@ end
 
 ## process group creation ##
 
-type LocalProcess
+mutable struct LocalProcess
     id::Int
     bind_addr::AbstractString
     bind_port::UInt16
@@ -557,7 +557,7 @@ let next_pid = 2    # 1 is reserved for the client (always)
     end
 end
 
-type ProcessGroup
+mutable struct ProcessGroup
     name::AbstractString
     workers::Array{Any,1}
     refs::Dict                  # global references
@@ -736,7 +736,7 @@ After a client Julia process has exited, further attempts to reference the dead 
 throw this exception.
 """
 ProcessExitedException()
-type ProcessExitedException <: Exception end
+mutable struct ProcessExitedException <: Exception end
 
 worker_from_id(i) = worker_from_id(PGRP, i)
 function worker_from_id(pg::ProcessGroup, i)
@@ -879,7 +879,7 @@ function disable_nagle(sock)
     @static if is_linux()
         # tcp_quickack is a linux only option
         if ccall(:jl_tcp_quickack, Cint, (Ptr{Void}, Cint), sock.handle, 1) < 0
-            warn_once("Parallel networking unoptimized ( Error enabling TCP_QUICKACK : ", Libc.strerror(Libc.errno()), " )")
+            warn_once("Networking unoptimized ( Error enabling TCP_QUICKACK : ", Libc.strerror(Libc.errno()), " )")
         end
     end
 end

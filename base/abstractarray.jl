@@ -245,9 +245,9 @@ end
 
 ## Traits for array types ##
 
-abstract LinearIndexing
-immutable LinearFast <: LinearIndexing end
-immutable LinearSlow <: LinearIndexing end
+abstract type LinearIndexing end
+struct LinearFast <: LinearIndexing end
+struct LinearSlow <: LinearIndexing end
 
 """
     Base.linearindexing(A)
@@ -301,6 +301,22 @@ if they need to provide custom bounds checking behaviors; however, in
 many cases one can rely on `A`'s indices and [`checkindex`](@ref).
 
 See also [`checkindex`](@ref).
+
+```jldoctest
+julia> A = rand(3, 3);
+
+julia> checkbounds(Bool, A, 2)
+true
+
+julia> checkbounds(Bool, A, 3, 4)
+false
+
+julia> checkbounds(Bool, A, 1:3)
+true
+
+julia> checkbounds(Bool, A, 1:3, 2:4)
+false
+```
 """
 function checkbounds(::Type{Bool}, A::AbstractArray, I...)
     @_inline_meta
@@ -346,6 +362,8 @@ bounds-check for a single dimension of the array.
 There are two important exceptions to the 1-1 rule: linear indexing and
 CartesianIndex{N}, both of which may "consume" more than one element
 of `IA`.
+
+See also [`checkbounds`](@ref).
 """
 function checkbounds_indices(::Type{Bool}, IA::Tuple, I::Tuple)
     @_inline_meta
@@ -365,7 +383,7 @@ function checkbounds_indices(::Type{Bool}, IA::Tuple, I::Tuple{Any})
     @_inline_meta
     checkbounds_linear_indices(Bool, IA, I[1])
 end
-function checkbounds_linear_indices(::Type{Bool}, IA::Tuple, i)
+function checkbounds_linear_indices(::Type{Bool}, IA::Tuple{Vararg{OneTo}}, i)
     @_inline_meta
     if checkindex(Bool, IA[1], i)
         return true
@@ -374,6 +392,10 @@ function checkbounds_linear_indices(::Type{Bool}, IA::Tuple, i)
         return true # TODO: Return false after the above function is removed in deprecated.jl
     end
     return false
+end
+function checkbounds_linear_indices(::Type{Bool}, IA::Tuple{AbstractUnitRange,Vararg{AbstractUnitRange}}, i)
+    @_inline_meta
+    checkindex(Bool, IA[1], i)
 end
 function checkbounds_linear_indices(::Type{Bool}, IA::Tuple, i::Union{Slice,Colon})
     partial_linear_indexing_warning_lookup(length(IA))
@@ -439,25 +461,31 @@ default is an `Array{element_type}(dims...)`.
 For example, `similar(1:10, 1, 4)` returns an uninitialized `Array{Int,2}` since ranges are
 neither mutable nor support 2 dimensions:
 
-    julia> similar(1:10, 1, 4)
-    1×4 Array{Int64,2}:
-     4419743872  4374413872  4419743888  0
+```julia
+julia> similar(1:10, 1, 4)
+1×4 Array{Int64,2}:
+ 4419743872  4374413872  4419743888  0
+```
 
 Conversely, `similar(trues(10,10), 2)` returns an uninitialized `BitVector` with two
 elements since `BitArray`s are both mutable and can support 1-dimensional arrays:
 
-    julia> similar(trues(10,10), 2)
-    2-element BitArray{1}:
-     false
-     false
+```julia
+julia> similar(trues(10,10), 2)
+2-element BitArray{1}:
+ false
+ false
+```
 
 Since `BitArray`s can only store elements of type `Bool`, however, if you request a
 different element type it will create a regular `Array` instead:
 
-    julia> similar(falses(10), Float64, 2, 4)
-    2×4 Array{Float64,2}:
-     2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
-     2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
+```julia
+julia> similar(falses(10), Float64, 2, 4)
+2×4 Array{Float64,2}:
+ 2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
+ 2.18425e-314  2.18425e-314  2.18425e-314  2.18425e-314
+```
 
 """
 similar{T}(a::AbstractArray{T})                             = similar(a, T)
@@ -671,6 +699,17 @@ Make a mutable copy of an array or iterable `a`.  For `a::Array`,
 this is equivalent to `copy(a)`, but for other array types it may
 differ depending on the type of `similar(a)`.  For generic iterables
 this is equivalent to `collect(a)`.
+
+```jldoctest
+julia> tup = (1, 2, 3)
+(1, 2, 3)
+
+julia> Base.copymutable(tup)
+3-element Array{Int64,1}:
+ 1
+ 2
+ 3
+```
 """
 function copymutable(a::AbstractArray)
     @_propagate_inbounds_meta
@@ -707,7 +746,7 @@ Example for a sparse 2-d array:
 
 ```jldoctest
 julia> A = sparse([1, 1, 2], [1, 3, 1], [1, 2, -5])
-2×3 sparse matrix with 3 Int64 stored entries:
+2×3 SparseMatrixCSC{Int64,Int64} with 3 stored entries:
   [1, 1]  =  1
   [2, 1]  =  -5
   [1, 3]  =  2
@@ -853,10 +892,24 @@ _to_subscript_indices{T}(A::AbstractArray{T,0}, i::Int) = () # TODO: REMOVE FOR 
 _to_subscript_indices{T}(A::AbstractArray{T,0}, I::Int...) = () # TODO: DEPRECATE FOR #14770
 function _to_subscript_indices{T,N}(A::AbstractArray{T,N}, I::Int...) # TODO: DEPRECATE FOR #14770
     @_inline_meta
-    J, _ = IteratorsMD.split(I, Val{N})    # (maybe) drop any trailing indices
-    sz = _remaining_size(J, size(A))       # compute trailing size (overlapping the final index)
+    J, Jrem = IteratorsMD.split(I, Val{N})
+    _to_subscript_indices(A, J, Jrem)
+end
+_to_subscript_indices(A::AbstractArray, J::Tuple, Jrem::Tuple{}) =
+    __to_subscript_indices(A, indices(A), J, Jrem)
+# We allow partial linear indexing deprecation for OneTo arrays
+function __to_subscript_indices(A::AbstractArray, ::Tuple{Vararg{OneTo}}, J::Tuple, Jrem::Tuple{})
+    @_inline_meta
+    sz = _remaining_size(J, indices(A))    # compute trailing size (overlapping the final index)
     (front(J)..., _unsafe_ind2sub(sz, last(J))...) # (maybe) extend the last index
 end
+# After the partial linear indexing deprecation is removed, this next method can
+# become the new normal. For now, it's limited to non-OneTo arrays.
+function __to_subscript_indices(A::AbstractArray, ::Tuple{AbstractUnitRange,Vararg{AbstractUnitRange}}, J::Tuple, Jrem::Tuple{})
+    @_inline_meta
+    (J..., map(first, tail(_remaining_size(J, indices(A))))...)
+end
+_to_subscript_indices(A, J::Tuple, Jrem::Tuple) = J # already bounds-checked, safe to drop
 _to_subscript_indices{T,N}(A::AbstractArray{T,N}, I::Vararg{Int,N}) = I
 _remaining_size(::Tuple{Any}, t::Tuple) = t
 _remaining_size(h::Tuple, t::Tuple) = (@_inline_meta; _remaining_size(tail(h), tail(t)))
@@ -900,7 +953,7 @@ end
 
 ## get (getindex with a default value) ##
 
-typealias RangeVecIntList{A<:AbstractVector{Int}} Union{Tuple{Vararg{Union{Range, AbstractVector{Int}}}}, AbstractVector{UnitRange{Int}}, AbstractVector{Range{Int}}, AbstractVector{A}}
+RangeVecIntList{A<:AbstractVector{Int}} = Union{Tuple{Vararg{Union{Range, AbstractVector{Int}}}}, AbstractVector{UnitRange{Int}}, AbstractVector{Range{Int}}, AbstractVector{A}}
 
 get(A::AbstractArray, i::Integer, default) = checkbounds(Bool, A, i) ? A[i] : default
 get(A::AbstractArray, I::Tuple{}, default) = similar(A, typeof(default), 0)
@@ -1611,7 +1664,7 @@ needed, for example in `foreach(println, array)`.
 ```jldoctest
 julia> a = 1:3:7;
 
-julia> foreach(x->println(x^2),a)
+julia> foreach(x -> println(x^2), a)
 1
 16
 49
@@ -1765,7 +1818,7 @@ Transform collection `c` by applying `f` to each element. For multiple collectio
 apply `f` elementwise.
 
 ```jldoctest
-julia> map((x) -> x * 2, [1, 2, 3])
+julia> map(x -> x * 2, [1, 2, 3])
 3-element Array{Int64,1}:
  2
  4
@@ -1805,6 +1858,18 @@ end
 
 Like [`map`](@ref), but stores the result in `destination` rather than a new
 collection. `destination` must be at least as large as the first collection.
+
+```jldoctest
+julia> x = zeros(3);
+
+julia> map!(x -> x * 2, x, [1, 2, 3]);
+
+julia> x
+3-element Array{Float64,1}:
+ 2.0
+ 4.0
+ 6.0
+```
 """
 map!{F}(f::F, dest::AbstractArray, As::AbstractArray...) = map_n!(f, dest, As)
 

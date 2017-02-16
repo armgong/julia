@@ -3,7 +3,7 @@
 ## work with AbstractVector{UInt8} via I/O primitives ##
 
 # Stateful string
-type AbstractIOBuffer{T<:AbstractVector{UInt8}} <: IO
+mutable struct AbstractIOBuffer{T<:AbstractVector{UInt8}} <: IO
     data::T # T should support: getindex, setindex!, length, copy!, resize!, and T()
     readable::Bool
     writable::Bool
@@ -19,7 +19,7 @@ type AbstractIOBuffer{T<:AbstractVector{UInt8}} <: IO
         new(data,readable,writable,seekable,append,length(data),maxsize,1,-1)
     end
 end
-typealias IOBuffer AbstractIOBuffer{Vector{UInt8}}
+const IOBuffer = AbstractIOBuffer{Vector{UInt8}}
 
 function AbstractIOBuffer(data::T, readable::Bool, writable::Bool, seekable::Bool, append::Bool,
                           maxsize::Int) where T<:AbstractVector{UInt8}
