@@ -100,9 +100,9 @@ end
 deprecate(s::Symbol) = deprecate(current_module(), s)
 deprecate(m::Module, s::Symbol) = ccall(:jl_deprecate_binding, Void, (Any, Any), m, s)
 
-macro deprecate_binding(old, new)
+macro deprecate_binding(old, new, export_old=true)
     Expr(:toplevel,
-         Expr(:export, esc(old)),
+         export_old ? Expr(:export, esc(old)) : nothing,
          Expr(:const, Expr(:(=), esc(old), esc(new))),
          Expr(:call, :deprecate, Expr(:quote, old)))
 end
@@ -478,7 +478,8 @@ function getindex(A::LogicalIndex, i::Int)
     first(Iterators.drop(A, i-1))
 end
 function to_indexes(I...)
-    depwarn("to_indexes is deprecated; pass both the source array `A` and indices as `to_indices(A, $(I...))` instead.", :to_indexes)
+    Istr = join(I, ", ")
+    depwarn("to_indexes is deprecated; pass both the source array `A` and indices as `to_indices(A, $Istr)` instead.", :to_indexes)
     map(_to_index, I)
 end
 _to_index(i) = to_index(I)
@@ -826,6 +827,7 @@ end
 # Deprecate vectorized !
 @deprecate(!(A::AbstractArray{Bool}), .!A) # parens for #20541
 @deprecate(!(B::BitArray), .!B) # parens for #20541
+!(::typeof(()->())) = () # make sure ! has at least 4 methods so that for-loops don't end up getting a back-edge to depwarn
 
 # Deprecate vectorized ~
 @deprecate ~(A::AbstractArray) .~A
@@ -1130,6 +1132,7 @@ end
      @deprecate object(repo::GitRepo, te::GitTreeEntry) GitObject(repo, te) false
      @deprecate commit(ann::GitAnnotated) GitHash(ann) false
      @deprecate cat{T<:GitObject}(repo::GitRepo, ::Type{T}, object::AbstractString) cat(repo, object)
+     @deprecate lookup(repo::GitRepo, oid::GitHash) GitBlob(repo, oid) false
 end
 
 # when this deprecation is deleted, remove all calls to it, and all
@@ -1271,6 +1274,11 @@ for f in (:airyai, :airyaiprime, :airybi, :airybiprime, :airyaix, :airyaiprimex,
         export $f
     end
 end
+
+@deprecate_binding LinearIndexing IndexStyle false
+@deprecate_binding LinearFast IndexLinear false
+@deprecate_binding LinearSlow IndexCartesian false
+@deprecate_binding linearindexing IndexStyle false
 
 # END 0.6 deprecations
 

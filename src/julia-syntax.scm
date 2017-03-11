@@ -992,9 +992,7 @@
                                (adj-decl name)
                                `(|::| |#self#| (call (core Typeof) ,name))))
                   (argl    (fix-arglist
-                            (if (and (not (decl? name)) (eq? (undot-name name) 'call))
-                                (cons (adj-decl (car argl)) (cdr argl))
-                                (arglist-unshift argl farg))
+                            (arglist-unshift argl farg)
                             (and (not (any kwarg? argl)) (not (and (pair? argl)
                                                                    (pair? (car argl))
                                                                    (eq? (caar argl) 'parameters))))))
@@ -2057,6 +2055,10 @@
                     (expand-forms
                      `(call (core _apply) ,f ,@(tuple-wrap argl '())))))
 
+                 ((and (eq? f '^) (length= e 4) (integer? (cadddr e)))
+                  (expand-forms
+                   `(call (top literal_pow) ^ ,(caddr e) (call (core apply_type) (top Val) ,(cadddr e)))))
+
                  ((and (eq? f '*) (length= e 4))
                   (expand-transposed-op
                    e
@@ -2080,6 +2082,11 @@
      (if (any assignment? (cdr e))
          (error "assignment not allowed inside tuple"))
      (expand-forms `(call (core tuple) ,@(cdr e))))
+
+   '=>
+   (lambda (e)
+     (syntax-deprecation #f "Expr(:(=>), ...)" "Expr(:call, :(=>), ...)")
+     `(call => ,(expand-forms (cadr e)) ,(expand-forms (caddr e))))
 
    'cell1d (lambda (e) (error "{ } vector syntax is discontinued"))
    'cell2d (lambda (e) (error "{ } matrix syntax is discontinued"))
@@ -3552,6 +3559,8 @@ f(x) = yt(x)
                '(null)))
             ((...)
              (error "\"...\" expression outside call"))
+            ((error)
+             (error (cadr e)))
             (else
              (error (string "invalid syntax " (deparse e)))))))
     ;; introduce new slots for assigned arguments

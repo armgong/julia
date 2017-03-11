@@ -635,6 +635,13 @@ let pub = Base.parameter_upper_bound, x = fComplicatedUnionAll(Real)
     @test pub(pub(x, 1), 2) == Int || pub(pub(x, 1), 2) == Float64
 end
 
+# issue #20733
+# run this test in a separate process to avoid interfering with `getindex`
+let def = "Base.getindex(t::NTuple{3,NTuple{2,Int}}, i::Int, j::Int, k::Int) = (t[1][i], t[2][j], t[3][k])"
+    @test readstring(`$(Base.julia_cmd()) --startup-file=no -E "$def;test(t) = t[2,1,2];test(((3,4), (5,6), (7,8)))"`) ==
+        "(4, 5, 8)\n"
+end
+
 # issue #20267
 mutable struct T20267{T}
     inds::Vector{T}
@@ -642,3 +649,38 @@ end
 # infinite type growth via lower bounds (formed by intersection)
 f20267(x::T20267{T}, y::T) where (T) = f20267(Any[1][1], x.inds)
 @test Base.return_types(f20267, (Any, Any)) == Any[Union{}]
+
+# issue #20615
+let A = 1:2, z = zip(A, A, A, A, A, A, A, A, A, A, A, A)
+    @test z isa Core.Inference.limit_type_depth(typeof(z), 0)
+    @test start(z) == (1, (1, (1, (1, (1, (1, (1, (1, (1, (1, (1, 1)))))))))))
+end
+
+# issue #20704
+f20704(::Int) = 1
+Base.@pure b20704(x::ANY) = f20704(x)
+@test b20704(42) === 1
+@test_throws MethodError b20704(42.0)
+
+bb20704() = b20704(Any[1.0][1])
+@test_throws MethodError bb20704()
+
+v20704() = Val{b20704(Any[1.0][1])}
+@test_throws MethodError v20704()
+@test Base.return_types(v20704, ()) == Any[Type{Val{1}}]
+
+Base.@pure g20704(::Int) = 1
+h20704(x::ANY) = g20704(x)
+@test g20704(1) === 1
+@test_throws MethodError h20704(1.2)
+
+Base.@pure c20704() = (f20704(1.0); 1)
+d20704() = c20704()
+@test_throws MethodError d20704()
+
+Base.@pure function a20704(x)
+    rand()
+    42
+end
+aa20704(x) = x(nothing)
+@test code_typed(aa20704, (typeof(a20704),))[1][1].pure

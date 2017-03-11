@@ -75,7 +75,6 @@ julia> transpose(v)
 """
 @inline transpose(vec::AbstractVector) = RowVector(vec)
 @inline ctranspose(vec::AbstractVector) = RowVector(_conj(vec))
-@inline ctranspose(vec::AbstractVector{<:Real}) = RowVector(vec)
 
 @inline transpose(rowvec::RowVector) = rowvec.vec
 @inline transpose(rowvec::ConjRowVector) = copy(rowvec.vec) # remove the ConjArray wrapper from any raw vector
@@ -110,8 +109,8 @@ julia> conj(v)
 @inline size(rowvec::RowVector, d) = ifelse(d==2, length(rowvec.vec), 1)
 @inline indices(rowvec::RowVector) = (Base.OneTo(1), indices(rowvec.vec)[1])
 @inline indices(rowvec::RowVector, d) = ifelse(d == 2, indices(rowvec.vec)[1], Base.OneTo(1))
-linearindexing(::RowVector) = LinearFast()
-linearindexing(::Type{<:RowVector}) = LinearFast()
+IndexStyle(::RowVector) = IndexLinear()
+IndexStyle(::Type{<:RowVector}) = IndexLinear()
 
 @propagate_inbounds getindex(rowvec::RowVector, i) = transpose(rowvec.vec[i])
 @propagate_inbounds setindex!(rowvec::RowVector, v, i) = setindex!(rowvec.vec, transpose(v), i)

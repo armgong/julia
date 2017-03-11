@@ -9,7 +9,7 @@ struct ReshapedArray{T,N,P<:AbstractArray,MI<:Tuple{Vararg{SignedMultiplicativeI
 end
 ReshapedArray{T,N}(parent::AbstractArray{T}, dims::NTuple{N,Int}, mi) = ReshapedArray{T,N,typeof(parent),typeof(mi)}(parent, dims, mi)
 
-# LinearFast ReshapedArray
+# IndexLinear ReshapedArray
 ReshapedArrayLF{T,N,P<:AbstractArray} = ReshapedArray{T,N,P,Tuple{}}
 
 # Fast iteration on ReshapedArrays: use the parent iterator
@@ -37,15 +37,19 @@ end
 length(R::ReshapedArrayIterator) = length(R.iter)
 
 """
-    reshape(A, dims...)
-    reshape(A, dims)
+    reshape(A, dims...) -> R
+    reshape(A, dims) -> R
 
-Return an array with the same data as the given array, but with different dimensions.
+Return an array `R` with the same data as `A`, but with different
+dimension sizes or number of dimensions. The two arrays share the same
+underlying data, so that setting elements of `R` alters the values of
+`A` and vice versa.
 
-The new dimensions may be specified either as a list of arguments or as a shape
-tuple. At most one dimension may be specified with a `:`, in which case its
-length is computed such that its product with all the specified dimensions is
-equal to the length of the original array A.
+The new dimensions may be specified either as a list of arguments or
+as a shape tuple. At most one dimension may be specified with a `:`,
+in which case its length is computed such that its product with all
+the specified dimensions is equal to the length of the original array
+`A`. The total number of elements must not change.
 
 ```jldoctest
 julia> A = collect(1:16)
@@ -91,23 +95,19 @@ reshape(parent::AbstractArray, dims::Dims)        = _reshape(parent, dims)
 reshape(parent::AbstractArray, dims::Int...) = reshape(parent, dims)
 reshape(parent::AbstractArray, dims::Union{Int,Colon}...) = reshape(parent, dims)
 reshape(parent::AbstractArray, dims::Tuple{Vararg{Union{Int,Colon}}}) = _reshape(parent, _reshape_uncolon(parent, dims))
-# Recursively move dimensions to pre and post tuples, splitting on the Colon
-@inline _reshape_uncolon(A, dims) = _reshape_uncolon(A, (), nothing, (), dims)
-@inline _reshape_uncolon(A, pre, c::Void,  post, dims::Tuple{Any, Vararg{Any}}) =
-    _reshape_uncolon(A, (pre..., dims[1]), c, post, tail(dims))
-@inline _reshape_uncolon(A, pre, c::Void,  post, dims::Tuple{Colon, Vararg{Any}}) =
-    _reshape_uncolon(A, pre, dims[1], post, tail(dims))
-@inline _reshape_uncolon(A, pre, c::Colon, post, dims::Tuple{Any, Vararg{Any}}) =
-    _reshape_uncolon(A, pre, c, (post..., dims[1]), tail(dims))
-_reshape_uncolon(A, pre, c::Colon, post, dims::Tuple{Colon, Vararg{Any}}) =
-    throw(DimensionMismatch("new dimensions $((pre..., c, post..., dims...)) may only have at most one omitted dimension specified by Colon()"))
-@inline function _reshape_uncolon(A, pre, c::Colon, post, dims::Tuple{})
+@inline function _reshape_uncolon(A, dims)
+    pre, post = _split_at_colon((), dims...)
+    if any(d -> d isa Colon, post)
+        throw(DimensionMismatch("new dimensions $(dims) may have at most one omitted dimension specified by Colon()"))
+    end
     sz, remainder = divrem(length(A), prod(pre)*prod(post))
-    remainder == 0 || _throw_reshape_colon_dimmismatch(A, pre, post)
+    remainder == 0 || _throw_reshape_colon_dimmismatch(A, dims)
     (pre..., sz, post...)
 end
-_throw_reshape_colon_dimmismatch(A, pre, post) =
-    throw(DimensionMismatch("array size $(length(A)) must be divisible by the product of the new dimensions $((pre..., :, post...))"))
+@inline _split_at_colon(pre, dim::Any, tail...) =  _split_at_colon((pre..., dim), tail...)
+@inline _split_at_colon(pre, ::Colon, tail...) = (pre, tail)
+_throw_reshape_colon_dimmismatch(A, dims) =
+    throw(DimensionMismatch("array size $(length(A)) must be divisible by the product of the new dimensions $dims"))
 
 reshape{T,N}(parent::AbstractArray{T,N}, ndims::Type{Val{N}}) = parent
 function reshape{N}(parent::AbstractArray, ndims::Type{Val{N}})
@@ -139,14 +139,14 @@ end
 function _reshape(parent::AbstractArray, dims::Dims)
     n = _length(parent)
     prod(dims) == n || throw(DimensionMismatch("parent has $n elements, which is incompatible with size $dims"))
-    __reshape((parent, linearindexing(parent)), dims)
+    __reshape((parent, IndexStyle(parent)), dims)
 end
 
 # Reshaping a ReshapedArray
 _reshape(v::ReshapedArray{<:Any,1}, dims::Dims{1}) = _reshape(v.parent, dims)
 _reshape(R::ReshapedArray, dims::Dims) = _reshape(R.parent, dims)
 
-function __reshape(p::Tuple{AbstractArray,LinearSlow}, dims::Dims)
+function __reshape(p::Tuple{AbstractArray,IndexCartesian}, dims::Dims)
     parent = p[1]
     strds = front(size_strides(parent))
     strds1 = map(s->max(1,s), strds)  # for resizing empty arrays
@@ -154,7 +154,7 @@ function __reshape(p::Tuple{AbstractArray,LinearSlow}, dims::Dims)
     ReshapedArray(parent, dims, reverse(mi))
 end
 
-function __reshape(p::Tuple{AbstractArray,LinearFast}, dims::Dims)
+function __reshape(p::Tuple{AbstractArray,IndexLinear}, dims::Dims)
     parent = p[1]
     ReshapedArray(parent, dims, ())
 end
@@ -165,7 +165,7 @@ size_strides(out::Tuple) = out
 
 size(A::ReshapedArray) = A.dims
 similar(A::ReshapedArray, eltype::Type, dims::Dims) = similar(parent(A), eltype, dims)
-linearindexing(::Type{<:ReshapedArrayLF}) = LinearFast()
+IndexStyle(::Type{<:ReshapedArrayLF}) = IndexLinear()
 parent(A::ReshapedArray) = A.parent
 parentindexes(A::ReshapedArray) = map(s->1:s, size(parent(A)))
 reinterpret{T}(::Type{T}, A::ReshapedArray, dims::Dims) = reinterpret(T, parent(A), dims)

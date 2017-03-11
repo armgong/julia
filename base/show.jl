@@ -211,11 +211,12 @@ end
 show(io::IO, x::DataType) = show_datatype(io, x)
 
 function show_datatype(io::IO, x::DataType)
-    if (!isempty(x.parameters) || x.name === Tuple.name) && x !== Tuple
+    istuple = x.name === Tuple.name
+    if (!isempty(x.parameters) || istuple) && x !== Tuple
         n = length(x.parameters)
 
         # Print homogeneous tuples with more than 3 elements compactly as NTuple{N, T}
-        if n > 3 && all(i -> (x.parameters[1] === i), x.parameters)
+        if istuple && n > 3 && all(i -> (x.parameters[1] === i), x.parameters)
             print(io, "NTuple{", n, ',', x.parameters[1], "}")
         else
             show(io, x.name)
@@ -1038,12 +1039,12 @@ function show_lambda_types(io::IO, li::Core.MethodInstance)
             returned_from_do = true
             return
         end
-        sig = li.specTypes.parameters
-        ft = sig[1]
-        if ft <: Function && isempty(ft.parameters) &&
-                isdefined(ft.name.module, ft.name.mt.name) &&
-                ft == typeof(getfield(ft.name.module, ft.name.mt.name))
-            print(io, ft.name.mt.name)
+        sig = unwrap_unionall(li.specTypes).parameters
+        ft = sig[1]; uw = unwrap_unionall(ft)
+        if ft <: Function && isa(uw,DataType) && isempty(uw.parameters) &&
+                isdefined(uw.name.module, uw.name.mt.name) &&
+                ft == typeof(getfield(uw.name.module, uw.name.mt.name))
+            print(io, uw.name.mt.name)
         elseif isa(ft, DataType) && ft.name === Type.body.name && isleaftype(ft)
             f = ft.parameters[1]
             print(io, f)
@@ -1053,7 +1054,7 @@ function show_lambda_types(io::IO, li::Core.MethodInstance)
     end
     returned_from_do && return
     first = true
-    print_style = have_color ? :bold : :nothing
+    print_style = have_color && get(io, :backtrace, false) ? :bold : :nothing
     print_with_color(print_style, io, "(")
     for i = 2:length(sig)  # fixme (iter): `eachindex` with offset?
         first || print(io, ", ")

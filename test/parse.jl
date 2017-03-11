@@ -243,6 +243,36 @@ for T in vcat(subtypes(Signed), subtypes(Unsigned))
         exception_uint = result.value
         @test exception_uint.msg == "input string is empty or only contains whitespace"
     end
+
+    # Test that the entire input string appears in error messages
+    let s = "     false    true     "
+        result = @test_throws ArgumentError get(Base.tryparse_internal(Bool, s, start(s), endof(s), 0, true))
+        @test result.value.msg == "invalid Bool representation: $(repr(s))"
+    end
+
+    # Test that leading and trailing whitespace is ignored.
+    for v in (1, 2, 3)
+        @test parse(Int, "    $v"    ) == v
+        @test parse(Int, "    $v\n"  ) == v
+        @test parse(Int, "$v    "    ) == v
+        @test parse(Int, "    $v    ") == v
+    end
+    for v in (true, false)
+        @test parse(Bool, "    $v"    ) == v
+        @test parse(Bool, "    $v\n"  ) == v
+        @test parse(Bool, "$v    "    ) == v
+        @test parse(Bool, "    $v    ") == v
+    end
+    for v in (0.05, -0.05, 2.5, -2.5)
+        @test parse(Float64, "    $v"    ) == v
+        @test parse(Float64, "    $v\n"  ) == v
+        @test parse(Float64, "$v    "    ) == v
+        @test parse(Float64, "    $v    ") == v
+    end
+    @test parse(Float64, "    .5"    ) == 0.5
+    @test parse(Float64, "    .5\n"  ) == 0.5
+    @test parse(Float64, "    .5    ") == 0.5
+    @test parse(Float64, ".5    "    ) == 0.5
 end
 
 parsebin(s) = parse(Int,s,2)
@@ -982,3 +1012,35 @@ short_where_call = :(f(x::T) where T = T)
 
 @test expand(:(a{1} = b)) == Expr(:error, "invalid type parameter name \"1\"")
 @test expand(:(a{2<:Any} = b)) == Expr(:error, "invalid type parameter name \"2\"")
+
+# issue #20653
+@test_throws UndefVarError Base.call(::Int) = 1
+module Test20653
+using Base.Test
+struct A
+end
+call(::A) = 1
+const a = A()
+@test_throws MethodError a()
+@test call(a) === 1
+end
+
+# issue #20729
+macro m20729()
+    ex = Expr(:head)
+    resize!(ex.args, 1)
+    return ex
+end
+
+@test_throws ErrorException eval(:(@m20729))
+@test expand(:(@m20729)) == Expr(:error, "undefined reference in AST")
+
+macro err20000()
+    return Expr(:error, "oops!")
+end
+
+@test expand(:(@err20000)) == Expr(:error, "oops!")
+
+# issue #20000
+@test parse("@m(a; b=c)") == Expr(:macrocall, Symbol("@m"),
+                                  Expr(:parameters, Expr(:kw, :b, :c)), :a)

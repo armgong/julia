@@ -195,6 +195,29 @@ end
 ^(x::Number, p::Integer)  = power_by_squaring(x,p)
 ^(x, p::Integer)          = power_by_squaring(x,p)
 
+# x^p for any literal integer p is lowered to Base.literal_pow(^, x, Val{p})
+# to enable compile-time optimizations specialized to p.
+# However, we still need a fallback that calls the function ^ which may either
+# mean Base.^ or something else, depending on context.
+# We mark these @inline since if the target is marked @inline,
+# we want to make sure that gets propagated,
+# even if it is over the inlining threshold.
+@inline literal_pow{p}(f, x, ::Type{Val{p}}) = f(x,p)
+
+# Restrict inlining to hardware-supported arithmetic types, which
+# are fast enough to benefit from inlining.
+const HWReal = Union{Int8,Int16,Int32,Int64,UInt8,UInt16,UInt32,UInt64,Float32,Float64}
+const HWNumber = Union{HWReal, Complex{<:HWReal}, Rational{<:HWReal}}
+
+# inference.jl has complicated logic to inline x^2 and x^3 for
+# numeric types.  In terms of Val we can do it much more simply.
+# (The first argument prevents unexpected behavior if a function ^
+# is defined that is not equal to Base.^)
+@inline literal_pow(::typeof(^), x::HWNumber, ::Type{Val{0}}) = one(x)
+@inline literal_pow(::typeof(^), x::HWNumber, ::Type{Val{1}}) = x
+@inline literal_pow(::typeof(^), x::HWNumber, ::Type{Val{2}}) = x*x
+@inline literal_pow(::typeof(^), x::HWNumber, ::Type{Val{3}}) = x*x*x
+
 # b^p mod m
 
 """

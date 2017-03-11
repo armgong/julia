@@ -12,6 +12,8 @@ notequal_type(x::ANY,y::ANY) = !isequal_type(x, y)
 
 _type_intersect(x::ANY, y::ANY) = ccall(:jl_intersect_types, Any, (Any, Any), x, y)
 
+intersection_env(x::ANY, y::ANY) = ccall(:jl_env_from_type_intersection, Any, (Any,Any), x, y)
+
 # level 1: no varags, union, UnionAll
 function test_1()
     @test issub_strict(Int, Integer)
@@ -829,7 +831,28 @@ function test_intersection()
     # part of issue #20344
     @testintersect(Tuple{Type{Tuple{Vararg{T, N} where N}}, Tuple} where T,
                    Tuple{Type{Tuple{Vararg{T, N}}} where N where T, Any},
-                   Tuple{Type{Tuple{}}, Tuple})
+                   Bottom)
+    @testintersect(Type{NTuple{N,UnitRange}} where N,
+                   Type{Tuple{Vararg{UnitRange}}},
+                   Bottom)
+
+    @testintersect(Type{NTuple{Z,UnitRange}} where Z,
+                   Type{NTuple{Z,String}} where Z,
+                   Type{Tuple{}})
+
+    # first union component sets N==0, but for the second N is unknown
+    _, E = intersection_env(Tuple{Tuple{Vararg{Int}}, Any},
+                            Tuple{Union{Base.DimsInteger{N},Base.Indices{N}}, Int} where N)
+    @test length(E)==1 && isa(E[1],TypeVar)
+
+    @testintersect(Tuple{Dict{Int,Int}, Ref{Pair{K,V}}} where V where K,
+                   Tuple{Associative{Int,Int}, Ref{Pair{T,T}} where T},
+                   Tuple{Dict{Int,Int}, Ref{Pair{K,K}}} where K)
+
+    # issue #20643
+    @testintersect(Tuple{Ref{Pair{p2,T2}}, Pair{p1,Pair}} where T2 where p2 where p1,
+                   Tuple{Ref{Pair{p3,T3}}, Pair{p3}} where T3 where p3,
+                   Tuple{Ref{Pair{p1,T2}}, Pair{p1,Pair}} where T2 where p1)
 end
 
 function test_intersection_properties()
@@ -915,3 +938,6 @@ ftwoparams(::TwoParams{<:Real,<:Real}) = 3
 # supertype operator
 @test !(Int >: Integer)
 @test Integer >: Int
+
+# tolerate non-types in Tuples
+@test typeintersect(Tuple{0}, Tuple{T} where T) === Tuple{0}

@@ -672,7 +672,7 @@ static void interpret_symbol_arg(native_sym_arg_t &out, jl_value_t *arg, jl_code
                                "cglobal: first argument not a pointer or valid constant expression",
                                ctx);
         }
-        arg1 = remark_julia_type(arg1, (jl_value_t*)jl_voidpointer_type, ctx);
+        arg1 = update_julia_type(arg1, (jl_value_t*)jl_voidpointer_type, ctx);
         jl_ptr = emit_unbox(T_size, arg1, (jl_value_t*)jl_voidpointer_type);
     }
     else {
@@ -851,10 +851,10 @@ public:
             VMap[&*I] = &*(DestI++);        // Add mapping to VMap
         }
 
-    #if JL_LLVM_VERSION >= 30600
+#if JL_LLVM_VERSION >= 30600
         // Clone debug info - Not yet public API
         // llvm::CloneDebugInfoMetadata(NewF,F,VMap);
-    #endif
+#endif
 
         SmallVector<ReturnInst*, 8> Returns;
         llvm::CloneFunctionInto(NewF,F,VMap,true,Returns,"",NULL,NULL,this);
@@ -912,10 +912,10 @@ public:
                     if (oldF)
                         return oldF;
 
-                    #ifdef USE_ORCJIT
+#ifdef USE_ORCJIT
                     if (jl_ExecutionEngine->findSymbol(F->getName(), false))
                         return InjectFunctionProto(F);
-                    #endif
+#endif
 
                     return CloneFunctionProto(shadow);
                 }
@@ -2039,7 +2039,7 @@ jl_cgval_t function_sig_t::emit_a_ccall(
                 assert(rtsz > 0);
                 Value *strct = emit_allocobj(ctx, rtsz, runtime_bt);
                 int boxalign = jl_gc_alignment(rtsz);
-#ifndef NDEBUG
+#ifndef JL_NDEBUG
 #if JL_LLVM_VERSION >= 30600
                 const DataLayout &DL = jl_ExecutionEngine->getDataLayout();
 #else

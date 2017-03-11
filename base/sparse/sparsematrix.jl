@@ -992,7 +992,7 @@ count (`length(q) == A.n`). Row-permutation `p`'s length must match `A`'s row co
 (`length(p) == A.m`).
 
 `C`'s dimensions must match those of `transpose(A)` (`C.m == A.n` and `C.n == A.m`), and `C`
-must have enough storage to accommodate all allocated entries in `A` (`length(C.rowval)` >= nnz(A)`
+must have enough storage to accommodate all allocated entries in `A` (`length(C.rowval) >= nnz(A)`
 and `length(C.nzval) >= nnz(A)`).
 
 For additional (algorithmic) information, and for versions of these methods that forgo
@@ -1272,7 +1272,7 @@ julia> sprand(rng, Bool, 2, 2, 0.5)
 julia> sprand(rng, Float64, 3, 0.75)
 3-element SparseVector{Float64,Int64} with 1 stored entry:
   [3]  =  0.298614
-````
+```
 """
 function sprand{T}(r::AbstractRNG, m::Integer, n::Integer, density::AbstractFloat,
                 rfn::Function, ::Type{T}=eltype(rfn(r,1)))
@@ -1522,7 +1522,7 @@ function _mapreducezeros(f, op, T::Type, nzeros::Int, v0)
     v
 end
 
-function Base._mapreduce{T}(f, op, ::Base.LinearSlow, A::SparseMatrixCSC{T})
+function Base._mapreduce{T}(f, op, ::Base.IndexCartesian, A::SparseMatrixCSC{T})
     z = nnz(A)
     n = length(A)
     if z == 0
@@ -2250,8 +2250,9 @@ setindex!(A::SparseMatrixCSC, x, i::Union{Integer, AbstractVector}, ::Colon) = s
 function setindex!{Tv}(A::SparseMatrixCSC{Tv}, x::Number,
         I::AbstractVector{<:Integer}, J::AbstractVector{<:Integer})
     if isempty(I) || isempty(J); return A; end
-    if !issorted(I); I = sort(I); end
-    if !issorted(J); J = sort(J); end
+    # lt=≤ to check for strict sorting
+    if !issorted(I, lt=≤); I = sort!(unique(I)); end
+    if !issorted(J, lt=≤); J = sort!(unique(J)); end
     if (I[1] < 1 || I[end] > A.m) || (J[1] < 1 || J[end] > A.n)
         throw(BoundsError(A, (I, J)))
     end
@@ -2801,7 +2802,7 @@ function dropstored!(A::SparseMatrixCSC, i::Integer, j::Integer)
     return A
 end
 """
-    dropstored!(A::SparseMatrix, I::AbstractVector{<:Integer}, J::AbstractVector{<:Integer})
+    dropstored!(A::SparseMatrixCSC, I::AbstractVector{<:Integer}, J::AbstractVector{<:Integer})
 
 For each `(i,j)` where `i in I` and `j in J`, drop entry `A[i,j]` from `A` if `A[i,j]` is
 stored and otherwise do nothing. Derivative forms:

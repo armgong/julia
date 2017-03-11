@@ -95,6 +95,17 @@ Checks if there have been any changes to tracked files in the working tree (if
 `cached=false`) or the index (if `cached=true`).
 `pathspecs` are the specifications for options for the diff.
 
+# Example
+```julia
+repo = LibGit2.GitRepo(repo_path)
+LibGit2.isdirty(repo) # should be false
+open(joinpath(repo_path, new_file), "a") do f
+    println(f, "here's my cool new file")
+end
+LibGit2.isdirty(repo) # now true
+LibGit2.isdirty(repo, new_file) # now true
+```
+
 Equivalent to `git diff-index HEAD [-- <pathspecs>]`.
 """
 isdirty(repo::GitRepo, paths::AbstractString=""; cached::Bool=false) =
@@ -106,6 +117,16 @@ isdirty(repo::GitRepo, paths::AbstractString=""; cached::Bool=false) =
 Checks if there are any differences between the tree specified by `treeish` and the
 tracked files in the working tree (if `cached=false`) or the index (if `cached=true`).
 `pathspecs` are the specifications for options for the diff.
+
+# Example
+```julia
+repo = LibGit2.GitRepo(repo_path)
+LibGit2.isdiff(repo, "HEAD") # should be false
+open(joinpath(repo_path, new_file), "a") do f
+    println(f, "here's my cool new file")
+end
+LibGit2.isdiff(repo, "HEAD") # now true
+```
 
 Equivalent to `git diff-index <treeish> [-- <pathspecs>]`.
 """
@@ -128,7 +149,7 @@ Show which files have changed in the git repository `repo` between branches `bra
 and `branch2`.
 
 The keyword argument is:
-  * `filter::Set{Cint}=Set([Consts.DELTA_ADDED, Consts.DELTA_MODIFIED, Consts.DELTA_DELETED]))`,
+  * `filter::Set{Consts.DELTA_STATUS}=Set([Consts.DELTA_ADDED, Consts.DELTA_MODIFIED, Consts.DELTA_DELETED]))`,
     and it sets options for the diff. The default is to show files added, modified, or deleted.
 
 Returns only the *names* of the files which have changed, *not* their contents.
@@ -136,7 +157,7 @@ Returns only the *names* of the files which have changed, *not* their contents.
 Equivalent to `git diff --name-only --diff-filter=<filter> <branch1> <branch2>`.
 """
 function diff_files(repo::GitRepo, branch1::AbstractString, branch2::AbstractString;
-                    filter::Set{Cint}=Set([Consts.DELTA_ADDED, Consts.DELTA_MODIFIED, Consts.DELTA_DELETED]))
+                    filter::Set{Consts.DELTA_STATUS}=Set([Consts.DELTA_ADDED, Consts.DELTA_MODIFIED, Consts.DELTA_DELETED]))
     b1_id = revparseid(repo, branch1*"^{tree}")
     b2_id = revparseid(repo, branch2*"^{tree}")
     tree1 = GitTree(repo, b1_id)
@@ -147,7 +168,7 @@ function diff_files(repo::GitRepo, branch1::AbstractString, branch2::AbstractStr
         for i in 1:count(diff)
             delta = diff[i]
             delta === nothing && break
-            if delta.status in filter
+            if Consts.DELTA_STATUS(delta.status) in filter
                 push!(files, unsafe_string(delta.new_file.path))
             end
         end
@@ -403,15 +424,15 @@ function checkout!(repo::GitRepo, commit::AbstractString = "";
     # search for commit to get a commit object
     obj = GitObject(repo, GitHash(commit))
     peeled = peel(GitCommit, obj)
-
-    opts = force ? CheckoutOptions(checkout_strategy = Consts.CHECKOUT_FORCE) : CheckoutOptions()
-    # detach commit
     obj_oid = GitHash(peeled)
-    ref = GitReference(repo, obj_oid, force=force,
-                       msg="libgit2.checkout: moving from $head_name to $(string(obj_oid))")
 
     # checkout commit
-    checkout_tree(repo, peeled, options = opts)
+    checkout_tree(repo, peeled, options = force ? CheckoutOptions(checkout_strategy = Consts.CHECKOUT_FORCE) : CheckoutOptions())
+
+    GitReference(repo, obj_oid, force=force,
+                 msg="libgit2.checkout: moving from $head_name to $(obj_oid))")
+
+    return nothing
 end
 
 """
