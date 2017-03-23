@@ -1,6 +1,6 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-## SubString, RevString, RepString and Cstring tests ##
+## SubString, RevString and Cstring tests ##
 
 ## SubString tests ##
 u8str = "∀ ε > 0, ∃ δ > 0: |x-y| < δ ⇒ |f(x)-f(y)| < ε"
@@ -52,7 +52,7 @@ u = SubString(str, 3, 6)
 @test length(u)==2
 b = IOBuffer()
 write(b, u)
-@test takebuf_string(b) == "\u2200\u2222"
+@test String(take!(b)) == "\u2200\u2222"
 
 @test_throws ArgumentError SubString(str, 4, 5)
 @test_throws BoundsError next(u, 0)
@@ -70,14 +70,14 @@ u = SubString(str, 4, 3)
 @test length(u)==0
 b = IOBuffer()
 write(b, u)
-@test takebuf_string(b) == ""
+@test String(take!(b)) == ""
 
 str = "føøbar"
 u = SubString(str, 10, 10)
 @test length(u)==0
 b = IOBuffer()
 write(b, u)
-@test takebuf_string(b) == ""
+@test String(take!(b)) == ""
 
 # search and SubString (issue #5679)
 str = "Hello, world!"
@@ -164,54 +164,29 @@ rs = RevString("foobar")
 @test parse(Float64,RevString("64")) === 46.0
 
 # reverseind
-for T in (String, UTF16String, UTF32String)
+for T in (String, GenericString)
     for prefix in ("", "abcd", "\U0001d6a4\U0001d4c1", "\U0001d6a4\U0001d4c1c", " \U0001d6a4\U0001d4c1")
         for suffix in ("", "abcde", "\U0001d4c1β\U0001d6a4", "\U0001d4c1β\U0001d6a4c", " \U0001d4c1β\U0001d6a4")
             for c in ('X', 'δ', '\U0001d6a5')
                 s = convert(T, string(prefix, c, suffix))
-                ri = search(reverse(s), c)
-                @test reverse(s) == RevString(s)
-                @test c == s[reverseind(s, ri)] == reverse(s)[ri]
+                r = reverse(s)
+                ri = search(r, c)
+                @test r == RevString(s)
+                @test c == s[reverseind(s, ri)] == r[ri]
                 s = RevString(s)
-                ri = search(reverse(s), c)
-                @test c == s[reverseind(s, ri)] == reverse(s)[ri]
+                r = reverse(s)
+                ri = search(r, c)
+                @test c == s[reverseind(s, ri)] == r[ri]
                 s = convert(T, string(prefix, prefix, c, suffix, suffix))
                 pre = convert(T, prefix)
                 sb = SubString(s, nextind(pre, endof(pre)), endof(convert(T, string(prefix, prefix, c, suffix))))
-                ri = search(reverse(sb), c)
-                @test c == sb[reverseind(sb, ri)] == reverse(sb)[ri]
+                r = reverse(sb)
+                ri = search(r, c)
+                @test c == sb[reverseind(sb, ri)] == r[ri]
             end
         end
     end
 end
-
-## Repeat strings ##
-
-# issue #7764
-let
-    rs = RepString("foo", 2)
-    @test length(rs) == 6
-    @test sizeof(rs) == 6
-    @test isascii(rs)
-    @test convert(RepString, "foobar") == "foobar"
-    @test typeof(convert(RepString, "foobar")) == RepString
-
-    srep = RepString("Σβ",2)
-    s="Σβ"
-    ss=SubString(s,1,endof(s))
-
-    @test ss^2 == "ΣβΣβ"
-    @test RepString(ss,2) == "ΣβΣβ"
-
-    @test endof(srep) == 7
-
-    @test next(srep, 3) == ('β',5)
-    @test next(srep, 7) == ('β',9)
-
-    @test srep[7] == 'β'
-    @test_throws BoundsError srep[8]
-end
-
 
 ## Cstring tests ##
 

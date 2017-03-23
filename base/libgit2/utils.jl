@@ -1,6 +1,21 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
-const urlmatcher = r"^(http[s]?|git|ssh)?(:\/\/)?((\w+)@)?([A-Za-z0-9\-\.]+)(:[0-9]+)?(.*)$"
+# Parse "GIT URLs" syntax (URLs and a scp-like syntax). For details see:
+# https://git-scm.com/docs/git-clone#_git_urls_a_id_urls_a
+const URL_REGEX = r"""
+^(?:(?<scheme>ssh|git|https?)://)?
+(?:
+    (?<user>.*?)
+    (?:\:(?<password>.*?))?@
+)?
+(?<host>[A-Za-z0-9\-\.]+)
+(?(<scheme>)
+    (?:\:(?<port>\d+))?  # only parse port when not using SCP-like syntax
+    |
+    :?
+)
+(?<path>.*?)$
+"""x
 
 function version()
     major = Ref{Cint}(0)
@@ -10,18 +25,22 @@ function version()
           (Ptr{Cint}, Ptr{Cint}, Ptr{Cint}), major, minor, patch)
     return VersionNumber(major[], minor[], patch[])
 end
+const VERSION = version()
 
 isset(val::Integer, flag::Integer) = (val & flag == flag)
 reset(val::Integer, flag::Integer) = (val &= ~flag)
 toggle(val::Integer, flag::Integer) = (val |= flag)
 
 function prompt(msg::AbstractString; default::AbstractString="", password::Bool=false)
+    if is_windows() && password
+        error("Command line prompt not supported for password entry on windows. Use winprompt instead")
+    end
     msg = !isempty(default) ? msg*" [$default]:" : msg*":"
     uinput = if password
         Base.getpass(msg)
     else
         print(msg)
-        chomp(readline(STDIN))
+        readline()
     end
     isempty(uinput) ? default : uinput
 end
@@ -33,4 +52,16 @@ function features()
         isset(feat, Cuint(f)) && push!(res, f)
     end
     return res
+end
+
+"""
+    LibGit2.posixpath(path)
+
+Standardise the path string `path` to use POSIX separators.
+"""
+function posixpath end
+if is_windows()
+    posixpath(path) = replace(path,'\\','/')
+else is_unix()
+    posixpath(path) = path
 end

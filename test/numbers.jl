@@ -1,5 +1,7 @@
 # This file is a part of Julia. License is MIT: http://julialang.org/license
 
+const ≣ = isequal # convenient for comparing NaNs
+
 # basic booleans
 @test true
 @test !false
@@ -24,10 +26,14 @@
 @test false | true  == true
 @test true  | true  == true
 
-@test false $ false == false
-@test true  $ false == true
-@test false $ true  == true
-@test true  $ true  == false
+@test false ⊻ false == false
+@test true  ⊻ false == true
+@test false ⊻ true  == true
+@test true  ⊻ true  == false
+@test xor(false, false) == false
+@test xor(true,  false) == true
+@test xor(false, true)  == true
+@test xor(true,  true)  == false
 
 # the bool operator
 @test Bool(false) == false
@@ -46,6 +52,8 @@
 @test Bool(1//1) == true
 @test_throws InexactError Bool(1//2)
 
+@test iszero(false) && !iszero(true)
+
 # basic arithmetic
 @test 2 + 3 == 5
 @test 2.0 + 3.0 == 5.
@@ -61,28 +69,32 @@
 @test minmax(5, 3) == (3, 5)
 @test minmax(3., 5.) == (3., 5.)
 @test minmax(5., 3.) == (3., 5.)
-@test minmax(3., NaN) == (3., 3.)
-@test minmax(NaN, 3.) == (3., 3.)
-@test isequal(minmax(NaN, NaN), (NaN, NaN))
+@test minmax(3., NaN) ≣ (NaN, NaN)
+@test minmax(NaN, 3) ≣ (NaN, NaN)
+@test minmax(Inf, NaN) ≣ (NaN, NaN)
+@test minmax(NaN, Inf) ≣ (NaN, NaN)
+@test minmax(-Inf, NaN) ≣ (NaN, NaN)
+@test minmax(NaN, -Inf) ≣ (NaN, NaN)
+@test minmax(NaN, NaN) ≣ (NaN, NaN)
 @test min(-0.0,0.0) === min(0.0,-0.0)
 @test max(-0.0,0.0) === max(0.0,-0.0)
 @test minmax(-0.0,0.0) === minmax(0.0,-0.0)
 @test max(-3.2, 5.1) == max(5.1, -3.2) == 5.1
 @test min(-3.2, 5.1) == min(5.1, -3.2) == -3.2
 @test max(-3.2, Inf) == max(Inf, -3.2) == Inf
-@test max(-3.2, NaN) == max(NaN, -3.2) == -3.2
+@test max(-3.2, NaN) ≣ max(NaN, -3.2) ≣ NaN
 @test min(5.1, Inf) == min(Inf, 5.1) == 5.1
 @test min(5.1, -Inf) == min(-Inf, 5.1) == -Inf
-@test min(5.1, NaN) == min(NaN, 5.1) == 5.1
-@test min(5.1, -NaN) == min(-NaN, 5.1) == 5.1
+@test min(5.1, NaN) ≣ min(NaN, 5.1) ≣ NaN
+@test min(5.1, -NaN) ≣ min(-NaN, 5.1) ≣ NaN
 @test minmax(-3.2, 5.1) == (min(-3.2, 5.1), max(-3.2, 5.1))
 @test minmax(-3.2, Inf) == (min(-3.2, Inf), max(-3.2, Inf))
-@test minmax(-3.2, NaN) == (min(-3.2, NaN), max(-3.2, NaN))
-@test (max(Inf,NaN), max(-Inf,NaN), max(Inf,-NaN), max(-Inf,-NaN)) == (Inf, -Inf, Inf, -Inf)
-@test (max(NaN,Inf), max(NaN,-Inf), max(-NaN,Inf), max(-NaN,-Inf)) == (Inf, -Inf, Inf, -Inf)
-@test (min(Inf,NaN), min(-Inf,NaN), min(Inf,-NaN), min(-Inf,-NaN)) == (Inf, -Inf, Inf, -Inf)
-@test (min(NaN,Inf), min(NaN,-Inf), min(-NaN,Inf), min(-NaN,-Inf)) == (Inf, -Inf, Inf, -Inf)
-@test minmax(-Inf,NaN) == (min(-Inf,NaN), max(-Inf,NaN))
+@test minmax(-3.2, NaN) ≣ (min(-3.2, NaN), max(-3.2, NaN))
+@test (max(Inf,NaN), max(-Inf,NaN), max(Inf,-NaN), max(-Inf,-NaN)) ≣ (NaN,NaN,NaN,NaN)
+@test (max(NaN,Inf), max(NaN,-Inf), max(-NaN,Inf), max(-NaN,-Inf)) ≣ (NaN,NaN,NaN,NaN)
+@test (min(Inf,NaN), min(-Inf,NaN), min(Inf,-NaN), min(-Inf,-NaN)) ≣ (NaN,NaN,NaN,NaN)
+@test (min(NaN,Inf), min(NaN,-Inf), min(-NaN,Inf), min(-NaN,-Inf)) ≣ (NaN,NaN,NaN,NaN)
+@test minmax(-Inf,NaN) ≣ (min(-Inf,NaN), max(-Inf,NaN))
 
 # fma
 let x = Int64(7)^7
@@ -120,11 +132,9 @@ end
 let eps = 1//BigInt(2)^7, one_eps = 1+eps,
     eps16 = Float16(Float32(eps)), one_eps16 = Float16(Float32(one_eps))
     @test eps16 == Float16(Float32(eps))
-    # Currently broken in Julia -- enable when "rationalize" is fixed;
-    # see <https://github.com/JuliaLang/julia/issues/9897>
-    # @test rationalize(BigInt, eps16, tol=0) == eps
+    @test rationalize(BigInt, eps16, tol=0) == eps
     @test one_eps16 == Float16(Float32(one_eps))
-    # @test rationalize(BigInt, one_eps16, tol=0) == one_eps
+    @test rationalize(BigInt, one_eps16, tol=0) == one_eps
     @test one_eps16 * one_eps16 - 1 != Float16(Float32(one_eps * one_eps - 1))
     @test (fma(one_eps16, one_eps16, -1) ==
            Float16(Float32(one_eps * one_eps - 1)))
@@ -147,8 +157,7 @@ let eps = 1//BigInt(2)^30, one_eps = 1+eps,
     @test eps64 == Float64(eps)
     @test one_eps64 == Float64(one_eps)
     @test one_eps64 * one_eps64 - 1 != Float64(one_eps * one_eps - 1)
-    @test isapprox(muladd(one_eps64, one_eps64, -1),
-                   Float64(one_eps * one_eps - 1))
+    @test muladd(one_eps64, one_eps64, -1) ≈ Float64(one_eps * one_eps - 1)
 end
 
 let eps = 1//BigInt(2)^15, one_eps = 1+eps,
@@ -156,8 +165,7 @@ let eps = 1//BigInt(2)^15, one_eps = 1+eps,
     @test eps32 == Float32(eps)
     @test one_eps32 == Float32(one_eps)
     @test one_eps32 * one_eps32 - 1 != Float32(one_eps * one_eps - 1)
-    @test isapprox(muladd(one_eps32, one_eps32, -1),
-                   Float32(one_eps * one_eps - 1))
+    @test muladd(one_eps32, one_eps32, -1) ≈ Float32(one_eps * one_eps - 1)
 end
 
 let eps = 1//BigInt(2)^7, one_eps = 1+eps,
@@ -165,8 +173,7 @@ let eps = 1//BigInt(2)^7, one_eps = 1+eps,
     @test eps16 == Float16(Float32(eps))
     @test one_eps16 == Float16(Float32(one_eps))
     @test one_eps16 * one_eps16 - 1 != Float16(Float32(one_eps * one_eps - 1))
-    @test isapprox(muladd(one_eps16, one_eps16, -1),
-                   Float16(Float32(one_eps * one_eps - 1)))
+    @test muladd(one_eps16, one_eps16, -1) ≈ Float16(Float32(one_eps * one_eps - 1))
 end
 
 @test muladd(1,2,3) == 1*2+3
@@ -1014,6 +1021,10 @@ f9085() = typemax(UInt64) != 2.0^64
 @test (1//typemax(Int)) / (1//typemax(Int)) == 1
 @test_throws OverflowError (1//2)^63
 
+@test @inferred(rationalize(Int, 3.0, 0.0)) === 3//1
+@test @inferred(rationalize(Int, 3.0, 0)) === 3//1
+@test_throws ArgumentError rationalize(Int, big(3.0), -1.)
+
 for a = -5:5, b = -5:5
     if a == b == 0; continue; end
     if ispow2(b)
@@ -1118,7 +1129,7 @@ end
 @test 1+1.5 == 2.5
 @test 1.5+1 == 2.5
 @test 1+1.5+2 == 4.5
-@test is(typeof(convert(Complex{Int16},1)),Complex{Int16})
+@test isa(convert(Complex{Int16},1), Complex{Int16})
 @test Complex(1,2)+1 == Complex(2,2)
 @test Complex(1,2)+1.5 == Complex(2.5,2.0)
 @test 1/Complex(2,2) == Complex(.25,-.25)
@@ -1128,7 +1139,7 @@ end
 @test Complex(1,2) + 1//2 == Complex(3//2,2//1)
 @test Complex(1,2) + 1//2 * 0.5 == Complex(1.25,2.0)
 @test (Complex(1,2) + 1//2) * 0.5 == Complex(0.75,1.0)
-@test_approx_eq (Complex(1,2)/Complex(2.5,3.0))*Complex(2.5,3.0) Complex(1,2)
+@test (Complex(1,2)/Complex(2.5,3.0))*Complex(2.5,3.0) ≈ Complex(1,2)
 @test 0.7 < real(sqrt(Complex(0,1))) < 0.707107
 
 for T in Base.BitSigned_types
@@ -1291,9 +1302,9 @@ for yr = Any[
         f2, m2 = fldmod(x,y)
 
         t1 = isa(x,Rational) && isa(y,Rational) ?
-                               promote_type(typeof(num(x)),typeof(num(y))) :
-             isa(x,Rational) ? promote_type(typeof(num(x)),typeof(y)) :
-             isa(y,Rational) ? promote_type(typeof(x),typeof(num(y))) :
+                               promote_type(typeof(numerator(x)),typeof(numerator(y))) :
+             isa(x,Rational) ? promote_type(typeof(numerator(x)),typeof(y)) :
+             isa(y,Rational) ? promote_type(typeof(x),typeof(numerator(y))) :
                                promote_type(typeof(x),typeof(y))
 
         t2 = promote_type(typeof(x),typeof(y))
@@ -1666,10 +1677,10 @@ end
 @test isnan(eps(-Inf))
 
 @test .1+.1+.1 != .3
-@test isapprox(.1+.1+.1, .3)
-@test !isapprox(.1+.1+.1-.3, 0)
-@test isapprox(.1+.1+.1-.3, 0, atol=eps(.3))
-@test isapprox(1.1,1.1f0)
+@test .1+.1+.1 ≈ .3
+@test .1+.1+.1-.3 ≉ 0
+@test .1+.1+.1-.3 ≈ 0 atol=eps(.3)
+@test 1.1 ≈ 1.1f0
 
 @test div(1e50,1) == 1e50
 @test fld(1e50,1) == 1e50
@@ -1709,12 +1720,12 @@ let ≈(x,y) = x==y && typeof(x)==typeof(y)
         for n in [0,3,255,256]
             r = (1:n)-div(n,2)
             y = t[x/4 for x in r]
-            @test trunc(y) ≈ t[div(i,4) for i in r]
-            @test floor(y) ≈ t[i>>2 for i in r]
-            @test ceil(y)  ≈ t[(i+3)>>2 for i in r]
-            @test round(y) ≈ t[(i+1+isodd(i>>2))>>2 for i in r]
-            @test round(y,RoundNearestTiesAway) ≈ t[(i+1+(i>=0))>>2 for i in r]
-            @test round(y,RoundNearestTiesUp) ≈ t[(i+2)>>2 for i in r]
+            @test trunc.(y) ≈ t[div(i,4) for i in r]
+            @test floor.(y) ≈ t[i>>2 for i in r]
+            @test ceil.(y)  ≈ t[(i+3)>>2 for i in r]
+            @test round.(y) ≈ t[(i+1+isodd(i>>2))>>2 for i in r]
+            @test broadcast(x -> round(x, RoundNearestTiesAway), y) ≈ t[(i+1+(i>=0))>>2 for i in r]
+            @test broadcast(x -> round(x, RoundNearestTiesUp), y) ≈ t[(i+2)>>2 for i in r]
         end
     end
 end
@@ -2014,14 +2025,14 @@ x = 0.0
 @test approx_eq(round(pi,3,5), 3.144)
 # vectorized trunc/round/floor/ceil with digits/base argument
 a = rand(2, 2, 2)
-for f in (trunc, round, floor, ceil)
-    @test f(a[:, 1, 1], 2) == map(x->f(x, 2), a[:, 1, 1])
-    @test f(a[:, :, 1], 2) == map(x->f(x, 2), a[:, :, 1])
-    @test f(a, 9, 2) == map(x->f(x, 9, 2), a)
-    @test f(a[:, 1, 1], 9, 2) == map(x->f(x, 9, 2), a[:, 1, 1])
-    @test f(a[:, :, 1], 9, 2) == map(x->f(x, 9, 2), a[:, :, 1])
-    @test f(a, 9, 2) == map(x->f(x, 9, 2), a)
- end
+for f in (round, trunc, floor, ceil)
+    @test f.(a[:, 1, 1], 2) == map(x->f(x, 2), a[:, 1, 1])
+    @test f.(a[:, :, 1], 2) == map(x->f(x, 2), a[:, :, 1])
+    @test f.(a, 9, 2) == map(x->f(x, 9, 2), a)
+    @test f.(a[:, 1, 1], 9, 2) == map(x->f(x, 9, 2), a[:, 1, 1])
+    @test f.(a[:, :, 1], 9, 2) == map(x->f(x, 9, 2), a[:, :, 1])
+    @test f.(a, 9, 2) == map(x->f(x, 9, 2), a)
+end
 # significant digits (would be nice to have a smart vectorized
 # version of signif)
 @test approx_eq(signif(123.456,1), 100.)
@@ -2082,6 +2093,12 @@ for f in (trunc, round, floor, ceil)
 
 @test isa(convert(Float64, big(1)//2), Float64)
 
+# issue 16513
+@test convert(Rational{Int32}, pi) == 1068966896 // 340262731
+@test convert(Rational{Int64}, pi) == 2646693125139304345 // 842468587426513207
+@test convert(Rational{Int128}, pi) == 60728338969805745700507212595448411044 // 19330430665609526556707216376512714945
+@test_throws ArgumentError convert(Rational{BigInt}, pi)
+
 # issue 5935
 @test rationalize(Int8,  nextfloat(0.1)) == 1//10
 @test rationalize(Int64, nextfloat(0.1)) == 300239975158034//3002399751580339
@@ -2133,7 +2150,8 @@ rationalize(nextfloat(0.0)) == 0//1
 # rational-exponent promotion rules (issue #3155):
 @test 2.0f0^(1//3) == 2.0f0^(1.0f0/3)
 @test 2^(1//3) == 2^(1/3)
-
+# no loss of precision for rational powers (issue #18114)
+@test BigFloat(2)^(BigFloat(1)/BigFloat(3)) == BigFloat(2)^(1//3)
 
 # large shift amounts
 @test Int32(-1)>>31 == -1
@@ -2161,11 +2179,12 @@ for T in (Int32,Int64), ii = -20:20, jj = -20:20
     @test d == gcd(ib,jb)
     @test lcm(i,j) == lcm(ib,jb)
     @test gcdx(i,j) == gcdx(ib,jb)
-    if j == 0
-        @test_throws ErrorException invmod(i,j)
-        @test_throws ErrorException invmod(ib,jb)
-    elseif d == 1
+    if j == 0 || d != 1
+        @test_throws DomainError invmod(i,j)
+        @test_throws DomainError invmod(ib,jb)
+    else
         n = invmod(i,j)
+        @test div(n, j) == 0
         @test n == invmod(ib,jb)
         @test mod(n*i,j) == mod(1,j)
     end
@@ -2360,7 +2379,9 @@ end
 @test widen(1.5f0) === 1.5
 @test widen(Int32(42)) === Int64(42)
 @test widen(Int8) === Int32
+@test widen(Int64) === Int128
 @test widen(Float32) === Float64
+@test widen(Float16) === Float32
 ## Note: this should change to e.g. Float128 at some point
 @test widen(Float64) === BigFloat
 @test widen(BigInt) === BigInt
@@ -2424,7 +2445,7 @@ end
 # Fill a pre allocated 2x4 matrix
 let a = zeros(Int,(2,4))
     for i in 0:3
-        digits!(sub(a,:,i+1),i,2)
+        digits!(view(a,:,i+1),i,2)
     end
     @test a == [0 1 0 1;
                 0 0 1 1]
@@ -2439,6 +2460,13 @@ end
 @test_throws InexactError convert(Int8, typemax(UInt64))
 @test_throws InexactError convert(Int16, typemax(UInt64))
 @test_throws InexactError convert(Int, typemax(UInt64))
+
+# issue #14549
+for T in (Int8, Int16, UInt8, UInt16)
+    for F in (Float32,Float64)
+        @test_throws InexactError convert(T, F(200000.0))
+    end
+end
 
 let x = big(-0.0)
     @test signbit(x) && !signbit(abs(x))
@@ -2469,19 +2497,40 @@ for x in [1.23, 7, e, 4//5] #[FP, Int, Irrational, Rat]
     @test isreal(x) == true
 end
 
-#eltype{T<:Number}(::Type{T}) = T
-for T in [subtypes(Complex); subtypes(Real)]
-    @test eltype(T) == T
+function allsubtypes!(m::Module, x::DataType, sts::Set)
+    for s in names(m, true)
+        if isdefined(m, s) && !Base.isdeprecated(m, s)
+            t = getfield(m, s)
+            if isa(t, Type) && t <: x && t != Union{}
+                push!(sts, t)
+            elseif isa(t, Module) && t !== m && module_name(t) === s && module_parent(t) === m
+                allsubtypes!(t, x, sts)
+            end
+        end
+    end
 end
 
-#ndims{T<:Number}(::Type{T}) = 0
-for x in [subtypes(Complex); subtypes(Real)]
-    @test ndims(x) == 0
+let number_types = Set()
+    allsubtypes!(Base, Number, number_types)
+    allsubtypes!(Core, Number, number_types)
+
+    @test !isempty(number_types)
+
+    #eltype{T<:Number}(::Type{T}) = T
+    for T in number_types
+        @test eltype(T) == T
+    end
+
+    #ndims{T<:Number}(::Type{T}) = 0
+    for x in number_types
+        @test ndims(x) == 0
+    end
 end
 
 #getindex(x::Number) = x
 for x in [1.23, 7, e, 4//5] #[FP, Int, Irrational, Rat]
     @test getindex(x) == x
+    @test getindex(x, 1, 1) == x
 end
 
 #getindex(x::Number,-1) throws BoundsError
@@ -2497,6 +2546,7 @@ for x in [1.23, 7, e, 4//5] #[FP, Int, Irrational, Rat]
     @test_throws BoundsError getindex([x x],-1)
     @test_throws BoundsError getindex([x x],0)
     @test_throws BoundsError getindex([x x],length([x,x])+1)
+    @test_throws BoundsError getindex(x, 1, 0)
 end
 
 # copysign(x::Real, y::Real) = ifelse(signbit(x)!=signbit(y), -x, x)
@@ -2573,8 +2623,8 @@ end
 for (d,B) in ((4//2+1im,Rational{BigInt}),(3.0+1im,BigFloat),(2+1im,BigInt))
     @test typeof(big(d)) == Complex{B}
     @test big(d) == d
-    @test typeof(big([d])) == Vector{Complex{B}}
-    @test big([d]) == [d]
+    @test typeof(big.([d])) == Vector{Complex{B}}
+    @test big.([d]) == [d]
 end
 
 # issue #12536
@@ -2585,8 +2635,8 @@ end
 rand_int = rand(Int8)
 
 for T in [Int8, Int16, Int32, Int128, BigInt]
-    @test num(convert(T, rand_int)) == rand_int
-    @test den(convert(T, rand_int)) == 1
+    @test numerator(convert(T, rand_int)) == rand_int
+    @test denominator(convert(T, rand_int)) == 1
 
     @test typemin(Rational{T}) == -one(T)//zero(T)
     @test typemax(Rational{T}) == one(T)//zero(T)
@@ -2633,16 +2683,16 @@ end
 let T = Rational
     x = Complex{T}(1//3 + 1//4*im)
     y = Complex{T}(1//2 + 1//5*im)
-    xf = Complex{Float64}(1//3 + 1//4*im)
-    yf = Complex{Float64}(1//2 + 1//5*im)
+    xf = Complex{BigFloat}(1//3 + 1//4*im)
+    yf = Complex{BigFloat}(1//2 + 1//5*im)
     yi = 4
 
-    @test_approx_eq x^y big(xf)^big(yf)
-    @test_approx_eq x^yi big(xf)^yi
-    @test_approx_eq x^true big(xf)^true
-    @test_approx_eq x^false big(xf)^false
-    @test_approx_eq x^1 big(xf)^1
-    @test_approx_eq xf^Rational(2, 1) xf*xf
+    @test x^y ≈ xf^yf
+    @test x^yi ≈ xf^yi
+    @test x^true ≈ xf^true
+    @test x^false == xf^false
+    @test x^1 ≈ xf^1
+    @test xf^Rational(2, 1) ≈ xf*xf
     @test Complex(1., 1.)^Rational(2,1) == Complex(1., 1.)*Complex(1.,1.) == Complex(0., 2.)
 end
 
@@ -2694,8 +2744,8 @@ let
     io = IOBuffer()
     rational1 = Rational(1465, 8593)
     rational2 = Rational(-4500, 9000)
-    @test sprint(io -> show(io, rational1)) == "1465//8593"
-    @test sprint(io -> show(io, rational2)) == "-1//2"
+    @test sprint(show, rational1) == "1465//8593"
+    @test sprint(show, rational2) == "-1//2"
     let
         io1 = IOBuffer()
         write(io1, rational1)
@@ -2742,3 +2792,165 @@ testmi(typemin(Int)+1:typemin(Int)+1000, -100:100)
 @test_throws ArgumentError Base.multiplicativeinverse(0)
 testmi(map(UInt32, 0:1000), map(UInt32, 1:100))
 testmi(typemax(UInt32)-UInt32(1000):typemax(UInt32), map(UInt32, 1:100))
+
+@test ndims(1) == 0
+@test ndims(Integer) == 0
+@test size(1,1) == 1
+@test_throws BoundsError size(1,-1)
+@test indices(1) == ()
+@test indices(1,1) == 1:1
+@test_throws BoundsError indices(1,-1)
+@test isinteger(Integer(2)) == true
+@test size(1) == ()
+@test length(1) == 1
+@test endof(1) == 1
+@test eltype(Integer) == Integer
+
+# issue #15920
+@test Rational(0, 1) / Complex(3, 2) == 0
+
+# issue #16282
+@test_throws MethodError 3 // 4.5im
+
+# PR #16995
+let types = (Base.BitInteger_types..., BigInt, Bool,
+             Rational{Int}, Rational{BigInt},
+             Float16, Float32, Float64, BigFloat,
+             Complex{Int}, Complex{UInt}, Complex32, Complex64, Complex128)
+    for S in types
+        for op in (+, -)
+            T = @inferred Base.promote_op(op, S)
+            t = @inferred op(one(S))
+            @test T === typeof(t)
+        end
+
+        for R in types
+            for op in (+, -, *, /, ^)
+                T = @inferred Base.promote_op(op, S, R)
+                t = @inferred op(one(S), one(R))
+                @test T === typeof(t)
+            end
+        end
+    end
+
+    @test @inferred(Base.promote_op(!, Bool)) === Bool
+end
+
+let types = (Base.BitInteger_types..., BigInt, Bool,
+             Rational{Int}, Rational{BigInt},
+             Float16, Float32, Float64, BigFloat)
+    for S in types, T in types
+        for op in (<, >, <=, >=, (==))
+            @test @inferred(Base.promote_op(op, S, T)) === Bool
+        end
+    end
+end
+
+let types = (Base.BitInteger_types..., BigInt, Bool)
+    for S in types
+        T = @inferred Base.promote_op(~, S)
+        t = @inferred ~one(S)
+        @test T === typeof(t)
+
+        for R in types
+            for op in (&, |, <<, >>, (>>>), %, ÷)
+                T = @inferred Base.promote_op(op, S, R)
+                t = @inferred op(one(S), one(R))
+                @test T === typeof(t)
+            end
+        end
+    end
+end
+
+@test !isempty(complex(1,2))
+
+@testset "rem $T rounded" for T in (Float16, Float32, Float64, BigFloat)
+    @test rem(T(1), T(2), RoundToZero)  == 1
+    @test rem(T(1), T(2), RoundNearest) == 1
+    @test rem(T(1), T(2), RoundDown)    == 1
+    @test rem(T(1), T(2), RoundUp)      == -1
+    @test rem(T(1.5), T(2), RoundToZero)  == 1.5
+    @test rem(T(1.5), T(2), RoundNearest) == -0.5
+    @test rem(T(1.5), T(2), RoundDown)    == 1.5
+    @test rem(T(1.5), T(2), RoundUp)      == -0.5
+    @test rem(T(-1), T(2), RoundToZero)  == -1
+    @test rem(T(-1), T(2), RoundNearest) == -1
+    @test rem(T(-1), T(2), RoundDown)    == 1
+    @test rem(T(-1), T(2), RoundUp)      == -1
+    @test rem(T(-1.5), T(2), RoundToZero)  == -1.5
+    @test rem(T(-1.5), T(2), RoundNearest) == 0.5
+    @test rem(T(-1.5), T(2), RoundDown)    == 0.5
+    @test rem(T(-1.5), T(2), RoundUp)      == -1.5
+end
+
+@testset "rem2pi $T" for T in (Float16, Float32, Float64, BigFloat)
+    @test rem2pi(T(1), RoundToZero)  == 1
+    @test rem2pi(T(1), RoundNearest) == 1
+    @test rem2pi(T(1), RoundDown)    == 1
+    @test rem2pi(T(1), RoundUp)      ≈ 1-2pi
+    @test rem2pi(T(2), RoundToZero)  == 2
+    @test rem2pi(T(2), RoundNearest) == 2
+    @test rem2pi(T(2), RoundDown)    == 2
+    @test rem2pi(T(2), RoundUp)      ≈ 2-2pi
+    @test rem2pi(T(4), RoundToZero)  == 4
+    @test rem2pi(T(4), RoundNearest) ≈ 4-2pi
+    @test rem2pi(T(4), RoundDown)    == 4
+    @test rem2pi(T(4), RoundUp)      ≈ 4-2pi
+    @test rem2pi(T(-4), RoundToZero)  == -4
+    @test rem2pi(T(-4), RoundNearest) ≈ 2pi-4
+    @test rem2pi(T(-4), RoundDown)    ≈ 2pi-4
+    @test rem2pi(T(-4), RoundUp)      == -4
+end
+
+import Base.^
+struct PR20530; end
+struct PR20889; x; end
+^(::PR20530, p::Int) = 1
+^(t::PR20889, b) = t.x + b
+^(t::PR20889, b::Integer) = t.x + b
+Base.literal_pow{p}(::typeof(^), ::PR20530, ::Type{Val{p}}) = 2
+@testset "literal powers" begin
+    x = PR20530()
+    p = 2
+    @test x^p == 1
+    @test x^2 == 2
+    @test [x,x,x].^2 == [2,2,2]
+    for T in (Float16, Float32, Float64, BigFloat, Int8, Int, BigInt, Complex{Int}, Complex{Float64})
+        for p in -4:4
+            if p < 0 && real(T) <: Integer
+                @test_throws DomainError eval(:($T(2)^$p))
+            else
+                v = eval(:($T(2)^$p))
+                @test 2.0^p == T(2)^p == v
+                @test v isa T
+            end
+        end
+    end
+    @test PR20889(2)^3 == 5
+end
+module M20889 # do we get the expected behavior without importing Base.^?
+    struct PR20889; x; end
+    ^(t::PR20889, b) = t.x + b
+    Base.Test.@test PR20889(2)^3 == 5
+end
+
+@testset "iszero" begin
+    # Numeric scalars
+    for T in [Float16, Float32, Float64, BigFloat,
+              Int8, Int16, Int32, Int64, Int128, BigInt,
+              UInt8, UInt16, UInt32, UInt64, UInt128]
+        @test iszero(T(0))
+        @test iszero(Complex{T}(0))
+        if T <: Integer
+            @test iszero(Rational{T}(0))
+        elseif T <: AbstractFloat
+            @test iszero(T(-0.0))
+            @test iszero(Complex{T}(-0.0))
+        end
+    end
+    @test !iszero(nextfloat(BigFloat(0)))
+
+    # Array reduction
+    @test !iszero([0, 1, 2, 3])
+    @test iszero(zeros(Int, 5))
+end

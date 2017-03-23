@@ -22,7 +22,7 @@ let err = nothing
     catch err
         io = IOBuffer()
         showerror(io, err)
-        @test startswith(takebuf_string(io), "SystemError (with $file): mkdir:")
+        @test startswith(String(take!(io)), "SystemError (with $file): mkdir:")
     end
 end
 
@@ -108,12 +108,12 @@ if is_windows()
 else
     @test filesize(dir) > 0
 end
-now = time()
+nowtime = time()
 # Allow 10s skew in addition to the time it took us to actually execute this code
-let skew = 10 + (now - starttime)
+let skew = 10 + (nowtime - starttime)
     mfile = mtime(file)
     mdir  = mtime(dir)
-    @test abs(now - mfile) <= skew && abs(now - mdir) <= skew && abs(mfile - mdir) <= skew
+    @test abs(nowtime - mfile) <= skew && abs(nowtime - mdir) <= skew && abs(mfile - mdir) <= skew
 end
 #@test Int(time()) >= Int(mtime(file)) >= Int(mtime(dir)) >= 0 # 1 second accuracy should be sufficient
 
@@ -179,7 +179,7 @@ if !is_windows()
     end
 else
     # test that chown doesn't cause any errors for Windows
-    @test chown(file, -2, -2) == nothing
+    @test chown(file, -2, -2) === nothing
 end
 
 #######################################################################
@@ -212,6 +212,19 @@ function test_touch(slval)
     @test ispath(tr[1]) && ispath(tr[2])
 end
 
+function test_watch_file_timeout(tval)
+    watch = @async watch_file(file, tval)
+    @test wait(watch) == Base.Filesystem.FileEvent(false, false, true)
+end
+
+function test_watch_file_change(tval)
+    watch = @async watch_file(file, tval)
+    sleep(tval/3)
+    open(file, "a") do f
+        write(f, "small change\n")
+    end
+    @test wait(watch) == Base.Filesystem.FileEvent(false, true, false)
+end
 
 function test_monitor_wait(tval)
     fm = FileMonitor(file)
@@ -223,7 +236,11 @@ function test_monitor_wait(tval)
     end
     fname, events = wait(fm)
     close(fm)
-    @test fname == basename(file)
+    if is_linux() || is_windows() || is_apple()
+        @test fname == basename(file)
+    else
+        @test fname == ""  # platforms where F_GETPATH is not available
+    end
     @test events.changed
 end
 
@@ -247,9 +264,11 @@ test_monitor_wait(0.1)
 test_monitor_wait(0.1)
 test_monitor_wait_poll()
 test_monitor_wait_poll()
+test_watch_file_timeout(0.1)
+test_watch_file_change(6)
 
-@test_throws Base.UVError watch_file("nonexistantfile", 10)
-@test_throws Base.UVError poll_file("nonexistantfile", 2, 10)
+@test_throws Base.UVError watch_file("____nonexistent_file", 10)
+@test_throws Base.UVError poll_file("____nonexistent_file", 2, 10)
 
 ##############
 # mark/reset #
@@ -270,7 +289,7 @@ reset(s)
 str = readline(s)
 @test startswith(str, "Marked!")
 mark(s)
-@test readline(s) == "Hello world!\n"
+@test readline(s) == "Hello world!"
 @test ismarked(s)
 unmark(s)
 @test !ismarked(s)
@@ -320,7 +339,7 @@ end
 emptyfile = joinpath(dir, "empty")
 touch(emptyfile)
 emptyf = open(emptyfile)
-@test isempty(readlines(emptyf))
+@test isempty(readlines(emptyf, chomp=false))
 close(emptyf)
 rm(emptyfile)
 
@@ -411,6 +430,8 @@ c_stat = stat(cfile)
 @test a_stat.size == b_stat.size
 @test a_stat.size == c_stat.size
 
+@test parse(Int,match(r"mode=(.*),",sprint(show,a_stat)).captures[1]) == a_stat.mode
+
 close(af)
 rm(afile)
 rm(bfile)
@@ -421,7 +442,8 @@ mktempdir() do tmpdir
     # rename file
     file = joinpath(tmpdir, "afile.txt")
     files_stat = stat(file)
-    close(open(file,"w")) # like touch, but lets the operating system update the timestamp for greater precision on some platforms (windows)
+    close(open(file,"w")) # like touch, but lets the operating system update
+    # the timestamp for greater precision on some platforms (windows)
 
     newfile = joinpath(tmpdir, "bfile.txt")
     mv(file, newfile)
@@ -847,7 +869,7 @@ if !is_windows()
 
         # mv ----------------------------------------------------
         # move all 4 existing dirs
-        # As expected this will leave some absolute links brokern #11145#issuecomment-99315168
+        # As expected this will leave some absolute links broken #11145#issuecomment-99315168
         for d in [copytodir, maindir_new, maindir_new_keepsym, maindir]
             d_mv = joinpath(dirname(d), "$(basename(d))_mv")
             mv(d, d_mv; remove_destination=true)
@@ -897,15 +919,18 @@ let f = open(file, "w")
     test_LibcFILE(convert(Libc.FILE, f))
     close(f)
     if is_windows()
-        f = RawFD(ccall(:_open, Cint, (Ptr{UInt8}, Cint), file, Base.Filesystem.JL_O_RDONLY))
+        f = RawFD(ccall(:_open, Cint, (Cstring, Cint), file, Base.Filesystem.JL_O_RDONLY))
     else
-        f = RawFD(ccall(:open, Cint, (Ptr{UInt8}, Cint), file, Base.Filesystem.JL_O_RDONLY))
+        f = RawFD(ccall(:open, Cint, (Cstring, Cint), file, Base.Filesystem.JL_O_RDONLY))
     end
     test_LibcFILE(Libc.FILE(f, Libc.modestr(true, false)))
 end
 
 # issue #10994: pathnames cannot contain embedded NUL chars
-for f in (mkdir, cd, Base.Filesystem.unlink, readlink, rm, touch, readdir, mkpath, stat, lstat, ctime, mtime, filemode, filesize, uperm, gperm, operm, touch, isblockdev, ischardev, isdir, isfifo, isfile, islink, ispath, issetgid, issetuid, issocket, issticky, realpath, watch_file, poll_file)
+for f in (mkdir, cd, Base.Filesystem.unlink, readlink, rm, touch, readdir, mkpath,
+        stat, lstat, ctime, mtime, filemode, filesize, uperm, gperm, operm, touch,
+        isblockdev, ischardev, isdir, isfifo, isfile, islink, ispath, issetgid,
+        issetuid, issocket, issticky, realpath, watch_file, poll_file)
     @test_throws ArgumentError f("adir\0bad")
 end
 @test_throws ArgumentError chmod("ba\0d", 0o222)
@@ -938,29 +963,29 @@ cd(dirwalk) do
     follow_symlink_vec = has_symlinks ? [true, false] : [false]
     has_symlinks && symlink(abspath("sub_dir2"), joinpath("sub_dir1", "link"))
     for follow_symlinks in follow_symlink_vec
-        task = walkdir(".", follow_symlinks=follow_symlinks)
-        root, dirs, files = consume(task)
+        chnl = walkdir(".", follow_symlinks=follow_symlinks)
+        root, dirs, files = take!(chnl)
         @test root == "."
         @test dirs == ["sub_dir1", "sub_dir2"]
         @test files == ["file1", "file2"]
 
-        root, dirs, files = consume(task)
+        root, dirs, files = take!(chnl)
         @test root == joinpath(".", "sub_dir1")
         @test dirs == (has_symlinks ? ["link", "subsub_dir1", "subsub_dir2"] : ["subsub_dir1", "subsub_dir2"])
         @test files == ["file1", "file2"]
 
-        root, dirs, files = consume(task)
+        root, dirs, files = take!(chnl)
         if follow_symlinks
             @test root == joinpath(".", "sub_dir1", "link")
             @test dirs == []
             @test files == ["file_dir2"]
-            root, dirs, files = consume(task)
+            root, dirs, files = take!(chnl)
         end
         for i=1:2
             @test root == joinpath(".", "sub_dir1", "subsub_dir$i")
             @test dirs == []
             @test files == []
-            root, dirs, files = consume(task)
+            root, dirs, files = take!(chnl)
         end
 
         @test root == joinpath(".", "sub_dir2")
@@ -969,51 +994,51 @@ cd(dirwalk) do
     end
 
     for follow_symlinks in follow_symlink_vec
-        task = walkdir(".", follow_symlinks=follow_symlinks, topdown=false)
-        root, dirs, files = consume(task)
+        chnl = walkdir(".", follow_symlinks=follow_symlinks, topdown=false)
+        root, dirs, files = take!(chnl)
         if follow_symlinks
             @test root == joinpath(".", "sub_dir1", "link")
             @test dirs == []
             @test files == ["file_dir2"]
-            root, dirs, files = consume(task)
+            root, dirs, files = take!(chnl)
         end
         for i=1:2
             @test root == joinpath(".", "sub_dir1", "subsub_dir$i")
             @test dirs == []
             @test files == []
-            root, dirs, files = consume(task)
+            root, dirs, files = take!(chnl)
         end
         @test root == joinpath(".", "sub_dir1")
         @test dirs ==  (has_symlinks ? ["link", "subsub_dir1", "subsub_dir2"] : ["subsub_dir1", "subsub_dir2"])
         @test files == ["file1", "file2"]
 
-        root, dirs, files = consume(task)
+        root, dirs, files = take!(chnl)
         @test root == joinpath(".", "sub_dir2")
         @test dirs == []
         @test files == ["file_dir2"]
 
-        root, dirs, files = consume(task)
+        root, dirs, files = take!(chnl)
         @test root == "."
         @test dirs == ["sub_dir1", "sub_dir2"]
         @test files == ["file1", "file2"]
     end
     #test of error handling
-    task_error = walkdir(".")
-    task_noerror = walkdir(".", onerror=x->x)
-    root, dirs, files = consume(task_error)
+    chnl_error = walkdir(".")
+    chnl_noerror = walkdir(".", onerror=x->x)
+    root, dirs, files = take!(chnl_error)
     @test root == "."
     @test dirs == ["sub_dir1", "sub_dir2"]
     @test files == ["file1", "file2"]
 
     rm(joinpath("sub_dir1"), recursive=true)
-    @test_throws SystemError consume(task_error) # throws an error because sub_dir1 do not exist
+    @test_throws SystemError take!(chnl_error) # throws an error because sub_dir1 do not exist
 
-    root, dirs, files = consume(task_noerror)
+    root, dirs, files = take!(chnl_noerror)
     @test root == "."
     @test dirs == ["sub_dir1", "sub_dir2"]
     @test files == ["file1", "file2"]
 
-    root, dirs, files = consume(task_noerror) # skips sub_dir1 as it no longer exist
+    root, dirs, files = take!(chnl_noerror) # skips sub_dir1 as it no longer exist
     @test root == joinpath(".", "sub_dir2")
     @test dirs == []
     @test files == ["file_dir2"]
@@ -1088,14 +1113,13 @@ test2_12992()
 test2_12992()
 
 # issue 13559
-
 if !is_windows()
 function test_13559()
     fn = tempname()
     run(`mkfifo $fn`)
     # use subprocess to write 127 bytes to FIFO
     writer_cmds = "x=open(\"$fn\", \"w\"); for i=1:127 write(x,0xaa); flush(x); sleep(0.1) end; close(x); quit()"
-    open(pipeline(`$(Base.julia_cmd()) -e $writer_cmds`, stderr=STDERR))
+    open(pipeline(`$(Base.julia_cmd()) --startup-file=no -e $writer_cmds`, stderr=STDERR))
     #quickly read FIFO, draining it and blocking but not failing with EOFError yet
     r = open(fn, "r")
     # 15 proper reads
@@ -1109,3 +1133,4 @@ function test_13559()
 end
 test_13559()
 end
+@test_throws ArgumentError mkpath("fakepath",-1)

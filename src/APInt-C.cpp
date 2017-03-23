@@ -6,12 +6,14 @@
 #include <llvm/ADT/APFloat.h>
 #include <llvm/Support/MathExtras.h>
 
+#include "fix_llvm_assert.h"
+
 #include "APInt-C.h"
 #include "julia.h"
 
 using namespace llvm;
 
-#ifdef LLVM39
+#if JL_LLVM_VERSION >= 30900
 inline uint64_t RoundUpToAlignment(uint64_t Value, uint64_t Align, uint64_t Skew = 0) {
     return alignTo(Value, Align, Skew);
 }
@@ -448,7 +450,7 @@ void LLVMTrunc(unsigned inumbits, integerPart *pa, unsigned onumbits, integerPar
 
 extern "C" JL_DLLEXPORT
 unsigned countTrailingZeros_8(uint8_t Val) {
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
     return countTrailingZeros(Val);
 #else
     return CountTrailingZeros_32(Val);
@@ -457,7 +459,7 @@ unsigned countTrailingZeros_8(uint8_t Val) {
 
 extern "C" JL_DLLEXPORT
 unsigned countTrailingZeros_16(uint16_t Val) {
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
     return countTrailingZeros(Val);
 #else
     return CountTrailingZeros_32(Val);
@@ -466,7 +468,7 @@ unsigned countTrailingZeros_16(uint16_t Val) {
 
 extern "C" JL_DLLEXPORT
 unsigned countTrailingZeros_32(uint32_t Val) {
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
     return countTrailingZeros(Val);
 #else
     return CountTrailingZeros_32(Val);
@@ -475,7 +477,7 @@ unsigned countTrailingZeros_32(uint32_t Val) {
 
 extern "C" JL_DLLEXPORT
 unsigned countTrailingZeros_64(uint64_t Val) {
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
     return countTrailingZeros(Val);
 #else
     return CountTrailingZeros_64(Val);

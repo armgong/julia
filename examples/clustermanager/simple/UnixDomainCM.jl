@@ -2,7 +2,7 @@
 
 import Base: launch, manage, connect, exit
 
-type UnixDomainCM <: ClusterManager
+mutable struct UnixDomainCM <: ClusterManager
     np::Integer
 end
 
@@ -12,7 +12,7 @@ function launch(manager::UnixDomainCM, params::Dict, launched::Array, c::Conditi
     for i in 1:manager.np
         sockname = tempname()
         try
-            cmd = `$(params[:exename]) $(@__FILE__) udwrkr $sockname $cookie`
+            cmd = `$(params[:exename]) --startup-file=no $(@__FILE__) udwrkr $sockname $cookie`
             io, pobj = open(cmd, "r")
 
             wconfig = WorkerConfig()
@@ -82,7 +82,7 @@ end
 function print_worker_stdout(io, pid)
     @schedule while !eof(io)
         line = readline(io)
-        print("\tFrom worker $(pid):\t$line")
+        println("\tFrom worker $(pid):\t$line")
     end
 end
 

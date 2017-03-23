@@ -3,7 +3,7 @@
 bt = backtrace()
 have_backtrace = false
 for l in bt
-    lkup = ccall(:jl_lookup_code_address, Any, (Ptr{Void},), l)
+    lkup = ccall(:jl_lookup_code_address, Any, (Ptr{Void}, Cint), l, true)
     if lkup[1][1] == :backtrace
         @test lkup[1][5] == false # fromC
         have_backtrace = true
@@ -74,9 +74,6 @@ loc = functionloc(f12977)
 @test endswith(loc[1], "backtrace.jl")
 @test loc[2] == linenum
 
-# issue #922: SimplifyCFG pass merges throws
-code_loc(p, skipC=true) = ccall(:jl_lookup_code_address, Any, (Ptr{Void},Cint), p-1, skipC)
-
 @noinline function test_throw_commoning(x)
     if x==1; throw(AssertionError()); end
     if x==2; throw(AssertionError()); end
@@ -98,4 +95,52 @@ let
     i2 = findfirst(frame -> frame.func === :test_throw_commoning, b2)
     @test i1 > 0 && i2 > 0
     @test b1[i1].line != b2[i2].line
+end
+
+module BackTraceTesting
+
+using Base.Test
+
+@inline bt2() = backtrace()
+@inline bt1() = bt2()
+bt() = bt1()
+
+lkup = map(StackTraces.lookup, bt())
+hasbt = hasbt2 = false
+for sfs in lkup
+    for sf in sfs
+        if sf.func == :bt
+            hasbt = true
+        end
+        if sf.func == :bt2
+            hasbt2 = true
+        end
+    end
+end
+@test hasbt
+if Base.JLOptions().can_inline != 0
+    @test_broken hasbt2
+else
+    @test hasbt2
+end
+
+function btmacro()
+    ret = @timed backtrace()
+    ret[1]
+end
+lkup = map(StackTraces.lookup, btmacro())
+hasme = hasbtmacro = false
+for sfs in lkup
+    for sf in sfs
+        if sf.func == Symbol("macro expansion")
+            hasme = true
+        end
+        if sf.func == :btmacro
+            hasbtmacro = true
+        end
+    end
+end
+@test hasme
+@test hasbtmacro
+
 end

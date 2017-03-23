@@ -38,9 +38,8 @@ let
     @test isnull(frame2.linfo)
 end
 
-let
-    # Test from_c
-    default, with_c, without_c = stacktrace(), stacktrace(true), stacktrace(false)
+# Test from_c
+let (default, with_c, without_c) = (stacktrace(), stacktrace(true), stacktrace(false))
     @test default == without_c
     @test length(with_c) > length(without_c)
     @test !isempty(filter(frame -> frame.from_c, with_c))
@@ -97,4 +96,37 @@ for (frame, func, inlined) in zip(trace, [g,h,f], (can_inline, can_inline, false
     @test !frame.from_c
     @test frame.inlined === inlined
 end
+end
+
+let src = expand(quote let x = 1 end end).args[1]::CodeInfo,
+    li = ccall(:jl_new_method_instance_uninit, Ref{Core.MethodInstance}, ()),
+    sf
+
+    li.inferred = src
+    li.specTypes = Tuple{}
+    sf = StackFrame(:a, :b, 3, li, false, false, 0)
+    repr = string(sf)
+    @test repr == "Toplevel MethodInstance thunk at b:3"
+end
+let li = typeof(getfield).name.mt.cache.func::Core.MethodInstance,
+    sf = StackFrame(:a, :b, 3, li, false, false, 0),
+    repr = string(sf)
+    @test repr == "getfield(...) at b:3"
+end
+
+let ctestptr = cglobal((:ctest, "libccalltest")),
+    ctest = StackTraces.lookup(ctestptr + 1)
+
+    @test length(ctest) == 1
+    @test ctest[1].func === :ctest
+    @test isnull(ctest[1].linfo)
+    @test ctest[1].from_c
+    @test ctest[1].pointer === UInt64(ctestptr)
+end
+
+# issue #19655
+let st = stacktrace(empty!(backtrace()))
+    # not in a `catch`, so should return an empty StackTrace
+    @test isempty(st)
+    @test isa(st, StackTrace)
 end

@@ -2,20 +2,20 @@
 
 module Libc
 
+import Base: transcode
+
 export FILE, TmStruct, strftime, strptime, getpid, gethostname, free, malloc, calloc, realloc,
-    errno, strerror, flush_cstdio, systemsleep, time
+    errno, strerror, flush_cstdio, systemsleep, time, transcode
 if is_windows()
     export GetLastError, FormatMessage
 end
-
-import Base: utf16to8
 
 include(string(length(Core.ARGS)>=2?Core.ARGS[2]:"","errno_h.jl"))  # include($BUILDROOT/base/errno_h.jl)
 
 ## RawFD ##
 
 # Wrapper for an OS file descriptor (on both Unix and Windows)
-immutable RawFD
+struct RawFD
     fd::Int32
     RawFD(fd::Integer) = new(fd)
     RawFD(fd::RawFD) = fd
@@ -30,7 +30,7 @@ dup(src::RawFD, target::RawFD) = systemerror("dup", -1 ==
 
 # Wrapper for an OS file descriptor (for Windows)
 if is_windows()
-    immutable WindowsRawSocket
+    struct WindowsRawSocket
         handle::Ptr{Void}   # On Windows file descriptors are HANDLE's and 64-bit on 64-bit Windows
     end
     Base.cconvert(::Type{Ptr{Void}}, fd::WindowsRawSocket) = fd.handle
@@ -42,7 +42,7 @@ end
 
 ## FILE (not auto-finalized) ##
 
-immutable FILE
+struct FILE
     ptr::Ptr{Void}
 end
 
@@ -96,7 +96,7 @@ else
     error("systemsleep undefined for this OS")
 end
 
-immutable TimeVal
+struct TimeVal
    sec::Int64
    usec::Int64
 end
@@ -114,7 +114,7 @@ end
 Convert a number of seconds since the epoch to broken-down format, with fields `sec`, `min`,
 `hour`, `mday`, `month`, `year`, `wday`, `yday`, and `isdst`.
 """
-type TmStruct
+mutable struct TmStruct
     sec::Int32
     min::Int32
     hour::Int32
@@ -159,7 +159,7 @@ function strftime(fmt::AbstractString, tm::TmStruct)
     if n == 0
         return ""
     end
-    return String(pointer(timestr), n)
+    return String(timestr[1:n])
 end
 
 """
@@ -207,10 +207,20 @@ time() = ccall(:jl_clock_now, Float64, ())
 
 ## process-related functions ##
 
+"""
+    getpid() -> Int32
+
+Get Julia's process ID.
+"""
 getpid() = ccall(:jl_getpid, Int32, ())
 
 ## network functions ##
 
+"""
+    gethostname() -> AbstractString
+
+Get the local machine's host name.
+"""
 function gethostname()
     hn = Array{UInt8}(256)
     err = @static if is_windows()
@@ -219,7 +229,7 @@ function gethostname()
         ccall(:gethostname, Int32, (Ptr{UInt8}, UInt), hn, length(hn))
     end
     systemerror("gethostname", err != 0)
-    return String(pointer(hn))
+    return unsafe_string(pointer(hn))
 end
 
 ## system error handling ##
@@ -242,7 +252,7 @@ errno(e::Integer) = ccall(:jl_set_errno, Void, (Cint,), e)
 
 Convert a system call error code to a descriptive string
 """
-strerror(e::Integer) = String(ccall(:strerror, Cstring, (Int32,), e))
+strerror(e::Integer) = unsafe_string(ccall(:strerror, Cstring, (Int32,), e))
 strerror() = strerror(errno())
 
 """
@@ -260,24 +270,24 @@ Convert a Win32 system call error code to a descriptive string [only available o
 function FormatMessage end
 
 if is_windows()
-    GetLastError() = ccall(:GetLastError,stdcall,UInt32,())
+    GetLastError() = ccall(:GetLastError, stdcall, UInt32, ())
 
     function FormatMessage(e=GetLastError())
         const FORMAT_MESSAGE_ALLOCATE_BUFFER = UInt32(0x100)
         const FORMAT_MESSAGE_FROM_SYSTEM = UInt32(0x1000)
         const FORMAT_MESSAGE_IGNORE_INSERTS = UInt32(0x200)
         const FORMAT_MESSAGE_MAX_WIDTH_MASK = UInt32(0xFF)
-        lpMsgBuf = Array(Ptr{UInt16})
-        lpMsgBuf[1] = 0
-        len = ccall(:FormatMessageW,stdcall,UInt32,(Cint, Ptr{Void}, Cint, Cint, Ptr{Ptr{UInt16}}, Cint, Ptr{Void}),
+        lpMsgBuf = Ref{Ptr{UInt16}}()
+        lpMsgBuf[] = 0
+        len = ccall(:FormatMessageW, stdcall, UInt32, (Cint, Ptr{Void}, Cint, Cint, Ptr{Ptr{UInt16}}, Cint, Ptr{Void}),
                     FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | FORMAT_MESSAGE_MAX_WIDTH_MASK,
                     C_NULL, e, 0, lpMsgBuf, 0, C_NULL)
-        p = lpMsgBuf[1]
+        p = lpMsgBuf[]
         len == 0 && return ""
         buf = Array{UInt16}(len)
         unsafe_copy!(pointer(buf), p, len)
-        ccall(:LocalFree,stdcall,Ptr{Void},(Ptr{Void},),p)
-        return String(utf16to8(buf))
+        ccall(:LocalFree, stdcall, Ptr{Void}, (Ptr{Void},), p)
+        return transcode(String, buf)
     end
 end
 

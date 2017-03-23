@@ -20,7 +20,7 @@ vals = vcat(
 
 function coerce(T::Type, x)
     if T<:Rational
-        convert(T, coerce(typeof(num(zero(T))), x))
+        convert(T, coerce(typeof(numerator(zero(T))), x))
     elseif !(T<:Integer)
         convert(T, x)
     else
@@ -83,13 +83,13 @@ end
 @test hash(:(X.x)) == hash(:(X.x))
 @test hash(:(X.x)) != hash(:(X.y))
 
-@test hash([1,2]) == hash(sub([1,2,3,4],1:2))
+@test hash([1,2]) == hash(view([1,2,3,4],1:2))
 
 # test explicit zeros in SparseMatrixCSC
 x = sprand(10, 10, 0.5)
 x[1] = 1
 x.nzval[1] = 0
-@test hash(x) == hash(full(x))
+@test hash(x) == hash(Array(x))
 
 let a = QuoteNode(1), b = QuoteNode(1.0)
     @test (hash(a)==hash(b)) == (a==b)
@@ -117,3 +117,6 @@ for prec in [3, 11, 15, 16, 31, 32, 33, 63, 64, 65, 254, 255, 256, 257, 258, 102
         @test isequal(x, y)
     end
 end
+
+# issue #20744
+@test hash(:c, hash(:b, hash(:a))) != hash(:a, hash(:b, hash(:c)))

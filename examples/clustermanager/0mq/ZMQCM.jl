@@ -17,7 +17,7 @@ const REQUEST_ACK = "R"
 const ACK_MSG = "A"
 const KILL_MSG = "K"
 
-type ZMQCMan <: ClusterManager
+mutable struct ZMQCMan <: ClusterManager
     map_zmq_julia::Dict{Int, Tuple}
     c::Condition
     isfree::Bool
@@ -239,7 +239,7 @@ function start_worker(zid, cookie)
         #println("worker recv data from $from_zid")
 
         streams = get(manager.map_zmq_julia, from_zid, nothing)
-        if streams == nothing
+        if streams === nothing
             # First time..
             (r_s, w_s) = setup_connection(from_zid, REMOTE_INITIATED)
             Base.process_messages(r_s, w_s)
@@ -271,7 +271,7 @@ end
 function print_worker_stdout(io, pid)
     @schedule while !eof(io)
         line = readline(io)
-        print("\tFrom worker $(pid):\t$line")
+        println("\tFrom worker $(pid):\t$line")
     end
 end
 

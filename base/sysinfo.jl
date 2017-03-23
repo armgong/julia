@@ -22,7 +22,9 @@ global CPU_CORES
 """
     Sys.CPU_CORES
 
-The number of CPU cores in the system.
+The number of logical CPU cores available in the system.
+
+See the Hwloc.jl package for extended information, including number of physical cores.
 """
 :CPU_CORES
 
@@ -65,7 +67,7 @@ function __init__()
     global JIT = ccall(:jl_get_JIT, Ref{String}, ())
 end
 
-type UV_cpu_info_t
+mutable struct UV_cpu_info_t
     model::Ptr{UInt8}
     speed::Int32
     cpu_times!user::UInt64
@@ -74,7 +76,7 @@ type UV_cpu_info_t
     cpu_times!idle::UInt64
     cpu_times!irq::UInt64
 end
-type CPUinfo
+mutable struct CPUinfo
     model::String
     speed::Int32
     cpu_times!user::UInt64
@@ -84,7 +86,7 @@ type CPUinfo
     cpu_times!irq::UInt64
     CPUinfo(model,speed,u,n,s,id,ir)=new(model,speed,u,n,s,id,ir)
 end
-CPUinfo(info::UV_cpu_info_t) = CPUinfo(String(info.model), info.speed,
+CPUinfo(info::UV_cpu_info_t) = CPUinfo(unsafe_string(info.model), info.speed,
     info.cpu_times!user, info.cpu_times!nice, info.cpu_times!sys,
     info.cpu_times!idle, info.cpu_times!irq)
 
@@ -133,7 +135,7 @@ function cpu_info()
     Base.uv_error("uv_cpu_info",ccall(:uv_cpu_info, Int32, (Ptr{Ptr{UV_cpu_info_t}}, Ptr{Int32}), UVcpus, count))
     cpus = Array{CPUinfo}(count[1])
     for i = 1:length(cpus)
-        cpus[i] = CPUinfo(unsafe_load(UVcpus[1],i))
+        cpus[i] = CPUinfo(unsafe_load(UVcpus[1], i))
     end
     ccall(:uv_free_cpu_info, Void, (Ptr{UV_cpu_info_t}, Int32), UVcpus[1], count[1])
     return cpus
@@ -154,13 +156,23 @@ end
 free_memory() = ccall(:uv_get_free_memory, UInt64, ())
 total_memory() = ccall(:uv_get_total_memory, UInt64, ())
 
+"""
+    Sys.get_process_title()
+
+Get the process title. On some systems, will always return empty string. (not exported)
+"""
 function get_process_title()
     buf = zeros(UInt8, 512)
     err = ccall(:uv_get_process_title, Cint, (Ptr{UInt8}, Cint), buf, 512)
     Base.uv_error("get_process_title", err)
-    return String(pointer(buf))
+    return unsafe_string(pointer(buf))
 end
 
+"""
+    Sys.set_process_title(title::AbstractString)
+
+Set the process title. No-op on some operating systems. (not exported)
+"""
 function set_process_title(title::AbstractString)
     err = ccall(:uv_set_process_title, Cint, (Cstring,), title)
     Base.uv_error("set_process_title", err)

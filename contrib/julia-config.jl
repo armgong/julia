@@ -8,13 +8,19 @@ const options =
     "--ldlibs"
 ];
 
+threadingOn() = ccall(:jl_threading_enabled, Cint, ()) != 0
+
 function imagePath()
     opts = Base.JLOptions()
-    String(opts.image_file)
+    unsafe_string(opts.image_file)
 end
 
 function libDir()
-    abspath(dirname(Libdl.dlpath("libjulia")))
+    return if ccall(:jl_is_debugbuild, Cint, ()) != 0
+        dirname(abspath(Libdl.dlpath("libjulia-debug")))
+    else
+        dirname(abspath(Libdl.dlpath("libjulia")))
+    end
 end
 
 function includeDir()
@@ -47,20 +53,26 @@ function ldflags()
 end
 
 function ldlibs()
-    if is_unix()
-        return replace("""-Wl,-rpath,$(libDir()) -ljulia""","\\","\\\\")
+    libname = if ccall(:jl_is_debugbuild, Cint, ()) != 0
+        "julia-debug"
     else
-        return replace("""-ljulia""","\\","\\\\")
+        "julia"
+    end
+    if is_unix()
+        return replace("""-Wl,-rpath,$(libDir()) -l$libname""","\\","\\\\")
+    else
+        return "-l$libname -lopenlibm"
     end
 end
 
 function cflags()
     arg1 = replace(initDir(),"\\","\\\\\\\\")
     arg2 = replace(includeDir(),"\\","\\\\")
+    threading_def = threadingOn() ? "-DJULIA_ENABLE_THREADING=1 " : ""
     if is_unix()
-        return """-fPIC -DJULIA_INIT_DIR=\\"$arg1\\" -I$arg2"""
+        return """$(threading_def)-fPIC -DJULIA_INIT_DIR=\\"$arg1\\" -I$arg2"""
     else
-        return """-DJULIA_INIT_DIR=\\"$arg1\\" -I$arg2"""
+        return """$(threading_def)-DJULIA_INIT_DIR=\\"$arg1\\" -I$arg2"""
     end
 end
 

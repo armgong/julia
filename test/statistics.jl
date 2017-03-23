@@ -32,8 +32,10 @@ end
 @test median([1.,-1.,Inf,-Inf]) == 0.0
 @test isnan(median([-Inf,Inf]))
 
-@test all(median([2 3 1 -1; 7 4 5 -4], 2) .== [1.5, 4.5])
-@test all(median([2 3 1 -1; 7 4 5 -4], 1) .== [4.5 3.5 3.0 -2.5])
+X = [2 3 1 -1; 7 4 5 -4]
+@test all(median(X, 2) .== [1.5, 4.5])
+@test all(median(X, 1) .== [4.5 3.5 3.0 -2.5])
+@test X == [2 3 1 -1; 7 4 5 -4] # issue #17153
 
 @test_throws ArgumentError median([])
 @test isnan(median([NaN]))
@@ -44,7 +46,8 @@ end
 @test median!([1 2 3 4]) == 2.5
 @test median!([1 2; 3 4]) == 2.5
 
-@test invoke(median, (AbstractVector,), 1:10) == median(1:10) == 5.5
+
+@test invoke(median, Tuple{AbstractVector}, 1:10) == median(1:10) == 5.5
 
 # mean
 @test_throws ArgumentError mean(())
@@ -55,6 +58,9 @@ end
 @test mean([1,2,3]) == 2.
 @test mean([0 1 2; 4 5 6], 1) == [2.  3.  4.]
 @test mean([1 2 3; 4 5 6], 1) == [2.5 3.5 4.5]
+@test mean(i->i+1, 0:2) === 2.
+@test mean(isodd, [3]) === 1.
+@test mean(x->3x, (1,1)) === 3.
 
 @test isnan(mean([NaN]))
 @test isnan(mean([0.0,NaN]))
@@ -79,10 +85,10 @@ end
 @test isnan(var(Int[]; mean=2))
 @test isnan(var(Int[]; mean=2, corrected=false))
 # reduction across dimensions
-@test_approx_eq var(Int[], 1) [NaN]
-@test_approx_eq var(Int[], 1; corrected=false) [NaN]
-@test_approx_eq var(Int[], 1; mean=[2]) [NaN]
-@test_approx_eq var(Int[], 1; mean=[2], corrected=false) [NaN]
+@test isequal(var(Int[], 1), [NaN])
+@test isequal(var(Int[], 1; corrected=false), [NaN])
+@test isequal(var(Int[], 1; mean=[2]), [NaN])
+@test isequal(var(Int[], 1; mean=[2], corrected=false), [NaN])
 
 # edge case: one-element vector
 # iterable
@@ -96,10 +102,10 @@ end
 @test var([1]; mean=2) === Inf
 @test var([1]; mean=2, corrected=false) === 1.0
 # reduction across dimensions
-@test_approx_eq @inferred(var([1], 1)) [NaN]
-@test_approx_eq var([1], 1; corrected=false) [0.0]
-@test_approx_eq var([1], 1; mean=[2]) [Inf]
-@test_approx_eq var([1], 1; mean=[2], corrected=false) [1.0]
+@test isequal(@inferred(var([1], 1)), [NaN])
+@test var([1], 1; corrected=false) ≈ [0.0]
+@test var([1], 1; mean=[2]) ≈ [Inf]
+@test var([1], 1; mean=[2], corrected=false) ≈ [1.0]
 
 @test var(1:8) == 6.
 @test varm(1:8,1) == varm(collect(1:8),1)
@@ -107,40 +113,40 @@ end
 @test isnan(var(1:1))
 @test isnan(var(1:-1))
 
-@test_approx_eq varm([1,2,3], 2) 1.
-@test_approx_eq var([1,2,3]) 1.
-@test_approx_eq var([1,2,3]; corrected=false) 2.0/3
-@test_approx_eq var([1,2,3]; mean=0) 7.
-@test_approx_eq var([1,2,3]; mean=0, corrected=false) 14.0/3
+@test varm([1,2,3], 2) ≈ 1.
+@test var([1,2,3]) ≈ 1.
+@test var([1,2,3]; corrected=false) ≈ 2.0/3
+@test var([1,2,3]; mean=0) ≈ 7.
+@test var([1,2,3]; mean=0, corrected=false) ≈ 14.0/3
 
-@test_approx_eq varm((1,2,3), 2) 1.
-@test_approx_eq var((1,2,3)) 1.
-@test_approx_eq var((1,2,3); corrected=false) 2.0/3
-@test_approx_eq var((1,2,3); mean=0) 7.
-@test_approx_eq var((1,2,3); mean=0, corrected=false) 14.0/3
+@test varm((1,2,3), 2) ≈ 1.
+@test var((1,2,3)) ≈ 1.
+@test var((1,2,3); corrected=false) ≈ 2.0/3
+@test var((1,2,3); mean=0) ≈ 7.
+@test var((1,2,3); mean=0, corrected=false) ≈ 14.0/3
 @test_throws ArgumentError var((1,2,3); mean=())
 
-@test_approx_eq var([1 2 3 4 5; 6 7 8 9 10], 2) [2.5 2.5]'
-@test_approx_eq var([1 2 3 4 5; 6 7 8 9 10], 2; corrected=false) [2.0 2.0]'
+@test var([1 2 3 4 5; 6 7 8 9 10], 2) ≈ [2.5 2.5]'
+@test var([1 2 3 4 5; 6 7 8 9 10], 2; corrected=false) ≈ [2.0 2.0]'
 
-@test_approx_eq stdm([1,2,3], 2) 1.
-@test_approx_eq std([1,2,3]) 1.
-@test_approx_eq std([1,2,3]; corrected=false) sqrt(2.0/3)
-@test_approx_eq std([1,2,3]; mean=0) sqrt(7.0)
-@test_approx_eq std([1,2,3]; mean=0, corrected=false) sqrt(14.0/3)
+@test stdm([1,2,3], 2) ≈ 1.
+@test std([1,2,3]) ≈ 1.
+@test std([1,2,3]; corrected=false) ≈ sqrt(2.0/3)
+@test std([1,2,3]; mean=0) ≈ sqrt(7.0)
+@test std([1,2,3]; mean=0, corrected=false) ≈ sqrt(14.0/3)
 
-@test_approx_eq stdm((1,2,3), 2) 1.
-@test_approx_eq std((1,2,3)) 1.
-@test_approx_eq std((1,2,3); corrected=false) sqrt(2.0/3)
-@test_approx_eq std((1,2,3); mean=0) sqrt(7.0)
-@test_approx_eq std((1,2,3); mean=0, corrected=false) sqrt(14.0/3)
+@test stdm((1,2,3), 2) ≈ 1.
+@test std((1,2,3)) ≈ 1.
+@test std((1,2,3); corrected=false) ≈ sqrt(2.0/3)
+@test std((1,2,3); mean=0) ≈ sqrt(7.0)
+@test std((1,2,3); mean=0, corrected=false) ≈ sqrt(14.0/3)
 
-@test_approx_eq std([1 2 3 4 5; 6 7 8 9 10], 2) sqrt([2.5 2.5]')
-@test_approx_eq std([1 2 3 4 5; 6 7 8 9 10], 2; corrected=false) sqrt([2.0 2.0]')
+@test std([1 2 3 4 5; 6 7 8 9 10], 2) ≈ sqrt.([2.5 2.5]')
+@test std([1 2 3 4 5; 6 7 8 9 10], 2; corrected=false) ≈ sqrt.([2.0 2.0]')
 
 A = Complex128[exp(i*im) for i in 1:10^4]
-@test_approx_eq varm(A,0.) sum(map(abs2,A))/(length(A)-1)
-@test_approx_eq varm(A,mean(A)) var(A)
+@test varm(A,0.) ≈ sum(map(abs2,A))/(length(A)-1)
+@test varm(A,mean(A)) ≈ var(A)
 
 # test covariance
 
@@ -183,21 +189,21 @@ for vd in [1, 2], zm in [true, false], cr in [true, false]
     c = zm ? Base.covm(x1, 0, cr) :
              cov(x1, cr)
     @test isa(c, Float64)
-    @test_approx_eq c Cxx[1,1]
+    @test c ≈ Cxx[1,1]
     @inferred cov(x1, cr)
 
     @test cov(X) == Base.covm(X, mean(X, 1))
     C = zm ? Base.covm(X, 0, vd, cr) :
              cov(X, vd, cr)
     @test size(C) == (k, k)
-    @test_approx_eq C Cxx
+    @test C ≈ Cxx
     @inferred cov(X, vd, cr)
 
     @test cov(x1, y1) == Base.covm(x1, mean(x1), y1, mean(y1))
     c = zm ? Base.covm(x1, 0, y1, 0, cr) :
              cov(x1, y1, cr)
     @test isa(c, Float64)
-    @test_approx_eq c Cxy[1,1]
+    @test c ≈ Cxy[1,1]
     @inferred cov(x1, y1, cr)
 
     if vd == 1
@@ -206,7 +212,7 @@ for vd in [1, 2], zm in [true, false], cr in [true, false]
     C = zm ? Base.covm(x1, 0, Y, 0, vd, cr) :
              cov(x1, Y, vd, cr)
     @test size(C) == (1, k)
-    @test_approx_eq C Cxy[1,:]
+    @test vec(C) ≈ Cxy[1,:]
     @inferred cov(x1, Y, vd, cr)
 
     if vd == 1
@@ -215,14 +221,14 @@ for vd in [1, 2], zm in [true, false], cr in [true, false]
     C = zm ? Base.covm(X, 0, y1, 0, vd, cr) :
              cov(X, y1, vd, cr)
     @test size(C) == (k, 1)
-    @test_approx_eq C Cxy[:,1]
+    @test vec(C) ≈ Cxy[:,1]
     @inferred cov(X, y1, vd, cr)
 
     @test cov(X, Y) == Base.covm(X, mean(X, 1), Y, mean(Y, 1))
     C = zm ? Base.covm(X, 0, Y, 0, vd, cr) :
              cov(X, Y, vd, cr)
     @test size(C) == (k, k)
-    @test_approx_eq C Cxy
+    @test C ≈ Cxy
     @inferred cov(X, Y, vd, cr)
 end
 
@@ -264,19 +270,19 @@ for vd in [1, 2], zm in [true, false]
 
     c = zm ? Base.corm(x1, 0) : cor(x1)
     @test isa(c, Float64)
-    @test_approx_eq c Cxx[1,1]
+    @test c ≈ Cxx[1,1]
     @inferred cor(x1)
 
     @test cor(X) == Base.corm(X, mean(X, 1))
     C = zm ? Base.corm(X, 0, vd) : cor(X, vd)
     @test size(C) == (k, k)
-    @test_approx_eq C Cxx
+    @test C ≈ Cxx
     @inferred cor(X, vd)
 
     @test cor(x1, y1) == Base.corm(x1, mean(x1), y1, mean(y1))
     c = zm ? Base.corm(x1, 0, y1, 0) : cor(x1, y1)
     @test isa(c, Float64)
-    @test_approx_eq c Cxy[1,1]
+    @test c ≈ Cxy[1,1]
     @inferred cor(x1, y1)
 
     if vd == 1
@@ -284,7 +290,7 @@ for vd in [1, 2], zm in [true, false]
     end
     C = zm ? Base.corm(x1, 0, Y, 0, vd) : cor(x1, Y, vd)
     @test size(C) == (1, k)
-    @test_approx_eq C Cxy[1,:]
+    @test vec(C) ≈ Cxy[1,:]
     @inferred cor(x1, Y, vd)
 
     if vd == 1
@@ -292,19 +298,24 @@ for vd in [1, 2], zm in [true, false]
     end
     C = zm ? Base.corm(X, 0, y1, 0, vd) : cor(X, y1, vd)
     @test size(C) == (k, 1)
-    @test_approx_eq C Cxy[:,1]
+    @test vec(C) ≈ Cxy[:,1]
     @inferred cor(X, y1, vd)
 
     @test cor(X, Y) == Base.corm(X, mean(X, 1), Y, mean(Y, 1))
     C = zm ? Base.corm(X, 0, Y, 0, vd) : cor(X, Y, vd)
     @test size(C) == (k, k)
-    @test_approx_eq C Cxy
+    @test C ≈ Cxy
     @inferred cor(X, Y, vd)
 end
 
-@test midpoints(1.0:1.0:10.0) == 1.5:1.0:9.5
-@test midpoints(1:10) == 1.5:9.5
-@test midpoints(Float64[1.0:1.0:10.0;]) == Float64[1.5:1.0:9.5;]
+@test cor(repmat(1:17, 1, 17))[2] <= 1.0
+@test cor(1:17, 1:17) <= 1.0
+@test cor(1:17, 18:34) <= 1.0
+let tmp = linspace(1, 85, 100)
+    tmp2 = collect(tmp)
+    @test cor(tmp, tmp) <= 1.0
+    @test cor(tmp, tmp2) <= 1.0
+end
 
 @test quantile([1,2,3,4],0.5) == 2.5
 @test quantile([1,2,3,4],[0.5]) == [2.5]
@@ -312,7 +323,8 @@ end
 @test quantile(100.0:-1.0:0.0, 0.0:0.1:1.0) == collect(0.0:10.0:100.0)
 @test quantile(0.0:100.0, 0.0:0.1:1.0, sorted=true) == collect(0.0:10.0:100.0)
 @test quantile(100f0:-1f0:0.0, 0.0:0.1:1.0) == collect(0f0:10f0:100f0)
-
+@test quantile([Inf,Inf],0.5) == Inf
+@test quantile([-Inf,1],0.5) == -Inf
 @test quantile([0,1],1e-18) == 1e-18
 
 # StatsBase issue 164
@@ -321,17 +333,49 @@ y = [0.40003674665581906,0.4085630862624367,0.41662034698690303,0.41662034698690
 
 # variance of complex arrays (#13309)
 let z = rand(Complex128, 10)
-    @test var(z) ≈ invoke(var, (Any,), z) ≈ cov(z) ≈ var(z,1)[1] ≈ sumabs2(z - mean(z))/9
+    @test var(z) ≈ invoke(var, Tuple{Any}, z) ≈ cov(z) ≈ var(z,1)[1] ≈ sum(abs2, z - mean(z))/9
     @test isa(var(z), Float64)
-    @test isa(invoke(var, (Any,), z), Float64)
+    @test isa(invoke(var, Tuple{Any}, z), Float64)
     @test isa(cov(z), Float64)
     @test isa(var(z,1), Vector{Float64})
-    @test varm(z, 0.0) ≈ invoke(varm, (Any,Float64), z, 0.0) ≈ sumabs2(z)/9
+    @test varm(z, 0.0) ≈ invoke(varm, Tuple{Any,Float64}, z, 0.0) ≈ sum(abs2, z)/9
     @test isa(varm(z, 0.0), Float64)
-    @test isa(invoke(varm, (Any,Float64), z, 0.0), Float64)
+    @test isa(invoke(varm, Tuple{Any,Float64}, z, 0.0), Float64)
     @test cor(z) === 1.0
 end
 let v = varm([1.0+2.0im], 0; corrected = false)
     @test v ≈ 5
     @test isa(v, Float64)
+end
+
+# Issue #17153 and PR #17154
+let a = rand(10,10)
+    b = deepcopy(a)
+    x = median(a, 1)
+    @test b == a
+    x = median(a, 2)
+    @test b == a
+    x = mean(a, 1)
+    @test b == a
+    x = mean(a, 2)
+    @test b == a
+    x = var(a, 1)
+    @test b == a
+    x = var(a, 2)
+    @test b == a
+    x = std(a, 1)
+    @test b == a
+    x = std(a, 2)
+    @test b == a
+end
+
+# dimensional correctness
+isdefined(Main, :TestHelpers) || @eval Main include("TestHelpers.jl")
+using TestHelpers.Furlong
+let r = Furlong(1):Furlong(1):Furlong(2), a = collect(r)
+    @test sum(r) == sum(a) == Furlong(3)
+    @test cumsum(r) == Furlong.([1,3])
+    @test mean(r) == mean(a) == median(a) == median(r) == Furlong(1.5)
+    @test var(r) == var(a) == Furlong{2}(0.5)
+    @test std(r) == std(a) == Furlong{1}(sqrt(0.5))
 end

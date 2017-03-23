@@ -37,6 +37,10 @@ void jl_gc_init_page(void)
 #endif
 }
 
+#ifndef MAP_NORESERVE // not defined in POSIX, FreeBSD, etc.
+#define MAP_NORESERVE (0)
+#endif
+
 // Try to allocate a memory block for a region with `pg_cnt` pages.
 // Return `NULL` if allocation failed. Result is aligned to `GC_PAGE_SZ`.
 static char *jl_gc_try_alloc_region(int pg_cnt)
@@ -76,8 +80,6 @@ static char *jl_gc_try_alloc_region(int pg_cnt)
 static void jl_gc_alloc_region(region_t *region)
 {
     int pg_cnt = region_pg_cnt;
-    const size_t pages_sz = sizeof(jl_gc_page_t) * pg_cnt;
-    const size_t allocmap_sz = sizeof(uint32_t) * pg_cnt / 32;
     char *mem = NULL;
     while (1) {
         if (__likely((mem = jl_gc_try_alloc_region(pg_cnt))))
@@ -94,6 +96,8 @@ static void jl_gc_alloc_region(region_t *region)
             jl_throw(jl_memory_exception);
         }
     }
+    const size_t pages_sz = sizeof(jl_gc_page_t) * pg_cnt;
+    const size_t allocmap_sz = sizeof(uint32_t) * pg_cnt / 32;
     region->pages = (jl_gc_page_t*)mem;
     region->allocmap = (uint32_t*)(mem + pages_sz);
     region->meta = (jl_gc_pagemeta_t*)(mem + pages_sz +allocmap_sz);
@@ -152,9 +156,7 @@ NOINLINE void *jl_gc_alloc_page(void)
     VirtualAlloc(ptr, GC_PAGE_SZ, MEM_COMMIT, PAGE_READWRITE);
 #endif
     current_pg_count++;
-#ifdef GC_FINAL_STATS
-    max_pg_count = max_pg_count < current_pg_count ? current_pg_count : max_pg_count;
-#endif
+    gc_final_count_page(current_pg_count);
     JL_UNLOCK_NOGC(&pagealloc_lock);
     return ptr;
 }

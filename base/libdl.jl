@@ -9,7 +9,7 @@ export DL_LOAD_PATH, RTLD_DEEPBIND, RTLD_FIRST, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOC
 """
     DL_LOAD_PATH
 
-When calling [`dlopen`](:func:`dlopen`), the paths in this list will be searched first, in
+When calling [`dlopen`](@ref), the paths in this list will be searched first, in
 order, before searching the system locations for a valid library handle.
 """
 const DL_LOAD_PATH = String[]
@@ -18,7 +18,8 @@ if is_apple()
     push!(DL_LOAD_PATH, "@loader_path")
 end
 
-# constants to match JL_RTLD_* in src/julia.h
+# note: constants to match JL_RTLD_* in src/julia.h, translated
+#       to system-specific values by JL_RTLD macro in src/dlload.c
 const RTLD_LOCAL     = 0x00000001
 const RTLD_GLOBAL    = 0x00000002
 const RTLD_LAZY      = 0x00000004
@@ -38,7 +39,7 @@ const RTLD_FIRST     = 0x00000080
     RTLD_NOLOAD
     RTLD_NOW
 
-Enum constant for [`dlopen`](:func:`dlopen`). See your platform man page for details, if
+Enum constant for [`dlopen`](@ref). See your platform man page for details, if
 applicable.
 """ ->
 (RTLD_DEEPBIND, RTLD_FIRST, RTLD_GLOBAL, RTLD_LAZY, RTLD_LOCAL, RTLD_NODELETE, RTLD_NOLOAD, RTLD_NOW)
@@ -69,6 +70,12 @@ end
 
 Load a shared library, returning an opaque handle.
 
+The extension given by the constant `dlext` (`.so`, `.dll`, or `.dylib`)
+can be omitted from the `libfile` string, as it is automatically appended
+if needed.   If `libfile` is not an absolute path name, then the paths
+in the array `DL_LOAD_PATH` are searched for `libfile`, followed by the
+system load path.
+
 The optional flags argument is a bitwise-or of zero or more of `RTLD_LOCAL`, `RTLD_GLOBAL`,
 `RTLD_LAZY`, `RTLD_NOW`, `RTLD_NODELETE`, `RTLD_NOLOAD`, `RTLD_DEEPBIND`, and `RTLD_FIRST`.
 These are converted to the corresponding flags of the POSIX (and/or GNU libc and/or MacOS)
@@ -93,7 +100,7 @@ dlopen(s::AbstractString, flags::Integer = RTLD_LAZY | RTLD_DEEPBIND) =
 """
     dlopen_e(libfile::AbstractString [, flags::Integer])
 
-Similar to [`dlopen`](:func:`dlopen`), except returns a `NULL` pointer instead of raising errors.
+Similar to [`dlopen`](@ref), except returns a `NULL` pointer instead of raising errors.
 """
 function dlopen_e end
 
@@ -144,7 +151,7 @@ find_library(libname::Union{Symbol,AbstractString}, extrapaths=String[]) =
 
 function dlpath(handle::Ptr{Void})
     p = ccall(:jl_pathname_for_handle, Cstring, (Ptr{Void},), handle)
-    s = String(p)
+    s = unsafe_string(p)
     is_windows() && Libc.free(p)
     return s
 end
@@ -173,7 +180,7 @@ File extension for dynamic libraries (e.g. dll, dylib, so) on the current platfo
 dlext
 
 if is_linux()
-    immutable dl_phdr_info
+    struct dl_phdr_info
         # Base address of object
         addr::Cuint
 
@@ -190,13 +197,38 @@ if is_linux()
     # This callback function called by dl_iterate_phdr() on Linux
     function dl_phdr_info_callback(di::dl_phdr_info, size::Csize_t, dynamic_libraries::Array{AbstractString,1})
         # Skip over objects without a path (as they represent this own object)
-        name = String(di.name)
+        name = unsafe_string(di.name)
         if !isempty(name)
             push!(dynamic_libraries, name)
         end
         return convert(Cint, 0)::Cint
     end
 end # linux-only
+
+if is_bsd() && !is_apple()
+    # DL_ITERATE_PHDR(3) on freebsd
+    struct dl_phdr_info
+        # Base address of object
+        addr::Cuint
+
+        # Null-terminated name of object
+        name::Ptr{UInt8}
+
+        # Pointer to array of ELF program headers for this object
+        phdr::Ptr{Void}
+
+        # Number of program headers for this object
+        phnum::Cshort
+    end
+
+    function dl_phdr_info_callback(di::dl_phdr_info, size::Csize_t, dy_libs::Array{AbstractString,1})
+        name = unsafe_string(di.name)
+        if !isempty(name)
+            push!(dy_libs, name)
+        end
+        return convert(Cint, 0)::Cint
+    end
+end # bsd family
 
 function dllist()
     dynamic_libraries = Array{AbstractString}(0)
@@ -212,13 +244,20 @@ function dllist()
 
         # start at 1 instead of 0 to skip self
         for i in 1:numImages-1
-            name = String(ccall(:_dyld_get_image_name, Cstring, (UInt32,), i))
+            name = unsafe_string(ccall(:_dyld_get_image_name, Cstring, (UInt32,), i))
             push!(dynamic_libraries, name)
         end
     end
 
     @static if is_windows()
         ccall(:jl_dllist, Cint, (Any,), dynamic_libraries)
+    end
+
+    @static if is_bsd() && !is_apple()
+        const callback = cfunction(dl_phdr_info_callback, Cint,
+                                   (Ref{dl_phdr_info}, Csize_t, Ref{Array{AbstractString,1}} ))
+        ccall(:dl_iterate_phdr, Cint, (Ptr{Void}, Ref{Array{AbstractString,1}}), callback, dynamic_libraries)
+        shift!(dynamic_libraries)
     end
 
     return dynamic_libraries

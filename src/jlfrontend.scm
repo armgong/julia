@@ -1,10 +1,12 @@
 (load "./flisp/aliases.scm")
+(load "./flisp/profile.scm")
 (load "utils.scm")
 (load "ast.scm")
 (load "match.scm")
 (load "macroexpand.scm")
 (load "julia-parser.scm")
 (load "julia-syntax.scm")
+
 
 ;; exception handler for parser. turns known errors into special expressions,
 ;; and prevents throwing an exception past a C caller.
@@ -77,7 +79,7 @@
 (define (expand-toplevel-expr-- e)
   (let ((ex0 (julia-expand-macros e)))
     (if (and (pair? ex0) (eq? (car ex0) 'toplevel))
-        `(toplevel ,@(map expand-toplevel-expr (cdr ex0)))
+        ex0
         (let* ((ex (julia-expand0 ex0))
                (gv (toplevel-expr-globals ex))
                (th (julia-expand1
@@ -85,8 +87,8 @@
                              (scope-block
                               (block ,@(map (lambda (v) `(implicit-global ,v)) gv)
                                      ,ex))))))
-          (if (and (null? (car (caddr th)))
-                   (= 0 (caddr (caddr th))))
+          (if (and (null? (cdadr (caddr th)))
+                   (= 0 (cadddr (caddr th))))
               ;; if no locals, return just body of function
               (cadddr th)
               `(thunk ,th))))))
@@ -99,6 +101,8 @@
                   (or (memq (car e) '(toplevel line module import importall using export
                                                error incomplete))
                       (and (eq? (car e) 'global) (every symbol? (cdr e))))))
+         (if (eq? e '_)
+             (syntax-deprecation #f "_ as an rvalue" ""))
          e)
         (else
          (let ((last *in-expand*))
@@ -174,8 +178,14 @@
                              (julia-parse stream)))))
                 (if (eof-object? expr)
                     (cons 'toplevel (reverse! exprs))
-                    (let ((next (list* expr `(line ,lineno) exprs)))
-                      (if (and (pair? expr) (eq? (car expr) 'error))
+                    (let* ((iserr (and (pair? expr) (eq? (car expr) 'error)))
+			   (next (list* expr
+					;; for error, get most recent line number (#16720)
+					(if iserr
+					    `(line ,(input-port-line io))
+					    `(line ,lineno))
+					exprs)))
+                      (if iserr
                           (cons 'toplevel (reverse! next))
                           (loop next))))))))))
    (io.close io)))
@@ -215,3 +225,10 @@
 ; run whole frontend on a string. useful for testing.
 (define (fe str)
   (expand-toplevel-expr (julia-parse str)))
+
+(define (profile-e s)
+  (with-exception-catcher
+   (lambda (e)
+           (newline)
+           (prn e))
+   (lambda () (profile s))))

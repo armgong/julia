@@ -14,6 +14,8 @@
 #include <llvm/IR/LLVMContext.h>
 #include <llvm/IR/Metadata.h>
 #include <llvm/Support/Debug.h>
+#include "fix_llvm_assert.h"
+
 #include <cstdio>
 
 namespace llvm {
@@ -30,7 +32,7 @@ bool annotateSimdLoop(BasicBlock *incr)
     // Lazy initialization
     if (!simd_loop_mdkind) {
         simd_loop_mdkind = incr->getContext().getMDKindID("simd_loop");
-#ifdef LLVM36
+#if JL_LLVM_VERSION >= 30600
         simd_loop_md = MDNode::get(incr->getContext(), ArrayRef<Metadata*>());
 #else
         simd_loop_md = MDNode::get(incr->getContext(), ArrayRef<Value*>());
@@ -94,7 +96,7 @@ void LowerSIMDLoop::enableUnsafeAlgebraIfReduction(PHINode *Phi, Loop *L) const
     for (Instruction *I = Phi; ; I=J) {
         J = NULL;
         // Find the user of instruction I that is within loop L.
-#ifdef LLVM35
+#if JL_LLVM_VERSION >= 30500
         for (User *UI : I->users()) { /*}*/
             Instruction *U = cast<Instruction>(UI);
 #else
@@ -151,11 +153,11 @@ bool LowerSIMDLoop::runOnLoop(Loop *L, LPPassManager &LPM)
     DEBUG(dbgs() << "LSL: simd_loop found\n");
     BasicBlock *Lh = L->getHeader();
     DEBUG(dbgs() << "LSL: loop header: " << *Lh << "\n");
-#ifdef LLVM34
+#if JL_LLVM_VERSION >= 30400
     MDNode *n = L->getLoopID();
     if (!n) {
         // Loop does not have a LoopID yet, so give it one.
-#ifdef LLVM36
+#if JL_LLVM_VERSION >= 30600
         n = MDNode::get(Lh->getContext(), ArrayRef<Metadata*>(NULL));
 #else
         n = MDNode::get(Lh->getContext(), ArrayRef<Value*>(NULL));
@@ -167,7 +169,7 @@ bool LowerSIMDLoop::runOnLoop(Loop *L, LPPassManager &LPM)
     MDNode *n = MDNode::get(Lh->getContext(), ArrayRef<Value*>());
     L->getLoopLatch()->getTerminator()->setMetadata("llvm.loop.parallel", n);
 #endif
-#ifdef LLVM36
+#if JL_LLVM_VERSION >= 30600
     MDNode *m = MDNode::get(Lh->getContext(), ArrayRef<Metadata*>(n));
 #else
     MDNode *m = MDNode::get(Lh->getContext(), ArrayRef<Value*>(n));
