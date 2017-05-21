@@ -1,8 +1,12 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 """
-The Docs module provides the `@doc` macro which can be used to set and retrieve
-documentation metadata for Julia objects. Please see docs for the `@doc` macro for more
+    Docs
+
+The `Docs` module provides the `@doc` macro which can be used to set and retrieve
+documentation metadata for Julia objects.
+
+Please see the manual section on documentation for more
 information.
 """
 module Docs
@@ -78,8 +82,8 @@ function initmeta(m::Module = current_module())
     nothing
 end
 
-function signature(expr::Expr)
-    if isexpr(expr, [:call, :macrocall])
+function signature!(tv, expr::Expr)
+    if isexpr(expr, (:call, :macrocall))
         sig = :(Union{Tuple{}})
         for arg in expr.args[2:end]
             isexpr(arg, :parameters) && continue
@@ -88,16 +92,26 @@ function signature(expr::Expr)
             end
             push!(sig.args[end].args, argtype(arg))
         end
-        tv = typevars(expr)
+        if isexpr(expr.args[1], :curly) && isempty(tv)
+            append!(tv, tvar.(expr.args[1].args[2:end]))
+        end
+        for i = length(tv):-1:1
+            push!(sig.args, :(Tuple{$(tv[i].args[1])}))
+        end
         for i = length(tv):-1:1
             sig = Expr(:where, sig, tv[i])
         end
         sig
+    elseif isexpr(expr, :where)
+        append!(tv, tvar.(expr.args[2:end]))
+        signature!(tv, expr.args[1])
     else
-        signature(expr.args[1])
+        signature!(tv, expr.args[1])
     end
 end
-signature(other) = :(Union{})
+signature!(tv, other) = :(Union{})
+signature(expr::Expr) = signature!([], expr)
+signature(other) = signature!([], other)
 
 function argtype(expr::Expr)
     isexpr(expr, :(::))  && return expr.args[end]
@@ -106,11 +120,8 @@ function argtype(expr::Expr)
 end
 argtype(other) = :Any
 
-function typevars(expr::Expr)
-    isexpr(expr, :curly) && return expr.args[2:end]
-    typevars(expr.args[1])
-end
-typevars(::Symbol) = []
+tvar(x::Expr)   = x
+tvar(s::Symbol) = :($s <: Any)
 
 # Docsystem types.
 # ================
@@ -195,7 +206,7 @@ is stored as `Tuple{Any, Any}` in the `MultiDoc` while
 
     f{T}(x::T, y = ?) = ...
 
-is stored as `Union{Tuple{T}, Tuple{T, Any}}`.
+is stored as `Union{Tuple{T, Any}, Tuple{T}} where T`.
 
 Note: The `Function`/`DataType` object's signature is always `Union{}`.
 """
@@ -393,6 +404,13 @@ function summarize(io::IO, T::DataType, binding)
         end
         println(io, "```")
     end
+    if supertype(T) != Any
+        println(io, "**Supertype Hierarchy:**")
+        println(io, "```")
+        Base.show_supertypes(io, T)
+        println(io)
+        println(io, "```")
+    end
 end
 
 function summarize(io::IO, m::Module, binding)
@@ -402,7 +420,7 @@ function summarize(io::IO, m::Module, binding)
         println(io, "---\n")
         println(io, readstring(readme))
     else
-        println(io, "No `README.md` found for module `", m, "`.\n")
+        println(io, "No docstring or `README.md` found for module `", m, "`.\n")
     end
 end
 
@@ -443,7 +461,7 @@ function nameof(x::Expr, ismacro)
     if isexpr(x, :.)
         ismacro ? macroname(x) : x
     else
-        n = isexpr(x, [:module, :type, :bitstype]) ? 2 : 1
+        n = isexpr(x, (:module, :type, :bitstype)) ? 2 : 1
         nameof(x.args[n], ismacro)
     end
 end
@@ -520,7 +538,7 @@ function calldoc(str, def)
         docerror(def)
     end
 end
-validcall(x) = isa(x, Symbol) || isexpr(x, [:(::), :..., :kw, :parameters])
+validcall(x) = isa(x, Symbol) || isexpr(x, (:(::), :..., :kw, :parameters))
 
 function moduledoc(meta, def, def′)
     name  = namify(def′)
@@ -627,7 +645,7 @@ isquotedmacrocall(x) =
     isexpr(x.args[1].value, :macrocall, 1)
 # Simple expressions / atoms the may be documented.
 isbasicdoc(x) = isexpr(x, :.) || isa(x, Union{QuoteNode, Symbol})
-is_signature(x) = isexpr(x, :call) || (isexpr(x, :(::), 2) && isexpr(x.args[1], :call))
+is_signature(x) = isexpr(x, :call) || (isexpr(x, :(::), 2) && isexpr(x.args[1], :call)) || isexpr(x, :where)
 
 function docm(meta, ex, define = true)
     # Some documented expressions may be decorated with macro calls which obscure the actual

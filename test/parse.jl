@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # tests for parser and syntax lowering
 
@@ -275,6 +275,9 @@ for T in vcat(subtypes(Signed), subtypes(Unsigned))
     @test parse(Float64, "    .5    ") == 0.5
     @test parse(Float64, ".5    "    ) == 0.5
 end
+
+@test parse(Bool, "\u202f true") === true
+@test parse(Bool, "\u202f false") === false
 
 parsebin(s) = parse(Int,s,2)
 parseoct(s) = parse(Int,s,8)
@@ -571,13 +574,13 @@ f16517() = try error(); catch 0; end
 # issue #16671
 @test parse("1.") === 1.0
 
+isline(x) = isa(x,Expr) && x.head === :line
+
 # issue #16672
-let isline(x) = isa(x,Expr) && x.head === :line
-    @test count(isline, parse("begin end").args) == 1
-    @test count(isline, parse("begin; end").args) == 1
-    @test count(isline, parse("begin; x+2; end").args) == 1
-    @test count(isline, parse("begin; x+2; y+1; end").args) == 2
-end
+@test count(isline, parse("begin end").args) == 1
+@test count(isline, parse("begin; end").args) == 1
+@test count(isline, parse("begin; x+2; end").args) == 1
+@test count(isline, parse("begin; x+2; y+1; end").args) == 2
 
 # issue #16736
 let
@@ -671,6 +674,10 @@ end
 # error throwing branch from #10560
 @test_throws ArgumentError Base.tryparse_internal(Bool, "foo", 1, 2, 10, true)
 
+@test tryparse(Float64, "1.23") === Nullable(1.23)
+@test tryparse(Float32, "1.23") === Nullable(1.23f0)
+@test tryparse(Float16, "1.23") === Nullable(Float16(1.23))
+
 # PR #17393
 for op in (:.==, :.&, :.|, :.≤)
     @test parse("a $op b") == Expr(:call, op, :a, :b)
@@ -692,6 +699,11 @@ let m_error, error_out, filename = Base.source_path()
     m_error = try @eval method_c6(A; B) = 3; catch e; e; end
     error_out = sprint(showerror, m_error)
     @test error_out == "syntax: keyword argument \"B\" needs a default value"
+
+    # issue #20614
+    m_error = try @eval foo{N}(types::NTuple{N}, values::Vararg{Any,N}, c) = nothing; catch e; e; end
+    error_out = sprint(showerror, m_error)
+    @test startswith(error_out, "ArgumentError: Vararg on non-final argument")
 end
 
 # issue #7272
@@ -1010,6 +1022,19 @@ end
 short_where_call = :(f(x::T) where T = T)
 @test short_where_call.args[2].head == :block
 
+# `where` with multi-line anonymous functions
+let f = function (x::T) where T
+            T
+        end
+    @test f(:x) === Symbol
+end
+
+let f = function (x::T, y::S) where T<:S where S
+            (T,S)
+        end
+    @test f(0,1) === (Int,Int)
+end
+
 # issue #20541
 @test parse("[a .!b]") == Expr(:hcat, :a, Expr(:call, :(.!), :b))
 
@@ -1058,3 +1083,115 @@ end
 @test isa(f21054, Function)
 g21054(>:) = >:2
 @test g21054(-) == -2
+
+# issue #21168
+@test expand(:(a.[1])) == Expr(:error, "invalid syntax a.[1]")
+@test expand(:(a.{1})) == Expr(:error, "invalid syntax a.{1}")
+
+# Issue #21225
+let abstr = parse("abstract type X end")
+    @test parse("abstract type X; end") == abstr
+    @test parse(string("abstract type X", ";"^5, " end")) == abstr
+    @test parse("abstract type X\nend") == abstr
+    @test parse(string("abstract type X", "\n"^5, "end")) == abstr
+end
+let prim = parse("primitive type X 8 end")
+    @test parse("primitive type X 8; end") == prim
+    @test parse(string("primitive type X 8", ";"^5, " end")) == prim
+    @test parse("primitive type X 8\nend") == prim
+    @test parse(string("primitive type X 8", "\n"^5, "end")) == prim
+end
+
+# issue #21155
+@test filter(!isline,
+             parse("module B
+                        using ..x,
+                              ..y
+                    end").args[3].args)[1] ==
+      Expr(:toplevel,
+           Expr(:using, Symbol("."), Symbol("."), :x),
+           Expr(:using, Symbol("."), Symbol("."), :y))
+
+@test filter(!isline,
+             parse("module A
+                        using .B,
+                              .C
+                    end").args[3].args)[1] ==
+      Expr(:toplevel,
+           Expr(:using, Symbol("."), :B),
+           Expr(:using, Symbol("."), :C))
+
+# issue #21440
+@test parse("+(x::T,y::T) where {T} = 0") == parse("(+)(x::T,y::T) where {T} = 0")
+@test parse("a::b::c") == Expr(:(::), Expr(:(::), :a, :b), :c)
+
+# issue #21545
+f21545(::Type{<: AbstractArray{T,N} where N}) where T = T
+@test f21545(Array{Int8}) === Int8
+@test parse("<:{T} where T") == Expr(:where, Expr(:curly, :(<:), :T), :T)
+@test parse("<:(T) where T") == Expr(:where, Expr(:(<:), :T), :T)
+@test parse("<:{T}(T) where T") == Expr(:where, Expr(:call, Expr(:curly, :(<:), :T), :T), :T)
+
+# issue #21586
+macro m21586(x)
+    Expr(:kw, esc(x), 42)
+end
+
+f21586(; @m21586(a), @m21586(b)) = a + b
+@test f21586(a=10) == 52
+
+# issue #21604
+@test_nowarn @eval module Test21604
+    const Foo = Any
+    struct X
+        x::Foo
+    end
+end
+@test Test21604.X(1.0) === Test21604.X(1.0)
+
+# issue #20575
+@test_throws ParseError parse("\"a\"x")
+@test_throws ParseError parse("\"a\"begin end")
+
+# comment 298107224 on pull #21607
+module Test21607
+    using Base.Test
+
+    @test_warn(
+    "WARNING: imported binding for Any overwritten in module Test21607",
+    @eval const Any = Integer)
+
+    # check that X <: Core.Any, not Integer
+    mutable struct X; end
+    @test supertype(X) === Core.Any
+
+    # check that return type is Integer
+    f()::Any = 1.0
+    @test f() === 1
+
+    # check that constructor accepts Any
+    struct Y
+        x
+    end
+    @test Y(1.0) !== Y(1)
+
+    # check that function default argument type is Any
+    g(x) = x
+    @test g(1.0) === 1.0
+
+    # check that asserted variable type is Integer
+    @test let
+        x::Any = 1.0
+        x
+    end === 1
+
+    # check that unasserted variable type is not Integer
+    @test let
+        x = 1.0
+        x
+    end === 1.0
+end
+
+# issue #16937
+@test expand(:(f(2, a=1, w=3, c=3, w=4, b=2))) == Expr(:error,
+                                                       "keyword argument \"w\" repeated in call to \"f\"")

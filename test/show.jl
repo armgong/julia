@@ -1,8 +1,7 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
-const curmod = current_module()
-const curmod_name = fullname(curmod)
-const curmod_prefix = "$(["$m." for m in curmod_name]...)"
+# For curmod_*
+include("testenv.jl")
 
 replstr(x) = sprint((io,x) -> show(IOContext(io, :limit => true), MIME("text/plain"), x), x)
 
@@ -544,6 +543,11 @@ let io = IOBuffer()
     @test String(take!(io)) == "[1, 2]"
 end
 
+let io = IOBuffer()
+    ioc = IOContext(io, :limit => true)
+    @test sprint(show, ioc) == "IOContext($(sprint(show, ioc.io)))"
+end
+
 # PR 17117
 # test show array
 let s = IOBuffer(Array{UInt8}(0), true, true)
@@ -663,3 +667,8 @@ let m = which(T20332{Int}(), (Int,)),
     # test that this doesn't throw an error
     @test contains(repr(mi), "MethodInstance for")
 end
+
+@test sprint(show, Main) == "Main"
+
+@test sprint(Base.show_supertypes, Int64) == "Int64 <: Signed <: Integer <: Real <: Number <: Any"
+@test sprint(Base.show_supertypes, Vector{String}) == "Array{String,1} <: DenseArray{String,1} <: AbstractArray{String,1} <: Any"

@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 abstract type ClusterManager end
 
@@ -10,7 +10,7 @@ mutable struct WorkerConfig
 
     # Used when launching additional workers at a host
     count::Nullable{Union{Int, Symbol}}
-    exename::Nullable{AbstractString}
+    exename::Nullable{Union{AbstractString, Cmd}}
     exeflags::Nullable{Cmd}
 
     # External cluster managers can use this to store information at a per-worker level
@@ -232,13 +232,13 @@ function read_worker_host_port(io::IO)
         !istaskdone(readtask) && break
 
         conninfo = wait(readtask)
-        if conninfo == "" && !isopen(io)
+        if isempty(conninfo) && !isopen(io)
             error("Unable to read host:port string from worker. Launch command exited with error?")
         end
 
         ntries -= 1
         bind_addr, port = parse_connection_info(conninfo)
-        if bind_addr != ""
+        if !isempty(bind_addr)
             return bind_addr, port
         end
 
@@ -525,8 +525,8 @@ function launch_additional(np::Integer, cmd::Cmd)
     addresses = Vector{Any}(np)
 
     for i in 1:np
-        io, pobj = open(pipeline(detach(cmd), stderr=STDERR), "r")
-        io_objs[i] = io
+        io = open(detach(cmd))
+        io_objs[i] = io.out
     end
 
     for (i,io) in enumerate(io_objs)
@@ -651,7 +651,20 @@ myid() = LPROC.id
 
 Get the number of available processes.
 """
-nprocs() = length(PGRP.workers)
+function nprocs()
+    if myid() == 1 || PGRP.topology == :all_to_all
+        n = length(PGRP.workers)
+        # filter out workers in the process of being setup/shutdown.
+        for jw in PGRP.workers
+            if !isa(jw, LocalProcess) && (jw.state != W_CONNECTED)
+                n = n - 1
+            end
+        end
+        return n
+    else
+        return length(PGRP.workers)
+    end
+end
 
 """
     nworkers()
@@ -669,7 +682,31 @@ end
 
 Returns a list of all process identifiers.
 """
-procs() = Int[x.id for x in PGRP.workers]
+function procs()
+    if myid() == 1 || PGRP.topology == :all_to_all
+        # filter out workers in the process of being setup/shutdown.
+        return Int[x.id for x in PGRP.workers if isa(x, LocalProcess) || (x.state == W_CONNECTED)]
+    else
+        return Int[x.id for x in PGRP.workers]
+    end
+end
+
+function id_in_procs(id)  # faster version of `id in procs()`
+    if myid() == 1 || PGRP.topology == :all_to_all
+        for x in PGRP.workers
+            if (x.id::Int) == id && (isa(x, LocalProcess) || (x::Worker).state == W_CONNECTED)
+                return true
+            end
+        end
+    else
+        for x in PGRP.workers
+            if (x.id::Int) == id
+                return true
+            end
+        end
+    end
+    return false
+end
 
 """
     procs(pid::Integer)
@@ -679,11 +716,12 @@ Specifically all workers bound to the same ip-address as `pid` are returned.
 """
 function procs(pid::Integer)
     if myid() == 1
+        all_workers = [x for x in PGRP.workers if isa(x, LocalProcess) || (x.state == W_CONNECTED)]
         if (pid == 1) || (isa(map_pid_wrkr[pid].manager, LocalManager))
-            Int[x.id for x in filter(w -> (w.id==1) || (isa(w.manager, LocalManager)), PGRP.workers)]
+            Int[x.id for x in filter(w -> (w.id==1) || (isa(w.manager, LocalManager)), all_workers)]
         else
             ipatpid = get_bind_addr(pid)
-            Int[x.id for x in filter(w -> get_bind_addr(w) == ipatpid, PGRP.workers)]
+            Int[x.id for x in filter(w -> get_bind_addr(w) == ipatpid, all_workers)]
         end
     else
         remotecall_fetch(procs, 1, pid)
@@ -697,7 +735,7 @@ Returns a list of all worker process identifiers.
 """
 function workers()
     allp = procs()
-    if nprocs() == 1
+    if length(allp) == 1
        allp
     else
        filter(x -> x != 1, allp)
@@ -785,17 +823,18 @@ mutable struct ProcessExitedException <: Exception end
 
 worker_from_id(i) = worker_from_id(PGRP, i)
 function worker_from_id(pg::ProcessGroup, i)
-    if in(i, map_del_wrkr)
+    if !isempty(map_del_wrkr) && in(i, map_del_wrkr)
         throw(ProcessExitedException())
     end
-    if !haskey(map_pid_wrkr,i)
+    w = get(map_pid_wrkr, i, nothing)
+    if w === nothing
         if myid() == 1
             error("no process with id $i exists")
         end
         w = Worker(i)
         map_pid_wrkr[i] = w
     else
-        w = map_pid_wrkr[i]
+        w = w::Union{Worker, LocalProcess}
     end
     w
 end

@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 using Base.Test
 
@@ -46,6 +46,14 @@ let n=10
 
         debug && println("\ntype of a: ", eltya, "\n")
 
+        # constructor
+        @test Symmetric(Symmetric(asym, :U))     === Symmetric(asym, :U)
+        @test Hermitian(Hermitian(asym, :U))     === Hermitian(asym, :U)
+        @test Symmetric(Symmetric(asym, :U), :U) === Symmetric(asym, :U)
+        @test Hermitian(Hermitian(asym, :U), :U) === Hermitian(asym, :U)
+        @test_throws ArgumentError Symmetric(Symmetric(asym, :U), :L)
+        @test_throws ArgumentError Hermitian(Hermitian(asym, :U), :L)
+
         # similar
         @test isa(similar(Symmetric(asym)), Symmetric{eltya})
         @test isa(similar(Hermitian(asym)), Hermitian{eltya})
@@ -60,7 +68,6 @@ let n=10
         @test asym == full(Hermitian(asym))
 
         # parent
-
         @test asym == parent(Hermitian(asym))
 
         # getindex
@@ -128,6 +135,14 @@ let n=10
         end
         @test det(a + a.') ≈ det(Symmetric(a + a.', :U))
         @test det(a + a.') ≈ det(Symmetric(a + a.', :L))
+
+        # isposdef[!]
+        @test isposdef(Symmetric(asym)) == isposdef(full(Symmetric(asym)))
+        @test isposdef(Hermitian(asym)) == isposdef(full(Hermitian(asym)))
+        if eltya != Int
+            @test isposdef!(Symmetric(copy(asym))) == isposdef(full(Symmetric(asym)))
+            @test isposdef!(Hermitian(copy(asym))) == isposdef(full(Hermitian(asym)))
+        end
 
         # rank
         let A = a[:,1:5]*a[:,1:5]'

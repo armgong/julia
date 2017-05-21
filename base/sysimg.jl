@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 baremodule Base
 
@@ -21,10 +21,9 @@ include("coreio.jl")
 
 eval(x) = Core.eval(Base, x)
 eval(m, x) = Core.eval(m, x)
-(::Type{T}){T}(arg) = convert(T, arg)::T # Hidden from the REPL.
-(::Type{VecElement{T}}){T}(arg) = VecElement{T}(convert(T, arg))
-convert{T<:VecElement}(::Type{T}, arg) = T(arg)
-convert{T<:VecElement}(::Type{T}, arg::T) = arg
+VecElement{T}(arg) where {T} = VecElement{T}(convert(T, arg))
+convert(::Type{T}, arg)  where {T<:VecElement} = T(arg)
+convert(::Type{T}, arg::T) where {T<:VecElement} = arg
 
 # init core docsystem
 import Core: @doc, @__doc__, @doc_str
@@ -73,6 +72,10 @@ include("refpointer.jl")
 include("checked.jl")
 importall .Checked
 
+# buggy handling of ispure in type-inference means this should be
+# after re-defining the basic operations that they might try to call
+(::Type{T})(arg) where {T} = convert(T, arg)::T # Hidden from the REPL.
+
 # vararg Symbol constructor
 Symbol(x...) = Symbol(string(x...))
 
@@ -90,16 +93,16 @@ include("abstractarray.jl")
 include("subarray.jl")
 
 # Array convenience converting constructors
-(::Type{Array{T}}){T}(m::Integer) = Array{T,1}(Int(m))
-(::Type{Array{T}}){T}(m::Integer, n::Integer) = Array{T,2}(Int(m), Int(n))
-(::Type{Array{T}}){T}(m::Integer, n::Integer, o::Integer) = Array{T,3}(Int(m), Int(n), Int(o))
-(::Type{Array{T}}){T}(d::Integer...) = Array{T}(convert(Tuple{Vararg{Int}}, d))
+Array{T}(m::Integer) where {T} = Array{T,1}(Int(m))
+Array{T}(m::Integer, n::Integer) where {T} = Array{T,2}(Int(m), Int(n))
+Array{T}(m::Integer, n::Integer, o::Integer) where {T} = Array{T,3}(Int(m), Int(n), Int(o))
+Array{T}(d::Integer...) where {T} = Array{T}(convert(Tuple{Vararg{Int}}, d))
 
-(::Type{Vector})() = Array{Any,1}(0)
-(::Type{Vector{T}}){T}(m::Integer) = Array{T,1}(Int(m))
-(::Type{Vector})(m::Integer) = Array{Any,1}(Int(m))
-(::Type{Matrix{T}}){T}(m::Integer, n::Integer) = Matrix{T}(Int(m), Int(n))
-(::Type{Matrix})(m::Integer, n::Integer) = Matrix{Any}(Int(m), Int(n))
+Vector() = Array{Any,1}(0)
+Vector{T}(m::Integer) where {T} = Array{T,1}(Int(m))
+Vector(m::Integer) = Array{Any,1}(Int(m))
+Matrix{T}(m::Integer, n::Integer) where {T} = Matrix{T}(Int(m), Int(n))
+Matrix(m::Integer, n::Integer) = Matrix{Any}(Int(m), Int(n))
 
 # numeric operations
 include("hashing.jl")

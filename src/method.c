@@ -1,4 +1,4 @@
-// This file is a part of Julia. License is MIT: http://julialang.org/license
+// This file is a part of Julia. License is MIT: https://julialang.org/license
 
 /*
   Defining and adding methods
@@ -72,18 +72,29 @@ jl_value_t *jl_resolve_globals(jl_value_t *expr, jl_module_t *module, jl_svec_t 
                 JL_NARGSV(ccall method definition, 3); // (fptr, rt, at)
                 jl_value_t *rt = jl_exprarg(e, 1);
                 jl_value_t *at = jl_exprarg(e, 2);
-                JL_TRY {
-                    if (!jl_is_type(rt)) {
+                if (!jl_is_type(rt)) {
+                    JL_TRY {
                         rt = jl_interpret_toplevel_expr_in(module, rt, NULL, sparam_vals);
-                        jl_exprargset(e, 1, rt);
                     }
-                    if (!jl_is_svec(at)) {
-                        at = jl_interpret_toplevel_expr_in(module, at, NULL, sparam_vals);
-                        jl_exprargset(e, 2, at);
+                    JL_CATCH {
+                        if (jl_typeis(jl_exception_in_transit, jl_errorexception_type))
+                            jl_error("could not evaluate ccall return type (it might depend on a local variable)");
+                        else
+                            jl_rethrow();
                     }
+                    jl_exprargset(e, 1, rt);
                 }
-                JL_CATCH {
-                    jl_error("invalid return type or argument type in ccall");
+                if (!jl_is_svec(at)) {
+                    JL_TRY {
+                        at = jl_interpret_toplevel_expr_in(module, at, NULL, sparam_vals);
+                    }
+                    JL_CATCH {
+                        if (jl_typeis(jl_exception_in_transit, jl_errorexception_type))
+                            jl_error("could not evaluate ccall argument type (it might depend on a local variable)");
+                        else
+                            jl_rethrow();
+                    }
+                    jl_exprargset(e, 2, at);
                 }
                 if (jl_is_svec(rt))
                     jl_error("ccall: missing return type");
@@ -261,7 +272,6 @@ JL_DLLEXPORT jl_code_info_t *jl_code_for_staged(jl_method_instance_t *linfo)
     JL_TIMING(STAGED_FUNCTION);
     jl_tupletype_t *tt = (jl_tupletype_t*)linfo->specTypes;
     jl_svec_t *env = linfo->sparam_vals;
-    size_t i, l;
     jl_expr_t *ex = NULL;
     jl_value_t *linenum = NULL;
     jl_svec_t *sparam_vals = env;
@@ -286,11 +296,9 @@ JL_DLLEXPORT jl_code_info_t *jl_code_for_staged(jl_method_instance_t *linfo)
 
         ex = jl_exprn(lambda_sym, 2);
 
-        int nargs = linfo->def->nargs;
-        jl_array_t *argnames = jl_alloc_vec_any(nargs);
+        jl_array_t *argnames = jl_alloc_vec_any(linfo->def->nargs);
         jl_array_ptr_set(ex->args, 0, argnames);
-        for (i = 0; i < nargs; i++)
-            jl_array_ptr_set(argnames, i, jl_array_ptr_ref(linfo->def->source->slotnames, i));
+        jl_fill_argnames((jl_array_t*)linfo->def->source, argnames);
 
         jl_expr_t *scopeblock = jl_exprn(jl_symbol("scope-block"), 1);
         jl_array_ptr_set(ex->args, 1, scopeblock);
@@ -325,6 +333,7 @@ JL_DLLEXPORT jl_code_info_t *jl_code_for_staged(jl_method_instance_t *linfo)
         }
 
         jl_array_t *stmts = (jl_array_t*)func->code;
+        size_t i, l;
         for (i = 0, l = jl_array_len(stmts); i < l; i++) {
             jl_array_ptr_set(stmts, i, jl_resolve_globals(jl_array_ptr_ref(stmts, i), linfo->def->module, env));
         }
@@ -364,7 +373,7 @@ jl_method_instance_t *jl_get_specialized(jl_method_t *m, jl_value_t *types, jl_s
     new_linfo->specTypes = types;
     new_linfo->sparam_vals = sp;
     new_linfo->min_world = m->min_world;
-    new_linfo->max_world = m->max_world;
+    new_linfo->max_world = ~(size_t)0;
     return new_linfo;
 }
 
@@ -380,10 +389,11 @@ static void jl_method_set_source(jl_method_t *m, jl_code_info_t *src)
             called |= (1 << (j - 1));
     }
     m->called = called;
+    m->pure = src->pure;
 
     jl_array_t *copy = NULL;
     jl_svec_t *sparam_vars = jl_outer_unionall_vars(m->sig);
-    JL_GC_PUSH2(&copy, &sparam_vars);
+    JL_GC_PUSH3(&copy, &sparam_vars, &src);
     assert(jl_typeis(src->code, jl_array_any_type));
     jl_array_t *stmts = (jl_array_t*)src->code;
     size_t i, n = jl_array_len(stmts);
@@ -404,10 +414,11 @@ static void jl_method_set_source(jl_method_t *m, jl_code_info_t *src)
         }
         jl_array_ptr_set(copy, i, st);
     }
-    copy = jl_compress_ast(m, copy);
-    m->source = jl_copy_code_info(src);
+    src = jl_copy_code_info(src);
+    src->code = copy;
+    jl_gc_wb(src, copy);
+    m->source = (jl_value_t*)jl_compress_ast(m, src);
     jl_gc_wb(m, m->source);
-    m->source->code = copy;
     JL_GC_POP();
 }
 
@@ -435,7 +446,6 @@ JL_DLLEXPORT jl_method_t *jl_new_method_uninit(void)
     m->nargs = 0;
     m->traced = 0;
     m->min_world = 1;
-    m->max_world = ~(size_t)0;
     JL_MUTEX_INIT(&m->writelock);
     return m;
 }
@@ -495,9 +505,8 @@ extern int jl_boot_file_loaded;
 
 void print_func_loc(JL_STREAM *s, jl_method_t *m);
 
-void jl_check_static_parameter_conflicts(jl_method_t *m, jl_svec_t *t)
+static void jl_check_static_parameter_conflicts(jl_method_t *m, jl_code_info_t *src, jl_svec_t *t)
 {
-    jl_code_info_t *src = m->source;
     size_t nvars = jl_array_len(src->slotnames);
 
     size_t i, n = jl_svec_len(t);
@@ -647,7 +656,7 @@ JL_DLLEXPORT void jl_method_def(jl_svec_t *argdata,
                       m->line);
     }
 
-    jl_check_static_parameter_conflicts(m, tvars);
+    jl_check_static_parameter_conflicts(m, f, tvars);
 
     size_t i, na = jl_svec_len(atypes);
     for (i = 0; i < na; i++) {
@@ -669,6 +678,12 @@ JL_DLLEXPORT void jl_method_def(jl_svec_t *argdata,
                               jl_symbol_name(m->file),
                               m->line);
         }
+        if (jl_is_vararg_type(elt) && i < na-1)
+            jl_exceptionf(jl_argumenterror_type,
+                          "Vararg on non-final argument in method definition for %s at %s:%d",
+                          jl_symbol_name(name),
+                          jl_symbol_name(m->file),
+                          m->line);
     }
 
     int ishidden = !!strchr(jl_symbol_name(name), '#');

@@ -1,14 +1,7 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 using Base.Test
-
-inline_flag = Base.JLOptions().can_inline == 1 ? `` : `--inline=no`
-cov_flag = ``
-if Base.JLOptions().code_coverage == 1
-    cov_flag = `--code-coverage=user`
-elseif Base.JLOptions().code_coverage == 2
-    cov_flag = `--code-coverage=all`
-end
+include("testenv.jl")
 
 # Test a few "remote" invocations when no workers are present
 @test remote(myid)() == 1
@@ -17,7 +10,10 @@ end
         1
     end
 
-addprocs(4; exeflags=`$cov_flag $inline_flag --check-bounds=yes --startup-file=no --depwarn=error`)
+addprocs_with_testenv(4)
+
+id_me = myid()
+id_other = filter(x -> x != id_me, procs())[rand(1:(nprocs()-1))]
 
 # Test remote()
 let
@@ -77,10 +73,6 @@ let
 
     @test count == 0
 end
-
-
-id_me = myid()
-id_other = filter(x -> x != id_me, procs())[rand(1:(nprocs()-1))]
 
 # Test Futures
 function testf(id)
@@ -886,7 +878,6 @@ wp = CachingPool(workers())
 clear!(wp)
 @test length(wp.map_obj2ref) == 0
 
-
 # The below block of tests are usually run only on local development systems, since:
 # - tests which print errors
 # - addprocs tests are memory intensive
@@ -896,19 +887,6 @@ clear!(wp)
 DoFullTest = Bool(parse(Int,(get(ENV, "JULIA_TESTFULL", "0"))))
 
 if DoFullTest
-    # Topology tests need to run externally since a given cluster at any
-    # time can only support a single topology and the current session
-    # is already running in parallel under the default topology.
-    script = joinpath(dirname(@__FILE__), "topology.jl")
-    cmd = `$(Base.julia_cmd()) $script`
-
-    (strm, proc) = open(pipeline(cmd, stderr=STDERR))
-    wait(proc)
-    if !success(proc) && ccall(:jl_running_on_valgrind,Cint,()) == 0
-        println(readstring(strm))
-        error("Topology tests failed : $cmd")
-    end
-
     println("Testing exception printing on remote worker from a `remote_do` call")
     println("Please ensure the remote error and backtrace is displayed on screen")
 
@@ -949,7 +927,10 @@ if is_unix() # aka have ssh
     end
 
     print("\n\nTesting SSHManager. A minimum of 4GB of RAM is recommended.\n")
-    print("Please ensure sshd is running locally with passwordless login enabled.\n")
+    print("Please ensure: \n")
+    print("1) sshd is running locally with passwordless login enabled.\n")
+    print("2) Env variable USER is defined and is the ssh user.\n")
+    print("3) Port 9300 is not in use.\n")
 
     sshflags = `-o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o LogLevel=ERROR `
     #Issue #9951
@@ -962,32 +943,48 @@ if is_unix() # aka have ssh
     end
 
     print("\nTesting SSH addprocs with $(length(hosts)) workers...\n")
-    new_pids = remotecall_fetch(1, hosts, sshflags) do h, sf
-        addprocs(h; sshflags=sf)
-    end
+    new_pids = addprocs_with_testenv(hosts; sshflags=sshflags)
     @test length(new_pids) == length(hosts)
     test_n_remove_pids(new_pids)
 
     print("\nMixed ssh addprocs with :auto\n")
-    new_pids = sort(remotecall_fetch(1, ["localhost", ("127.0.0.1", :auto), "localhost"], sshflags) do h, sf
-        addprocs(h; sshflags=sf)
-    end)
+    new_pids = addprocs_with_testenv(["localhost", ("127.0.0.1", :auto), "localhost"]; sshflags=sshflags)
     @test length(new_pids) == (2 + Sys.CPU_CORES)
     test_n_remove_pids(new_pids)
 
     print("\nMixed ssh addprocs with numeric counts\n")
-    new_pids = sort(remotecall_fetch(1, [("localhost", 2), ("127.0.0.1", 2), "localhost"], sshflags) do h, sf
-        addprocs(h; sshflags=sf)
-    end)
+    new_pids = addprocs_with_testenv([("localhost", 2), ("127.0.0.1", 2), "localhost"]; sshflags=sshflags)
     @test length(new_pids) == 5
     test_n_remove_pids(new_pids)
 
     print("\nssh addprocs with tunnel\n")
-    new_pids = sort(remotecall_fetch(1, [("localhost", num_workers)], sshflags) do h, sf
-        addprocs(h; tunnel=true, sshflags=sf)
-    end)
+    new_pids = addprocs_with_testenv([("localhost", num_workers)]; tunnel=true, sshflags=sshflags)
     @test length(new_pids) == num_workers
     test_n_remove_pids(new_pids)
+
+    print("\nAll supported formats for hostname\n")
+    h1 = "localhost"
+    user = ENV["USER"]
+    h2 = "$user@$h1"
+    h3 = "$h2:22"
+    h4 = "$h3 $(string(getipaddr()))"
+    h5 = "$h4:9300"
+
+    new_pids = addprocs_with_testenv([h1, h2, h3, h4, h5]; sshflags=sshflags)
+    @test length(new_pids) == 5
+    test_n_remove_pids(new_pids)
+
+    print("\nkeyword arg exename\n")
+    for exename in [`$(joinpath(JULIA_HOME, Base.julia_exename()))`, "$(joinpath(JULIA_HOME, Base.julia_exename()))"]
+        for addp_func in [()->addprocs_with_testenv(["localhost"]; exename=exename, exeflags=test_exeflags, sshflags=sshflags),
+                          ()->addprocs_with_testenv(1; exename=exename, exeflags=test_exeflags)]
+
+            new_pids = addp_func()
+            @test length(new_pids) == 1
+            test_n_remove_pids(new_pids)
+        end
+    end
+
 end # unix-only
 end # full-test
 
@@ -1211,7 +1208,7 @@ function test_add_procs_threaded_blas()
     master_blas_thread_count = get_num_threads()
 
     # Test with default enable_threaded_blas false
-    processes_added = addprocs(2)
+    processes_added = addprocs_with_testenv(2)
     for proc_id in processes_added
         test_blas_config(proc_id, false)
     end
@@ -1226,7 +1223,7 @@ function test_add_procs_threaded_blas()
     end
     rmprocs(processes_added)
 
-    processes_added = addprocs(2, enable_threaded_blas=true)
+    processes_added = addprocs_with_testenv(2, enable_threaded_blas=true)
     for proc_id in processes_added
         test_blas_config(proc_id, true)
     end
@@ -1247,7 +1244,7 @@ test_add_procs_threaded_blas()
 #19687
 # ensure no race conditions between rmprocs and addprocs
 for i in 1:5
-    p = addprocs(1)[1]
+    p = addprocs_with_testenv(1)[1]
     @spawnat p sleep(5)
     rmprocs(p; waitfor=0)
 end
@@ -1255,7 +1252,7 @@ end
 # Test if a wait has been called on rmprocs(...;waitfor=0), further remotecalls
 # don't throw errors.
 for i in 1:5
-    p = addprocs(1)[1]
+    p = addprocs_with_testenv(1)[1]
     np = nprocs()
     @spawnat p sleep(5)
     wait(rmprocs(p; waitfor=0))
@@ -1267,7 +1264,7 @@ end
 
 # Test that an exception is thrown if workers are unable to be removed within requested time.
 if DoFullTest
-    pids=addprocs(4);
+    pids=addprocs_with_testenv(4);
     @test_throws ErrorException rmprocs(pids; waitfor=0.001);
     # wait for workers to be removed
     while any(x -> (x in procs()), pids)
@@ -1276,7 +1273,7 @@ if DoFullTest
 end
 
 # Test addprocs/rmprocs from master node only
-for f in [ ()->addprocs(1), ()->rmprocs(workers()) ]
+for f in [ ()->addprocs(1; exeflags=test_exeflags), ()->rmprocs(workers()) ]
     try
         remotecall_fetch(f, id_other)
         error("Unexpected")
@@ -1310,11 +1307,11 @@ function Base.launch(manager::ErrorSimulator, params::Dict, launched::Array, c::
     else
         error("Unknown mode")
     end
-    io, pobj = open(pipeline(detach(setenv(cmd, dir=dir)); stderr=STDERR), "r")
+    io = open(detach(setenv(cmd, dir=dir)))
 
     wconfig = WorkerConfig()
-    wconfig.process = pobj
-    wconfig.io = io
+    wconfig.process = io
+    wconfig.io = io.out
     push!(launched, wconfig)
     notify(c)
 end
@@ -1322,13 +1319,13 @@ end
 testruns = Any[]
 
 if DoFullTest
-    append!(testruns, [(()->addprocs(["errorhost20372"]), "Unable to read host:port string from worker. Launch command exited with error?", ())])
+    append!(testruns, [(()->addprocs_with_testenv(["errorhost20372"]), "Unable to read host:port string from worker. Launch command exited with error?", ())])
 end
 
 append!(testruns, [
-    (()->addprocs(ErrorSimulator(:exit)), "Unable to read host:port string from worker. Launch command exited with error?", ()),
-    (()->addprocs(ErrorSimulator(:ntries)), "Unexpected output from worker launch command. Host:port string not found.", ()),
-    (()->addprocs(ErrorSimulator(:timeout)), "Timed out waiting to read host:port string from worker.", ("JULIA_WORKER_TIMEOUT"=>"1",))
+    (()->addprocs_with_testenv(ErrorSimulator(:exit)), "Unable to read host:port string from worker. Launch command exited with error?", ()),
+    (()->addprocs_with_testenv(ErrorSimulator(:ntries)), "Unexpected output from worker launch command. Host:port string not found.", ()),
+    (()->addprocs_with_testenv(ErrorSimulator(:timeout)), "Timed out waiting to read host:port string from worker.", ("JULIA_WORKER_TIMEOUT"=>"1",))
 ])
 
 for (addp_testf, expected_errstr, env) in testruns
@@ -1360,6 +1357,13 @@ for i in 1:5
     v2[i] = i
     @test remotecall_fetch(()->v2, id_other) == v2
 end
+
+# Different global bindings to the same object
+global v3 = ones(10)
+global v4 = v3
+@test remotecall_fetch(()->v3, id_other) == remotecall_fetch(()->v4, id_other)
+@test remotecall_fetch(()->isdefined(Main, :v3), id_other)
+@test remotecall_fetch(()->isdefined(Main, :v4), id_other)
 
 # Test that a global is not being repeatedly serialized when
 # a) referenced multiple times in the closure
@@ -1494,6 +1498,18 @@ if true
 end
 @test x == map(_->sin(2), 1:2)
 
+let thrown = false
+    try
+        remotecall_fetch(sqrt, 2, -1)
+    catch e
+        thrown = true
+        b = IOBuffer()
+        showerror(b, e)
+        @test contains(String(take!(b)), "sqrt will only return")
+    end
+    @test thrown
+end
+
 # Testing clear!
 function setup_syms(n, pids)
     syms = []
@@ -1552,3 +1568,8 @@ catch ex
     @test contains(ex.captured.ex.exceptions[1].ex.msg, "BoundsError")
     @test ex.captured.ex.exceptions[2].ex == UndefVarError(:DontExistOn1)
 end
+
+# Run topology tests last after removing all workers, since a given
+# cluster at any time only supports a single topology.
+rmprocs(workers())
+include("topology.jl")

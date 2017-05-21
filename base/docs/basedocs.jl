@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 module BaseDocs
 
@@ -10,11 +10,11 @@ macro kw_str(text) Keyword(Symbol(text)) end
 """
 **Welcome to Julia $(string(VERSION)).** The full manual is available at
 
-    http://docs.julialang.org/
+    https://docs.julialang.org/
 
 as well many great tutorials and learning resources:
 
-    http://julialang.org/learning/
+    https://julialang.org/learning/
 
 For help on a specific function or macro, type `?` followed
 by its name, e.g. `?fft`, or `?@time`, and press enter.
@@ -675,6 +675,13 @@ generation specialization for that field.
 ANY
 
 """
+    Core.TypeofBottom
+
+The singleton type containing only the value `Union{}`.
+"""
+Core.TypeofBottom
+
+"""
     DevNull
 
 Used in a stream redirect to discard all data written to it. Essentially equivalent to
@@ -685,5 +692,23 @@ run(pipeline(`cat test.txt`, DevNull))
 ```
 """
 DevNull
+
+"""
+    Function
+
+Abstract type of all functions.
+
+```jldoctest
+julia> isa(+, Function)
+true
+
+julia> typeof(sin)
+Base.#sin
+
+julia> ans <: Function
+true
+```
+"""
+Function
 
 end

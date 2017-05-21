@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # name and module reflection
 
@@ -340,7 +340,7 @@ fieldoffset(x::DataType, idx::Integer) = (@_pure_meta; ccall(:jl_get_field_offse
 Determine the declared type of a field (specified by name or index) in a composite DataType `T`.
 
 ```jldoctest
-julia> immutable Foo
+julia> struct Foo
            x::Int64
            y::String
        end
@@ -361,7 +361,7 @@ Get the index of a named field, throwing an error if the field does not exist (w
 or returning 0 (when err==false).
 
 ```jldoctest
-julia> immutable Foo
+julia> struct Foo
            x::Int64
            y::String
        end
@@ -483,8 +483,7 @@ Returns an array of lowered ASTs for the methods matching the given generic func
 """
 function code_lowered(f::ANY, t::ANY=Tuple)
     asts = map(methods(f, t)) do m
-        m = m::Method
-        return uncompressed_ast(m, m.source)
+        return uncompressed_ast(m::Method)
     end
     return asts
 end
@@ -641,13 +640,8 @@ end
 isempty(mt::MethodTable) = (mt.defs === nothing)
 
 uncompressed_ast(m::Method) = uncompressed_ast(m, m.source)
-function uncompressed_ast(m::Method, s::CodeInfo)
-    if isa(s.code, Array{UInt8,1})
-        s = ccall(:jl_copy_code_info, Ref{CodeInfo}, (Any,), s)
-        s.code = ccall(:jl_uncompress_ast, Array{Any,1}, (Any, Any), m, s.code)
-    end
-    return s
-end
+uncompressed_ast(m::Method, s::CodeInfo) = s
+uncompressed_ast(m::Method, s::Array{UInt8,1}) = ccall(:jl_uncompress_ast, Any, (Any, Any), m, s)::CodeInfo
 
 # this type mirrors jl_cghooks_t (documented in julia.h)
 struct CodegenHooks
@@ -1008,6 +1002,6 @@ has_bottom_parameter(t::TypeVar) = has_bottom_parameter(t.ub)
 has_bottom_parameter(::Any) = false
 
 min_world(m::Method) = reinterpret(UInt, m.min_world)
-max_world(m::Method) = reinterpret(UInt, m.max_world)
+max_world(m::Method) = typemax(UInt)
 min_world(m::Core.MethodInstance) = reinterpret(UInt, m.min_world)
 max_world(m::Core.MethodInstance) = reinterpret(UInt, m.max_world)

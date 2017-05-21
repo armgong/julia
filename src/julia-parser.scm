@@ -25,9 +25,11 @@
 (define prec-bitshift    (add-dots '(<< >> >>>)))
 (define prec-times       (add-dots '(* / ÷ % & ⋅ ∘ × |\\| ∩ ∧ ⊗ ⊘ ⊙ ⊚ ⊛ ⊠ ⊡ ⊓ ∗ ∙ ∤ ⅋ ≀ ⊼ ⋄ ⋆ ⋇ ⋉ ⋊ ⋋ ⋌ ⋏ ⋒ ⟑ ⦸ ⦼ ⦾ ⦿ ⧶ ⧷ ⨇ ⨰ ⨱ ⨲ ⨳ ⨴ ⨵ ⨶ ⨷ ⨸ ⨻ ⨼ ⨽ ⩀ ⩃ ⩄ ⩋ ⩍ ⩎ ⩑ ⩓ ⩕ ⩘ ⩚ ⩜ ⩞ ⩟ ⩠ ⫛ ⊍ ▷ ⨝ ⟕ ⟖ ⟗)))
 (define prec-rational    (add-dots '(//)))
+;; `where`
+;; unary
 (define prec-power       (add-dots '(^ ↑ ↓ ⇵ ⟰ ⟱ ⤈ ⤉ ⤊ ⤋ ⤒ ⤓ ⥉ ⥌ ⥍ ⥏ ⥑ ⥔ ⥕ ⥘ ⥙ ⥜ ⥝ ⥠ ⥡ ⥣ ⥥ ⥮ ⥯ ￪ ￬)))
 (define prec-decl        '(|::|))
-;; `where`
+;; `where` occurring after `::`
 (define prec-dot         '(|.|))
 
 (define prec-names '(prec-assignment
@@ -593,8 +595,9 @@
                         (peek-token s))))
          ex))))
 
-(define (parse-where s)
-  (let ((ex (parse-call s)))
+(define (parse-where s down)
+  ;; `where` needs to be below unary for `+(x::T,y::T) where {T} = ...` to work
+  (let ((ex (down s)))
     (if (and where-enabled
              (eq? (peek-token s) 'where))
         (parse-where-chain s ex)
@@ -819,7 +822,7 @@
 
 (define (parse-term s) (parse-with-chains s parse-rational is-prec-times? '(*)))
 
-(define (parse-rational s) (parse-LtoR s parse-unary is-prec-rational?))
+(define (parse-rational s) (parse-LtoR s (lambda (s) (parse-unary-subtype s)) is-prec-rational?))
 
 (define (parse-pipes s)    (parse-LtoR s parse-range is-prec-pipe?))
 
@@ -873,9 +876,11 @@
            )
        (not (ts:space? s))
        (not (operator? t))
-       (not (initial-reserved-word? t))
        (not (closing-token? t))
        (not (newline? t))
+       (or (not (string? expr))  ;; issue #20575
+           (error "cannot juxtapose string literal"))
+       (not (initial-reserved-word? t))
        (not (and (pair? expr) (syntactic-unary-op? (car expr))))
        ;; TODO: this would disallow juxtaposition with 0, which is ambiguous
        ;; with e.g. hex literals `0x...`. however this is used for `0im`, which
@@ -896,6 +901,25 @@
 
 (define (invalid-identifier-name? ex)
   (or (syntactic-op? ex) (eq? ex '....)))
+
+;; parse `<: A where B` as `<: (A where B)` (issue #21545)
+(define (parse-unary-subtype s)
+  (let ((op (require-token s)))
+    (if (or (eq? op '|<:|) (eq? op '|>:|))
+        (begin (take-token s)
+               (let ((next (peek-token s)))
+                 (cond ((or (closing-token? next) (newline? next) (eq? next '=))
+                        op)  ; return operator by itself, as in (<:)
+                       ;; parse <:{T}(x::T) or <:(x::T) like other unary operators
+                       ((or (eqv? next #\{) (eqv? next #\( ))
+                        (ts:put-back! s op)
+                        (parse-where s parse-unary))
+                       (else
+                        (let ((arg (parse-where s parse-unary)))
+                          (if (and (pair? arg) (eq? (car arg) 'tuple))
+                              (cons op (cdr arg))
+                              (list op arg)))))))
+        (parse-where s parse-unary))))
 
 (define (parse-unary s)
   (let ((t (require-token s)))
@@ -954,11 +978,11 @@
   (parse-factor-h s parse-decl is-prec-power?))
 
 (define (parse-decl s)
-  (let loop ((ex (parse-where s)))
+  (let loop ((ex (parse-call s)))
     (let ((t (peek-token s)))
       (case t
         ((|::|) (take-token s)
-         (loop (list t ex (parse-where s))))
+         (loop (list t ex (parse-where s parse-call))))
         ((->)   (take-token s)
          ;; -> is unusual: it binds tightly on the left and
          ;; loosely on the right.
@@ -973,7 +997,7 @@
         (begin (take-token s)
                (cond ((let ((next (peek-token s)))
                         (or (closing-token? next) (newline? next))) op)
-                     ((memq op '(& |::|))  (list op (parse-where s)))
+                     ((memq op '(& |::|))  (list op (parse-where s parse-call)))
                      (else                 (list op (parse-unary-prefix s)))))
         (parse-atom s))))
 
@@ -1134,12 +1158,30 @@
            (and (eq? (car sig) 'where)
                 (valid-func-sig? paren (cadr sig))))))
 
+(define (unwrap-where x)
+  (if (and (pair? x) (eq? (car x) 'where))
+      (unwrap-where (cadr x))
+      x))
+
+(define (rewrap-where x w)
+  (if (and (pair? w) (eq? (car w) 'where))
+      (list 'where (rewrap-where x (cadr w)) (caddr w))
+      x))
+
 (define (parse-struct-def s mut? word)
   (if (reserved-word? (peek-token s))
       (error (string "invalid type name \"" (take-token s) "\"")))
   (let ((sig (parse-subtype-spec s)))
     (begin0 (list 'type (if mut? 'true 'false) sig (parse-block s))
             (expect-end s word))))
+
+;; consume any number of line endings from a token stream
+(define (take-lineendings s)
+  (let ((nt (peek-token s)))
+    (if (or (newline? nt) (eqv? nt #\;))
+        (begin (take-token s)
+               (take-lineendings s))
+        s)))
 
 ;; parse expressions or blocks introduced by syntactic reserved words
 (define (parse-resword s word)
@@ -1247,18 +1289,19 @@
                          (error (string "expected \"end\" in definition of function \"" sig "\"")))
                      (take-token s)
                      `(function ,sig))
-              (let* ((def   (if (or (symbol? sig)
-                                    (and (pair? sig) (eq? (car sig) '|::|)
-                                         (symbol? (cadr sig))))
-                                (if paren
-                                    ;; in "function (x)" the (x) is a tuple
-                                    `(tuple ,sig)
-                                    ;; function foo  =>  syntax error
-                                    (error (string "expected \"(\" in " word " definition")))
-                                (if (not (valid-func-sig? paren sig))
-                                    (error (string "expected \"(\" in " word " definition"))
-                                    sig)))
-                     (body  (parse-block s)))
+              (let* ((usig (unwrap-where sig))
+                     (def  (if (or (symbol? usig)
+                                   (and (pair? usig) (eq? (car usig) '|::|)
+                                        (symbol? (cadr usig))))
+                               (if paren
+                                   ;; in "function (x)" the (x) is a tuple
+                                   (rewrap-where `(tuple ,usig) sig)
+                                   ;; function foo  =>  syntax error
+                                   (error (string "expected \"(\" in " word " definition")))
+                               (if (not (valid-func-sig? paren sig))
+                                   (error (string "expected \"(\" in " word " definition"))
+                                   sig)))
+                     (body (parse-block s)))
                 (expect-end s word)
                 (list word def body)))))
 
@@ -1271,7 +1314,7 @@
                 (syntax-deprecation s (string "abstract " (deparse spec))
                                     (string "abstract type " (deparse spec) " end")))
             (begin0 (list 'abstract spec)
-                    (if ty (expect-end s "abstract type"))))))
+                    (if ty (expect-end (take-lineendings s) "abstract type"))))))
        ((struct)
         (begin (take-token s)
                (parse-struct-def s #f word)))
@@ -1287,14 +1330,13 @@
                    (let* ((spec (with-space-sensitive (parse-subtype-spec s)))
                           (nb   (with-space-sensitive (parse-cond s))))
                      (begin0 (list 'bitstype nb spec)
-                             (expect-end s "primitive type"))))))
+                             (expect-end (take-lineendings s) "primitive type"))))))
        ;; deprecated type keywords
        ((type)
-        ;; TODO fully deprecate post-0.6
-        ;;(syntax-deprecation s "type" "mutable struct")
+        (syntax-deprecation s "type" "mutable struct")  ;; retain in 0.7
         (parse-struct-def s #t word))
        ((immutable)
-        ;;(syntax-deprecation s "immutable" "struct")
+        (syntax-deprecation s "immutable" "struct")  ;; retain in 0.7
         (parse-struct-def s #f word))
        ((bitstype)
         (let* ((nb   (with-space-sensitive (parse-cond s)))
@@ -1304,7 +1346,7 @@
           (list 'bitstype nb spec)))
        ((typealias)
         (let ((lhs (with-space-sensitive (parse-call s)))
-              (rhs (parse-where s)))
+              (rhs (parse-where s parse-call)))
           (syntax-deprecation s (string "typealias " (deparse lhs) " " (deparse rhs))
                               (string (if (symbol? lhs) "const " "")
                                       (deparse lhs) " = " (deparse rhs)))
@@ -1435,7 +1477,7 @@
 
 (define (parse-import-dots s)
   (let loop ((l '())
-             (t (peek-token s)))
+             (t (require-token s)))  ;; skip newlines
     (cond ((eq? t '|.|)
            (begin (take-token s)
                   (loop (list* '|.| l) (peek-token s))))

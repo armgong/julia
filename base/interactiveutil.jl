@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # editing files
 
@@ -40,7 +40,7 @@ function edit(path::AbstractString, line::Integer=0)
     end
     background = true
     line_unsupported = false
-    if startswith(name, "emacs") || name == "gedit"
+    if startswith(name, "emacs") || name == "gedit" || startswith(name, "gvim")
         cmd = line != 0 ? `$command +$line $path` : `$command $path`
     elseif startswith(name, "vim.") || name == "vi" || name == "vim" || name == "nvim" || name == "mvim" || name == "nano"
         cmd = line != 0 ? `$command +$line $path` : `$command $path`
@@ -49,6 +49,8 @@ function edit(path::AbstractString, line::Integer=0)
         cmd = line != 0 ? `$command $path -l $line` : `$command $path`
     elseif startswith(name, "subl") || startswith(name, "atom")
         cmd = line != 0 ? `$command $path:$line` : `$command $path`
+    elseif name == "code" || (is_windows() && uppercase(name) == "CODE.EXE")
+        cmd = line != 0 ? `$command -g $path:$line` : `$command -g $path`
     elseif startswith(name, "notepad++")
         cmd = line != 0 ? `$command $path -n$line` : `$command $path`
     elseif is_apple() && name == "open"
@@ -61,9 +63,10 @@ function edit(path::AbstractString, line::Integer=0)
     end
 
     if is_windows() && name == "open"
-        systemerror(:edit, ccall((:ShellExecuteW,"shell32"), stdcall, Int,
-                                 (Ptr{Void}, Cwstring, Cwstring, Ptr{Void}, Ptr{Void}, Cint),
-                                 C_NULL, "open", path, C_NULL, C_NULL, 10) ≤ 32)
+        @static is_windows() && # don't emit this ccall on other platforms
+            systemerror(:edit, ccall((:ShellExecuteW, "shell32"), stdcall, Int,
+                                     (Ptr{Void}, Cwstring, Cwstring, Ptr{Void}, Ptr{Void}, Cint),
+                                     C_NULL, "open", path, C_NULL, C_NULL, 10) ≤ 32)
     elseif background
         spawn(pipeline(cmd, stderr=STDERR))
     else
@@ -270,7 +273,7 @@ function versioninfo(io::IO=STDOUT, verbose::Bool=false)
         if is_windows()
             try lsb = strip(readstring(`$(ENV["COMSPEC"]) /c ver`)) end
         end
-        if lsb != ""
+        if !isempty(lsb)
             println(io,     "           ", lsb)
         end
         if is_unix()
@@ -587,9 +590,14 @@ else
             end
         end
         if downloadcmd == :wget
-            run(`wget -O $filename $url`)
+            try
+                run(`wget -O $filename $url`)
+            catch
+                rm(filename)  # wget always creates a file
+                rethrow()
+            end
         elseif downloadcmd == :curl
-            run(`curl -o $filename -L $url`)
+            run(`curl -L -f -o $filename $url`)
         elseif downloadcmd == :fetch
             run(`fetch -f $filename $url`)
         else

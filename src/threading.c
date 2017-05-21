@@ -1,4 +1,4 @@
-// This file is a part of Julia. License is MIT: http://julialang.org/license
+// This file is a part of Julia. License is MIT: https://julialang.org/license
 
 /*
   threading infrastructure
@@ -22,6 +22,9 @@ TODO:
 #include "julia.h"
 #include "julia_internal.h"
 
+// Ref https://www.uclibc.org/docs/tls.pdf
+// For variant 1 JL_ELF_TLS_INIT_SIZE is the size of the thread control block (TCB)
+// For variant 2 JL_ELF_TLS_INIT_SIZE is 0
 #ifdef _OS_LINUX_
 #  if defined(_CPU_X86_64_) || defined(_CPU_X86_)
 #    define JL_ELF_TLS_VARIANT 2
@@ -30,6 +33,10 @@ TODO:
 #  if defined(_CPU_AARCH64_)
 #    define JL_ELF_TLS_VARIANT 1
 #    define JL_ELF_TLS_INIT_SIZE 16
+#  endif
+#  if defined(__ARM_ARCH) && __ARM_ARCH >= 7
+#    define JL_ELF_TLS_VARIANT 1
+#    define JL_ELF_TLS_INIT_SIZE 8
 #  endif
 #endif
 
@@ -266,9 +273,6 @@ static void ti_initthread(int16_t tid)
     ptls->tid = tid;
     ptls->pgcstack = NULL;
     ptls->gc_state = 0; // GC unsafe
-    ptls->gc_cache.perm_scanned_bytes = 0;
-    ptls->gc_cache.scanned_bytes = 0;
-    ptls->gc_cache.nbig_obj = 0;
     // Conditionally initialize the safepoint address. See comment in
     // `safepoint.c`
     if (tid == 0) {
@@ -287,7 +291,7 @@ static void ti_initthread(int16_t tid)
         abort();
     }
     ptls->bt_data = (uintptr_t*)bt_data;
-    jl_mk_thread_heap(ptls);
+    jl_init_thread_heap(ptls);
     jl_install_thread_signal_handler(ptls);
 
     jl_all_tls_states[tid] = ptls;
@@ -298,7 +302,7 @@ static void ti_init_master_thread(void)
 #ifdef _OS_WINDOWS_
     if (!DuplicateHandle(GetCurrentProcess(), GetCurrentThread(),
                          GetCurrentProcess(), &hMainThread, 0,
-                         TRUE, DUPLICATE_SAME_ACCESS)) {
+                         FALSE, DUPLICATE_SAME_ACCESS)) {
         jl_printf(JL_STDERR, "WARNING: failed to access handle to main thread\n");
         hMainThread = INVALID_HANDLE_VALUE;
     }
@@ -312,11 +316,24 @@ static jl_value_t *ti_run_fun(const jl_generic_fptr_t *fptr, jl_method_instance_
 {
     jl_ptls_t ptls = jl_get_ptls_states();
     JL_TRY {
-        jl_assume(fptr->jlcall_api != 2);
+        (void)jl_assume(fptr->jlcall_api != 2);
         jl_call_fptr_internal(fptr, mfunc, args, nargs);
     }
     JL_CATCH {
-        return ptls->exception_in_transit;
+        // Lock this output since we know it'll likely happen on multiple threads
+        static jl_mutex_t lock;
+        JL_LOCK_NOGC(&lock);
+        jl_jmp_buf *old_buf = ptls->safe_restore;
+        jl_jmp_buf buf;
+        if (!jl_setjmp(buf, 0)) {
+            // Set up the safe_restore context so that the printing uses the thread safe version
+            ptls->safe_restore = &buf;
+            jl_printf(JL_STDERR, "\nError thrown in threaded loop on thread %d: ",
+                      (int)ptls->tid);
+            jl_static_show(JL_STDERR, ptls->exception_in_transit);
+        }
+        ptls->safe_restore = old_buf;
+        JL_UNLOCK_NOGC(&lock);
     }
     return jl_nothing;
 }
@@ -378,13 +395,16 @@ void ti_threadfun(void *arg)
     // free the thread argument here
     free(ta);
 
+    int init = 1;
+
     // work loop
     for (; ;) {
 #if PROFILE_JL_THREADING
         uint64_t tstart = uv_hrtime();
 #endif
 
-        ti_threadgroup_fork(tg, ptls->tid, (void **)&work);
+        ti_threadgroup_fork(tg, ptls->tid, (void **)&work, init);
+        init = 0;
 
 #if PROFILE_JL_THREADING
         uint64_t tfork = uv_hrtime();
@@ -440,15 +460,16 @@ void ti_reset_timings(void);
 ssize_t jl_tls_offset = -1;
 
 #ifdef JL_ELF_TLS_VARIANT
+const int jl_tls_elf_support = 1;
 // Optimize TLS access in codegen if the TLS buffer is using a IE or LE model.
 // To detect such case, we find the size of the TLS segment in the main
-// executable and the TIB pointer and then see if the TLS pointer on the
+// executable and the thread pointer (TP) and then see if the TLS pointer on the
 // current thread is in the right range.
 // This can in principle be extended to the case where the TLS buffer is
 // in the shared library but is part of the static buffer but that seems harder
 // to detect.
 #  if JL_ELF_TLS_VARIANT == 1
-// In Variant 1, the static TLS buffer comes after a fixed size TIB.
+// In Variant 1, the static TLS buffer comes after a fixed size TCB.
 // The alignment needs to be applied to the original size.
 static inline size_t jl_add_tls_size(size_t orig_size, size_t size, size_t align)
 {
@@ -463,7 +484,7 @@ static inline ssize_t jl_check_tls_bound(void *tp, void *ptls, size_t tls_size)
     return offset;
 }
 #  elif JL_ELF_TLS_VARIANT == 2
-// In Variant 2, the static TLS buffer comes before a unknown size TIB.
+// In Variant 2, the static TLS buffer comes before a unknown size TCB.
 // The alignment needs to be applied to the new size.
 static inline size_t jl_add_tls_size(size_t orig_size, size_t size, size_t align)
 {
@@ -519,6 +540,8 @@ static void jl_check_tls(void)
     asm("movl %%gs:0, %0" : "=r"(tp));
 #elif defined(_CPU_AARCH64_)
     asm("mrs %0, tpidr_el0" : "=r"(tp));
+#elif defined(__ARM_ARCH) && __ARM_ARCH >= 7
+    asm("mrc p15, 0, %0, c13, c0, 3" : "=r"(tp));
 #else
 #  error "Cannot emit thread pointer for this architecture."
 #endif
@@ -527,6 +550,8 @@ static void jl_check_tls(void)
         return;
     jl_tls_offset = offset;
 }
+#else
+const int jl_tls_elf_support = 0;
 #endif
 
 // interface to Julia; sets up to make the runtime thread-safe
@@ -632,7 +657,7 @@ void jl_shutdown_threading(void)
     ti_threadwork_t *work = &threadwork;
 
     work->command = TI_THREADWORK_DONE;
-    ti_threadgroup_fork(tgworld, ptls->tid, (void **)&work);
+    ti_threadgroup_fork(tgworld, ptls->tid, (void **)&work, 0);
 
     sleep(1);
 
@@ -691,7 +716,7 @@ JL_DLLEXPORT jl_value_t *jl_threading_run(jl_value_t *_args)
 
     // fork the world thread group
     ti_threadwork_t *tw = &threadwork;
-    ti_threadgroup_fork(tgworld, ptls->tid, (void **)&tw);
+    ti_threadgroup_fork(tgworld, ptls->tid, (void **)&tw, 0);
 
 #if PROFILE_JL_THREADING
     uint64_t tfork = uv_hrtime();

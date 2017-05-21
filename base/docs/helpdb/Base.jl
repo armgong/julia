@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # Base
 
@@ -1063,6 +1063,14 @@ For example,
 `reinterpret(Float32, UInt32(7))` interprets the 4 bytes corresponding to `UInt32(7)` as a
 `Float32`.
 
+!!! warning
+
+    It is not allowed to `reinterpret` an array to an element type with a larger alignment then
+    the alignment of the array. For a normal `Array`, this is the alignment of its element type.
+    For a reinterpreted array, this is the alignment of the `Array` it was reinterpreted from.
+    For example, `reinterpret(UInt32, UInt8[0, 0, 0, 0])` is not allowed but
+    `reinterpret(UInt32, reinterpret(UInt8, Float32[1.0]))` is allowed.
+
 ```jldoctest
 julia> reinterpret(Float32, UInt32(7))
 1.0f-44
@@ -1300,20 +1308,23 @@ cotd
 
 Block the current task until some event occurs, depending on the type of the argument:
 
-* [`RemoteChannel`](@ref) : Wait for a value to become available on the specified remote channel.
+* [`RemoteChannel`](@ref) : Wait for a value to become available on the specified remote
+  channel.
 * [`Future`](@ref) : Wait for a value to become available for the specified future.
 * [`Channel`](@ref): Wait for a value to be appended to the channel.
 * [`Condition`](@ref): Wait for [`notify`](@ref) on a condition.
 * `Process`: Wait for a process or process chain to exit. The `exitcode` field of a process
   can be used to determine success or failure.
-* [`Task`](@ref): Wait for a `Task` to finish, returning its result value. If the task fails with an
-  exception, the exception is propagated (re-thrown in the task that called `wait`).
-* `RawFD`: Wait for changes on a file descriptor (see [`poll_fd`](@ref) for keyword arguments and return code)
+* [`Task`](@ref): Wait for a `Task` to finish, returning its result value. If the task fails
+  with an exception, the exception is propagated (re-thrown in the task that called `wait`).
+* `RawFD`: Wait for changes on a file descriptor (see [`poll_fd`](@ref) for keyword
+  arguments and return code)
 
 If no argument is passed, the task blocks for an undefined period. A task can only be
 restarted by an explicit call to [`schedule`](@ref) or [`yieldto`](@ref).
 
-Often `wait` is called within a `while` loop to ensure a waited-for condition is met before proceeding.
+Often `wait` is called within a `while` loop to ensure a waited-for condition is met before
+proceeding.
 """
 wait
 
@@ -1637,10 +1648,11 @@ true
 issubtype(type1, type2)
 
 """
-    finalizer(x, function)
+    finalizer(x, f)
 
 Register a function `f(x)` to be called when there are no program-accessible references to
-`x`. The behavior of this function is unpredictable if `x` is of a bits type.
+`x`. The type of `x` must be a `mutable struct`, otherwise the behavior of this function is
+unpredictable.
 """
 finalizer
 
@@ -1945,7 +1957,7 @@ julia> convert(Int, 3.0)
 julia> convert(Int, 3.5)
 ERROR: InexactError()
 Stacktrace:
- [1] convert(::Type{Int64}, ::Float64) at ./float.jl:675
+ [1] convert(::Type{Int64}, ::Float64) at ./float.jl:679
 ```
 
 If `T` is a `AbstractFloat` or `Rational` type,
@@ -2356,28 +2368,35 @@ pop!(collection,key,?)
 """
     pop!(collection) -> item
 
-Remove the last item in `collection` and return it.
+Remove an item in `collection` and return it. If `collection` is an
+ordered container, the last item is returned.
 
 ```jldoctest
-julia> A=[1, 2, 3, 4, 5, 6]
-6-element Array{Int64,1}:
+julia> A=[1, 2, 3]
+3-element Array{Int64,1}:
  1
  2
  3
- 4
- 5
- 6
 
 julia> pop!(A)
-6
+3
 
 julia> A
-5-element Array{Int64,1}:
+2-element Array{Int64,1}:
  1
  2
- 3
- 4
- 5
+
+julia> S = Set([1, 2])
+Set([2, 1])
+
+julia> pop!(S)
+2
+
+julia> S
+Set([1])
+
+julia> pop!(Dict(1=>2))
+1=>2
 ```
 """
 pop!(collection)

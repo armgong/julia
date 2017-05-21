@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 @test reim(2 + 3im) == (2, 3)
 
@@ -943,3 +943,18 @@ end
 
 # issue #19240
 @test big(1)/(10+10im) ≈ (5-5im)/big(100) ≈ big"0.05" - big"0.05"*im
+
+@testset "Complex Irrationals, issue #21204" begin
+    for x in (pi, e, catalan) # No need to test all of them
+        @test typeof(Complex(x, x)) == Complex{typeof(x)}
+        @test exp(complex(x, x)) ≈ exp(x) * cis(x)
+        @test log1p(complex(x, x)) ≈ log(1 + complex(x, x))
+    end
+end
+
+@testset "expm1 type stability" begin
+    x = @inferred expm1(0.1im)
+    @test x isa Complex128
+    x = @inferred expm1(0.1f0im)
+    @test x isa Complex64
+end

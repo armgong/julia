@@ -1,5 +1,5 @@
 #!/bin/sh
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # script to prepare binaries and source tarballs for a Julia release
 # aka "bucket dance" julianightlies -> julialang
@@ -33,7 +33,7 @@ cd ..
 rm -rf julia-$version
 
 # download and rename binaries, with -latest copies
-julianightlies="https://s3.amazonaws.com/julianightlies/bin"
+julianightlies="https://julialangnightlies-s3.julialang.org/bin"
 curl -L -o julia-$version-linux-x86_64.tar.gz \
   $julianightlies/linux/x64/$majmin/julia-$majminpatch-$shashort-linux64.tar.gz
 cp julia-$version-linux-x86_64.tar.gz julia-$majmin-latest-linux-x86_64.tar.gz
@@ -56,8 +56,11 @@ curl -L -o julia-$version-win32.exe \
   $julianightlies/winnt/x86/$majmin/julia-$majminpatch-$shashort-win32.exe
 cp julia-$version-win32.exe julia-$majmin-latest-win32.exe
 
-echo "Note: if windows code signing is not working on the buildbots, then the"
-echo "checksums need to be re-calculated after the binaries are manually signed!"
+if [ -e codesign.sh ]; then
+  # code signing needs to run on windows, script is not checked in since it
+  # hard-codes a few things. TODO: see if signtool.exe can run in wine
+  ./codesign.sh
+fi
 
 shasum -a 256 julia-$version* | grep -v -e sha256 -e md5 -e asc > julia-$version.sha256
 md5sum julia-$version* | grep -v -e sha256 -e md5 -e asc > julia-$version.md5

@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # DO NOT ALTER ORDER OR SPACING OF METHODS BELOW
 const lineoffset = @__LINE__ + 0 # XXX: __LINE__ at the end of a line is off-by-one
@@ -9,9 +9,8 @@ ambig(x::Int, y::Int) = 4
 ambig(x::Number, y) = 5
 # END OF LINE NUMBER SENSITIVITY
 
-const curmod = current_module()
-const curmod_name = fullname(curmod)
-const curmod_str = curmod === Main ? "Main" : join(curmod_name, ".")
+# For curmod_*
+include("testenv.jl")
 
 ambigs = Any[[], [3], [2,5], [], [3]]
 
@@ -60,6 +59,8 @@ let err = try
                            startswith(str, "  ambig(x::Integer, y) in $curmod_str at")
     @test ambig_checkline(lines[2])
     @test ambig_checkline(lines[3])
+    @test lines[4] == "Possible fix, define"
+    @test lines[5] == "  ambig(::Integer, ::Integer)"
 end
 
 ## Other ways of accessing functions
@@ -133,10 +134,10 @@ ambs = detect_ambiguities(Ambig5)
 @test length(ambs) == 2
 
 # Test that Core and Base are free of ambiguities
-# TODO jb/subtype: we now detect a lot more
-@test !isempty(detect_ambiguities(Core, Base; imported=true, ambiguous_bottom=true))
-@test_broken detect_ambiguities(Core, Base; imported=true, ambiguous_bottom=false) == []
 # not using isempty so this prints more information when it fails
+@test detect_ambiguities(Core, Base; imported=true, ambiguous_bottom=false) == []
+# some ambiguities involving Union{} type parameters are expected, but not required
+@test !isempty(detect_ambiguities(Core, Base; imported=true, ambiguous_bottom=true))
 
 amb_1(::Int8, ::Int) = 1
 amb_1(::Integer, x) = 2

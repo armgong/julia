@@ -1,10 +1,9 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 import Base.Docs: meta, @var, DocStr, parsedoc
 
-const curmod = current_module()
-const curmod_name = fullname(curmod)
-const curmod_prefix = "$(["$m." for m in curmod_name]...)"
+# For curmod_*
+include("testenv.jl")
 
 # Test helpers.
 function docstrings_equal(d1, d2)
@@ -602,7 +601,7 @@ Base.collect{T}(::Type{EmptyType{T}}) = "borked"
 end
 
 let fd = meta(I12515)[@var(Base.collect)]
-    @test fd.order[1] == (Tuple{Type{I12515.EmptyType{T}}} where T)
+    @test fd.order[1] == (Union{Tuple{Type{I12515.EmptyType{T}}}, Tuple{T}} where T)
 end
 
 # PR #12593
@@ -750,6 +749,11 @@ abstract type $(curmod_prefix)Undocumented.B <: $(curmod_prefix)Undocumented.A
 ```
 $(curmod_prefix)Undocumented.D
 ```
+
+**Supertype Hierarchy:**
+```
+$(curmod_prefix)Undocumented.B <: $(curmod_prefix)Undocumented.A <: Any
+```
 """)
 @test docstrings_equal(@doc(Undocumented.B), doc"$doc_str")
 
@@ -759,6 +763,11 @@ No documentation found.
 **Summary:**
 ```
 mutable struct $(curmod_prefix)Undocumented.C <: $(curmod_prefix)Undocumented.A
+```
+
+**Supertype Hierarchy:**
+```
+$(curmod_prefix)Undocumented.C <: $(curmod_prefix)Undocumented.A <: Any
 ```
 """)
 @test docstrings_equal(@doc(Undocumented.C), doc"$doc_str")
@@ -776,6 +785,11 @@ struct $(curmod_prefix)Undocumented.D <: $(curmod_prefix)Undocumented.B
 one   :: Any
 two   :: String
 three :: Float64
+```
+
+**Supertype Hierarchy:**
+```
+$(curmod_prefix)Undocumented.D <: $(curmod_prefix)Undocumented.B <: $(curmod_prefix)Undocumented.A <: Any
 ```
 """)
 @test docstrings_equal(@doc(Undocumented.D), doc"$doc_str")
@@ -875,7 +889,7 @@ let x = Binding(Base, :bindingdoesnotexist)
     @test @var(Base.bindingdoesnotexist) == x
 end
 
-let x = Binding(current_module(), :bindingdoesnotexist)
+let x = Binding(curmod, :bindingdoesnotexist)
     @test defined(x) == false
     @test @var(bindingdoesnotexist) == x
 end
@@ -959,3 +973,41 @@ dynamic_test.x = "test 2"
 @test Text("docstring1") ≠ Text("docstring2")
 @test hash(Text("docstring1")) ≠ hash(Text("docstring2"))
 @test hash(Text("docstring")) ≠ hash(HTML("docstring"))
+
+# issue 21016
+module I21016
+
+struct Struct{T}
+end
+
+"String 1"
+function Struct{T}(arg1) where T<:Float64
+end
+
+"String 2"
+function Struct{T}(arg1) where T
+end
+
+"String 3"
+function Struct{T}(arg1) where Integer <: T <: Real
+end
+
+"String 4"
+function Struct{T}(arg1) where T >: Int
+end
+
+end
+
+@test docstrings_equal(
+    @doc(I21016.Struct),
+    doc"""
+    String 1
+
+    String 2
+
+    String 3
+
+    String 4
+    """
+)
+

@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 export
 # Modules
@@ -23,7 +23,7 @@ export
     Markdown,
     Threads,
     Iterators,
-    Parallel,
+    Distributed,
 
 # Types
     AbstractChannel,
@@ -729,6 +729,9 @@ export
     ⊆,
     ⊈,
     ⊊,
+    ⊇,
+    ⊉,
+    ⊋,
     ∩,
     ∪,
 
@@ -1344,7 +1347,7 @@ export
     nzrange,
     nnz,
 
-# Parallel module re-exports
+# Distributed module re-exports
     @spawn,
     @spawnat,
     @fetch,

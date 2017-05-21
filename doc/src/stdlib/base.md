@@ -118,9 +118,11 @@ Base.instances
 ## Generic Functions
 
 ```@docs
+Core.Function
 Base.method_exists
 Core.applicable
 Core.invoke
+Base.invokelatest
 Base.:(|>)
 Base.:(∘)
 ```

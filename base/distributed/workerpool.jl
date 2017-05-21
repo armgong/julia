@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 abstract type AbstractWorkerPool end
 
@@ -97,7 +97,7 @@ function wp_local_take!(pool::AbstractWorkerPool)
         end
 
         worker = take!(pool.channel)
-        if worker in procs()
+        if id_in_procs(worker)
             break
         else
             delete!(pool.workers, worker) # Remove invalid worker from pool

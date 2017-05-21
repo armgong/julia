@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 ##########################
 # Cholesky Factorization #
@@ -16,10 +16,7 @@
 # supported for the four LAPACK element types. For other types, e.g. BigFloats Val{true} will
 # give an error. It is required that the input is Hermitian (including real symmetric) either
 # through the Hermitian and Symmetric views or exact symmetric or Hermitian elements which
-# is checked for and an error is thrown if the check fails. The dispatch
-# is further complicated by a limitation in the formulation of Unions. The relevant union
-# would be Union{Symmetric{T<:Real,S}, Hermitian} but, right now, it doesn't work in Julia
-# so we'll have to define methods for the two elements of the union separately.
+# is checked for and an error is thrown if the check fails.
 
 # FixMe? The dispatch below seems overly complicated. One simplification could be to
 # merge the two Cholesky types into one. It would remove the need for Val completely but
@@ -121,9 +118,7 @@ non_hermitian_error(f) = throw(ArgumentError("matrix is not symmetric/" *
 
 # chol!. Destructive methods for computing Cholesky factor of real symmetric or Hermitian
 # matrix
-chol!(A::Hermitian) =
-    _chol!(A.uplo == 'U' ? A.data : LinAlg.copytri!(A.data, 'L', true), UpperTriangular)
-chol!(A::Symmetric{<:Real,<:StridedMatrix}) =
+chol!(A::RealHermSymComplexHerm{<:Real,<:StridedMatrix}) =
     _chol!(A.uplo == 'U' ? A.data : LinAlg.copytri!(A.data, 'L', true), UpperTriangular)
 function chol!(A::StridedMatrix)
     ishermitian(A) || non_hermitian_error("chol!")
@@ -134,19 +129,9 @@ end
 
 # chol. Non-destructive methods for computing Cholesky factor of a real symmetric or
 # Hermitian matrix. Promotes elements to a type that is stable under square roots.
-function chol(A::Hermitian)
+function chol(A::RealHermSymComplexHerm)
     T = promote_type(typeof(chol(one(eltype(A)))), Float32)
     AA = similar(A, T, size(A))
-    if A.uplo == 'U'
-        copy!(AA, A.data)
-    else
-        Base.ctranspose!(AA, A.data)
-    end
-    chol!(Hermitian(AA, :U))
-end
-function chol{T<:Real}(A::Symmetric{T,<:AbstractMatrix})
-    TT = promote_type(typeof(chol(one(T))), Float32)
-    AA = similar(A, TT, size(A))
     if A.uplo == 'U'
         copy!(AA, A.data)
     else
@@ -206,14 +191,7 @@ chol(x::Number, args...) = _chol!(x, nothing)
 # cholfact!. Destructive methods for computing Cholesky factorization of real symmetric
 # or Hermitian matrix
 ## No pivoting
-function cholfact!(A::Hermitian, ::Type{Val{false}})
-    if A.uplo == 'U'
-        Cholesky(_chol!(A.data, UpperTriangular).data, 'U')
-    else
-        Cholesky(_chol!(A.data, LowerTriangular).data, 'L')
-    end
-end
-function cholfact!(A::Symmetric{<:Real}, ::Type{Val{false}})
+function cholfact!(A::RealHermSymComplexHerm, ::Type{Val{false}})
     if A.uplo == 'U'
         Cholesky(_chol!(A.data, UpperTriangular).data, 'U')
     else
@@ -248,8 +226,8 @@ function cholfact!(A::StridedMatrix, uplo::Symbol, ::Type{Val{false}})
 end
 
 ### Default to no pivoting (and storing of upper factor) when not explicit
-cholfact!(A::Hermitian) = cholfact!(A, Val{false})
-cholfact!(A::Symmetric{<:Real}) = cholfact!(A, Val{false})
+cholfact!(A::RealHermSymComplexHerm) = cholfact!(A, Val{false})
+
 #### for StridedMatrices, check that matrix is symmetric/Hermitian
 function cholfact!(A::StridedMatrix, uplo::Symbol = :U)
     ishermitian(A) || non_hermitian_error("cholfact!")
@@ -260,7 +238,7 @@ end
 ## With pivoting
 ### BLAS/LAPACK element types
 function cholfact!(A::RealHermSymComplexHerm{<:BlasReal,<:StridedMatrix},
-        ::Type{Val{true}}; tol = 0.0)
+                   ::Type{Val{true}}; tol = 0.0)
     AA, piv, rank, info = LAPACK.pstrf!(A.uplo, A.data, tol)
     return CholeskyPivoted{eltype(AA),typeof(AA)}(AA, A.uplo, piv, rank, tol, info)
 end
@@ -288,9 +266,7 @@ end
 # cholfact. Non-destructive methods for computing Cholesky factorization of real symmetric
 # or Hermitian matrix
 ## No pivoting
-cholfact(A::Hermitian, ::Type{Val{false}}) =
-    cholfact!(copy_oftype(A, promote_type(typeof(chol(one(eltype(A)))),Float32)), Val{false})
-cholfact(A::Symmetric{<:Real,<:StridedMatrix}, ::Type{Val{false}}) =
+cholfact(A::RealHermSymComplexHerm{<:Real,<:StridedMatrix}, ::Type{Val{false}}) =
     cholfact!(copy_oftype(A, promote_type(typeof(chol(one(eltype(A)))),Float32)), Val{false})
 
 ### for StridedMatrices, check that matrix is symmetric/Hermitian
@@ -342,8 +318,8 @@ function cholfact(A::StridedMatrix, uplo::Symbol, ::Type{Val{false}})
 end
 
 ### Default to no pivoting (and storing of upper factor) when not explicit
-cholfact(A::Hermitian) = cholfact(A, Val{false})
-cholfact(A::Symmetric{<:Real,<:StridedMatrix}) = cholfact(A, Val{false})
+cholfact(A::RealHermSymComplexHerm{<:Real,<:StridedMatrix}) = cholfact(A, Val{false})
+
 #### for StridedMatrices, check that matrix is symmetric/Hermitian
 function cholfact(A::StridedMatrix, uplo::Symbol = :U)
     ishermitian(A) || non_hermitian_error("cholfact")
@@ -352,9 +328,6 @@ end
 
 
 ## With pivoting
-cholfact(A::Hermitian, ::Type{Val{true}}; tol = 0.0) =
-        cholfact!(copy_oftype(A, promote_type(typeof(chol(one(eltype(A)))),Float32)),
-            Val{true}; tol = tol)
 cholfact(A::RealHermSymComplexHerm{<:Real,<:StridedMatrix}, ::Type{Val{true}}; tol = 0.0) =
         cholfact!(copy_oftype(A, promote_type(typeof(chol(one(eltype(A)))),Float32)),
             Val{true}; tol = tol)
@@ -386,17 +359,17 @@ function cholfact(x::Number, uplo::Symbol=:U)
 end
 
 
-function convert{T}(::Type{Cholesky{T}}, C::Cholesky)
+function convert(::Type{Cholesky{T}}, C::Cholesky) where T
     Cnew = convert(AbstractMatrix{T}, C.factors)
     Cholesky{T, typeof(Cnew)}(Cnew, C.uplo)
 end
-convert{T}(::Type{Factorization{T}}, C::Cholesky{T}) = C
-convert{T}(::Type{Factorization{T}}, C::Cholesky) = convert(Cholesky{T}, C)
-convert{T}(::Type{CholeskyPivoted{T}},C::CholeskyPivoted{T}) = C
-convert{T}(::Type{CholeskyPivoted{T}},C::CholeskyPivoted) =
+convert(::Type{Factorization{T}}, C::Cholesky{T}) where {T} = C
+convert(::Type{Factorization{T}}, C::Cholesky) where {T} = convert(Cholesky{T}, C)
+convert(::Type{CholeskyPivoted{T}},C::CholeskyPivoted{T}) where {T} = C
+convert(::Type{CholeskyPivoted{T}},C::CholeskyPivoted) where {T} =
     CholeskyPivoted(AbstractMatrix{T}(C.factors),C.uplo,C.piv,C.rank,C.tol,C.info)
-convert{T}(::Type{Factorization{T}}, C::CholeskyPivoted{T}) = C
-convert{T}(::Type{Factorization{T}}, C::CholeskyPivoted) = convert(CholeskyPivoted{T}, C)
+convert(::Type{Factorization{T}}, C::CholeskyPivoted{T}) where {T} = C
+convert(::Type{Factorization{T}}, C::CholeskyPivoted) where {T} = convert(CholeskyPivoted{T}, C)
 
 convert(::Type{AbstractMatrix}, C::Cholesky) = C.uplo == 'U' ? C[:U]'C[:U] : C[:L]*C[:L]'
 convert(::Type{AbstractArray}, C::Cholesky) = convert(AbstractMatrix, C)
@@ -425,7 +398,7 @@ function getindex(C::Cholesky, d::Symbol)
     d == :UL && return Symbol(C.uplo) == :U ? UpperTriangular(C.factors) : LowerTriangular(C.factors)
     throw(KeyError(d))
 end
-function getindex{T<:BlasFloat}(C::CholeskyPivoted{T}, d::Symbol)
+function getindex(C::CholeskyPivoted{T}, d::Symbol) where T<:BlasFloat
     d == :U && return UpperTriangular(Symbol(C.uplo) == d ? C.factors : C.factors')
     d == :L && return LowerTriangular(Symbol(C.uplo) == d ? C.factors : C.factors')
     d == :p && return C.piv
@@ -443,7 +416,7 @@ end
 show(io::IO, C::Cholesky{<:Any,<:AbstractMatrix}) =
     (println(io, "$(typeof(C)) with factor:");show(io,C[:UL]))
 
-A_ldiv_B!{T<:BlasFloat}(C::Cholesky{T,<:AbstractMatrix}, B::StridedVecOrMat{T}) =
+A_ldiv_B!(C::Cholesky{T,<:AbstractMatrix}, B::StridedVecOrMat{T}) where {T<:BlasFloat} =
     LAPACK.potrs!(C.uplo, C.factors, B)
 
 function A_ldiv_B!(C::Cholesky{<:Any,<:AbstractMatrix}, B::StridedVecOrMat)
@@ -454,11 +427,11 @@ function A_ldiv_B!(C::Cholesky{<:Any,<:AbstractMatrix}, B::StridedVecOrMat)
     end
 end
 
-function A_ldiv_B!{T<:BlasFloat}(C::CholeskyPivoted{T}, B::StridedVector{T})
+function A_ldiv_B!(C::CholeskyPivoted{T}, B::StridedVector{T}) where T<:BlasFloat
     chkfullrank(C)
     ipermute!(LAPACK.potrs!(C.uplo, C.factors, permute!(B, C.piv)), C.piv)
 end
-function A_ldiv_B!{T<:BlasFloat}(C::CholeskyPivoted{T}, B::StridedMatrix{T})
+function A_ldiv_B!(C::CholeskyPivoted{T}, B::StridedMatrix{T}) where T<:BlasFloat
     chkfullrank(C)
     n = size(C, 1)
     for i=1:size(B, 2)

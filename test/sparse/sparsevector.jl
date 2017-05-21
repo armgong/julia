@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 ### Data
 
@@ -159,10 +159,10 @@ let xr = sprand(Bool, 1000, 0.9)
     @test all(nonzeros(xr))
 end
 
-let r1 = MersenneTwister(), r2 = MersenneTwister()
+let r1 = MersenneTwister(0), r2 = MersenneTwister(0)
     @test sprand(r1, 100, .9) == sprand(r2, 100, .9)
     @test sprandn(r1, 100, .9) == sprandn(r2, 100, .9)
-    @test sprand(r1, Bool, 100, .9, ) == sprand(r2,  Bool, 100, .9)
+    @test sprand(r1, Bool, 100, .9) == sprand(r2,  Bool, 100, .9)
 end
 
 ### Element access
@@ -1124,7 +1124,7 @@ end
 @test issparse([sprand(10,.1); rand(10)])
 
 
-type t20488 end
+mutable struct t20488 end
 
 @testset "similar" begin
     x = sparsevec(rand(3) .+ 0.1)

@@ -42,7 +42,7 @@ endif
 SRCS := \
 	jltypes gf typemap ast builtins module interpreter symbol \
 	dlload sys init task array dump toplevel jl_uv datatype \
-	simplevector APInt-C runtime_intrinsics runtime_ccall \
+	simplevector APInt-C runtime_intrinsics runtime_ccall precompile \
 	threadgroup threading stackwalk gc gc-debug gc-pages method \
 	jlapi signal-handling safepoint jloptions timing subtype rtutils
 
@@ -53,7 +53,7 @@ endif
 LLVMLINK :=
 
 ifeq ($(JULIACODEGEN),LLVM)
-SRCS += codegen jitlayers disasm debuginfo llvm-simdloop llvm-ptls llvm-gcroot cgmemmgr
+SRCS += codegen jitlayers disasm debuginfo llvm-simdloop llvm-ptls llvm-gcroot llvm-lower-handlers cgmemmgr
 FLAGS += -I$(shell $(LLVM_CONFIG_HOST) --includedir)
 LLVM_LIBS := all
 ifeq ($(USE_POLLY),1)

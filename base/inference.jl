@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 import Core: _apply, svec, apply_type, Builtin, IntrinsicFunction, MethodInstance
 
@@ -131,14 +131,11 @@ mutable struct InferenceState
     # ssavalue sparsity and restart info
     ssavalue_uses::Vector{IntSet}
     ssavalue_init::Vector{Any}
-    # call-graph edges connecting from a caller to a callee (and back)
-    # we shouldn't need to iterate edges very often, so we use it to optimize the lookup from edge -> linenum
-    # whereas backedges is optimized for iteration
-    edges::ObjectIdDict # a Dict{InferenceState, Vector{LineNum}}
-    backedges::Vector{Tuple{InferenceState, Vector{LineNum}}}
-    # iteration fixed-point detection
-    fixedpoint::Bool
-    inworkq::Bool
+
+    backedges::Vector{Tuple{InferenceState, LineNum}} # call-graph backedges connecting from callee to caller
+    callers_in_cycle::Vector{InferenceState}
+    parent::Union{Void, InferenceState}
+
     const_api::Bool
     const_ret::Bool
 
@@ -147,6 +144,8 @@ mutable struct InferenceState
     cached::Bool
 
     inferred::Bool
+
+    dont_work_on_me::Bool
 
     # src is assumed to be a newly-allocated CodeInfo, that can be modified in-place to contain intermediate results
     function InferenceState(linfo::MethodInstance, src::CodeInfo,
@@ -266,44 +265,42 @@ mutable struct InferenceState
             Union{}, W, 1, n,
             cur_hand, handler_at, n_handlers,
             ssavalue_uses, ssavalue_init,
-            ObjectIdDict(), # Dict{InferenceState, Vector{LineNum}}(),
-            Vector{Tuple{InferenceState, Vector{LineNum}}}(),
-            false, false, false, false, optimize, cached, false)
-        push!(active, frame)
-        nactive[] += 1
+            Vector{Tuple{InferenceState,LineNum}}(), # backedges
+            Vector{InferenceState}(), # callers_in_cycle
+            #=parent=#nothing,
+            false, false, optimize, cached, false, false)
         return frame
     end
 end
 
-# create copies of the CodeInfo definition, and any fields that type-inference might modify
-# TODO: post-inference see if we can swap back to the original arrays
-function get_source(li::MethodInstance)
-    src = ccall(:jl_copy_code_info, Ref{CodeInfo}, (Any,), li.def.source)
-    if isa(src.code, Array{UInt8,1})
-        src.code = ccall(:jl_uncompress_ast, Any, (Any, Any), li.def, src.code)
+function InferenceState(linfo::MethodInstance,
+                        optimize::Bool, cached::Bool, params::InferenceParams)
+    # prepare an InferenceState object for inferring lambda
+    # create copies of the CodeInfo definition, and any fields that type-inference might modify
+    if linfo.def.isstaged
+        try
+            # user code might throw errors – ignore them
+            src = get_staged(linfo)
+        catch
+            return nothing
+        end
     else
-        src.code = copy_exprargs(src.code)
+        # TODO: post-inference see if we can swap back to the original arrays?
+        if isa(linfo.def.source, Array{UInt8,1})
+            src = ccall(:jl_uncompress_ast, Any, (Any, Any), linfo.def, linfo.def.source)
+        else
+            src = ccall(:jl_copy_code_info, Ref{CodeInfo}, (Any,), linfo.def.source)
+            src.code = copy_exprargs(src.code)
+            src.slotnames = copy(src.slotnames)
+            src.slotflags = copy(src.slotflags)
+        end
     end
-    src.slotnames = copy(src.slotnames)
-    src.slotflags = copy(src.slotflags)
-    return src
+    return InferenceState(linfo, src, optimize, cached, params)
 end
 
 function get_staged(li::MethodInstance)
-    src = ccall(:jl_code_for_staged, Any, (Any,), li)::CodeInfo
-    if isa(src.code, Array{UInt8,1})
-        src.code = ccall(:jl_uncompress_ast, Any, (Any, Any), li.def, src.code)
-    end
-    return src
+    return ccall(:jl_code_for_staged, Any, (Any,), li)::CodeInfo
 end
-
-
-#### current global inference state ####
-
-const active = Vector{Any}() # set of all InferenceState objects being processed
-const nactive = Array{Int}(())
-nactive[] = 0
-const workq = Vector{InferenceState}() # set of InferenceState objects that can make immediate progress
 
 #### helper functions ####
 
@@ -332,9 +329,9 @@ _topmod(sv::InferenceState) = _topmod(sv.mod)
 _topmod(m::Module) = ccall(:jl_base_relative_to, Any, (Any,), m)::Module
 
 function istopfunction(topmod, f::ANY, sym)
-    if isdefined(Main, :Base) && isdefined(Main.Base, sym) && f === getfield(Main.Base, sym)
+    if isdefined(Main, :Base) && isdefined(Main.Base, sym) && isconst(Main.Base, sym) && f === getfield(Main.Base, sym)
         return true
-    elseif isdefined(topmod, sym) && f === getfield(topmod, sym)
+    elseif isdefined(topmod, sym) && isconst(topmod, sym) && f === getfield(topmod, sym)
         return true
     end
     return false
@@ -602,6 +599,8 @@ function typeof_tfunc(t::ANY)
         return Union{a, b}
     elseif isa(t, TypeVar) && !(Any <: t.ub)
         return typeof_tfunc(t.ub)
+    elseif isa(t, UnionAll)
+        return rewrap_unionall(widenconst(typeof_tfunc(unwrap_unionall(t))), t)
     else
         return DataType # typeof(anything)::DataType
     end
@@ -674,7 +673,13 @@ end
 function limit_type_depth(t::ANY, d::Int, cov::Bool, vars::Vector{TypeVar}=TypeVar[])
     if isa(t,Union)
         if d > MAX_TYPE_DEPTH
-            return Any
+            if cov
+                return Any
+            else
+                var = TypeVar(:_)
+                push!(vars, var)
+                return var
+            end
         end
         return Union{limit_type_depth(t.a, d+1, cov, vars),
                      limit_type_depth(t.b, d+1, cov, vars)}
@@ -702,8 +707,19 @@ function limit_type_depth(t::ANY, d::Int, cov::Bool, vars::Vector{TypeVar}=TypeV
     P = t.parameters
     isempty(P) && return t
     if d > MAX_TYPE_DEPTH
-        cov && return t.name.wrapper
-        var = TypeVar(:_, t.name.wrapper)
+        if isvarargtype(t)
+            # never replace Vararg with non-Vararg
+            return Vararg{limit_type_depth(P[1], d, cov, vars), P[2]}
+        end
+        widert = t.name.wrapper
+        if !(t <: widert)
+            # This can happen when a typevar has bounds too wide for its context, e.g.
+            # `Complex{T} where T` is not a subtype of `Complex`. In that case widen even
+            # faster to something safe to ensure the result is a supertype of the input.
+            widert = Any
+        end
+        cov && return widert
+        var = TypeVar(:_, widert)
         push!(vars, var)
         return var
     end
@@ -743,19 +759,21 @@ function getfield_tfunc(s00::ANY, name)
         s00 = s00.ub
     end
     s = unwrap_unionall(s00)
-    if isType(s)
-        p1 = s.parameters[1]
-        if !isleaftype(p1)
-            return Any
-        end
-        s = DataType # typeof(p1)
-    elseif isa(s, Union)
+    if isa(s, Union)
         return tmerge(rewrap(getfield_tfunc(s.a, name),s00),
                       rewrap(getfield_tfunc(s.b, name),s00))
     elseif isa(s, Conditional)
         return Bottom # Bool has no fields
-    elseif isa(s, Const)
-        sv = s.val
+    elseif isa(s, Const) || isType(s)
+        if !isa(s, Const)
+            p1 = s.parameters[1]
+            if !isleaftype(p1)
+                return Any
+            end
+            sv = p1
+        else
+            sv = s.val
+        end
         if isa(name, Const)
             nv = name.val
             if isa(sv, UnionAll)
@@ -1071,7 +1089,9 @@ function invoke_tfunc(f::ANY, types::ANY, argtype::ANY, sv::InferenceState)
     meth = entry.func
     (ti, env) = ccall(:jl_match_method, Ref{SimpleVector}, (Any, Any),
                       argtype, meth.sig)
-    return typeinf_edge(meth::Method, ti, env, sv)
+    rt, edge = typeinf_edge(meth::Method, ti, env, sv)
+    edge !== nothing && add_backedge!(edge::MethodInstance, sv)
+    return rt
 end
 
 function tuple_tfunc(argtype::ANY)
@@ -1266,43 +1286,31 @@ function abstract_call_gf_by_type(f::ANY, atype::ANY, sv::InferenceState)
         # this means too many methods matched
         return Any
     end
-    x::Array{Any,1} = applicable
+    applicable = applicable::Array{Any,1}
     fullmatch = false
-    for (m::SimpleVector) in x
+    for (m::SimpleVector) in applicable
         sig = m[1]
         sigtuple = unwrap_unionall(sig)::DataType
         method = m[3]::Method
         sparams = m[2]::SimpleVector
         recomputesvec = false
-        if !fullmatch && typeseq(sig, argtype)
+        if !fullmatch && (argtype <: method.sig)
             fullmatch = true
         end
 
         # limit argument type tuple growth
-        msig = unwrap_unionall(m[3].sig)
+        msig = unwrap_unionall(method.sig)
         lsig = length(msig.parameters)
         ls = length(sigtuple.parameters)
         td = type_depth(sig)
-        # look at the existing edges to detect growing argument lists
         mightlimitlength = ls > lsig + 1
         mightlimitdepth = td > 2
-
         limitlength = false
-        if mightlimitlength
-            for (callee, _) in sv.edges
-                callee = callee::InferenceState
-                if method === callee.linfo.def && ls > length(unwrap_unionall(callee.linfo.specTypes).parameters)
-                    limitlength = true
-                    break
-                end
-            end
-        end
-
-        # limit argument type size growth
         if mightlimitlength || mightlimitdepth
             # TODO: FIXME: this heuristic depends on non-local state making type-inference unpredictable
-            for infstate in active
-                infstate === nothing && continue
+            cyclei = 0
+            infstate = sv
+            while infstate !== nothing
                 infstate = infstate::InferenceState
                 if isdefined(infstate.linfo, :def) && method === infstate.linfo.def
                     if mightlimitlength && ls > length(unwrap_unionall(infstate.linfo.specTypes).parameters)
@@ -1319,7 +1327,7 @@ function abstract_call_gf_by_type(f::ANY, atype::ANY, sv::InferenceState)
                             p1, p2 = sigtuple.parameters, unwrap_unionall(infstate.linfo.specTypes).parameters
                             if length(p2) == ls
                                 limitdepth = false
-                                newsig = Array{Any}(ls)
+                                newsig = Vector{Any}(ls)
                                 for i = 1:ls
                                     if p1[i] <: Function && type_depth(p1[i]) > type_depth(p2[i]) &&
                                         isa(p1[i],DataType)
@@ -1341,6 +1349,14 @@ function abstract_call_gf_by_type(f::ANY, atype::ANY, sv::InferenceState)
                             end
                         end
                     end
+                end
+                # iterate through the cycle before walking to the parent
+                if cyclei < length(infstate.callers_in_cycle)
+                    cyclei += 1
+                    infstate = infstate.callers_in_cycle[cyclei]
+                else
+                    cyclei = 0
+                    infstate = infstate.parent
                 end
             end
         end
@@ -1379,7 +1395,8 @@ function abstract_call_gf_by_type(f::ANY, atype::ANY, sv::InferenceState)
             end
             sparams = recomputed[2]::SimpleVector
         end
-        rt = typeinf_edge(method, sig, sparams, sv)
+        rt, edge = typeinf_edge(method, sig, sparams, sv)
+        edge !== nothing && add_backedge!(edge::MethodInstance, sv)
         rettype = tmerge(rettype, rt)
         if rettype === Any
             break
@@ -1391,7 +1408,7 @@ function abstract_call_gf_by_type(f::ANY, atype::ANY, sv::InferenceState)
         add_mt_backedge(ftname.mt, argtype, sv)
         update_valid_age!(min_valid[1], max_valid[1], sv)
     end
-    if isempty(x)
+    if isempty(applicable)
         # TODO: this is needed because type intersection is wrong in some cases
         return Any
     end
@@ -1400,7 +1417,7 @@ function abstract_call_gf_by_type(f::ANY, atype::ANY, sv::InferenceState)
 end
 
 # determine whether `ex` abstractly evals to constant `c`
-function abstract_evals_to_constant(ex, c::ANY, vtypes, sv)
+function abstract_evals_to_constant(ex::ANY, c::ANY, vtypes::VarTable, sv::InferenceState)
     av = abstract_eval(ex, vtypes, sv)
     return isa(av,Const) && av.val === c
 end
@@ -1409,14 +1426,19 @@ end
 # if the expression constructs a container (e.g. `svec(x,y,z)`),
 # refine its type to an array of element types.
 # Union of Tuples of the same length is converted to Tuple of Unions.
-# returns an array of types, or `nothing`.
-function precise_container_type(arg, typ, vtypes::VarTable, sv)
+# returns an array of types
+function precise_container_type(arg::ANY, typ::ANY, vtypes::VarTable, sv::InferenceState)
+    if isa(typ, Const)
+        val = typ.val
+        if isa(val, SimpleVector) || isa(val, Tuple)
+            return Any[ abstract_eval_constant(x) for x in val ]
+        end
+    end
+
     tti0 = widenconst(typ)
     tti = unwrap_unionall(tti0)
-    if isa(typ, Const) && (isa(typ.val, SimpleVector) || isa(typ.val, Tuple))
-        return Any[ abstract_eval_constant(x) for x in typ.val ]
-    elseif isa(arg, Expr) && arg.head === :call && (abstract_evals_to_constant(arg.args[1], svec, vtypes, sv) ||
-                                                    abstract_evals_to_constant(arg.args[1], tuple, vtypes, sv))
+    if isa(arg, Expr) && arg.head === :call && (abstract_evals_to_constant(arg.args[1], svec, vtypes, sv) ||
+                                                abstract_evals_to_constant(arg.args[1], tuple, vtypes, sv))
         aa = arg.args
         result = Any[ (isa(aa[j],Expr) ? aa[j].typ : abstract_eval(aa[j],vtypes,sv)) for j=2:length(aa) ]
         if _any(isvarargtype, result)
@@ -1447,21 +1469,26 @@ function precise_container_type(arg, typ, vtypes::VarTable, sv)
     elseif tti0 <: Array
         return Any[Vararg{eltype(tti0)}]
     else
-        return Any[Vararg{abstract_iteration(tti0, vtypes, sv)}]
+        return Any[abstract_iteration(typ, vtypes, sv)]
     end
 end
 
 # simulate iteration protocol on container type up to fixpoint
-function abstract_iteration(itertype, vtypes::VarTable, sv)
-    if !isdefined(Main, :Base) || !isdefined(Main.Base, :start) || !isdefined(Main.Base, :next)
-        return Any
+function abstract_iteration(itertype::ANY, vtypes::VarTable, sv::InferenceState)
+    tm = _topmod(sv)
+    if !isdefined(tm, :start) || !isdefined(tm, :next) || !isconst(tm, :start) || !isconst(tm, :next)
+        return Vararg{Any}
     end
-    statetype = abstract_call(Main.Base.start, (), Any[Const(Main.Base.start), itertype], vtypes, sv)
+    startf = getfield(tm, :start)
+    nextf = getfield(tm, :next)
+    statetype = abstract_call(startf, (), Any[Const(startf), itertype], vtypes, sv)
+    statetype === Bottom && return Bottom
     valtype = Bottom
     while valtype !== Any
-        nt = abstract_call(Main.Base.next, (), Any[Const(Main.Base.next), itertype, statetype], vtypes, sv)
+        nt = abstract_call(nextf, (), Any[Const(nextf), itertype, statetype], vtypes, sv)
+        nt = widenconst(nt)
         if !isa(nt, DataType) || !(nt <: Tuple) || isvatuple(nt) || length(nt.parameters) != 2
-            return Any
+            return Vararg{Any}
         end
         if nt.parameters[1] <: valtype && nt.parameters[2] <: statetype
             break
@@ -1469,11 +1496,11 @@ function abstract_iteration(itertype, vtypes::VarTable, sv)
         valtype = tmerge(valtype, nt.parameters[1])
         statetype = tmerge(statetype, nt.parameters[2])
     end
-    return valtype
+    return Vararg{valtype}
 end
 
 # do apply(af, fargs...), where af is a function value
-function abstract_apply(af::ANY, fargs, aargtypes::Vector{Any}, vtypes::VarTable, sv)
+function abstract_apply(af::ANY, fargs::Vector{Any}, aargtypes::Vector{Any}, vtypes::VarTable, sv::InferenceState)
     res = Union{}
     nargs = length(fargs)
     assert(nargs == length(aargtypes))
@@ -1579,7 +1606,7 @@ function pure_eval_call(f::ANY, argtypes::ANY, atype::ANY, sv::InferenceState)
     meth = meth[1]::SimpleVector
     method = meth[3]::Method
     # TODO: check pure on the inferred thunk
-    if method.isstaged || !method.source.pure
+    if method.isstaged || !method.pure
         return false
     end
 
@@ -1616,14 +1643,10 @@ function _typename(a::Union)
     ta === tb ? tb : (ta === Any || tb === Any) ? Any : Union{}
 end
 _typename(union::UnionAll) = _typename(union.body)
-function typename_static(t)
-    # N.B.: typename maps type equivalence classes to a single value
-    if isa(t, Const) || isType(t)
-        return _typename(isa(t, Const) ? t.val : t.parameters[1])
-    else
-        return Any
-    end
-end
+
+# N.B.: typename maps type equivalence classes to a single value
+typename_static(t::Const) = _typename(t.val)
+typename_static(t::ANY) = isType(t) ? _typename(t.parameters[1]) : Any
 
 function abstract_call(f::ANY, fargs::Union{Tuple{},Vector{Any}}, argtypes::Vector{Any}, vtypes::VarTable, sv::InferenceState)
     if f === _apply
@@ -1833,11 +1856,7 @@ function abstract_call(f::ANY, fargs::Union{Tuple{},Vector{Any}}, argtypes::Vect
     if istopfunction(tm, f, :promote_type) || istopfunction(tm, f, :typejoin)
         return Type
     elseif length(argtypes) == 2 && istopfunction(tm, f, :typename)
-        t = argtypes[2]
-        if isa(t, Const) || isType(t)
-            return typename_static(t)
-        end
-        return Any
+        return typename_static(argtypes[2])
     end
 
     if sv.params.inlining
@@ -1928,8 +1947,12 @@ function abstract_eval(e::ANY, vtypes::VarTable, sv::InferenceState)
         if isdefined(sv.linfo, :def)
             spsig = sv.linfo.def.sig
             if isa(spsig, UnionAll)
-                env = data_pointer_from_objref(sv.linfo.sparam_vals) + sizeof(Ptr{Void})
-                rt = ccall(:jl_instantiate_type_in_env, Any, (Any, Any, Ptr{Any}), e.args[2], spsig, env)
+                if !isempty(sv.linfo.sparam_vals)
+                    env = data_pointer_from_objref(sv.linfo.sparam_vals) + sizeof(Ptr{Void})
+                    rt = ccall(:jl_instantiate_type_in_env, Any, (Any, Any, Ptr{Any}), e.args[2], spsig, env)
+                else
+                    rt = rewrap_unionall(e.args[2], spsig)
+                end
             end
         end
         abstract_eval(e.args[1], vtypes, sv)
@@ -1961,12 +1984,15 @@ function abstract_eval(e::ANY, vtypes::VarTable, sv::InferenceState)
         t = Any
         if n <= length(sv.sp)
             val = sv.sp[n]
-            if isa(val, TypeVar)
+            if isa(val, TypeVar) && Any <: val.ub
                 # static param bound to typevar
                 # if the tvar does not refer to anything more specific than Any,
                 # the static param might actually be an integer, symbol, etc.
-                if !(Any <: val.ub)
-                    t = UnionAll(val, Type{val})
+            elseif has_free_typevars(val)
+                vs = ccall(:jl_find_free_typevars, Any, (Any,), val)
+                t = Type{val}
+                for v in vs
+                    t = UnionAll(v, t)
                 end
             else
                 t = abstract_eval_constant(val)
@@ -2101,7 +2127,7 @@ function ⊑(a::ANY, b::ANY)
         if isa(b, Const)
             return a.val === b.val
         end
-        return isa(a.val, b)
+        return isa(a.val, widenconst(b))
     elseif isa(b, Const)
         return a === Bottom
     elseif !(isa(a, Type) || isa(a, TypeVar)) ||
@@ -2302,31 +2328,6 @@ end
 inlining_enabled() = (JLOptions().can_inline == 1)
 coverage_enabled() = (JLOptions().code_coverage != 0)
 
-# TODO: track the worlds for which this InferenceState
-# is being used, and split it if the WIP requires it?
-function converge_valid_age!(sv::InferenceState)
-    # push the validity range of sv into its fixedpoint callers
-    # recursing as needed to cover the graph
-    for (i, _) in sv.backedges
-        if i.fixedpoint
-            updated = false
-            if i.min_valid < sv.min_valid
-                i.min_valid = sv.min_valid
-                updated = true
-            end
-            if i.max_valid > sv.max_valid
-                i.max_valid = sv.max_valid
-                updated = true
-            end
-            @assert !isdefined(i.linfo, :def) || !i.cached || i.min_valid <= i.params.world <= i.max_valid "invalid age range update"
-            if updated
-                converge_valid_age!(i)
-            end
-        end
-    end
-    nothing
-end
-
 # work towards converging the valid age range for sv
 function update_valid_age!(min_valid::UInt, max_valid::UInt, sv::InferenceState)
     sv.min_valid = max(sv.min_valid, min_valid)
@@ -2338,7 +2339,7 @@ update_valid_age!(edge::InferenceState, sv::InferenceState) = update_valid_age!(
 update_valid_age!(li::MethodInstance, sv::InferenceState) = update_valid_age!(min_world(li), max_world(li), sv)
 
 # temporarily accumulate our edges to later add as backedges in the callee
-function add_backedge(li::MethodInstance, caller::InferenceState)
+function add_backedge!(li::MethodInstance, caller::InferenceState)
     isdefined(caller.linfo, :def) || return # don't add backedges to toplevel exprs
     if caller.stmt_edges[caller.currpc] === ()
         caller.stmt_edges[caller.currpc] = []
@@ -2383,7 +2384,7 @@ function finalize_backedges(frame::InferenceState)
 end
 
 function code_for_method(method::Method, atypes::ANY, sparams::SimpleVector, world::UInt, preexisting::Bool=false)
-    if world < min_world(method) || world > max_world(method)
+    if world < min_world(method)
         return nothing
     end
     if method.isstaged && !isleaftype(atypes)
@@ -2404,72 +2405,92 @@ function code_for_method(method::Method, atypes::ANY, sparams::SimpleVector, wor
     return ccall(:jl_specializations_get_linfo, Ref{MethodInstance}, (Any, Any, Any, UInt), method, atypes, sparams, world)
 end
 
-function typeinf_active(linfo::MethodInstance)
-    for infstate in active
-        infstate === nothing && continue
-        infstate = infstate::InferenceState
-        if linfo === infstate.linfo
-            return infstate
-        end
+function typeinf_active(linfo::MethodInstance, sv::InferenceState)
+    for infstate in sv.callers_in_cycle
+        linfo === infstate.linfo && return infstate
     end
     return nothing
 end
 
-function add_backedge(frame::InferenceState, caller::InferenceState, currpc::Int)
+function add_backedge!(frame::InferenceState, caller::InferenceState, currpc::Int)
     update_valid_age!(frame, caller)
-    if haskey(caller.edges, frame)
-        Ws = caller.edges[frame]::Vector{Int}
-        if !(currpc in Ws)
-            push!(Ws, currpc)
+    backedge = (caller, currpc)
+    contains_is(frame.backedges, backedge) || push!(frame.backedges, backedge)
+    return frame
+end
+
+# at the end, all items in b's cycle
+# will now be added to a's cycle
+function union_caller_cycle!(a::InferenceState, b::InferenceState)
+    callers_in_cycle = b.callers_in_cycle
+    b.parent = a.parent
+    b.callers_in_cycle = a.callers_in_cycle
+    contains_is(a.callers_in_cycle, b) || push!(a.callers_in_cycle, b)
+    if callers_in_cycle !== a.callers_in_cycle
+        for caller in callers_in_cycle
+            if caller !== b
+                caller.parent = a.parent
+                caller.callers_in_cycle = a.callers_in_cycle
+                push!(a.callers_in_cycle, caller)
+            end
         end
-    else
-        Ws = Int[currpc]
-        caller.edges[frame] = Ws
-        push!(frame.backedges, (caller, Ws))
+    end
+    return
+end
+
+function merge_call_chain!(parent::InferenceState, ancestor::InferenceState, child::InferenceState)
+    # add backedge of parent <- child
+    # then add all backedges of parent <- parent.parent
+    # and merge all of the callers into ancestor.callers_in_cycle
+    # and ensure that walking the parent list will get the same result (DAG) from everywhere
+    while true
+        add_backedge!(child, parent, parent.currpc)
+        union_caller_cycle!(ancestor, child)
+        child = parent
+        parent = child.parent
+        child === ancestor && break
     end
 end
 
-# build (and start inferring) the inference frame for the linfo
-function typeinf_frame(linfo::MethodInstance, caller, optimize::Bool, cached::Bool,
-                       params::InferenceParams)
-    # println(params.world, ' ', linfo)
-    if cached && linfo.inInference
-        # inference on this signature may be in progress,
-        # find the corresponding frame in the active list
-        frame = typeinf_active(linfo)
-        # TODO: this assertion seems iffy
-        assert(frame !== nothing)
-    else
-        # inference not started yet, make a new frame for a new lambda
-        if linfo.def.isstaged
-            try
-                # user code might throw errors – ignore them
-                src = get_staged(linfo)
-            catch
-                return nothing
-            end
-        else
-            src = get_source(linfo)
+# Walk through `linfo`'s upstream call chain, starting at `parent`. If a parent
+# frame matching `linfo` is encountered, then there is a cycle in the call graph
+# (i.e. `linfo` is a descendant callee of itself). Upon encountering this cycle,
+# we "resolve" it by merging the call chain, which entails unioning each intermediary
+# frame's `callers_in_cycle` field and adding the appropriate backedges. Finally,
+# we return `linfo`'s pre-existing frame. If no cycles are found, `nothing` is
+# returned instead.
+function resolve_call_cycle!(linfo::MethodInstance, parent::InferenceState)
+    frame = parent
+    while isa(frame, InferenceState)
+        if frame.linfo === linfo
+            merge_call_chain!(parent, frame, frame)
+            return frame
         end
-        cached && (linfo.inInference = true)
-        frame = InferenceState(linfo, src, optimize, cached, params)
+        for caller in frame.callers_in_cycle
+            if caller.linfo === linfo
+                merge_call_chain!(parent, frame, caller)
+                return caller
+            end
+        end
+        frame = frame.parent
     end
-    frame = frame::InferenceState
+    return nothing
+end
 
-    if isa(caller, InferenceState)
-        # if we were called from inside inference, the caller will be the InferenceState object
-        # for which the edge was required
-        @assert caller.currpc > 0
-        add_backedge(frame, caller, caller.currpc)
-    end
-    typeinf_loop(frame)
+# build (and start inferring) the inference frame for the linfo
+function typeinf_frame(linfo::MethodInstance,
+                       optimize::Bool, cached::Bool, params::InferenceParams)
+    frame = InferenceState(linfo, optimize, cached, params)
+    frame === nothing && return nothing
+    cached && (linfo.inInference = true)
+    typeinf(frame)
     return frame
 end
 
 # compute (and cache) an inferred AST and return the current best estimate of the result type
 function typeinf_edge(method::Method, atypes::ANY, sparams::SimpleVector, caller::InferenceState)
     code = code_for_method(method, atypes, sparams, caller.params.world)
-    code === nothing && return Any
+    code === nothing && return Any, nothing
     code = code::MethodInstance
     if isdefined(code, :inferred)
         # return rettype if the code is already inferred
@@ -2477,18 +2498,27 @@ function typeinf_edge(method::Method, atypes::ANY, sparams::SimpleVector, caller
         # so need to check whether the code itself is also inferred
         inf = code.inferred
         if !isa(inf, CodeInfo) || (inf::CodeInfo).inferred
-            add_backedge(code, caller)
             if isdefined(code, :inferred_const)
-                return abstract_eval_constant(code.inferred_const)
+                return abstract_eval_constant(code.inferred_const), code
             else
-                return code.rettype
+                return code.rettype, code
             end
         end
     end
-    frame = typeinf_frame(code, caller, true, true, caller.params)
-    frame === nothing && return Any
+    frame = resolve_call_cycle!(code, caller)
+    if frame === nothing
+        code.inInference = true
+        frame = InferenceState(code, true, true, caller.params) # always optimize and cache edge targets
+        if frame === nothing
+            code.inInference = false
+            return Any, nothing
+        end
+        frame.parent = caller
+        typeinf(frame)
+        return frame.bestguess, frame.inferred ? frame.linfo : nothing
+    end
     frame = frame::InferenceState
-    return frame.bestguess
+    return frame.bestguess, nothing
 end
 
 #### entry points for inferring a MethodInstance given a type signature ####
@@ -2508,12 +2538,12 @@ function typeinf_code(linfo::MethodInstance, optimize::Bool, cached::Bool,
             # see if this code already exists in the cache
             # staged functions make this hard since they have two "inferred" conditions,
             # so need to check whether the code itself is also inferred
-            inf = linfo.inferred
             if min_world(linfo) <= params.world <= max_world(linfo)
+                inf = linfo.inferred
                 if linfo.jlcall_api == 2
                     method = linfo.def
                     tree = ccall(:jl_new_code_info_uninit, Ref{CodeInfo}, ())
-                    tree.code = Any[ Expr(:return, QuoteNode(inf)) ]
+                    tree.code = Any[ Expr(:return, QuoteNode(linfo.inferred_const)) ]
                     tree.slotnames = Any[ compiler_temp_sym for i = 1:method.nargs ]
                     tree.slotflags = UInt8[ 0 for i = 1:method.nargs ]
                     tree.slottypes = nothing
@@ -2524,7 +2554,7 @@ function typeinf_code(linfo::MethodInstance, optimize::Bool, cached::Bool,
                     i == 2 && ccall(:jl_typeinf_end, Void, ())
                     return svec(linfo, tree, linfo.rettype)
                 elseif isa(inf, CodeInfo)
-                    if (inf::CodeInfo).inferred
+                    if inf.inferred
                         i == 2 && ccall(:jl_typeinf_end, Void, ())
                         return svec(linfo, inf, linfo.rettype)
                     end
@@ -2532,7 +2562,7 @@ function typeinf_code(linfo::MethodInstance, optimize::Bool, cached::Bool,
             end
         end
     end
-    frame = typeinf_frame(linfo, nothing, optimize, cached, params)
+    frame = typeinf_frame(linfo, optimize, cached, params)
     ccall(:jl_typeinf_end, Void, ())
     frame === nothing && return svec(nothing, nothing, Any)
     frame = frame::InferenceState
@@ -2560,7 +2590,7 @@ function typeinf_type(method::Method, atypes::ANY, sparams::SimpleVector,
             end
         end
     end
-    frame = typeinf_frame(code, nothing, cached, cached, params)
+    frame = typeinf_frame(code, cached, cached, params)
     ccall(:jl_typeinf_end, Void, ())
     frame === nothing && return nothing
     frame = frame::InferenceState
@@ -2574,11 +2604,10 @@ function typeinf_ext(linfo::MethodInstance, world::UInt)
         return typeinf_code(linfo, true, true, InferenceParams(world))
     else
         # toplevel lambda - infer directly
-        linfo.inInference = true
         ccall(:jl_typeinf_begin, Void, ())
         frame = InferenceState(linfo, linfo.inferred::CodeInfo,
                                true, true, InferenceParams(world))
-        typeinf_loop(frame)
+        typeinf(frame)
         ccall(:jl_typeinf_end, Void, ())
         @assert frame.inferred # TODO: deal with this better
         @assert frame.linfo === linfo
@@ -2588,83 +2617,9 @@ end
 
 #### do the work of inference ####
 
-in_typeinf_loop = false
-function typeinf_loop(frame)
-    global in_typeinf_loop
-    if in_typeinf_loop
-        frame.inworkq || typeinf_frame(frame)
-        return
-    end
-    try
-        in_typeinf_loop = true
-        # the core type-inference algorithm
-        # processes everything in workq,
-        # and returns when there is nothing left
-        while nactive[] > 0
-            while active[end] === nothing
-                pop!(active)
-            end
-            if isempty(workq)
-                frame = active[end]::InferenceState
-            else
-                frame = pop!(workq)
-            end
-            typeinf_frame(frame)
-            if isempty(workq) && nactive[] > 0
-                # nothing in active has an edge that hasn't reached a fixed-point
-                # so all of them can be considered finished now
-                fplist = Any[]
-                for i in active
-                    i === nothing && continue
-                    i = i::InferenceState
-                    if i.fixedpoint
-                        push!(fplist, i)
-                        i.inworkq = true
-                    end
-                end
-                for i in length(fplist):-1:1
-                    # optimize and record the results
-                    # the reverse order makes it more likely to inline a callee into its caller
-                    optimize(fplist[i]::InferenceState) # this may add incomplete work to active
-                end
-                for i in fplist
-                    # push valid ages from each node across the graph cycle
-                    converge_valid_age!(i::InferenceState)
-                end
-                for i in fplist
-                    # record the results
-                    finish(i::InferenceState)
-                end
-                for i in fplist
-                    # update and record all of the back edges for the finished world
-                    finalize_backedges(i::InferenceState)
-                end
-            end
-        end
-        # cleanup the active queue
-        empty!(active)
-    #    while active[end] === nothing
-    #        # this pops everything, but with exaggerated care just in case
-    #        # something managed to add something to the queue at the same time
-    #        # (or someone decides to use an alternative termination condition)
-    #        pop!(active)
-    #    end
-        in_typeinf_loop = false
-    catch ex
-        println("WARNING: An error occurred during inference. Type inference is now partially disabled.")
-        println(ex)
-        ccall(:jlbacktrace, Void, ())
-    end
-    nothing
-end
-
-global_sv = nothing
-function typeinf_frame(frame)
-    global global_sv # TODO: actually pass this to all functions that need it
-    last_global_sv = global_sv
-    global_sv = frame
+function typeinf_work(frame::InferenceState)
     @assert !frame.inferred
-    frame.inworkq = true
+    frame.dont_work_on_me = true # mark that this function is currently on the stack
     W = frame.ip
     s = frame.stmt_types
     n = frame.nstmts
@@ -2750,18 +2705,15 @@ function typeinf_frame(frame)
                     if tchanged(rt, frame.bestguess)
                         # new (wider) return type for frame
                         frame.bestguess = tmerge(frame.bestguess, rt)
-                        for (caller, callerW) in frame.backedges
+                        for (caller, caller_pc) in frame.backedges
                             # notify backedges of updated type information
-                            for caller_pc in callerW
-                                if caller.stmt_types[caller_pc] !== ()
-                                    if caller_pc < caller.pc´´
-                                        caller.pc´´ = caller_pc
-                                    end
-                                    push!(caller.ip, caller_pc)
+                            if caller.stmt_types[caller_pc] !== ()
+                                if caller_pc < caller.pc´´
+                                    caller.pc´´ = caller_pc
                                 end
+                                push!(caller.ip, caller_pc)
                             end
                         end
-                        unmark_fixedpoint(frame)
                     end
                 elseif hd === :enter
                     l = stmt.args[1]::Int
@@ -2809,52 +2761,71 @@ function typeinf_frame(frame)
             end
         end
     end
+    frame.dont_work_on_me = false
+end
 
-    # with no active ip's, type inference on frame is done if there are no outstanding (unfinished) edges
-    #@assert isempty(W)
-    @assert !frame.inferred
-    finished = isempty(frame.edges)
-    if isempty(workq)
-        # oops, there's a cycle somewhere in the `edges` graph
-        # so we've run out off the tree and will need to start work on the loop
-        frame.fixedpoint = true
-    end
+function typeinf(frame::InferenceState)
 
-    if finished || frame.fixedpoint
-        if finished
-            optimize(frame)
-            finish(frame)
-            finalize_backedges(frame)
-        else # fixedpoint propagation
-            for (i, _) in frame.edges
-                i = i::InferenceState
-                if !i.fixedpoint
-                    update_valid_age!(i, frame) # work towards converging age at the same time
-                    if !i.inworkq
-                        push!(workq, i)
-                        i.inworkq = true
-                    end
-                    i.fixedpoint = true
-                end
+    typeinf_work(frame)
+
+    # If the current frame is part of a cycle, solve the cycle before finishing
+    no_active_ips_in_callers = false
+    while !no_active_ips_in_callers
+        no_active_ips_in_callers = true
+        for caller in frame.callers_in_cycle
+            caller.dont_work_on_me && return
+            if caller.pc´´ <= caller.nstmts # equivalent to `isempty(caller.ip)`
+                # Note that `typeinf_work(caller)` can potentially modify the other frames
+                # `frame.callers_in_cycle`, which is why making incremental progress requires the
+                # outer while loop.
+                typeinf_work(caller)
+                no_active_ips_in_callers = false
+            end
+            if caller.min_valid < frame.min_valid
+                caller.min_valid = frame.min_valid
+            end
+            if caller.max_valid > frame.max_valid
+                caller.max_valid = frame.max_valid
             end
         end
     end
-    frame.inworkq = false
-    global_sv = last_global_sv
+
+    # with no active ip's, type inference on frame is done
+
+    if isempty(frame.callers_in_cycle)
+        @assert !(frame.dont_work_on_me)
+        frame.dont_work_on_me = true
+        optimize(frame)
+        finish(frame)
+        finalize_backedges(frame)
+    else # frame is in frame.callers_in_cycle
+        for caller in frame.callers_in_cycle
+            @assert !(caller.dont_work_on_me)
+            caller.dont_work_on_me = true
+        end
+        for caller in frame.callers_in_cycle
+            optimize(caller)
+            if frame.min_valid < caller.min_valid
+                frame.min_valid = caller.min_valid
+            end
+            if frame.max_valid > caller.max_valid
+                frame.max_valid = caller.max_valid
+            end
+        end
+        for caller in frame.callers_in_cycle
+            caller.min_valid = frame.min_valid
+        end
+        for caller in frame.callers_in_cycle
+            finish(caller)
+        end
+        for caller in frame.callers_in_cycle
+            finalize_backedges(caller)
+        end
+    end
+
     nothing
 end
 
-function unmark_fixedpoint(frame::InferenceState)
-    # type information changed for frame, so its edges are no longer stuck
-    # recursively unmark any nodes that had previously been thought to be at a fixedpoint
-    # based upon (recursively) assuming that frame was stuck
-    if frame.fixedpoint
-        frame.fixedpoint = false
-        for (i, _) in frame.backedges
-            unmark_fixedpoint(i)
-        end
-    end
-end
 
 function record_ssa_assign(ssa_id::Int, new::ANY, frame::InferenceState)
     old = frame.src.ssavaluetypes[ssa_id]
@@ -2901,16 +2872,6 @@ end
 # inference completed on `me`
 # now converge the optimization work
 function optimize(me::InferenceState)
-    for (i, _) in me.edges
-        i = i::InferenceState
-        @assert i.fixedpoint
-    end
-    # below may call back into inference and
-    # see this InferenceState is in an incomplete state
-    # set `inworkq` to prevent it from trying to look
-    # at the object in any detail
-    @assert me.inworkq
-
     # annotate fulltree with type information
     type_annotate!(me)
 
@@ -3003,7 +2964,7 @@ function finish(me::InferenceState)
 
         # check if the existing me.linfo metadata is also sufficient to describe the current inference result
         # to decide if it is worth caching it again (which would also clear any generated code)
-        already_inferred = false
+        already_inferred = !me.linfo.inInference
         if isdefined(me.linfo, :inferred)
             inf = me.linfo.inferred
             if !isa(inf, CodeInfo) || (inf::CodeInfo).inferred
@@ -3027,7 +2988,7 @@ function finish(me::InferenceState)
             end
             if me.const_api
                 # use constant calling convention
-                inferred_result = inferred_const
+                inferred_result = nothing
             else
                 inferred_result = me.src
             end
@@ -3040,7 +3001,7 @@ function finish(me::InferenceState)
                         inferred_result = nothing
                     else
                         # compress code for non-toplevel thunks
-                        inferred_result.code = ccall(:jl_compress_ast, Any, (Any, Any), me.linfo.def, inferred_result.code)
+                        inferred_result = ccall(:jl_compress_ast, Any, (Any, Any), me.linfo.def, inferred_result)
                     end
                 end
             end
@@ -3054,20 +3015,9 @@ function finish(me::InferenceState)
         end
     end
 
-    # lazy-delete the item from active for several reasons:
-    # efficiency, correctness, and recursion-safety
-    nactive[] -= 1
-    active[findlast(active, me)] = nothing
-
-    # update all of the callers by traversing the backedges
+    # update all of the callers with real backedges by traversing the temporary list of backedges
     for (i, _) in me.backedges
-        if !me.fixedpoint || !i.fixedpoint
-            # wake up each backedge, unless both me and it already reached a fixed-point (cycle resolution stage)
-            delete!(i.edges, me)
-            i.inworkq || push!(workq, i)
-            i.inworkq = true
-        end
-        add_backedge(me.linfo, i)
+        add_backedge!(me.linfo, i)
     end
 
     # finalize and record the linfo result
@@ -3288,6 +3238,7 @@ function substitute!(e::ANY, na::Int, argexprs::Vector{Any}, spsig::ANY, spvals:
         if head === :static_parameter
             return spvals[e.args[1]]
         elseif head === :foreigncall
+            @assert !isa(spsig,UnionAll) || !isempty(spvals)
             for i = 1:length(e.args)
                 if i == 2
                     e.args[2] = ccall(:jl_instantiate_type_in_env, Any, (Any, Any, Ptr{Any}), e.args[2], spsig, spvals)
@@ -3579,7 +3530,7 @@ function invoke_NF(argexprs, etype::ANY, atypes, sv, atype_unlimited::ANY,
                 local sig = argtypes_to_type(atypes)
                 local li = get_spec_lambda(sig, sv, invoke_data)
                 li === nothing && return false
-                add_backedge(li, sv)
+                add_backedge!(li, sv)
                 local stmt = []
                 push!(stmt, Expr(:(=), linfo_var, li))
                 spec_hit === nothing && (spec_hit = genlabel(sv))
@@ -3650,7 +3601,7 @@ function invoke_NF(argexprs, etype::ANY, atypes, sv, atype_unlimited::ANY,
     else
         local cache_linfo = get_spec_lambda(atype_unlimited, sv, invoke_data)
         cache_linfo === nothing && return NF
-        add_backedge(cache_linfo, sv)
+        add_backedge!(cache_linfo, sv)
         unshift!(argexprs, cache_linfo)
         ex = Expr(:invoke)
         ex.args = argexprs
@@ -3827,10 +3778,10 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
         if f === return_type
             if isconstType(e.typ)
                 return inline_as_constant(e.typ.parameters[1], argexprs, sv, invoke_data)
-            elseif isa(e.typ,Const)
+            elseif isa(e.typ, Const)
                 return inline_as_constant(e.typ.val, argexprs, sv, invoke_data)
             end
-        elseif method.source.pure && isa(e.typ,Const) && e.typ.actual
+        elseif method.pure && isa(e.typ, Const) && e.typ.actual
             return inline_as_constant(e.typ.val, argexprs, sv, invoke_data)
         end
     end
@@ -3888,15 +3839,15 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
     linfo = linfo::MethodInstance
     if linfo.jlcall_api == 2
         # in this case function can be inlined to a constant
-        add_backedge(linfo, sv)
-        return inline_as_constant(linfo.inferred, argexprs, sv, invoke_data)
+        add_backedge!(linfo, sv)
+        return inline_as_constant(linfo.inferred_const, argexprs, sv, invoke_data)
     end
 
     # see if the method has a current InferenceState frame
     # or existing inferred code info
     frame = nothing # Union{Void, InferenceState}
-    src = nothing # Union{Void, CodeInfo}
-    if force_infer && la>2 && isa(atypes[3], Const)
+    inferred = nothing # Union{Void, CodeInfo}
+    if force_infer && la > 2 && isa(atypes[3], Const)
         # Since we inferred this with the information that atypes[3]::Const,
         # must inline with that same information.
         # We do that by overriding the argument type,
@@ -3905,22 +3856,19 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
         # as we'll be able to fix that up at the end of inlinable when we verify the return type.
         # But `next` and `indexed_next` make tuples which would end up burying some of that information in the AST
         # where we can't easily correct it afterwards.
-        frame = InferenceState(linfo, get_source(linfo), #=optimize=#true, #=cache=#false, sv.params)
+        frame = InferenceState(linfo, #=optimize=#true, #=cache=#false, sv.params)
         frame.stmt_types[1][3] = VarState(atypes[3], false)
-        typeinf_loop(frame)
+        typeinf(frame)
     else
-        if isdefined(linfo, :inferred) && isa(linfo.inferred, CodeInfo) && (linfo.inferred::CodeInfo).inferred
+        if isdefined(linfo, :inferred) && linfo.inferred !== nothing
             # use cache
-            src = linfo.inferred
-        elseif linfo.inInference
-            # use WIP
-            frame = typeinf_active(linfo)
+            inferred = linfo.inferred
         elseif force_infer
             # create inferred code on-demand
             # but if we decided in the past not to try to infer this particular signature
             # (due to signature coarsening in abstract_call_gf_by_type)
             # don't infer it now, as attempting to force it now would be a bad idea (non terminating)
-            frame = typeinf_frame(linfo, nothing, #=optimize=#true, #=cache=#true, sv.params)
+            frame = typeinf_frame(linfo, #=optimize=#true, #=cache=#true, sv.params)
         end
     end
 
@@ -3928,12 +3876,12 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
     if isa(frame, InferenceState)
         frame = frame::InferenceState
         linfo = frame.linfo
-        src = frame.src
+        inferred = frame.src
         if frame.const_api # handle like jlcall_api == 2
             if frame.inferred || !frame.cached
-                add_backedge(frame.linfo, sv)
+                add_backedge!(frame.linfo, sv)
             else
-                add_backedge(frame, sv, 0)
+                add_backedge!(frame, sv, 0)
             end
             if isa(frame.bestguess, Const)
                 inferred_const = (frame.bestguess::Const).val
@@ -3949,19 +3897,23 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
     end
 
     # check that the code is inlineable
-    isa(src, CodeInfo) || return invoke_NF(argexprs0, e.typ, atypes, sv,
-                                           atype_unlimited, invoke_data)
-    src = src::CodeInfo
-    ast = src.code
-    if !src.inferred || !src.inlineable
+    if inferred === nothing
+        src_inferred = src_inlineable = false
+    else
+        src_inferred = ccall(:jl_ast_flag_inferred, Bool, (Any,), inferred)
+        src_inlineable = ccall(:jl_ast_flag_inlineable, Bool, (Any,), inferred)
+    end
+    if !src_inferred || !src_inlineable
         return invoke_NF(argexprs0, e.typ, atypes, sv, atype_unlimited,
                          invoke_data)
     end
 
-    if !isa(ast, Array{Any,1})
-        ast = ccall(:jl_uncompress_ast, Any, (Any, Any), method, ast)
+    if isa(inferred, CodeInfo)
+        src = inferred
+        ast = copy_exprargs(inferred.code)
     else
-        ast = copy_exprargs(ast)
+        src = ccall(:jl_uncompress_ast, Any, (Any, Any), method, inferred)::CodeInfo
+        ast = src.code
     end
     ast = ast::Array{Any,1}
 
@@ -3990,9 +3942,9 @@ function inlineable(f::ANY, ft::ANY, e::Expr, atypes::Vector{Any}, sv::Inference
     if isa(frame, InferenceState) && !frame.inferred && frame.cached
         # in this case, the actual backedge linfo hasn't been computed
         # yet, but will be when inference on the frame finishes
-        add_backedge(frame, sv, 0)
+        add_backedge!(frame, sv, 0)
     else
-        add_backedge(linfo, sv)
+        add_backedge!(linfo, sv)
     end
 
     spvals = Any[]
@@ -4478,27 +4430,43 @@ function inlining_pass(e::Expr, sv::InferenceState, stmts, ins)
         if f === _apply
             na = length(e.args)
             newargs = Vector{Any}(na-2)
+            newstmts = Any[]
+            effect_free_upto = 0
             for i = 3:na
                 aarg = e.args[i]
-                t = widenconst(exprtype(aarg, sv.src, sv.mod))
+                argt = exprtype(aarg, sv.src, sv.mod)
+                t = widenconst(argt)
                 if isa(aarg,Expr) && (is_known_call(aarg, tuple, sv.src, sv.mod) || is_known_call(aarg, svec, sv.src, sv.mod))
                     # apply(f,tuple(x,y,...)) => f(x,y,...)
                     newargs[i-2] = aarg.args[2:end]
-                elseif isa(aarg, Tuple) || (isa(aarg, QuoteNode) && isa(aarg.value, Tuple))
+                elseif isa(argt,Const) && (isa(argt.val, Tuple) || isa(argt.val, SimpleVector))
+                    newargs[i-2] = Any[ QuoteNode(x) for x in argt.val ]
+                elseif isa(aarg, Tuple) || (isa(aarg, QuoteNode) && (isa(aarg.value, Tuple) || isa(aarg.value, SimpleVector)))
                     if isa(aarg, QuoteNode)
                         aarg = aarg.value
                     end
                     newargs[i-2] = Any[ QuoteNode(x) for x in aarg ]
                 elseif isa(t, DataType) && t.name === Tuple.name && !isvatuple(t) &&
                          length(t.parameters) <= sv.params.MAX_TUPLE_SPLAT
+                    for k = (effect_free_upto+1):(i-3)
+                        as = newargs[k]
+                        for kk = 1:length(as)
+                            ak = as[kk]
+                            if !effect_free(ak, sv.src, sv.mod, true)
+                                tmpv = newvar!(sv, widenconst(exprtype(ak, sv.src, sv.mod)))
+                                push!(newstmts, Expr(:(=), tmpv, ak))
+                                as[kk] = tmpv
+                            end
+                        end
+                    end
+                    effect_free_upto = i-3
                     if effect_free(aarg, sv.src, sv.mod, true)
                         # apply(f,t::(x,y)) => f(t[1],t[2])
                         tmpv = aarg
                     else
                         # apply(f,t::(x,y)) => tmp=t; f(tmp[1],tmp[2])
                         tmpv = newvar!(sv, t)
-                        insert!(stmts, ins, Expr(:(=), tmpv, aarg))
-                        ins += 1
+                        push!(newstmts, Expr(:(=), tmpv, aarg))
                     end
                     tp = t.parameters
                     newargs[i-2] = Any[ mk_getfield(tmpv,j,tp[j]) for j=1:length(tp) ]
@@ -4507,6 +4475,8 @@ function inlining_pass(e::Expr, sv::InferenceState, stmts, ins)
                     return e
                 end
             end
+            splice!(stmts, ins:ins-1, newstmts)
+            ins += length(newstmts)
             e.args = [Any[e.args[2]]; newargs...]
 
             # now try to inline the simplified call
@@ -5041,6 +5011,7 @@ function meta_elim_pass!(code::Array{Any,1}, propagate_inbounds::Bool, do_covera
                 code[push_loc] = nothing
                 code[i] = nothing
             else
+                prev_dbg_stack[end] = 0
                 push_loc_pos_stack[end] = 0
             end
         else
@@ -5425,7 +5396,7 @@ end
 # especially try to make sure any recursive and leaf functions have concrete signatures,
 # since we won't be able to specialize & infer them at runtime
 
-let fs = Any[typeinf_ext, typeinf_loop, typeinf_edge, occurs_outside_getfield, pure_eval_call]
+let fs = Any[typeinf_ext, typeinf, typeinf_edge, occurs_outside_getfield, pure_eval_call]
     for x in t_ffunc_val
         push!(fs, x[3])
     end

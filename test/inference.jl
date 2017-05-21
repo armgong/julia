@@ -1,4 +1,4 @@
-# This file is a part of Julia. License is MIT: http://julialang.org/license
+# This file is a part of Julia. License is MIT: https://julialang.org/license
 
 # tests for Core.Inference correctness and precision
 
@@ -291,8 +291,9 @@ let g() = Int <: Real ? 1 : ""
     @test Base.return_types(g, Tuple{}) == [Int]
 end
 
-NInt{N} = Tuple{Vararg{Int, N}}
+const NInt{N} = Tuple{Vararg{Int, N}}
 @test Base.eltype(NInt) === Int
+@test Base.return_types(eltype, (NInt,)) == Any[Union{Type{Int}, Type{Union{}}}] # issue 21763
 fNInt(x::NInt) = (x...)
 gNInt() = fNInt(x)
 @test Base.return_types(gNInt, ()) == Any[NInt]
@@ -411,10 +412,10 @@ Base.@pure function fpure(a=rand(); b=rand())
 end
 gpure() = fpure()
 gpure(x::Irrational) = fpure(x)
-@test which(fpure, ()).source.pure
-@test which(fpure, (typeof(pi),)).source.pure
-@test !which(gpure, ()).source.pure
-@test !which(gpure, (typeof(pi),)).source.pure
+@test which(fpure, ()).pure
+@test which(fpure, (typeof(pi),)).pure
+@test !which(gpure, ()).pure
+@test !which(gpure, (typeof(pi),)).pure
 @test @code_typed(gpure())[1].pure
 @test @code_typed(gpure(π))[1].pure
 @test gpure() == gpure() == gpure()
@@ -422,7 +423,7 @@ gpure(x::Irrational) = fpure(x)
 
 # Make sure @pure works for functions using the new syntax
 Base.@pure (fpure2(x::T) where T) = T
-@test which(fpure2, (Int64,)).source.pure
+@test which(fpure2, (Int64,)).pure
 
 # issue #10880
 function cat10880(a, b)
@@ -611,7 +612,7 @@ function i20343()
     f20343([1,2,3]..., 4)
 end
 @test Base.return_types(i20343, ()) == [Int8]
-immutable Foo20518 <: AbstractVector{Int}; end # issue #20518; inference assumed AbstractArrays
+struct Foo20518 <: AbstractVector{Int}; end # issue #20518; inference assumed AbstractArrays
 Base.getindex(::Foo20518, ::Int) = "oops"      # not to lie about their element type
 Base.indices(::Foo20518) = (Base.OneTo(4),)
 foo20518(xs::Any...) = -1
@@ -654,6 +655,10 @@ f20267(x::T20267{T}, y::T) where (T) = f20267(Any[1][1], x.inds)
 let A = 1:2, z = zip(A, A, A, A, A, A, A, A, A, A, A, A)
     @test z isa Core.Inference.limit_type_depth(typeof(z), 0)
     @test start(z) == (1, (1, (1, (1, (1, (1, (1, (1, (1, (1, (1, 1)))))))))))
+end
+# introduce TypeVars in Unions in invariant position
+let T = Val{Val{Val{Union{Int8,Int16,Int32,Int64,UInt8,UInt16,UInt32,UInt64}}}}
+    @test T <: Core.Inference.limit_type_depth(T, 0)
 end
 
 # issue #20704
@@ -724,3 +729,62 @@ end
 # inference on invalid getfield call
 @eval _getfield_with_string_() = getfield($(1=>2), "")
 @test Base.return_types(_getfield_with_string_, ()) == Any[Union{}]
+
+# inference AST of a constant return value
+f21175() = 902221
+@test code_typed(f21175, ())[1].second === Int
+# call again, so that the AST is built on-demand
+let e = code_typed(f21175, ())[1].first.code[1]::Expr
+    @test e.head === :return
+    @test e.args[1] ∈ (902221, Core.QuoteNode(902221))
+end
+
+# issue #10207
+mutable struct T10207{A, B}
+    a::A
+    b::B
+end
+@test code_typed(T10207, (Int,Any))[1].second == T10207{Int,T} where T
+
+# issue #21410
+f21410(::V, ::Pair{V,E}) where {V, E} = E
+@test code_typed(f21410, Tuple{Ref, Pair{Ref{T},Ref{T}} where T<:Number})[1].second == Type{Ref{T}} where T<:Number
+
+# issue #21369
+function inf_error_21369(arg)
+    if arg
+        # invalid instantiation, causing throw during inference
+        Complex{String}
+    end
+end
+function break_21369()
+    try
+        error("uhoh")
+    catch
+        eval(:(inf_error_21369(false)))
+        bt = catch_backtrace()
+        i = 1
+        local fr
+        while true
+            fr = Base.StackTraces.lookup(bt[i])[end]
+            if !fr.from_c
+                break
+            end
+            i += 1
+        end
+        @test fr.func === :break_21369
+        rethrow()
+    end
+end
+@test_throws ErrorException break_21369()  # not TypeError
+
+# issue #21848
+@test Core.Inference.limit_type_depth(Ref{Complex{T} where T}, Core.Inference.MAX_TYPE_DEPTH) == Ref
+let T = Tuple{Tuple{Int64, Void},
+              Tuple{Tuple{Int64, Void},
+                    Tuple{Int64, Tuple{Tuple{Int64, Void},
+                                       Tuple{Tuple{Int64, Void}, Tuple{Int64, Tuple{Tuple{Int64, Void}, Tuple{Tuple, Tuple}}}}}}}}
+    @test Core.Inference.limit_type_depth(T, 0) >: T
+    @test Core.Inference.limit_type_depth(T, 1) >: T
+    @test Core.Inference.limit_type_depth(T, 2) >: T
+end
